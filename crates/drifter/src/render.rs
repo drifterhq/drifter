@@ -8,6 +8,7 @@ use drifter_core::drawer::{self, Drawer, Edge, Panel};
 use drifter_core::image::Image;
 use drifter_core::menu::{Item, Look};
 use drifter_core::mode::{self, Mode};
+use drifter_core::snap::{Snap, Zone};
 use drifter_core::text::Font;
 use drifter_core::tray::Tray;
 use drifter_core::window::{Chrome, Piece as ChromePiece};
@@ -161,6 +162,10 @@ pub struct State {
     look: Look,
     tip: Option<(TextureBuffer<GlesTexture>, Rect)>,
     tip_of: Option<String>,
+    snap: Snap,
+    zone: Option<Zone>,
+    plain: Option<TextureBuffer<GlesTexture>>,
+    titles: std::collections::HashMap<String, (TextureBuffer<GlesTexture>, Vec2)>,
     hover_since: Option<(Vec2, Instant)>,
     tray_bus: Option<crate::tray::Tray>,
     drawers: [Drawer; 2],
@@ -245,6 +250,30 @@ impl State {
             cursor::rect(self.pointer, self.arrow_size, self.arrow_hotspot),
             1.0,
         ))];
+        if let Some(zone) = self.zone
+            && let Some(buffer) = self.plain.as_ref()
+        {
+            let view = self.camera.visible_rect(self.screen);
+            let target = self.on_screen(self.snap.rect(zone, view));
+            let thick = 3.0;
+            let bars = [
+                Rect::new(target.origin, Vec2::new(target.size.x, thick)),
+                Rect::new(
+                    Vec2::new(target.origin.x, target.max().y - thick),
+                    Vec2::new(target.size.x, thick),
+                ),
+                Rect::new(target.origin, Vec2::new(thick, target.size.y)),
+                Rect::new(
+                    Vec2::new(target.max().x - thick, target.origin.y),
+                    Vec2::new(thick, target.size.y),
+                ),
+            ];
+            for bar in bars {
+                elements.push(Skin::Texture(element(buffer, bar, 0.85)));
+            }
+            elements.push(Skin::Texture(element(buffer, target, 0.12)));
+        }
+
         if let Some(open) = self.popover.as_ref() {
             elements.push(Skin::Texture(element(&open.art, open.rect, 1.0)));
         }
@@ -341,6 +370,7 @@ impl State {
             Vec2,
             bool,
             bool,
+            String,
             smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
         )> = self
             .windows
@@ -356,12 +386,13 @@ impl State {
                         .map(|awake| awake.toplevel == window.toplevel)
                         .unwrap_or(false),
                     window.decorated,
+                    window.title.clone(),
                     window.toplevel.wl_surface().clone(),
                 )
             })
             .collect();
         let zoom = self.camera.zoom;
-        for (content, inset, awake, dressed, surface) in windows {
+        for (content, inset, awake, dressed, title, surface) in windows {
             let at = self
                 .camera
                 .screen_from_world(content.origin - inset, self.screen);
@@ -379,7 +410,7 @@ impl State {
                     Kind::Unspecified,
                 );
             if dressed {
-                self.dress(content, awake, &mut elements);
+                self.dress(content, awake, &title, &mut elements);
             }
             elements.extend(client.into_iter().map(|piece| {
                 Skin::Client(RescaleRenderElement::from_element(piece, anchor, zoom))
@@ -448,9 +479,40 @@ impl State {
         Some((at.round(), popup.wl_surface().clone()))
     }
 
-    fn dress(&self, content: Rect, awake: bool, elements: &mut Vec<Skin>) {
+    fn dress(&self, content: Rect, awake: bool, title: &str, elements: &mut Vec<Skin>) {
         let layout = self.chrome.layout(content);
         let show = |rect: Rect| self.on_screen(rect);
+        let bar = self.chrome.title_bar(content);
+        let over = self
+            .chrome
+            .button_at(content, self.in_world(self.pointer), 3);
+        for (slot, name) in ["close", "minimize", "maximize"].iter().enumerate() {
+            let look = match (over == Some(slot), self.held == Some(slot)) {
+                (true, true) => "-press",
+                (true, false) => "-hover",
+                _ => "",
+            };
+            let file = format!("button-{name}{look}.png");
+            if let Some((buffer, size)) = self.skin.get(&file) {
+                let place = self.chrome.button_rect(slot);
+                let rect = Rect::new(bar.origin + place.origin, *size);
+                elements.push(Skin::Texture(element(buffer, show(rect), 1.0)));
+            }
+        }
+        if let Some((buffer, size)) = self.titles.get(title) {
+            let room = bar.size.x - self.chrome.buttons_width(3) * 2.0;
+            let width = size.x.min(room.max(0.0));
+            if width > 4.0 {
+                let at = Vec2::new(
+                    bar.center().x - width / 2.0,
+                    bar.origin.y + (bar.size.y - size.y) / 2.0,
+                );
+                let rect = Rect::new(at.round(), Vec2::new(width, size.y));
+                let dim = if awake { 1.0 } else { 0.55 };
+                elements.push(Skin::Texture(element(buffer, show(rect), dim)));
+            }
+        }
+
         let pieces = [
             (ChromePiece::TitleLeft, layout.title_left),
             (ChromePiece::TitleMid, layout.title_mid),
@@ -466,24 +528,6 @@ impl State {
                 continue;
             }
             if let Some((buffer, _)) = self.skin.get(&piece.file_name(awake)) {
-                elements.push(Skin::Texture(element(buffer, show(rect), 1.0)));
-            }
-        }
-
-        let bar = self.chrome.title_bar(content);
-        let over = self
-            .chrome
-            .button_at(content, self.in_world(self.pointer), 3);
-        for (slot, name) in ["close", "minimize", "maximize"].iter().enumerate() {
-            let look = match (over == Some(slot), self.held == Some(slot)) {
-                (true, true) => "-press",
-                (true, false) => "-hover",
-                _ => "",
-            };
-            let file = format!("button-{name}{look}.png");
-            if let Some((buffer, size)) = self.skin.get(&file) {
-                let place = self.chrome.button_rect(slot);
-                let rect = Rect::new(bar.origin + place.origin, *size);
                 elements.push(Skin::Texture(element(buffer, show(rect), 1.0)));
             }
         }
@@ -532,13 +576,18 @@ impl State {
             return;
         }
 
-        let app = smithay::wayland::compositor::with_states(surface, |states| {
-            states
+        let (app, title) = smithay::wayland::compositor::with_states(surface, |states| {
+            let held = states
                 .data_map
                 .get::<smithay::wayland::shell::xdg::XdgToplevelSurfaceData>()
-                .and_then(|data| data.lock().ok().and_then(|data| data.app_id.clone()))
-        })
-        .unwrap_or_default();
+                .and_then(|data| {
+                    data.lock()
+                        .ok()
+                        .map(|data| (data.app_id.clone(), data.title.clone()))
+                });
+            held.unwrap_or((None, None))
+        });
+        let app = app.unwrap_or_default();
 
         let fresh = self
             .windows
@@ -566,6 +615,9 @@ impl State {
         if !app.is_empty() {
             window.app = app;
         }
+        if let Some(title) = title {
+            window.title = title;
+        }
 
         if window.placed && (window.touched || !grew || window.born.elapsed() > SETTLING) {
             return;
@@ -592,6 +644,7 @@ impl State {
         self.steer();
 
         self.wind_the_clock();
+        self.wind_titles();
 
         let elements = self.elements();
         let clear = self.clear;
@@ -1009,6 +1062,46 @@ impl State {
         }
     }
 
+    fn wind_titles(&mut self) {
+        let Some(font) = self.font.as_ref() else {
+            return;
+        };
+        let wanted: Vec<String> = self
+            .windows
+            .iter()
+            .filter(|window| window.decorated && !window.title.is_empty())
+            .map(|window| window.title.clone())
+            .collect();
+
+        for title in wanted {
+            if self.titles.contains_key(&title) {
+                continue;
+            }
+            let Some(font) = self.font.as_ref() else {
+                return;
+            };
+            let image = font.paint(&title, self.tray.ink);
+            let size = image.size();
+            match upload(&mut self.renderer, Some(&image), "window title") {
+                Ok(Some(buffer)) => {
+                    self.titles.insert(title, (buffer, size));
+                }
+                Ok(None) => {}
+                Err(error) => eprintln!("drifter: {error}"),
+            }
+        }
+        let _ = font;
+
+        if self.titles.len() > 64 {
+            let live: std::collections::HashSet<&str> = self
+                .windows
+                .iter()
+                .map(|window| window.title.as_str())
+                .collect();
+            self.titles.retain(|title, _| live.contains(title.as_str()));
+        }
+    }
+
     fn wind_the_clock(&mut self) {
         let drawer = self.drawers[Edge::Top.index()];
         if !drawer.visible() || self.font.is_none() {
@@ -1349,6 +1442,23 @@ impl State {
         };
     }
 
+    fn land(&mut self, index: usize, zone: Zone) {
+        let view = self.camera.visible_rect(self.screen);
+        let want = self.snap.rect(zone, view);
+        let Some(window) = self.windows.get_mut(index) else {
+            return;
+        };
+        if window.restore.is_none() {
+            window.restore = Some(window.content);
+        }
+        window.content = want;
+        window.touched = true;
+        window.toplevel.with_pending_state(|state| {
+            state.size = Some((want.size.x as i32, want.size.y as i32).into());
+        });
+        window.toplevel.send_pending_configure();
+    }
+
     fn press_button(&mut self, index: usize, slot: usize) {
         use wayland_protocols::xdg::shell::server::xdg_toplevel;
 
@@ -1425,6 +1535,13 @@ impl State {
                     window.content.origin = (world - offset).round();
                     window.touched = true;
                 }
+                self.zone = match self.modifier {
+                    true => None,
+                    false => {
+                        let view = self.camera.visible_rect(self.screen);
+                        self.snap.zone_at(self.in_world(self.pointer), view)
+                    }
+                };
             }
             Grab::Resize {
                 index,
@@ -1454,6 +1571,11 @@ impl State {
 
         let serial = SERIAL_COUNTER.next_serial();
         if state == ButtonState::Released {
+            if let (Grab::Move { index, .. }, Some(zone)) = (&self.grab, self.zone) {
+                let index = *index;
+                self.land(index, zone);
+            }
+            self.zone = None;
             self.grab = Grab::None;
             self.held = None;
         }
@@ -1918,6 +2040,12 @@ pub fn open(
         ],
     };
     let rule = upload(&mut renderer, Some(&rule_image), "dock divider")?;
+    let plain_image = drifter_core::Image {
+        width: 1,
+        height: 1,
+        rgba: vec![255, 255, 255, 255],
+    };
+    let plain = upload(&mut renderer, Some(&plain_image), "outline")?;
 
     let mut libinput = Libinput::new_with_udev(LibinputSessionInterface::from(session.clone()));
     let seat_name = session.seat();
@@ -1969,6 +2097,10 @@ pub fn open(
         look: Look::default(),
         tip: None,
         tip_of: None,
+        snap: Snap::default(),
+        zone: None,
+        plain,
+        titles: std::collections::HashMap::new(),
         hover_since: None,
         tray_bus,
         drawers: [Drawer::new(Edge::Top), Drawer::new(Edge::Bottom)],

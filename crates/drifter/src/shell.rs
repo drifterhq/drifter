@@ -51,6 +51,7 @@ pub struct Window {
     pub hidden: bool,
     pub decorated: bool,
     pub app: String,
+    pub title: String,
     pub restore: Option<Rect>,
 }
 
@@ -156,6 +157,7 @@ impl XdgShellHandler for State {
             hidden: false,
             decorated: true,
             app: String::new(),
+            title: String::new(),
             restore: None,
         });
     }

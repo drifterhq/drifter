@@ -7,6 +7,7 @@ pub mod geom;
 pub mod image;
 pub mod menu;
 pub mod mode;
+pub mod snap;
 pub mod text;
 pub mod tray;
 pub mod wallpaper;
