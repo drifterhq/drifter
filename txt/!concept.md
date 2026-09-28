@@ -130,8 +130,8 @@ Multi-monitor overlap. Two cameras may look at the same region. Proposal: allow 
 
 ## Testing
 
-Three targets, in order. Drifter must support the first one, so a headless backend is a build requirement, not an afterthought.
+Three targets. Drifter must support target 2, so a headless backend is a build requirement, not an afterthought.
 
-1. Headless backend plus frame capture. This is the iteration loop. Drifter runs headless, starts a known client, drives the camera, then captures frames and writes a PNG. No GPU, no display, no desktop. It checks camera math, window placement, world bounds and wallpaper modes by looking at pixels.
-2. Bare DRM on a TTY in a Debian Trixie VM, reached with `virsh console`. The only way to test the real input path: edge push, hot corners, tray, pointer confinement.
-3. Bare metal on the host at 192.168.1.114. Fedora 44, RTX 5060 on the proprietary driver, 8 GB VRAM. The only place animation smoothness can be judged. Targets 1 and 2 both run under llvmpipe and will lie about it.
+1. Debian Trixie VM, Drifter on bare DRM over virtio-gpu, watched over VNC from the Mac. This is the main loop. The VM needs a RELATIVE mouse, virtio-mouse or usb-mouse, not the default absolute tablet. With an absolute pointer the host sets the guest pointer position, so pointer confinement is impossible and edge push reports no further motion once the pointer reaches the edge. Edge push and hot corners would then look like Drifter bugs.
+2. Headless backend plus frame capture. The automated check, run without a human. Drifter runs headless, starts a known client, drives the camera, then captures frames and writes a PNG. It checks camera math, window placement, world bounds and wallpaper modes by looking at pixels.
+3. Bare metal on the host at 192.168.1.114. Fedora 44, RTX 5060 on the proprietary NVIDIA driver, 8 GB VRAM. The only place animation smoothness can be judged. Target 1 runs under llvmpipe and VNC adds its own latency and dropped frames, so neither can be trusted on feel.
