@@ -1709,6 +1709,25 @@ impl State {
                 }
                 self.tell_axis(&event);
             }
+            InputEvent::DeviceAdded { mut device } => {
+                use smithay::reexports::input::AccelProfile;
+                if device.config_accel_is_available() {
+                    let _ = device.config_accel_set_profile(AccelProfile::Flat);
+                    let _ = device.config_accel_set_speed(0.0);
+                }
+                if device.config_tap_finger_count() > 0 {
+                    let _ = device.config_tap_set_enabled(true);
+                }
+                if device
+                    .config_scroll_methods()
+                    .contains(&smithay::reexports::input::ScrollMethod::TwoFinger)
+                {
+                    let _ = device.config_scroll_set_method(
+                        smithay::reexports::input::ScrollMethod::TwoFinger,
+                    );
+                }
+                println!("drifter: input {}", device.name());
+            }
             InputEvent::GestureSwipeBegin { event } => {
                 use smithay::backend::input::GestureBeginEvent;
                 self.fingers = event.fingers();
