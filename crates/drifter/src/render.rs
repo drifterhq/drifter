@@ -1445,7 +1445,16 @@ impl State {
 
     fn land(&mut self, index: usize, zone: Zone) {
         let view = self.camera.visible_rect(self.screen);
-        let want = self.snap.rect(zone, view);
+        let frame = self.snap.rect(zone, view);
+        let chrome = self.chrome;
+        let want = Rect::new(
+            Vec2::new(frame.origin.x + chrome.edge, frame.origin.y + chrome.title),
+            Vec2::new(
+                (frame.size.x - chrome.edge * 2.0).max(80.0),
+                (frame.size.y - chrome.title - chrome.edge).max(60.0),
+            ),
+        )
+        .round_out();
         let Some(window) = self.windows.get_mut(index) else {
             return;
         };
