@@ -144,7 +144,7 @@ Session
 4. Top-left hot corner. Dwell, then zoom out to fit the world.
 5. Click a window in overview. Camera flies to it and settles at 1.0.
 6. Modifier + scroll zoom at the cursor. Modifier + edge push to pan.
-7. Save and restore camera position across logout.
+7. Done: camera position saved and restored across logout.
 
 ## Tray
 
@@ -210,6 +210,7 @@ Controls:
 - Modifier + scroll zooms at the cursor, so the world point under the pointer stays put.
 - Modifier + push the pointer against a viewport edge pans that way.
 - The camera is clamped so the viewport can never leave the world.
+- The camera position is written to `$XDG_STATE_HOME/drifter/camera` when Drifter quits and read back at startup, clamped to the world it finds. A missing or damaged file is not an error; Drifter starts at the middle of the world at zoom 1.
 
 ## Frame loop
 

@@ -282,6 +282,10 @@ impl Config {
             .map(|path| self.beside(path))
     }
 
+    pub fn camera_path() -> PathBuf {
+        xdg_dir("XDG_STATE_HOME", ".local/state").join("camera")
+    }
+
     pub fn cursor_path(&self) -> Option<PathBuf> {
         self.assets.cursor.as_deref().map(|path| self.beside(path))
     }

@@ -64,6 +64,23 @@ impl Camera {
     }
 }
 
+impl Camera {
+    pub fn write(&self) -> String {
+        format!("{} {} {}\n", self.center.x, self.center.y, self.zoom)
+    }
+
+    pub fn read(text: &str) -> Option<Camera> {
+        let mut numbers = text.split_whitespace();
+        let x: f64 = numbers.next()?.parse().ok()?;
+        let y: f64 = numbers.next()?.parse().ok()?;
+        let zoom: f64 = numbers.next()?.parse().ok()?;
+        if !x.is_finite() || !y.is_finite() || !zoom.is_finite() || zoom <= 0.0 {
+            return None;
+        }
+        Some(Camera::new(Vec2::new(x, y), zoom))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Flight {
     pub from: Camera,
@@ -117,6 +134,34 @@ mod tests {
     use std::time::Duration;
 
     const VIEWPORT: Vec2 = Vec2::new(1920.0, 1080.0);
+
+    #[test]
+    fn a_camera_survives_a_round_trip_through_text() {
+        let camera = Camera::new(Vec2::new(2880.5, 1620.25), 0.3333);
+        let back = Camera::read(&camera.write()).expect("it should read back");
+        assert_eq!(back, camera);
+    }
+
+    #[test]
+    fn junk_is_refused_rather_than_guessed() {
+        assert_eq!(Camera::read(""), None);
+        assert_eq!(Camera::read("1 2"), None);
+        assert_eq!(Camera::read("left middle 1"), None);
+        assert_eq!(
+            Camera::read("1 2 0"),
+            None,
+            "a zoom of zero is not a camera"
+        );
+        assert_eq!(Camera::read("1 2 -1"), None);
+        assert_eq!(Camera::read("nan 2 1"), None);
+    }
+
+    #[test]
+    fn a_saved_camera_is_one_short_line() {
+        let text = Camera::new(Vec2::new(10.0, 20.0), 1.0).write();
+        assert_eq!(text.lines().count(), 1);
+        assert!(text.ends_with('\n'));
+    }
 
     #[test]
     fn a_flight_starts_where_it_was_and_lands_where_it_was_sent() {
