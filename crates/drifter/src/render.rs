@@ -56,6 +56,7 @@ const SECOND_TICK: Duration = Duration::from_millis(250);
 const SETTLING: Duration = Duration::from_secs(2);
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 const PUSH_BAND: f64 = 8.0;
+const DETAIL_ZOOM: f64 = 0.75;
 
 use smithay::backend::renderer::{ImportAll, RendererSuper, element::render_elements};
 
@@ -485,10 +486,15 @@ impl State {
         let layout = self.chrome.layout(content);
         let show = |rect: Rect| self.on_screen(rect);
         let bar = self.chrome.title_bar(content);
+        let close_enough = self.camera.zoom >= DETAIL_ZOOM;
         let over = self
             .chrome
             .button_at(content, self.in_world(self.pointer), 3);
-        for (slot, name) in ["close", "minimize", "maximize"].iter().enumerate() {
+        for (slot, name) in ["close", "minimize", "maximize"]
+            .iter()
+            .enumerate()
+            .filter(|_| close_enough)
+        {
             let look = match (over == Some(slot), self.held == Some(slot)) {
                 (true, true) => "-press",
                 (true, false) => "-hover",
@@ -501,7 +507,7 @@ impl State {
                 elements.push(Skin::Texture(element(buffer, show(rect), 1.0)));
             }
         }
-        if let Some((buffer, size)) = self.titles.get(title) {
+        if let Some((buffer, size)) = self.titles.get(title).filter(|_| close_enough) {
             let room = bar.size.x - self.chrome.buttons_width(3) * 2.0;
             let width = size.x.min(room.max(0.0));
             if width > 4.0 {

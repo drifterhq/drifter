@@ -183,6 +183,8 @@ The frame is a nine piece skin, so it can be themed by replacing PNGs and never 
 - The same eight again with `-idle` for an unfocused window.
 - `button-close.png`, `button-minimize.png`, `button-maximize.png`, `button-restore.png`, each with `-hover` and `-press`.
 
+Below a zoom of 0.75 the buttons and the title are not drawn. They would be a few pixels across, they cannot be clicked because a click at that zoom flies the camera instead, and scaling the art that far down turns a round button into a smear. The frame itself keeps scaling, so a window still reads as a window.
+
 The pieces decide the sizes. Title bar height is the height of `title-mid.png`, border width is the width of `edge-left.png`. So a theme with a thicker frame needs no config change.
 
 Resize edges are wider than the art. The grab area reaches 7 px inside and outside each border, and the corners win over the sides where they overlap, because a corner is harder to hit. Drag the title bar to move. Double click the title bar to maximize, and again to put it back.

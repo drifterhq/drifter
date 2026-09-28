@@ -1,8 +1,8 @@
 # Drifter. One file, set once. Paths are relative to this file.
 
 [workspace]
-width = 3
-height = 3
+width = 4
+height = 4
 wallpaper = "../img/wallpaper.jpeg"
 wallpaper_mode = "fixed"
 
