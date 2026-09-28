@@ -9,6 +9,9 @@ pub fn run(action: Action) {
         return;
     };
     std::thread::spawn(move || {
+        if action == Action::Suspend {
+            std::thread::sleep(std::time::Duration::from_millis(400));
+        }
         if let Err(error) = call(method) {
             eprintln!("drifter: {} failed: {error}", action.label());
         }

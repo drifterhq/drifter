@@ -142,7 +142,8 @@ Session
 The MVP list is finished: config, the compositor, both drawers, the hot corner, click to fly, free zoom, edge pan, and a camera that survives a restart.
 
 What is left:
-- Lock screen.
+- Lock on idle, on lid close and on a logind Lock signal.
+- A `/etc/pam.d/drifter` stack of its own, so the lock does not depend on `login`.
 - System info on the left end of the top drawer, right of the tray icons.
 - A window that demands the camera.
 - Multi-monitor. One world, one camera per monitor.
@@ -154,7 +155,8 @@ What is left:
 
 The top drawer is the tray. It reads right to left, because the right side is where people look for the clock.
 
-- The clock is hard against the right edge, 12 px in, centered in the band, at `tray.size` text. It ticks every second while the drawer is open.
+- The power button is hard against the right edge, 12 px in, 20 px square, centered in the band. A left click opens the power menu under it. Hovering it shows "Power".
+- The clock sits 14 px left of the power button, centered in the band, at `tray.size` text. It ticks every second while the drawer is open.
 - `format` in the config is a strftime string. The default is `%a %b %d %I:%M:%S %p`, which reads `Mon Sep 28 12:35:26 AM`. A format Drifter cannot parse is reported on stderr and the default is used instead.
 - Status icons live on the LEFT end, 18 px, 14 px apart, starting 12 px in, growing rightward. They never reach the clock, so the clock never moves when an icon appears.
 - Left click is Activate and middle click is the secondary action. Both go straight to the program.
@@ -194,6 +196,24 @@ Close asks the app to close. Minimize hides the window into the dock. Maximize f
 
 `cargo run -p drifter-core --example window` paints the default skin and writes every piece, so there is always a real file to start from.
 
+## Lock
+
+The lock screen is part of the compositor. It is not a client, so there is no protocol for another program to bypass.
+
+While locked:
+- Only the lock panel is drawn. Windows, popups, drawers, the dock, the tray, menus and the cursor are not in the frame list at all. If the panel fails to draw, the screen is the plain background color. It never falls back to the desktop.
+- Every input event is read by the lock and goes no further. Keyboard focus and pointer focus are cleared, so no client sees a key or a click. Pointer, scroll, gestures, hot corner, edge push, drawers, modifier + Escape and the tray are all dead.
+- A window that opens while locked is not shown and does not get focus. Move and resize requests are refused.
+- Drifter has no VT switch key, so another VT cannot be reached from the keyboard.
+
+The password is checked by PAM, service `login`, for the user that owns the session (found from the uid, never from `$USER`). Empty passwords are refused. PAM does the fail delay and any account lockout, so the system policy applies. A password that PAM cannot check is never accepted, and Drifter refuses to lock at all when `/etc/pam.d/login` is missing or `pam_start` fails, so nobody is ever locked out with no way in.
+
+The typed password lives in a buffer that never grows, so it is never copied by a reallocation. Every path that ends with it wipes it: backspace, Escape, submit, unlock and drop. The check runs on its own thread, so the screen stays alive, and the copy handed to PAM is wiped when the check ends.
+
+Typing shows dots. Enter checks the password. Backspace removes a letter and Escape clears the field. A wrong password says so and the field starts again. A check that takes over 30 seconds can be tried again.
+
+Log out ends the session only if Drifter is the last thing the login ran. Start it with `exec drifter` from the login shell or from a display manager. If it runs as a child of a logged in shell, quitting or crashing drops to that shell.
+
 ## Images
 
 Wallpapers and other images are PNG or JPEG. The format is read from the first bytes of the file, never from the name.
@@ -202,9 +222,9 @@ The wallpaper path comes from the config and nowhere else. A missing file is rep
 
 ## Running it
 
-Escape goes to the focused app like any key. Modifier + Escape opens the power menu in the middle of the screen. Right click on empty desktop opens it under Settings.
+Escape goes to the focused app like any key. Three things open the power menu: the button at the right end of the top drawer, modifier + Escape (in the middle of the screen), and a right click on empty desktop (under Settings). Modifier + L locks the screen at once.
 
-The power menu lists Log out, Shut down, Suspend and Restart, in that order. Log out stops Drifter, which ends the session on the tty. The other three call `org.freedesktop.login1.Manager` on the system bus: `PowerOff`, `Suspend` and `Reboot`.
+The power menu lists Lock, Log out, Shut down, Suspend and Restart, in that order. Log out stops Drifter, which ends the session on the tty. Shut down, Suspend and Restart call `org.freedesktop.login1.Manager` on the system bus: `PowerOff`, `Suspend` and `Reboot`. Suspend locks first and waits 400 ms so the lock is on the screen before the machine sleeps. If the lock cannot start, Drifter does not suspend.
 
 SIGUSR1 toggles the top drawer and SIGUSR2 toggles the bottom one. This is how a drawer is driven from another machine over ssh, with no mouse: `pkill -USR1 -x drifter`. It is a trigger for the same code path the pointer uses, not a test hook.
 

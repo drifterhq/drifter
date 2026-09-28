@@ -30,7 +30,7 @@ sudo apt-get install -y \
     build-essential pkg-config cmake git curl \
     libudev-dev libseat-dev libinput-dev libxkbcommon-dev \
     libgbm-dev libegl1-mesa-dev libwayland-dev wayland-protocols \
-    libdisplay-info-dev libdrm-dev libpixman-1-dev \
+    libdisplay-info-dev libdrm-dev libpixman-1-dev libpam0g-dev \
     seatd foot weston mesa-utils
 
 sudo systemctl enable --now seatd

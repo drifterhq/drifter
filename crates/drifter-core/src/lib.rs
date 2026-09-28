@@ -6,6 +6,7 @@ pub mod dock;
 pub mod drawer;
 pub mod geom;
 pub mod image;
+pub mod lock;
 pub mod menu;
 pub mod mode;
 pub mod motion;

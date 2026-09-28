@@ -6,9 +6,11 @@ use drifter_core::cursor::{self, Cursor};
 use drifter_core::dock::{Dock, Slot};
 use drifter_core::drawer::{self, Drawer, Edge, Panel};
 use drifter_core::image::Image;
+use drifter_core::lock::{Note, Pad};
 use drifter_core::menu::{Item, Look};
 use drifter_core::mode::{self, Mode};
 use drifter_core::motion::{Motion, Phase};
+use drifter_core::power::Action;
 use drifter_core::settings::{self, Field, Kind as Widget};
 use drifter_core::snap::{Snap, Zone};
 use drifter_core::text::Font;
@@ -48,6 +50,8 @@ use smithay::reexports::wayland_server::Display;
 use smithay::utils::{DeviceFd, Scale, Transform};
 
 const ESCAPE: u32 = 9;
+const KEY_L: u32 = 46;
+const LOCK_PATIENCE: Duration = Duration::from_secs(30);
 const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
 const BTN_MIDDLE: u32 = 0x112;
@@ -131,6 +135,25 @@ enum Grab {
     },
 }
 
+struct Lock {
+    pad: Pad,
+    note: Note,
+    checking: Option<Instant>,
+    art: Option<TextureBuffer<GlesTexture>>,
+    rect: Rect,
+    shown: (String, String, usize, Note),
+    user: std::ffi::CString,
+    refocus: Option<smithay::reexports::wayland_server::protocol::wl_surface::WlSurface>,
+}
+
+enum LockKey {
+    Letter(char),
+    Enter,
+    Back,
+    Clear,
+    Other,
+}
+
 pub struct State {
     pub output: smithay::output::Output,
     pub wayland: crate::shell::Wayland,
@@ -176,6 +199,11 @@ pub struct State {
     clock: Option<(String, TextureBuffer<GlesTexture>, Rect)>,
     icons: Vec<(String, String, TextureBuffer<GlesTexture>)>,
     popover: Option<Popover>,
+    lock: Option<Lock>,
+    lock_big: Option<Font>,
+    lock_small: Option<Font>,
+    verify: smithay::reexports::calloop::channel::Sender<crate::auth::Verdict>,
+    power: Option<TextureBuffer<GlesTexture>>,
     look: Look,
     tip: Option<(TextureBuffer<GlesTexture>, Rect)>,
     tip_of: Option<String>,
@@ -301,6 +329,9 @@ impl State {
     }
 
     fn pending(&self) -> Option<Duration> {
+        if self.lock.is_some() {
+            return Some(SECOND_TICK);
+        }
         if self.dwell.is_some()
             || self.leave.is_some()
             || self.animating()
@@ -322,6 +353,9 @@ impl State {
     }
 
     fn elements(&mut self) -> Vec<Skin> {
+        if self.lock.is_some() {
+            return self.lock_elements();
+        }
         let mut elements: Vec<Skin> = vec![Skin::Texture(element(
             &self.arrow,
             cursor::rect(self.pointer, self.arrow_size, self.arrow_hotspot),
@@ -453,6 +487,13 @@ impl State {
 
         if let Some((_, buffer, rect)) = self.clock.as_ref() {
             elements.push(Skin::Texture(element(buffer, *rect, 1.0)));
+        }
+        if let (Some(band), Some(buffer)) = (self.tray_band(), self.power.as_ref()) {
+            elements.push(Skin::Texture(element(
+                buffer,
+                self.tray.power_rect(band),
+                1.0,
+            )));
         }
         if let Some(band) = self.tray_band() {
             for (slot, (_, _, buffer)) in self.icons.iter().enumerate() {
@@ -777,6 +818,7 @@ impl State {
         self.wind_the_clock();
         self.wind_titles();
 
+        self.paint_lock();
         let elements = self.elements();
         let clear = self.clear;
         let frames = self.frames;
@@ -917,7 +959,7 @@ impl State {
     }
 
     fn open_popover(&mut self, items: Vec<Item>, at: Vec2, target: Target) {
-        if items.is_empty() {
+        if items.is_empty() || self.lock.is_some() {
             return;
         }
         let look = self.look;
@@ -990,8 +1032,16 @@ impl State {
             }
             Target::Desktop => {
                 self.popover = None;
-                match drifter_core::power::Action::from_id(chosen.id) {
-                    Some(drifter_core::power::Action::Logout) => self.signal.stop(),
+                match Action::from_id(chosen.id) {
+                    Some(Action::Lock) => {
+                        self.lock_now();
+                    }
+                    Some(Action::Logout) => self.signal.stop(),
+                    Some(Action::Suspend) => {
+                        if self.lock_now() {
+                            crate::power::run(Action::Suspend);
+                        }
+                    }
                     Some(action) => crate::power::run(action),
                     None => self.open_settings(),
                 }
@@ -1063,6 +1113,14 @@ impl State {
             return;
         }
         if Instant::now().duration_since(since) < self.tunables.drawer_dwell * 4 {
+            return;
+        }
+
+        if let Some(band) = self.tray_band()
+            && self.tray.on_power(band, self.pointer)
+        {
+            let rect = self.tray.power_rect(band);
+            self.show_tip("Power", rect, true);
             return;
         }
 
@@ -1141,7 +1199,7 @@ impl State {
     }
 
     fn watch_corner(&mut self) {
-        if self.modifier {
+        if self.modifier || self.lock.is_some() {
             self.corner_since = None;
             return;
         }
@@ -1198,6 +1256,9 @@ impl State {
     }
 
     fn open_settings(&mut self) {
+        if self.lock.is_some() {
+            return;
+        }
         let config = Config::load_from(&self.config_path).unwrap_or_default();
         let modes = ["fixed", "pan", "parallax"];
         let keys = ["super", "alt", "ctrl"];
@@ -1405,6 +1466,12 @@ impl State {
         let Some(band) = self.tray_band() else {
             return;
         };
+        if code == BTN_LEFT && self.tray.on_power(band, self.pointer) {
+            let rect = self.tray.power_rect(band);
+            let at = Vec2::new(rect.max().x, rect.max().y + 6.0);
+            self.open_popover(drifter_core::power::items(), at, Target::Desktop);
+            return;
+        }
         let Some(slot) = self.tray.icon_at(band, self.pointer, self.icons.len()) else {
             return;
         };
@@ -1579,6 +1646,9 @@ impl State {
     }
 
     fn toggle(&mut self, edge: Edge) {
+        if self.lock.is_some() {
+            return;
+        }
         let open = self.drawers[edge.index()].open;
         self.dwell = None;
         self.leave = None;
@@ -1784,6 +1854,9 @@ impl State {
     }
 
     pub fn start_move(&mut self, index: usize) {
+        if self.lock.is_some() {
+            return;
+        }
         let index = self.raise(index);
         let origin = self.windows[index].content.origin;
         self.grab = Grab::Move {
@@ -1797,6 +1870,9 @@ impl State {
         index: usize,
         edges: smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::ResizeEdge,
     ) {
+        if self.lock.is_some() {
+            return;
+        }
         use drifter_core::window::Grip;
         use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::ResizeEdge as Side;
 
@@ -2064,6 +2140,10 @@ impl State {
     }
 
     fn input(&mut self, event: InputEvent<LibinputInputBackend>) {
+        if self.lock.is_some() && !matches!(event, InputEvent::DeviceAdded { .. }) {
+            self.locked_input(event);
+            return;
+        }
         match event {
             InputEvent::PointerMotion { event } => {
                 let delta = Vec2::new(event.delta_x(), event.delta_y());
@@ -2094,6 +2174,13 @@ impl State {
             {
                 let middle = self.screen * 0.5;
                 self.open_popover(drifter_core::power::items(), middle, Target::Desktop);
+            }
+            InputEvent::Keyboard { event }
+                if event.state() == KeyState::Pressed
+                    && event.key_code().raw() == KEY_L
+                    && self.modifier =>
+            {
+                self.lock_now();
             }
             InputEvent::PointerAxis { event } => {
                 use smithay::backend::input::{Axis, PointerAxisEvent};
@@ -2487,6 +2574,12 @@ pub fn open(
     let cog_image = from_art("settings")
         .unwrap_or_else(|| drifter_core::dock::paint_cog(side, trash_look.rule_ink()));
     let cog = upload(&mut renderer, Some(&cog_image), "settings")?;
+    let power_image = drifter_core::tray::paint_power(tray.button as u32, tray.ink);
+    let power = upload(&mut renderer, Some(&power_image), "power")?;
+    let lock_big = Font::find(config.font_path(), 56.0).ok();
+    let lock_small = Font::find(config.font_path(), 15.0).ok();
+    let (verify_tx, verify_rx) =
+        smithay::reexports::calloop::channel::channel::<crate::auth::Verdict>();
     let spare = from_art("app");
 
     let wanted = match config.dock.pinned.is_empty() {
@@ -2593,6 +2686,11 @@ pub fn open(
         clock: None,
         icons: Vec::new(),
         popover: None,
+        lock: None,
+        lock_big,
+        lock_small,
+        verify: verify_tx,
+        power,
         look: Look::default(),
         tip: None,
         tip_of: None,
@@ -2689,6 +2787,15 @@ pub fn open(
             .map_err(|e| format!("cannot watch the tray: {e}"))?;
     }
 
+    handle
+        .insert_source(verify_rx, |event, _, state: &mut State| {
+            if let ChannelEvent::Msg(verdict) = event {
+                state.verdict(verdict);
+                state.kick();
+            }
+        })
+        .map_err(|e| format!("cannot watch the lock: {e}"))?;
+
     let socket = smithay::wayland::socket::ListeningSocketSource::new_auto()
         .map_err(|e| format!("cannot open a wayland socket: {e}"))?;
     let socket_name = socket.socket_name().to_string_lossy().into_owned();
@@ -2744,6 +2851,239 @@ pub fn open(
         events,
         state,
     })
+}
+
+impl State {
+    fn lock_elements(&self) -> Vec<Skin> {
+        let Some(lock) = self.lock.as_ref() else {
+            return Vec::new();
+        };
+        match lock.art.as_ref() {
+            Some(art) => vec![Skin::Texture(element(art, lock.rect, 1.0))],
+            None => Vec::new(),
+        }
+    }
+
+    fn lock_now(&mut self) -> bool {
+        use smithay::input::pointer::MotionEvent;
+        use smithay::utils::SERIAL_COUNTER;
+
+        if self.lock.is_some() {
+            return true;
+        }
+        let user = match crate::auth::ready() {
+            Ok(user) => user,
+            Err(error) => {
+                eprintln!("drifter: cannot lock: {error}");
+                return false;
+            }
+        };
+
+        self.popover = None;
+        self.sheet = None;
+        self.tip = None;
+        self.tip_of = None;
+        self.zone = None;
+        self.grab = Grab::None;
+        self.held = None;
+        self.dwell = None;
+        self.leave = None;
+        self.corner_since = None;
+        self.hover_since = None;
+        self.flight = None;
+        self.modifier = false;
+        self.fingers = 0;
+        for edge in Edge::ALL {
+            self.set(edge, false);
+        }
+
+        let keyboard = self.wayland.keyboard.clone();
+        let refocus = keyboard.current_focus();
+        keyboard.set_focus(self, None, SERIAL_COUNTER.next_serial());
+
+        let pointer = self.wayland.pointer.clone();
+        let world = self.in_world(self.pointer);
+        pointer.motion(
+            self,
+            None,
+            &MotionEvent {
+                location: smithay::utils::Point::from((world.x, world.y)),
+                serial: SERIAL_COUNTER.next_serial(),
+                time: self.started.elapsed().as_millis() as u32,
+            },
+        );
+        pointer.frame(self);
+
+        self.lock = Some(Lock {
+            pad: Pad::new(),
+            note: Note::Ask,
+            checking: None,
+            art: None,
+            rect: Rect::new(Vec2::ZERO, Vec2::ZERO),
+            shown: (String::new(), String::new(), usize::MAX, Note::Ask),
+            user,
+            refocus,
+        });
+        self.paint_lock();
+        self.kick();
+        true
+    }
+
+    fn paint_lock(&mut self) {
+        let Some(lock) = self.lock.as_ref() else {
+            return;
+        };
+        let clock = drifter_core::tray::now("%I:%M %p").unwrap_or_default();
+        let date = drifter_core::tray::now("%A, %B %d").unwrap_or_default();
+        let key = (clock, date, lock.pad.len(), lock.note);
+        if lock.art.is_some() && lock.shown == key {
+            return;
+        }
+
+        let look = drifter_core::lock::Look::default();
+        let words = drifter_core::lock::Words {
+            clock: &key.0,
+            date: &key.1,
+        };
+        let image = drifter_core::lock::paint(
+            &look,
+            self.lock_big.as_ref(),
+            self.lock_small.as_ref(),
+            &words,
+            key.2,
+            key.3,
+        );
+        let rect = look.rect(self.screen);
+        let art = match upload(&mut self.renderer, Some(&image), "lock") {
+            Ok(art) => art,
+            Err(error) => {
+                eprintln!("drifter: {error}");
+                None
+            }
+        };
+        if let Some(lock) = self.lock.as_mut() {
+            lock.art = art;
+            lock.rect = rect;
+            lock.shown = key;
+        }
+    }
+
+    fn locked_input(&mut self, event: InputEvent<LibinputInputBackend>) {
+        let InputEvent::Keyboard { event } = event else {
+            return;
+        };
+        let key = self.read_key(&event);
+        if event.state() != KeyState::Pressed {
+            return;
+        }
+        let Some(lock) = self.lock.as_mut() else {
+            return;
+        };
+        if let Some(since) = lock.checking
+            && since.elapsed() < LOCK_PATIENCE
+        {
+            return;
+        }
+
+        match key {
+            LockKey::Letter(letter) => {
+                if lock.pad.push(letter) {
+                    lock.note = Note::Ask;
+                }
+            }
+            LockKey::Back => {
+                lock.pad.backspace();
+                lock.note = Note::Ask;
+            }
+            LockKey::Clear => {
+                lock.pad.wipe();
+                lock.note = Note::Ask;
+            }
+            LockKey::Enter => {
+                if lock.pad.is_empty() {
+                    return;
+                }
+                let mut typed = lock.pad.take();
+                let secret = std::mem::take(&mut *typed);
+                lock.checking = Some(Instant::now());
+                lock.note = Note::Checking;
+                let user = lock.user.clone();
+                let sender = self.verify.clone();
+                std::thread::spawn(move || {
+                    let verdict = crate::auth::verify(&user, secret);
+                    let _ = sender.send(verdict);
+                });
+            }
+            LockKey::Other => {}
+        }
+        self.paint_lock();
+    }
+
+    fn read_key(&mut self, event: &impl KeyboardKeyEvent<LibinputInputBackend>) -> LockKey {
+        use smithay::input::keyboard::{FilterResult, keysyms};
+        use smithay::utils::SERIAL_COUNTER;
+
+        let keyboard = self.wayland.keyboard.clone();
+        let read = keyboard.input::<LockKey, _>(
+            self,
+            event.key_code(),
+            event.state(),
+            SERIAL_COUNTER.next_serial(),
+            event.time_msec(),
+            |_, _, handle| {
+                let symbol = handle.modified_sym();
+                let key = match symbol.raw() {
+                    keysyms::KEY_Return | keysyms::KEY_KP_Enter => LockKey::Enter,
+                    keysyms::KEY_BackSpace => LockKey::Back,
+                    keysyms::KEY_Escape => LockKey::Clear,
+                    _ => match symbol.key_char() {
+                        Some(letter) => LockKey::Letter(letter),
+                        None => LockKey::Other,
+                    },
+                };
+                FilterResult::Intercept(key)
+            },
+        );
+        read.unwrap_or(LockKey::Other)
+    }
+
+    fn verdict(&mut self, verdict: crate::auth::Verdict) {
+        use crate::auth::Verdict;
+
+        let Some(lock) = self.lock.as_mut() else {
+            return;
+        };
+        lock.checking = None;
+        match verdict {
+            Verdict::Granted => {
+                self.unlock();
+                return;
+            }
+            Verdict::Denied => lock.note = Note::Wrong,
+            Verdict::Broken(error) => {
+                eprintln!("drifter: the lock cannot check passwords: {error}");
+                lock.note = Note::Wrong;
+            }
+        }
+        self.paint_lock();
+    }
+
+    fn unlock(&mut self) {
+        use smithay::reexports::wayland_server::Resource;
+        use smithay::utils::SERIAL_COUNTER;
+
+        let Some(mut lock) = self.lock.take() else {
+            return;
+        };
+        lock.pad.wipe();
+        if let Some(surface) = lock.refocus.take()
+            && surface.is_alive()
+        {
+            let keyboard = self.wayland.keyboard.clone();
+            keyboard.set_focus(self, Some(surface), SERIAL_COUNTER.next_serial());
+        }
+        self.last = Instant::now();
+    }
 }
 
 fn state_poll_fd(

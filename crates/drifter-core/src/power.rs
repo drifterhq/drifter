@@ -4,6 +4,7 @@ const FIRST_ID: i32 = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
+    Lock,
     Logout,
     Shutdown,
     Suspend,
@@ -11,7 +12,8 @@ pub enum Action {
 }
 
 impl Action {
-    pub const ALL: [Action; 4] = [
+    pub const ALL: [Action; 5] = [
+        Action::Lock,
         Action::Logout,
         Action::Shutdown,
         Action::Suspend,
@@ -20,6 +22,7 @@ impl Action {
 
     pub fn label(self) -> &'static str {
         match self {
+            Action::Lock => "Lock",
             Action::Logout => "Log out",
             Action::Shutdown => "Shut down",
             Action::Suspend => "Suspend",
@@ -39,7 +42,7 @@ impl Action {
 
     pub fn method(self) -> Option<&'static str> {
         match self {
-            Action::Logout => None,
+            Action::Lock | Action::Logout => None,
             Action::Shutdown => Some("PowerOff"),
             Action::Suspend => Some("Suspend"),
             Action::Reboot => Some("Reboot"),
@@ -59,9 +62,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_menu_lists_logout_first_and_restart_last() {
+    fn the_menu_lists_lock_first_and_restart_last() {
         let labels: Vec<String> = items().into_iter().map(|item| item.label).collect();
-        assert_eq!(labels, ["Log out", "Shut down", "Suspend", "Restart"]);
+        assert_eq!(
+            labels,
+            ["Lock", "Log out", "Shut down", "Suspend", "Restart"]
+        );
     }
 
     #[test]
@@ -76,11 +82,12 @@ mod tests {
         assert!(Action::ALL.iter().all(|action| action.id() != 0));
         assert_eq!(Action::from_id(0), None);
         assert_eq!(Action::from_id(-1), None);
-        assert_eq!(Action::from_id(FIRST_ID + 4), None);
+        assert_eq!(Action::from_id(FIRST_ID + 5), None);
     }
 
     #[test]
-    fn only_logout_stays_inside_drifter() {
+    fn lock_and_logout_stay_inside_drifter() {
+        assert_eq!(Action::Lock.method(), None);
         assert_eq!(Action::Logout.method(), None);
         assert_eq!(Action::Shutdown.method(), Some("PowerOff"));
         assert_eq!(Action::Suspend.method(), Some("Suspend"));

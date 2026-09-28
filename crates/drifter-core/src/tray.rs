@@ -2,6 +2,7 @@ use chrono::format::StrftimeItems;
 use chrono::{DateTime, Local, TimeZone};
 
 use crate::geom::{Rect, Vec2};
+use crate::image::Image;
 
 pub const DEFAULT_FORMAT: &str = "%a %b %d %I:%M:%S %p";
 
@@ -12,6 +13,8 @@ pub struct Tray {
     pub ink: [u8; 3],
     pub icon: f64,
     pub gap: f64,
+    pub button: f64,
+    pub button_gap: f64,
 }
 
 impl Default for Tray {
@@ -22,14 +25,26 @@ impl Default for Tray {
             ink: [236, 238, 244],
             icon: 18.0,
             gap: 14.0,
+            button: 20.0,
+            button_gap: 14.0,
         }
     }
 }
 
 impl Tray {
     pub fn clock_rect(&self, band: Rect, text: Vec2) -> Rect {
-        let x = band.max().x - self.margin - text.x;
+        let x = self.power_rect(band).origin.x - self.button_gap - text.x;
         Rect::new(Vec2::new(x, self.centered(band, text.y)), text)
+    }
+
+    pub fn power_rect(&self, band: Rect) -> Rect {
+        let size = Vec2::splat(self.button);
+        let x = band.max().x - self.margin - size.x;
+        Rect::new(Vec2::new(x, self.centered(band, size.y)), size)
+    }
+
+    pub fn on_power(&self, band: Rect, pointer: Vec2) -> bool {
+        self.power_rect(band).contains(pointer)
     }
 
     pub fn icon_rect(&self, band: Rect, slot: usize) -> Rect {
@@ -45,6 +60,50 @@ impl Tray {
 
     fn centered(&self, band: Rect, height: f64) -> f64 {
         band.origin.y + (band.size.y - height) / 2.0
+    }
+}
+
+pub fn paint_power(side: u32, color: [u8; 3]) -> Image {
+    let side = side.max(8);
+    let size = f64::from(side);
+    let middle = size / 2.0;
+    let ring = size * 0.36;
+    let thick = (size * 0.11).max(1.5);
+    let stem_top = size * 0.10;
+    let stem_bottom = middle - size * 0.04;
+    let gap = 0.62;
+    let mut rgba = vec![0u8; (side as usize) * (side as usize) * 4];
+
+    for y in 0..side {
+        let dy = f64::from(y) + 0.5 - middle;
+        for x in 0..side {
+            let dx = f64::from(x) + 0.5 - middle;
+            let away = (dx * dx + dy * dy).sqrt();
+            let from_top = dx.atan2(-dy).abs();
+            let round = if from_top > gap {
+                (thick / 2.0 - (away - ring).abs() + 0.5).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let along = (dy - (stem_top - middle)).min((stem_bottom - middle) - dy);
+            let across = thick / 2.0 - dx.abs();
+            let stem = (along + 0.5).clamp(0.0, 1.0) * (across + 0.5).clamp(0.0, 1.0);
+            let ink = round.max(stem);
+            if ink <= 0.0 {
+                continue;
+            }
+            let at = ((y as usize) * (side as usize) + x as usize) * 4;
+            for (channel, value) in color.iter().enumerate() {
+                rgba[at + channel] = (f64::from(*value) * ink).round().clamp(0.0, 255.0) as u8;
+            }
+            rgba[at + 3] = (ink * 255.0).round().clamp(0.0, 255.0) as u8;
+        }
+    }
+
+    Image {
+        width: side,
+        height: side,
+        rgba,
     }
 }
 
@@ -177,11 +236,56 @@ mod tests {
     }
 
     #[test]
-    fn the_clock_sits_against_the_right_edge() {
+    fn the_power_button_sits_against_the_right_edge() {
+        let tray = Tray::default();
+        let rect = tray.power_rect(band());
+        assert_eq!(rect.max().x, 1920.0 - tray.margin);
+        assert_eq!(rect.size, Vec2::splat(tray.button));
+    }
+
+    #[test]
+    fn the_clock_sits_left_of_the_power_button() {
         let tray = Tray::default();
         let text = Vec2::new(240.0, 26.0);
         let rect = tray.clock_rect(band(), text);
-        assert_eq!(rect.max().x, 1920.0 - tray.margin);
+        let button = tray.power_rect(band());
+        assert_eq!(button.origin.x - rect.max().x, tray.button_gap);
+    }
+
+    #[test]
+    fn the_power_button_is_centered_in_the_band() {
+        let tray = Tray::default();
+        assert_eq!(tray.power_rect(band()).center().y, band().center().y);
+    }
+
+    #[test]
+    fn a_click_finds_the_power_button_and_nothing_beside_it() {
+        let tray = Tray::default();
+        let button = tray.power_rect(band());
+        assert!(tray.on_power(band(), button.center()));
+        let beside = Vec2::new(button.origin.x - 4.0, button.center().y);
+        assert!(!tray.on_power(band(), beside));
+    }
+
+    #[test]
+    fn the_power_glyph_is_a_ring_with_a_stem_and_a_gap_at_the_top() {
+        let image = paint_power(40, [255, 255, 255]);
+        let alpha = |x: u32, y: u32| image.rgba[((y * image.width + x) * 4 + 3) as usize];
+        assert!(alpha(20, 8) > 200, "the stem");
+        assert!(alpha(20, 20) == 0, "the hollow middle");
+        assert!(alpha(20, 5) > 0, "the stem reaches the top");
+        assert!(alpha(6, 20) > 200, "the left of the ring");
+        assert!(alpha(33, 20) > 200, "the right of the ring");
+        assert!(alpha(23, 6) == 0, "the gap beside the stem");
+        assert!(alpha(20, 34) > 200, "the bottom of the ring");
+    }
+
+    #[test]
+    fn every_power_pixel_is_premultiplied() {
+        let image = paint_power(20, [200, 100, 50]);
+        for pixel in image.rgba.chunks(4) {
+            assert!(pixel[0] <= pixel[3] && pixel[1] <= pixel[3] && pixel[2] <= pixel[3]);
+        }
     }
 
     #[test]
