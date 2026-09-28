@@ -181,6 +181,12 @@ fn tip(proxy: &zbus::blocking::Proxy<'_>) -> Option<String> {
     None
 }
 
+type Node = (
+    i32,
+    HashMap<String, zbus::zvariant::OwnedValue>,
+    Vec<zbus::zvariant::OwnedValue>,
+);
+
 fn read_menu(
     connection: &zbus::blocking::Connection,
     service: &str,
@@ -195,7 +201,7 @@ fn read_menu(
         zbus::blocking::Proxy::new(connection, name, menu_path, "com.canonical.dbusmenu").ok()?;
     let _ = menu.call_method("AboutToShow", &(0i32));
 
-    let layout: (u32, (i32, HashMap<String, OwnedValue>, Vec<OwnedValue>)) = menu
+    let layout: (u32, Node) = menu
         .call("GetLayout", &(0i32, 1i32, Vec::<String>::new()))
         .ok()?;
 
