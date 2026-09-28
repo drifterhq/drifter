@@ -11,8 +11,7 @@ use smithay::backend::drm::exporter::gbm::GbmFramebufferExporter;
 use smithay::backend::drm::{DrmDevice, DrmDeviceFd, DrmEvent};
 use smithay::backend::egl::{EGLContext, EGLDisplay};
 use smithay::backend::input::{
-    AbsolutePositionEvent, Event as InputTrait, InputEvent, KeyState, KeyboardKeyEvent,
-    PointerMotionEvent,
+    AbsolutePositionEvent, InputEvent, KeyState, KeyboardKeyEvent, PointerMotionEvent,
 };
 use smithay::backend::libinput::{LibinputInputBackend, LibinputSessionInterface};
 use smithay::backend::renderer::Color32F;
