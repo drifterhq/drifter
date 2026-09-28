@@ -19,29 +19,34 @@ pub enum Click {
     Middle,
 }
 
+enum Job {
+    Look,
+    Poke(String, Click, i32, i32),
+}
+
 pub struct Tray {
-    clicks: Sender<(String, Click, i32, i32)>,
+    jobs: Sender<Job>,
 }
 
 impl Tray {
     pub fn click(&self, service: &str, click: Click, x: i32, y: i32) {
-        let _ = self.clicks.send((service.to_string(), click, x, y));
+        let _ = self.jobs.send(Job::Poke(service.to_string(), click, x, y));
     }
 }
 
 pub fn start() -> Result<(Tray, Channel<Vec<Icon>>), String> {
     let (icon_tx, icon_rx) = sync_channel::<Vec<Icon>>(4);
-    let (click_tx, click_rx) = channel();
+    let (job_tx, job_rx) = channel();
     let items: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
     let serving = items.clone();
     let sender = icon_tx.clone();
     std::thread::Builder::new()
         .name("drifter-tray".to_string())
-        .spawn(move || serve(serving, sender, click_rx))
+        .spawn(move || serve(serving, sender, job_rx))
         .map_err(|e| format!("cannot start the tray thread: {e}"))?;
 
-    Ok((Tray { clicks: click_tx }, icon_rx))
+    Ok((Tray { jobs: job_tx }, icon_rx))
 }
 
 fn bus_address() -> Result<String, String> {
@@ -63,8 +68,7 @@ fn bus_address() -> Result<String, String> {
 
 struct Watcher {
     items: Arc<Mutex<Vec<String>>>,
-    wake: SyncSender<Vec<Icon>>,
-    connection: Option<zbus::blocking::Connection>,
+    look: Sender<Job>,
 }
 
 #[zbus::interface(name = "org.kde.StatusNotifierWatcher")]
@@ -108,15 +112,7 @@ impl Watcher {
 
 impl Watcher {
     fn refresh(&self) {
-        let Some(connection) = self.connection.as_ref() else {
-            return;
-        };
-        let names = self.items.lock().unwrap().clone();
-        let icons = names
-            .iter()
-            .filter_map(|service| read_icon(connection, service))
-            .collect();
-        let _ = self.wake.send(icons);
+        let _ = self.look.send(Job::Look);
     }
 }
 
@@ -192,11 +188,7 @@ fn find_icon(name: &str, theme: &str) -> Option<std::path::PathBuf> {
         .find(|candidate| candidate.is_file())
 }
 
-fn serve(
-    items: Arc<Mutex<Vec<String>>>,
-    wake: SyncSender<Vec<Icon>>,
-    clicks: Receiver<(String, Click, i32, i32)>,
-) {
+fn serve(items: Arc<Mutex<Vec<String>>>, wake: SyncSender<Vec<Icon>>, jobs: Receiver<Job>) {
     let address = match bus_address() {
         Ok(address) => address,
         Err(error) => {
@@ -215,8 +207,7 @@ fn serve(
 
     let watcher = Watcher {
         items: items.clone(),
-        wake: wake.clone(),
-        connection: None,
+        look: look.clone(),
     };
 
     builder = match builder.name(WATCHER) {
@@ -246,13 +237,6 @@ fn serve(
     println!("tray        {address}");
     println!("            owns {WATCHER}");
 
-    if let Ok(interface) = connection
-        .object_server()
-        .interface::<_, Watcher>(WATCHER_PATH)
-    {
-        interface.get_mut().connection = Some(connection.clone());
-    }
-
     let watching = connection.clone();
     let names = items.clone();
     let ping = wake.clone();
@@ -262,10 +246,25 @@ fn serve(
         .ok();
 
     loop {
-        let Ok((service, click, x, y)) = clicks.recv() else {
-            eprintln!("drifter: the tray stopped listening for clicks");
+        let Ok(job) = jobs.recv() else {
+            eprintln!("drifter: the tray stopped listening");
             return;
         };
+
+        let (service, click, x, y) = match job {
+            Job::Look => {
+                let names = items.lock().unwrap().clone();
+                let icons = names
+                    .iter()
+                    .filter_map(|service| read_icon(&connection, service))
+                    .collect::<Vec<_>>();
+                println!("drifter: tray has {} icon(s)", icons.len());
+                let _ = wake.send(icons);
+                continue;
+            }
+            Job::Poke(service, click, x, y) => (service, click, x, y),
+        };
+
         let (name, path) = split(&service);
         let Ok(proxy) = zbus::blocking::Proxy::new(&connection, name, path, ITEM) else {
             continue;

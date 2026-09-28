@@ -82,12 +82,28 @@ pub struct Screen {
     state: State,
 }
 
+enum Grab {
+    None,
+    Move {
+        index: usize,
+        offset: Vec2,
+    },
+    Resize {
+        index: usize,
+        grip: drifter_core::window::Grip,
+        from: Vec2,
+        start: Rect,
+    },
+}
+
 pub struct State {
     pub output: smithay::output::Output,
     pub wayland: crate::shell::Wayland,
     pub windows: Vec<crate::shell::Window>,
     display: Option<Display<State>>,
     chrome: Chrome,
+    grab: Grab,
+    focus: Option<usize>,
     skin: std::collections::HashMap<String, (TextureBuffer<GlesTexture>, Vec2)>,
     started: Instant,
     drm: DrmDevice,
@@ -170,21 +186,24 @@ impl State {
         let windows: Vec<(
             Rect,
             Vec2,
+            bool,
             smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
         )> = self
             .windows
             .iter()
             .rev()
             .filter(|window| window.placed)
-            .map(|window| {
+            .enumerate()
+            .map(|(order, window)| {
                 (
                     window.content,
                     window.inset,
+                    self.focus == Some(self.windows.len() - 1 - order),
                     window.toplevel.wl_surface().clone(),
                 )
             })
             .collect();
-        for (content, inset, surface) in windows {
+        for (content, inset, awake, surface) in windows {
             let at = content.origin - inset;
             let client: Vec<WaylandSurfaceRenderElement<GlesRenderer>> =
                 render_elements_from_surface_tree(
@@ -196,7 +215,7 @@ impl State {
                     Kind::Unspecified,
                 );
             elements.extend(client.into_iter().map(Skin::Client));
-            self.dress(content, &mut elements);
+            self.dress(content, awake, &mut elements);
         }
 
         if let Some((buffer, rect)) = self.wallpaper.as_ref() {
@@ -205,7 +224,7 @@ impl State {
         elements
     }
 
-    fn dress(&self, content: Rect, elements: &mut Vec<Skin>) {
+    fn dress(&self, content: Rect, awake: bool, elements: &mut Vec<Skin>) {
         let layout = self.chrome.layout(content);
         let pieces = [
             (ChromePiece::TitleLeft, layout.title_left),
@@ -221,7 +240,7 @@ impl State {
             if rect.size.x <= 0.0 || rect.size.y <= 0.0 {
                 continue;
             }
-            if let Some((buffer, _)) = self.skin.get(&piece.file_name(true)) {
+            if let Some((buffer, _)) = self.skin.get(&piece.file_name(awake)) {
                 elements.push(Skin::Texture(element(buffer, rect, 1.0)));
             }
         }
@@ -606,19 +625,156 @@ impl State {
         pointer.frame(self);
     }
 
+    fn raise(&mut self, index: usize) -> usize {
+        let window = self.windows.remove(index);
+        self.windows.push(window);
+        let top = self.windows.len() - 1;
+        self.focus = Some(top);
+        self.wake_windows();
+        top
+    }
+
+    fn wake_windows(&mut self) {
+        use wayland_protocols::xdg::shell::server::xdg_toplevel;
+        for (index, window) in self.windows.iter().enumerate() {
+            let awake = self.focus == Some(index);
+            window.toplevel.with_pending_state(|state| {
+                if awake {
+                    state.states.set(xdg_toplevel::State::Activated);
+                } else {
+                    state.states.unset(xdg_toplevel::State::Activated);
+                }
+            });
+            window.toplevel.send_pending_configure();
+        }
+    }
+
+    fn grip_under(&self) -> Option<(usize, drifter_core::window::Grip)> {
+        self.windows
+            .iter()
+            .enumerate()
+            .rev()
+            .filter(|(_, window)| window.placed)
+            .find_map(|(index, window)| {
+                self.chrome
+                    .grip_at(window.content, self.pointer, 3)
+                    .map(|grip| (index, grip))
+            })
+    }
+
+    fn take_grab(&mut self) -> bool {
+        use drifter_core::window::Grip;
+
+        let Some((index, grip)) = self.grip_under() else {
+            return false;
+        };
+        let index = self.raise(index);
+        let window = &self.windows[index];
+        let surface = window.toplevel.wl_surface().clone();
+        let content = window.content;
+
+        match grip {
+            Grip::Button(slot) => {
+                self.press_button(index, slot);
+            }
+            Grip::Title => {
+                self.grab = Grab::Move {
+                    index,
+                    offset: self.pointer - content.origin,
+                };
+            }
+            other => {
+                self.grab = Grab::Resize {
+                    index,
+                    grip: other,
+                    from: self.pointer,
+                    start: content,
+                };
+            }
+        }
+
+        let serial = smithay::utils::SERIAL_COUNTER.next_serial();
+        let keyboard = self.wayland.keyboard.clone();
+        keyboard.set_focus(self, Some(surface), serial);
+        true
+    }
+
+    fn press_button(&mut self, index: usize, slot: usize) {
+        use wayland_protocols::xdg::shell::server::xdg_toplevel;
+        let window = &self.windows[index];
+        match slot {
+            0 => window.toplevel.send_close(),
+            1 => {
+                window.toplevel.with_pending_state(|state| {
+                    state.states.unset(xdg_toplevel::State::Activated);
+                });
+                window.toplevel.send_pending_configure();
+            }
+            _ => {
+                let screen = self.screen;
+                let chrome = self.chrome;
+                let window = &mut self.windows[index];
+                let room = Vec2::new(
+                    screen.x - chrome.edge * 2.0,
+                    screen.y - chrome.title - chrome.edge,
+                );
+                window.content = Rect::new(Vec2::new(chrome.edge, chrome.title), room);
+                let size = window.content.size;
+                window.toplevel.with_pending_state(|state| {
+                    state.size = Some((size.x as i32, size.y as i32).into());
+                });
+                window.toplevel.send_pending_configure();
+            }
+        }
+    }
+
+    fn drag(&mut self) {
+        match self.grab {
+            Grab::None => {}
+            Grab::Move { index, offset } => {
+                if let Some(window) = self.windows.get_mut(index) {
+                    window.content.origin = self.pointer - offset;
+                }
+            }
+            Grab::Resize {
+                index,
+                grip,
+                from,
+                start,
+            } => {
+                let chrome = self.chrome;
+                let moved = self.pointer - from;
+                let least = Vec2::new(160.0, 80.0);
+                let wanted = chrome.resize(start, grip, moved, least);
+                if let Some(window) = self.windows.get_mut(index) {
+                    window.content.origin = wanted.origin;
+                    window.toplevel.with_pending_state(|state| {
+                        state.size = Some((wanted.size.x as i32, wanted.size.y as i32).into());
+                    });
+                    window.toplevel.send_pending_configure();
+                }
+            }
+        }
+    }
+
     fn tell_button(&mut self, code: u32, state: ButtonState, time: u32) {
         use smithay::input::pointer::ButtonEvent;
         use smithay::utils::SERIAL_COUNTER;
 
         let serial = SERIAL_COUNTER.next_serial();
-        if state == ButtonState::Pressed
-            && let Some((index, _)) = self.under_pointer()
-        {
-            let window = self.windows.remove(index);
-            let surface = window.toplevel.wl_surface().clone();
-            self.windows.push(window);
-            let keyboard = self.wayland.keyboard.clone();
-            keyboard.set_focus(self, Some(surface), serial);
+        if state == ButtonState::Released {
+            self.grab = Grab::None;
+        }
+        if state == ButtonState::Pressed {
+            if self.take_grab() {
+                return;
+            }
+            if let Some((index, _)) = self.under_pointer() {
+                let index = self.raise(index);
+                let surface = self.windows[index].toplevel.wl_surface().clone();
+                let keyboard = self.wayland.keyboard.clone();
+                keyboard.set_focus(self, Some(surface), serial);
+            }
         }
 
         let pointer = self.wayland.pointer.clone();
@@ -655,12 +811,14 @@ impl State {
             InputEvent::PointerMotion { event } => {
                 let delta = Vec2::new(event.delta_x(), event.delta_y());
                 self.pointer_to(self.pointer + delta);
+                self.drag();
                 self.tell_pointer(event.time_msec());
             }
             InputEvent::PointerMotionAbsolute { event } => {
                 let x = event.x_transformed(self.screen.x as i32);
                 let y = event.y_transformed(self.screen.y as i32);
                 self.pointer_to(Vec2::new(x, y));
+                self.drag();
                 self.tell_pointer(event.time_msec());
             }
             InputEvent::PointerButton { event } => {
@@ -942,6 +1100,9 @@ pub fn open(
     );
     output.set_preferred(screen_mode);
 
+    let signals = Signals::new(&[Signal::SIGUSR1, Signal::SIGUSR2])
+        .map_err(|e| format!("cannot watch signals: {e}"))?;
+
     let (tray_bus, tray_icons) = match crate::tray::start() {
         Ok((bus, icons)) => (Some(bus), Some(icons)),
         Err(error) => {
@@ -969,6 +1130,8 @@ pub fn open(
         windows: Vec::new(),
         display: Some(display),
         chrome,
+        grab: Grab::None,
+        focus: None,
         skin,
         started: Instant::now(),
         drm,
@@ -1089,8 +1252,6 @@ pub fn open(
         })
         .map_err(|e| format!("cannot watch wayland clients: {e}"))?;
 
-    let signals = Signals::new(&[Signal::SIGUSR1, Signal::SIGUSR2])
-        .map_err(|e| format!("cannot watch signals: {e}"))?;
     handle
         .insert_source(signals, |event, _, state: &mut State| {
             let edge = if event.signal() == Signal::SIGUSR1 {

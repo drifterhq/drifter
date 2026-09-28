@@ -9,6 +9,7 @@ pub struct Chrome {
     pub button: f64,
     pub gap: f64,
     pub margin: f64,
+    pub grip: f64,
     pub frame: [u8; 3],
     pub frame_alpha: u8,
     pub idle: [u8; 3],
@@ -24,6 +25,7 @@ impl Default for Chrome {
             button: 12.0,
             gap: 8.0,
             margin: 11.0,
+            grip: 7.0,
             frame: [30, 33, 42],
             frame_alpha: 242,
             idle: [24, 26, 33],
@@ -307,6 +309,31 @@ fn glyph(image: &mut Image, button: Button) {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Grip {
+    Button(usize),
+    Title,
+    Left,
+    Right,
+    Bottom,
+    BottomLeft,
+    BottomRight,
+}
+
+impl Grip {
+    pub fn moves_left(self) -> bool {
+        matches!(self, Grip::Left | Grip::BottomLeft)
+    }
+
+    pub fn changes_width(self) -> bool {
+        !matches!(self, Grip::Title | Grip::Bottom | Grip::Button(_))
+    }
+
+    pub fn changes_height(self) -> bool {
+        matches!(self, Grip::Bottom | Grip::BottomLeft | Grip::BottomRight)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Layout {
     pub frame: Rect,
@@ -371,6 +398,63 @@ impl Chrome {
     pub fn title_bar(&self, content: Rect) -> Rect {
         let frame = self.layout(content).frame;
         Rect::new(frame.origin, Vec2::new(frame.size.x, self.title))
+    }
+
+    pub fn grip_at(&self, content: Rect, pointer: Vec2, buttons: usize) -> Option<Grip> {
+        if let Some(slot) = self.button_at(content, pointer, buttons) {
+            return Some(Grip::Button(slot));
+        }
+
+        let frame = self.layout(content).frame;
+        let reach = self.grip;
+        let outside = Rect::new(
+            frame.origin - Vec2::splat(reach),
+            frame.size + Vec2::splat(reach * 2.0),
+        );
+        if !outside.contains(pointer) {
+            return None;
+        }
+
+        let near_left = pointer.x < frame.origin.x + reach;
+        let near_right = pointer.x > frame.max().x - reach;
+        let near_bottom = pointer.y > frame.max().y - reach;
+
+        if near_bottom && near_left {
+            return Some(Grip::BottomLeft);
+        }
+        if near_bottom && near_right {
+            return Some(Grip::BottomRight);
+        }
+        if near_bottom {
+            return Some(Grip::Bottom);
+        }
+        if near_left {
+            return Some(Grip::Left);
+        }
+        if near_right {
+            return Some(Grip::Right);
+        }
+        if self.title_bar(content).contains(pointer) {
+            return Some(Grip::Title);
+        }
+        None
+    }
+
+    pub fn resize(&self, start: Rect, grip: Grip, moved: Vec2, least: Vec2) -> Rect {
+        let mut rect = start;
+        if grip.changes_width() {
+            if grip.moves_left() {
+                let width = (start.size.x - moved.x).max(least.x);
+                rect.origin.x = start.max().x - width;
+                rect.size.x = width;
+            } else {
+                rect.size.x = (start.size.x + moved.x).max(least.x);
+            }
+        }
+        if grip.changes_height() {
+            rect.size.y = (start.size.y + moved.y).max(least.y);
+        }
+        rect
     }
 
     pub fn button_at(&self, content: Rect, pointer: Vec2, count: usize) -> Option<usize> {
@@ -628,6 +712,119 @@ mod tests {
         let middle = bar.origin + first.origin + first.size / 2.0;
         assert_eq!(chrome.button_at(content, middle, 3), Some(0));
         assert_eq!(chrome.button_at(content, bar.center(), 3), None);
+    }
+
+    #[test]
+    fn the_title_bar_is_a_move_grip() {
+        let chrome = chrome();
+        let content = Rect::new(Vec2::new(300.0, 300.0), Vec2::new(400.0, 300.0));
+        let bar = chrome.title_bar(content);
+        let middle = Vec2::new(bar.center().x, bar.center().y);
+        assert_eq!(chrome.grip_at(content, middle, 3), Some(Grip::Title));
+    }
+
+    #[test]
+    fn the_buttons_win_over_the_title_bar() {
+        let chrome = chrome();
+        let content = Rect::new(Vec2::new(300.0, 300.0), Vec2::new(400.0, 300.0));
+        let bar = chrome.title_bar(content);
+        let first = chrome.button_rect(0);
+        let on_button = bar.origin + first.origin + first.size / 2.0;
+        assert_eq!(chrome.grip_at(content, on_button, 3), Some(Grip::Button(0)));
+    }
+
+    #[test]
+    fn the_corners_win_over_the_sides() {
+        let chrome = chrome();
+        let content = Rect::new(Vec2::new(300.0, 300.0), Vec2::new(400.0, 300.0));
+        let frame = chrome.layout(content).frame;
+        let corner = Vec2::new(frame.origin.x + 1.0, frame.max().y - 1.0);
+        assert_eq!(chrome.grip_at(content, corner, 3), Some(Grip::BottomLeft));
+    }
+
+    #[test]
+    fn each_side_has_its_own_grip() {
+        let chrome = chrome();
+        let content = Rect::new(Vec2::new(300.0, 300.0), Vec2::new(400.0, 300.0));
+        let frame = chrome.layout(content).frame;
+        let middle_y = frame.center().y;
+        assert_eq!(
+            chrome.grip_at(content, Vec2::new(frame.origin.x + 1.0, middle_y), 3),
+            Some(Grip::Left)
+        );
+        assert_eq!(
+            chrome.grip_at(content, Vec2::new(frame.max().x - 1.0, middle_y), 3),
+            Some(Grip::Right)
+        );
+        assert_eq!(
+            chrome.grip_at(content, Vec2::new(frame.center().x, frame.max().y - 1.0), 3),
+            Some(Grip::Bottom)
+        );
+    }
+
+    #[test]
+    fn the_grip_reaches_outside_the_frame() {
+        let chrome = chrome();
+        let content = Rect::new(Vec2::new(300.0, 300.0), Vec2::new(400.0, 300.0));
+        let frame = chrome.layout(content).frame;
+        let just_outside = Vec2::new(frame.origin.x - 2.0, frame.center().y);
+        assert_eq!(chrome.grip_at(content, just_outside, 3), Some(Grip::Left));
+    }
+
+    #[test]
+    fn the_middle_of_a_window_is_not_a_grip() {
+        let chrome = chrome();
+        let content = Rect::new(Vec2::new(300.0, 300.0), Vec2::new(400.0, 300.0));
+        assert_eq!(chrome.grip_at(content, content.center(), 3), None);
+    }
+
+    #[test]
+    fn a_far_away_click_is_not_a_grip() {
+        let chrome = chrome();
+        let content = Rect::new(Vec2::new(300.0, 300.0), Vec2::new(400.0, 300.0));
+        assert_eq!(chrome.grip_at(content, Vec2::new(10.0, 10.0), 3), None);
+    }
+
+    #[test]
+    fn dragging_the_right_edge_only_changes_the_width() {
+        let chrome = chrome();
+        let start = Rect::new(Vec2::new(100.0, 100.0), Vec2::new(400.0, 300.0));
+        let after = chrome.resize(start, Grip::Right, Vec2::new(50.0, 80.0), Vec2::splat(40.0));
+        assert_eq!(after.origin, start.origin);
+        assert_eq!(after.size, Vec2::new(450.0, 300.0));
+    }
+
+    #[test]
+    fn dragging_the_left_edge_keeps_the_right_edge_still() {
+        let chrome = chrome();
+        let start = Rect::new(Vec2::new(100.0, 100.0), Vec2::new(400.0, 300.0));
+        let after = chrome.resize(start, Grip::Left, Vec2::new(60.0, 0.0), Vec2::splat(40.0));
+        assert_eq!(after.max().x, start.max().x);
+        assert_eq!(after.size.x, 340.0);
+    }
+
+    #[test]
+    fn a_window_can_never_be_dragged_smaller_than_the_least() {
+        let chrome = chrome();
+        let start = Rect::new(Vec2::new(100.0, 100.0), Vec2::new(400.0, 300.0));
+        let least = Vec2::new(120.0, 80.0);
+        let after = chrome.resize(start, Grip::BottomLeft, Vec2::new(9000.0, -9000.0), least);
+        assert_eq!(after.size.x, least.x);
+        assert_eq!(after.size.y, least.y);
+        assert_eq!(after.max().x, start.max().x);
+    }
+
+    #[test]
+    fn the_bottom_corner_changes_both_sides() {
+        let chrome = chrome();
+        let start = Rect::new(Vec2::new(100.0, 100.0), Vec2::new(400.0, 300.0));
+        let after = chrome.resize(
+            start,
+            Grip::BottomRight,
+            Vec2::new(20.0, 30.0),
+            Vec2::splat(40.0),
+        );
+        assert_eq!(after.size, Vec2::new(420.0, 330.0));
     }
 
     #[test]
