@@ -822,13 +822,6 @@ pub fn open(
         size: (i32::from(width), i32::from(height)).into(),
         refresh: (drm_mode.vrefresh() * 1000) as i32,
     };
-    output.change_current_state(
-        Some(screen_mode),
-        Some(Transform::Normal),
-        Some(smithay::output::Scale::Integer(1)),
-        Some((0, 0).into()),
-    );
-    output.set_preferred(screen_mode);
     let tunables = Tunables::default();
     let shapes = [
         Panel {
@@ -941,6 +934,13 @@ pub fn open(
         },
     );
     output.create_global::<State>(&wayland.handle);
+    output.change_current_state(
+        Some(screen_mode),
+        Some(Transform::Normal),
+        Some(smithay::output::Scale::Integer(1)),
+        Some((0, 0).into()),
+    );
+    output.set_preferred(screen_mode);
 
     let (tray_bus, tray_icons) = match crate::tray::start() {
         Ok((bus, icons)) => (Some(bus), Some(icons)),
