@@ -136,6 +136,43 @@ impl Dock {
     }
 }
 
+pub fn paint_cog(side: u32, color: [u8; 3]) -> Image {
+    let side = side.max(8);
+    let size = f64::from(side);
+    let middle = size / 2.0;
+    let outer = size * 0.44;
+    let root = size * 0.34;
+    let hole = size * 0.15;
+    let mut rgba = vec![0u8; (side as usize) * (side as usize) * 4];
+
+    for y in 0..side {
+        let dy = f64::from(y) + 0.5 - middle;
+        for x in 0..side {
+            let dx = f64::from(x) + 0.5 - middle;
+            let away = (dx * dx + dy * dy).sqrt();
+            let wave = (dy.atan2(dx) * 8.0).cos();
+            let edge = root + (outer - root) * (wave * 0.5 + 0.5).powf(6.0);
+            let ink = (edge - away + 0.5).clamp(0.0, 1.0);
+            let cut = (hole - away + 0.5).clamp(0.0, 1.0);
+            let ink = (ink - cut).clamp(0.0, 1.0);
+            if ink <= 0.0 {
+                continue;
+            }
+            let index = ((y as usize) * (side as usize) + x as usize) * 4;
+            for (channel, value) in color.iter().enumerate() {
+                rgba[index + channel] = (f64::from(*value) * ink).round().clamp(0.0, 255.0) as u8;
+            }
+            rgba[index + 3] = (ink * 255.0).round().clamp(0.0, 255.0) as u8;
+        }
+    }
+
+    Image {
+        width: side,
+        height: side,
+        rgba,
+    }
+}
+
 pub fn paint_dot(side: u32, color: [u8; 3]) -> Image {
     let side = side.max(2);
     let size = f64::from(side);
@@ -434,6 +471,16 @@ mod tests {
         let band = band();
         let cog = dock.slot_rect(band, 1, 0, Slot::Settings);
         assert_eq!(dock.at(band, cog.center(), 1, 0), Some(Slot::Settings));
+    }
+
+    #[test]
+    fn the_drawn_cog_is_round_with_a_hole() {
+        let image = paint_cog(44, [230, 233, 240]);
+        let middle = ((22usize) * 44 + 22) * 4;
+        assert_eq!(image.rgba[middle + 3], 0, "the cog has no hole");
+        let body = ((22usize) * 44 + 12) * 4;
+        assert!(image.rgba[body + 3] > 0, "the cog has no body");
+        assert_eq!(image.rgba[3], 0, "the cog fills its corner");
     }
 
     #[test]

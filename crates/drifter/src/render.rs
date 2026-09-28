@@ -1079,6 +1079,7 @@ impl State {
                 let text = match slot {
                     Slot::Pinned(index) => self.pinned[index].0.clone(),
                     Slot::Minimized(index) => hidden[index].clone(),
+                    Slot::Settings => "Settings".to_string(),
                     Slot::Trash => "Trash".to_string(),
                 };
                 self.show_tip(&text, rect, false);
@@ -2455,6 +2456,28 @@ pub fn open(
         }
     };
 
+    let trash_look = Dock::default();
+    let art = config.dock_dir();
+    let side = trash_look.icon as u32;
+    let from_art = |name: &str| -> Option<drifter_core::Image> {
+        let dir = art.as_ref()?;
+        match drifter_core::image::load(&dir.join(format!("{name}.png"))) {
+            Ok(image) => Some(image.scaled(side, side)),
+            Err(error) => {
+                eprintln!("drifter: no dock art for {name}: {error}");
+                None
+            }
+        }
+    };
+
+    let trash_image = from_art("trash")
+        .unwrap_or_else(|| drifter_core::dock::paint_trash(side, trash_look.rule_ink()));
+    let trash = upload(&mut renderer, Some(&trash_image), "trash")?;
+    let cog_image = from_art("settings")
+        .unwrap_or_else(|| drifter_core::dock::paint_cog(side, trash_look.rule_ink()));
+    let cog = upload(&mut renderer, Some(&cog_image), "settings")?;
+    let spare = from_art("app");
+
     let wanted = match config.dock.pinned.is_empty() {
         true => crate::apps::defaults(),
         false => config.dock.pinned.clone(),
@@ -2480,27 +2503,6 @@ pub fn open(
         pinned.push((name.clone(), buffer));
     }
 
-    let trash_look = Dock::default();
-    let art = config.dock_dir();
-    let side = trash_look.icon as u32;
-    let from_art = |name: &str| -> Option<drifter_core::Image> {
-        let dir = art.as_ref()?;
-        match drifter_core::image::load(&dir.join(format!("{name}.png"))) {
-            Ok(image) => Some(image.scaled(side, side)),
-            Err(error) => {
-                eprintln!("drifter: no dock art for {name}: {error}");
-                None
-            }
-        }
-    };
-
-    let trash_image = from_art("trash")
-        .unwrap_or_else(|| drifter_core::dock::paint_trash(side, trash_look.rule_ink()));
-    let trash = upload(&mut renderer, Some(&trash_image), "trash")?;
-    let cog_image = from_art("settings")
-        .unwrap_or_else(|| drifter_core::dock::paint_cog(side, trash_look.rule_ink()));
-    let cog = upload(&mut renderer, Some(&cog_image), "settings")?;
-    let spare = from_art("app");
     let dot_image = drifter_core::dock::paint_dot(
         (trash_look.icon / 9.0).max(3.0) as u32,
         trash_look.rule_ink(),
