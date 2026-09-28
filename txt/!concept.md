@@ -91,12 +91,14 @@ Drawers
 - Push the pointer at the top edge and an inset drawer slides down, 64 px, full width. It holds the system tray and system info.
 - Push the pointer at the bottom edge and an inset drawer holds the launcher icons and a trash can.
 - The drawer opens after a short dwell at the edge, so a fast pass never pops it open. It stays open while the pointer rests on it, and hides a short delay after the pointer leaves.
-- The look: the two corners facing into the screen are rounded. An inset shadow runs along that same inner edge, inside the panel, so the drawer reads as a recess and not as a floating bar.
+- The look: the corners of the DESKTOP OPENING are rounded, not the drawer. The panel runs the full width and curves deeper at the left and right ends, so the viewport reads as a rounded window and the drawer as the frame around it.
+- An inset shadow runs along the whole inner boundary, inside the panel, following the curve of the corners. The drawer reads as a recess, not as a floating bar.
 - The slide is elastic. It eases out past its resting place and settles back. The panel texture carries slack past the screen edge, so the spring can never open a gap and show wallpaper behind the drawer.
 
 Pointer
 
 - The pointer is trapped in the viewport. Its world position is derived from the viewport position. Edge push does not work otherwise.
+- Drifter draws its own cursor, last, over everything. A bare DRM compositor has no system cursor, so without this the screen has no pointer at all.
 
 Multi-monitor
 
@@ -116,6 +118,12 @@ Session
 5. Click a window in overview. Camera flies to it and settles at 1.0.
 6. Modifier + scroll zoom at the cursor. Modifier + edge push to pan.
 7. Save and restore camera position across logout.
+
+## Images
+
+Wallpapers and other images are PNG or JPEG. The format is read from the first bytes of the file, never from the name.
+
+If the configured path is missing, Drifter looks for the same name with another image extension in the same folder. So swapping wallpaper.png for wallpaper.jpeg needs no config edit.
 
 ## Running it
 

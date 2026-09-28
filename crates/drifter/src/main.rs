@@ -10,7 +10,7 @@ mod session;
 
 #[cfg(target_os = "linux")]
 fn load_image(path: &Path, what: &str) -> Option<drifter_core::Image> {
-    match drifter_core::load_png(path) {
+    match drifter_core::image::load(path) {
         Ok(image) => Some(image),
         Err(error) => {
             eprintln!("drifter: no {what}: {error}");
@@ -51,8 +51,13 @@ fn report(config: &Config) {
     println!("modifier    {:?}", config.input.modifier);
     println!("wallpaper   {:?}", config.workspace.wallpaper_mode);
     println!("            wants {} x {} px", needed.x, needed.y);
-    match &config.workspace.wallpaper {
-        Some(image) => println!("            {} ({})", image.display(), present(image)),
+    match config
+        .workspace
+        .wallpaper
+        .as_deref()
+        .and_then(drifter_core::image::find)
+    {
+        Some(image) => println!("            {} (found)", image.display()),
         None => println!("            none set"),
     }
     println!("drawers     {} px", tunables.drawer_height);
@@ -88,7 +93,8 @@ fn bootstrap(config: &Config) -> ExitCode {
         .workspace
         .wallpaper
         .as_deref()
-        .and_then(|path| load_image(path, "wallpaper"));
+        .and_then(drifter_core::image::find)
+        .and_then(|path| load_image(&path, "wallpaper"));
 
     let screen = match render::open(
         &mut seat.session,

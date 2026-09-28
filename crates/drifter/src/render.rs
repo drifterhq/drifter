@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use drifter_core::cursor::Cursor;
 use drifter_core::drawer::{self, Drawer, Edge, Panel};
 use drifter_core::image::Image;
 use drifter_core::mode::{self, Mode};
@@ -62,6 +63,8 @@ struct State {
     wallpaper: Option<(TextureBuffer<GlesTexture>, Rect)>,
     panels: [TextureBuffer<GlesTexture>; 2],
     panel: Panel,
+    arrow: TextureBuffer<GlesTexture>,
+    cursor: Cursor,
     drawers: [Drawer; 2],
     tunables: Tunables,
     screen: Vec2,
@@ -89,7 +92,7 @@ impl State {
     }
 
     fn elements(&self) -> Vec<TextureRenderElement<GlesTexture>> {
-        let mut elements = Vec::new();
+        let mut elements = vec![element(&self.arrow, self.cursor.rect(self.pointer), 1.0)];
         for edge in Edge::ALL {
             let drawer = &self.drawers[edge.index()];
             if drawer.visible() {
@@ -411,6 +414,10 @@ pub fn open(
         .map(|(image, _)| Rect::fill_centered(image.size(), screen));
     let wallpaper_element = texture.zip(rect);
 
+    let cursor = Cursor::default();
+    let arrow = upload(&mut renderer, Some(&cursor.paint()), "cursor")?
+        .ok_or_else(|| "cannot build the cursor".to_string())?;
+
     let mut built = Vec::new();
     for edge in Edge::ALL {
         let what = match edge {
@@ -439,6 +446,8 @@ pub fn open(
         wallpaper: wallpaper_element,
         panels,
         panel,
+        arrow,
+        cursor,
         drawers: [Drawer::new(Edge::Top), Drawer::new(Edge::Bottom)],
         tunables,
         screen,

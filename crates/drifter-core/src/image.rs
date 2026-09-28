@@ -14,9 +14,65 @@ impl Image {
     }
 }
 
-pub fn load_png(path: &Path) -> Result<Image, String> {
-    let file = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let decoder = png::Decoder::new(std::io::BufReader::new(file));
+const EXTENSIONS: [&str; 4] = ["png", "jpg", "jpeg", "jpe"];
+
+pub fn find(path: &Path) -> Option<std::path::PathBuf> {
+    if path.is_file() {
+        return Some(path.to_path_buf());
+    }
+    let stem = path.file_stem()?;
+    let parent = path.parent()?;
+    EXTENSIONS
+        .iter()
+        .map(|ext| parent.join(stem).with_extension(ext))
+        .find(|candidate| candidate.is_file())
+}
+
+pub fn load(path: &Path) -> Result<Image, String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
+        return load_png(path, &bytes);
+    }
+    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return load_jpeg(path, &bytes);
+    }
+    Err(format!("{}: not a png or a jpeg", path.display()))
+}
+
+fn load_jpeg(path: &Path, bytes: &[u8]) -> Result<Image, String> {
+    let mut decoder = jpeg_decoder::Decoder::new(std::io::Cursor::new(bytes));
+    let pixels = decoder
+        .decode()
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    let info = decoder
+        .info()
+        .ok_or_else(|| format!("{}: the jpeg has no header", path.display()))?;
+
+    let rgba = match info.pixel_format {
+        jpeg_decoder::PixelFormat::RGB24 => pixels
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .flat_map(|p| [p[0], p[1], p[2], 255])
+            .collect(),
+        jpeg_decoder::PixelFormat::L8 => pixels.iter().flat_map(|g| [*g, *g, *g, 255]).collect(),
+        other => {
+            return Err(format!(
+                "{}: unsupported jpeg pixel format {other:?}",
+                path.display()
+            ));
+        }
+    };
+
+    Ok(Image {
+        width: u32::from(info.width),
+        height: u32::from(info.height),
+        rgba,
+    })
+}
+
+fn load_png(path: &Path, bytes: &[u8]) -> Result<Image, String> {
+    let decoder = png::Decoder::new(std::io::Cursor::new(bytes));
     let mut reader = decoder
         .read_info()
         .map_err(|e| format!("{}: {e}", path.display()))?;
@@ -83,7 +139,7 @@ mod tests {
     fn loads_an_rgba_png_unchanged() {
         let path = scratch("rgba.png");
         write_png(&path, 2, 1, png::ColorType::Rgba, &[1, 2, 3, 4, 5, 6, 7, 8]);
-        let image = load_png(&path).unwrap();
+        let image = load(&path).unwrap();
         assert_eq!((image.width, image.height), (2, 1));
         assert_eq!(image.rgba, vec![1, 2, 3, 4, 5, 6, 7, 8]);
     }
@@ -92,7 +148,7 @@ mod tests {
     fn expands_rgb_to_rgba_with_opaque_alpha() {
         let path = scratch("rgb.png");
         write_png(&path, 2, 1, png::ColorType::Rgb, &[9, 8, 7, 6, 5, 4]);
-        let image = load_png(&path).unwrap();
+        let image = load(&path).unwrap();
         assert_eq!(image.rgba, vec![9, 8, 7, 255, 6, 5, 4, 255]);
     }
 
@@ -100,7 +156,7 @@ mod tests {
     fn expands_grayscale_to_rgba() {
         let path = scratch("gray.png");
         write_png(&path, 2, 1, png::ColorType::Grayscale, &[10, 20]);
-        let image = load_png(&path).unwrap();
+        let image = load(&path).unwrap();
         assert_eq!(image.rgba, vec![10, 10, 10, 255, 20, 20, 20, 255]);
     }
 
@@ -108,7 +164,7 @@ mod tests {
     fn the_buffer_is_always_four_bytes_per_pixel() {
         let path = scratch("size.png");
         write_png(&path, 4, 3, png::ColorType::Rgb, &[0; 36]);
-        let image = load_png(&path).unwrap();
+        let image = load(&path).unwrap();
         assert_eq!(image.rgba.len() as u32, image.width * image.height * 4);
     }
 
@@ -116,19 +172,69 @@ mod tests {
     fn size_matches_the_header() {
         let path = scratch("dims.png");
         write_png(&path, 7, 5, png::ColorType::Rgba, &[0; 140]);
-        let image = load_png(&path).unwrap();
+        let image = load(&path).unwrap();
         assert_eq!(image.size(), Vec2::new(7.0, 5.0));
+    }
+
+    const TINY_JPEG: &str = "ffd8ffe000104a46494600010100000100010000ffdb0043000302020302020303030304030304050805050404050a070706080c0a0c0c0b0a0b0b0d0e12100d0e110e0b0b1016101113141515150c0f171816141812141514ffdb00430103040405040509050509140d0b0d1414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414141414ffc00011080002000403012200021101031101ffc4001f0000010501010101010100000000000000000102030405060708090a0bffc400b5100002010303020403050504040000017d01020300041105122131410613516107227114328191a1082342b1c11552d1f02433627282090a161718191a25262728292a3435363738393a434445464748494a535455565758595a636465666768696a737475767778797a838485868788898a92939495969798999aa2a3a4a5a6a7a8a9aab2b3b4b5b6b7b8b9bac2c3c4c5c6c7c8c9cad2d3d4d5d6d7d8d9dae1e2e3e4e5e6e7e8e9eaf1f2f3f4f5f6f7f8f9faffc4001f0100030101010101010101010000000000000102030405060708090a0bffc400b51100020102040403040705040400010277000102031104052131061241510761711322328108144291a1b1c109233352f0156272d10a162434e125f11718191a262728292a35363738393a434445464748494a535455565758595a636465666768696a737475767778797a82838485868788898a92939495969798999aa2a3a4a5a6a7a8a9aab2b3b4b5b6b7b8b9bac2c3c4c5c6c7c8c9cad2d3d4d5d6d7d8d9dae2e3e4e5e6e7e8e9eaf2f3f4f5f6f7f8f9faffda000c03010002110311003f00f04a28a2bf3f3fb80fffd9";
+
+    fn hex(text: &str) -> Vec<u8> {
+        text.as_bytes()
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn loads_a_jpeg_as_rgba() {
+        let path = scratch("photo.jpeg");
+        std::fs::write(&path, hex(TINY_JPEG)).unwrap();
+        let image = load(&path).unwrap();
+        assert_eq!((image.width, image.height), (4, 2));
+        assert_eq!(image.rgba.len(), 4 * 2 * 4);
+        assert!(image.rgba.as_chunks::<4>().0.iter().all(|p| p[3] == 255));
+    }
+
+    #[test]
+    fn a_jpeg_is_read_by_its_bytes_not_by_its_name() {
+        let path = scratch("liar.png");
+        std::fs::write(&path, hex(TINY_JPEG)).unwrap();
+        let image = load(&path).unwrap();
+        assert_eq!((image.width, image.height), (4, 2));
+    }
+
+    #[test]
+    fn find_takes_the_path_that_exists() {
+        let path = scratch("there.png");
+        write_png(&path, 1, 1, png::ColorType::Rgba, &[1, 2, 3, 4]);
+        assert_eq!(find(&path), Some(path));
+    }
+
+    #[test]
+    fn find_falls_back_to_the_same_name_with_another_extension() {
+        let real = scratch("changed.jpeg");
+        std::fs::write(&real, hex(TINY_JPEG)).unwrap();
+        let asked = scratch("changed.png");
+        let _ = std::fs::remove_file(&asked);
+        assert_eq!(find(&asked), Some(real));
+    }
+
+    #[test]
+    fn find_gives_up_when_nothing_is_there() {
+        assert_eq!(find(&scratch("nothing-at-all.png")), None);
     }
 
     #[test]
     fn a_missing_file_is_an_error_not_a_panic() {
-        assert!(load_png(Path::new("/nonexistent/nope.png")).is_err());
+        assert!(load(Path::new("/nonexistent/nope.png")).is_err());
     }
 
     #[test]
     fn a_file_that_is_not_a_png_is_an_error() {
         let path = scratch("notapng.png");
         std::fs::write(&path, b"this is not a png").unwrap();
-        assert!(load_png(&path).is_err());
+        assert!(load(&path).is_err());
     }
 }

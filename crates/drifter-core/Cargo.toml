@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+jpeg-decoder = { version = "0.3.2", default-features = false }
 png = "0.18.1"
 serde = { version = "1.0.229", features = ["derive"] }
 toml = "1.1.6"
