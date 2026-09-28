@@ -927,7 +927,8 @@ pub fn open(
         })
         .map_err(|e| format!("cannot watch the wayland socket: {e}"))?;
 
-    let poll = state_poll_fd(&state);
+    let mut state = state;
+    let poll = state_poll_fd(&mut state);
     handle
         .insert_source(poll, |_, _, state: &mut State| {
             state.dispatch_clients();
@@ -969,12 +970,12 @@ pub fn open(
 }
 
 fn state_poll_fd(
-    state: &State,
+    state: &mut State,
 ) -> smithay::reexports::calloop::generic::Generic<std::os::fd::OwnedFd> {
     use smithay::reexports::calloop::{Interest, Mode as PollMode, generic::Generic};
     let fd = state
         .display
-        .as_ref()
+        .as_mut()
         .expect("the display was just made")
         .backend()
         .poll_fd()
