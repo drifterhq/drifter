@@ -39,7 +39,7 @@ impl Default for Panel {
     fn default() -> Self {
         Panel {
             height: 64.0,
-            radius: 14.0,
+            radius: 10.0,
             shadow: 16.0,
             slack: 16.0,
         }

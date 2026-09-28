@@ -117,6 +117,17 @@ fn bootstrap(config: &Config) -> ExitCode {
     );
     println!("            gl {}", found.renderer);
     print_rect("wallpaper", found.wallpaper);
+    println!(
+        "drawer      {} x {} px, y {} to {}",
+        found.drawer.size.x,
+        found.drawer.size.y,
+        found.drawer.origin.y,
+        found.drawer.max().y
+    );
+    println!(
+        "            corners reach {} px further at the two ends",
+        found.corner
+    );
     println!("running     drifter holds the screen until it is killed");
 
     match screen.run() {

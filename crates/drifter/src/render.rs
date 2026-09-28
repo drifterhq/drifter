@@ -51,6 +51,8 @@ pub struct Found {
     pub refresh: u32,
     pub renderer: String,
     pub wallpaper: Option<Rect>,
+    pub drawer: Rect,
+    pub corner: f64,
 }
 
 pub struct Screen {
@@ -502,6 +504,13 @@ pub fn open(
     let arrow = upload(&mut renderer, Some(&arrow_image), "cursor")?
         .ok_or_else(|| "cannot build the cursor".to_string())?;
 
+    let open_band = {
+        let mut probe = Drawer::new(Edge::Top);
+        probe.open = true;
+        probe.advance(Duration::from_secs(1), Duration::from_millis(1));
+        probe.band(screen, &panel)
+    };
+
     let mut built = Vec::new();
     for edge in Edge::ALL {
         let what = match edge {
@@ -636,6 +645,8 @@ pub fn open(
             refresh: drm_mode.vrefresh(),
             renderer: gl,
             wallpaper: rect,
+            drawer: open_band,
+            corner: panel.radius,
         },
         events,
         state,
