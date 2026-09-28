@@ -4,6 +4,8 @@ use std::process::ExitCode;
 use drifter_core::{Camera, Config, Rect, Tunables, Vec2, wallpaper};
 
 #[cfg(target_os = "linux")]
+mod drm;
+#[cfg(target_os = "linux")]
 mod session;
 
 fn present(path: &Path) -> &'static str {
@@ -42,31 +44,71 @@ fn report(config: &Config) {
 }
 
 #[cfg(target_os = "linux")]
-fn bootstrap() -> ExitCode {
-    match session::bootstrap(std::time::Duration::from_secs(2)) {
-        Ok(found) => {
-            println!("seat        {}", found.seat);
-            println!("            active {}", found.active);
-            println!("            {} udev device(s)", found.devices.len());
-            for device in &found.devices {
-                println!("            {}", device.display());
-            }
+fn bootstrap(config: &Config) -> ExitCode {
+    use std::time::Duration;
+
+    let mut seat = match session::open() {
+        Ok(seat) => seat,
+        Err(error) => {
+            eprintln!("drifter: seat session failed: {error}");
+            eprintln!("drifter: check that seatd is running");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    println!("seat        {}", seat.name);
+    println!("            active {}", seat.active);
+    println!("            {} udev device(s)", seat.devices.len());
+    for device in &seat.devices {
+        println!("            {}", device.display());
+    }
+
+    let Some(card) = seat.devices.first().cloned() else {
+        eprintln!("drifter: no drm device on seat {}", seat.name);
+        return ExitCode::FAILURE;
+    };
+
+    let want = (1920, 1080);
+    let orange = 0x00FF_6600;
+    match drm::show_color(
+        &mut seat.session,
+        &card,
+        want,
+        orange,
+        Duration::from_secs(5),
+    ) {
+        Ok(shown) => {
+            println!("screen      {}", shown.connector);
             println!(
-                "            {} paused, {} activated in 2s",
-                found.paused, found.activated
+                "            {} x {} @ {} on {}",
+                shown.width,
+                shown.height,
+                shown.refresh,
+                shown.device.display()
             );
+            println!("            held orange for {:?}", shown.held);
+        }
+        Err(error) => {
+            eprintln!("drifter: {error}");
+            return ExitCode::FAILURE;
+        }
+    }
+
+    let _ = config;
+    match session::watch(seat.notifier, Duration::from_millis(200)) {
+        Ok((paused, activated)) => {
+            println!("            {paused} paused, {activated} activated while settling");
             ExitCode::SUCCESS
         }
         Err(error) => {
-            eprintln!("drifter: seat session failed: {error}");
-            eprintln!("drifter: check that seatd is running and that you are on a tty");
+            eprintln!("drifter: seat watch failed: {error}");
             ExitCode::FAILURE
         }
     }
 }
 
 #[cfg(not(target_os = "linux"))]
-fn bootstrap() -> ExitCode {
+fn bootstrap(_config: &Config) -> ExitCode {
     println!("seat        not on linux, skipped");
     ExitCode::SUCCESS
 }
@@ -83,5 +125,5 @@ fn main() -> ExitCode {
 
     println!("config      {} ({})", path.display(), present(&path));
     report(&config);
-    bootstrap()
+    bootstrap(&config)
 }
