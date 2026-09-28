@@ -4,7 +4,7 @@ use std::process::ExitCode;
 use drifter_core::{Camera, Config, Rect, Tunables, Vec2, wallpaper};
 
 #[cfg(target_os = "linux")]
-mod drm;
+mod render;
 #[cfg(target_os = "linux")]
 mod session;
 
@@ -75,8 +75,8 @@ fn bootstrap(config: &Config) -> ExitCode {
     };
 
     let want = (1920, 1080);
-    let orange = 0x00FF_6600;
-    match drm::show_color(
+    let orange = [1.0, 0.4, 0.0, 1.0];
+    match render::show_color(
         &mut seat.session,
         &card,
         want,
@@ -92,7 +92,8 @@ fn bootstrap(config: &Config) -> ExitCode {
                 shown.refresh,
                 shown.device.display()
             );
-            println!("            held orange for {:?}", shown.held);
+            println!("            gl {}", shown.renderer);
+            println!("            {} frames in {:?}", shown.frames, shown.held);
         }
         Err(error) => {
             eprintln!("drifter: {error}");
