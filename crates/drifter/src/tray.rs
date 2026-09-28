@@ -10,7 +10,6 @@ const ITEM: &str = "org.kde.StatusNotifierItem";
 
 pub struct Icon {
     pub service: String,
-    pub title: String,
     pub image: Image,
 }
 
@@ -126,16 +125,10 @@ fn read_icon(connection: &zbus::blocking::Connection, service: &str) -> Option<I
     let (name, path) = split(service);
     let proxy = zbus::blocking::Proxy::new(connection, name, path, ITEM).ok()?;
 
-    let title: String = proxy
-        .get_property("Title")
-        .or_else(|_| proxy.get_property("Id"))
-        .unwrap_or_else(|_| service.to_string());
-
     let image = pixmap(&proxy).or_else(|| named(&proxy))?;
 
     Some(Icon {
         service: service.to_string(),
-        title,
         image,
     })
 }
@@ -245,7 +238,7 @@ fn serve(
         }
     };
 
-    if let Ok(mut interface) = connection
+    if let Ok(interface) = connection
         .object_server()
         .interface::<_, Watcher>(WATCHER_PATH)
     {
@@ -281,14 +274,9 @@ fn watch_signals(
     items: Arc<Mutex<Vec<String>>>,
     wake: SyncSender<Vec<Icon>>,
 ) {
-    let Ok(rule) = zbus::MatchRule::builder()
+    let rule = zbus::MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)
-        .build()
-        .try_into()
-        .map(|rule: zbus::MatchRule<'static>| rule)
-    else {
-        return;
-    };
+        .build();
 
     let Ok(messages) = zbus::blocking::MessageIterator::for_match_rule(rule, &connection, None)
     else {
