@@ -167,6 +167,7 @@ pub struct State {
     dock: Dock,
     pinned: Vec<(String, Option<TextureBuffer<GlesTexture>>)>,
     trash: Option<TextureBuffer<GlesTexture>>,
+    cog: Option<TextureBuffer<GlesTexture>>,
     dot: Option<TextureBuffer<GlesTexture>>,
     glow: Option<TextureBuffer<GlesTexture>>,
     rule: Option<TextureBuffer<GlesTexture>>,
@@ -432,6 +433,12 @@ impl State {
                         elements.push(Skin::Texture(element(buffer, rect, 0.9)));
                     }
                 }
+            }
+            if let Some(buffer) = self.cog.as_ref() {
+                let rect = self
+                    .dock
+                    .slot_rect(band, pinned, hidden.len(), Slot::Settings);
+                elements.push(Skin::Texture(element(buffer, rect, 1.0)));
             }
             if let Some(buffer) = self.trash.as_ref() {
                 let rect = self.dock.slot_rect(band, pinned, hidden.len(), Slot::Trash);
@@ -862,6 +869,7 @@ impl State {
                     crate::apps::launch(&exec, &self.socket);
                 }
             }
+            Slot::Settings => self.open_settings(),
             Slot::Trash => {
                 let home = std::env::var("HOME").unwrap_or_default();
                 let trash = format!("{home}/.local/share/Trash/files");
@@ -2463,7 +2471,8 @@ pub fn open(
                     None
                 }
             })
-            .map(|image| image.scaled(Dock::default().icon as u32, Dock::default().icon as u32));
+            .map(|image| image.scaled(side, side))
+            .or_else(|| spare.clone());
         let buffer = match art {
             Some(image) => upload(&mut renderer, Some(&image), "dock icon")?,
             None => None,
@@ -2472,9 +2481,26 @@ pub fn open(
     }
 
     let trash_look = Dock::default();
-    let trash_image =
-        drifter_core::dock::paint_trash(trash_look.icon as u32, trash_look.rule_ink());
+    let art = config.dock_dir();
+    let side = trash_look.icon as u32;
+    let from_art = |name: &str| -> Option<drifter_core::Image> {
+        let dir = art.as_ref()?;
+        match drifter_core::image::load(&dir.join(format!("{name}.png"))) {
+            Ok(image) => Some(image.scaled(side, side)),
+            Err(error) => {
+                eprintln!("drifter: no dock art for {name}: {error}");
+                None
+            }
+        }
+    };
+
+    let trash_image = from_art("trash")
+        .unwrap_or_else(|| drifter_core::dock::paint_trash(side, trash_look.rule_ink()));
     let trash = upload(&mut renderer, Some(&trash_image), "trash")?;
+    let cog_image = from_art("settings")
+        .unwrap_or_else(|| drifter_core::dock::paint_cog(side, trash_look.rule_ink()));
+    let cog = upload(&mut renderer, Some(&cog_image), "settings")?;
+    let spare = from_art("app");
     let dot_image = drifter_core::dock::paint_dot(
         (trash_look.icon / 9.0).max(3.0) as u32,
         trash_look.rule_ink(),
@@ -2545,6 +2571,7 @@ pub fn open(
         dock: Dock::default(),
         pinned,
         trash,
+        cog,
         dot,
         glow,
         rule,

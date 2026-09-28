@@ -54,3 +54,7 @@ font = "../fonts/WorkSans.ttf"
 # the same set again as -idle, and buttons with -hover and -press.
 # Sizes come from the art. A taller title-mid.png gives a taller title bar.
 window = "../img/window"
+
+# Folder holding the dock icons: settings.png, trash.png, app.png and the rest.
+# A pinned app with no icon of its own falls back to app.png here.
+dock = "../img/dock"

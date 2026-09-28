@@ -5,6 +5,7 @@ use crate::image::Image;
 pub enum Slot {
     Pinned(usize),
     Minimized(usize),
+    Settings,
     Trash,
 }
 
@@ -39,13 +40,13 @@ impl Dock {
     }
 
     fn splits(&self, pinned: usize, minimized: usize) -> usize {
-        let groups = [pinned, minimized, 1];
+        let groups = [pinned, minimized, 2];
         let filled: Vec<usize> = groups.into_iter().filter(|count| *count > 0).collect();
         filled.len().saturating_sub(1)
     }
 
     pub fn width(&self, pinned: usize, minimized: usize) -> f64 {
-        let count = pinned + minimized + 1;
+        let count = pinned + minimized + 2;
         let icons = self.icon * count as f64;
         let gaps = self.gap * (count - 1) as f64;
         icons + gaps + self.divider * self.splits(pinned, minimized) as f64
@@ -61,13 +62,12 @@ impl Dock {
         let step = self.icon + self.gap;
         let y = band.origin.y + (band.size.y - self.icon) / 2.0;
         let before_minimized = if pinned > 0 { self.divider } else { 0.0 };
+        let tail = self.divider * self.splits(pinned, minimized) as f64;
         let place = match slot {
             Slot::Pinned(index) => step * index as f64,
             Slot::Minimized(index) => step * (pinned + index) as f64 + before_minimized,
-            Slot::Trash => {
-                step * (pinned + minimized) as f64
-                    + self.divider * self.splits(pinned, minimized) as f64
-            }
+            Slot::Settings => step * (pinned + minimized) as f64 + tail,
+            Slot::Trash => step * (pinned + minimized + 1) as f64 + tail,
         };
         let x = self.start(band, pinned, minimized) + place;
         Rect::new(Vec2::new(x, y).round(), Vec2::splat(self.icon))
@@ -104,7 +104,7 @@ impl Dock {
         if let Some(last) = last {
             between(
                 last,
-                self.slot_rect(band, pinned, minimized, Slot::Trash),
+                self.slot_rect(band, pinned, minimized, Slot::Settings),
                 &mut rules,
             );
         }
@@ -128,7 +128,7 @@ impl Dock {
         let slots = (0..pinned)
             .map(Slot::Pinned)
             .chain((0..minimized).map(Slot::Minimized))
-            .chain(std::iter::once(Slot::Trash));
+            .chain([Slot::Settings, Slot::Trash]);
         slots.into_iter().find(|slot| {
             self.slot_rect(band, pinned, minimized, *slot)
                 .contains(pointer)
@@ -341,9 +341,9 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_dock_still_holds_the_trash() {
+    fn an_empty_dock_still_holds_the_cog_and_the_trash() {
         let dock = Dock::default();
-        assert_eq!(dock.width(0, 0), dock.icon);
+        assert_eq!(dock.width(0, 0), dock.icon * 2.0 + dock.gap);
     }
 
     #[test]
@@ -405,6 +405,35 @@ mod tests {
     fn the_trash_ink_is_lighter_than_the_divider() {
         let dock = Dock::default();
         assert!(dock.rule_ink()[0] > dock.rule[0]);
+    }
+
+    #[test]
+    fn the_cog_sits_directly_left_of_the_trash() {
+        let dock = Dock::default();
+        let band = band();
+        let cog = dock.slot_rect(band, 2, 1, Slot::Settings);
+        let trash = dock.slot_rect(band, 2, 1, Slot::Trash);
+        assert_eq!(trash.origin.x - cog.max().x, dock.gap);
+        assert_eq!(cog.center().y, trash.center().y);
+    }
+
+    #[test]
+    fn no_divider_ever_splits_the_cog_from_the_trash() {
+        let dock = Dock::default();
+        let band = band();
+        let cog = dock.slot_rect(band, 2, 2, Slot::Settings);
+        let trash = dock.slot_rect(band, 2, 2, Slot::Trash);
+        for rule in dock.dividers(band, 2, 2) {
+            assert!(rule.max().x <= cog.origin.x || rule.origin.x >= trash.max().x);
+        }
+    }
+
+    #[test]
+    fn a_click_on_the_cog_finds_it() {
+        let dock = Dock::default();
+        let band = band();
+        let cog = dock.slot_rect(band, 1, 0, Slot::Settings);
+        assert_eq!(dock.at(band, cog.center(), 1, 0), Some(Slot::Settings));
     }
 
     #[test]

@@ -75,6 +75,8 @@ pub struct Assets {
     pub font: Option<PathBuf>,
     #[serde(default)]
     pub window: Option<PathBuf>,
+    #[serde(default)]
+    pub dock: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
@@ -310,6 +312,10 @@ impl Config {
 
     pub fn window_dir(&self) -> Option<PathBuf> {
         self.assets.window.as_deref().map(|path| self.beside(path))
+    }
+
+    pub fn dock_dir(&self) -> Option<PathBuf> {
+        self.assets.dock.as_deref().map(|path| self.beside(path))
     }
 
     pub fn load() -> Result<Config, ConfigError> {
