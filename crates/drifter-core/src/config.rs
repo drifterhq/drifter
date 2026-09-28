@@ -195,7 +195,7 @@ impl Default for Tunables {
             drawer_anim: Duration::from_millis(300),
             edge_band: 2.0,
             hot_corner_dwell: Duration::from_millis(300),
-            hot_corner_size: 12.0,
+            hot_corner_size: 48.0,
             edge_pan_speed: 1400.0,
             camera_anim: Duration::from_millis(260),
         }

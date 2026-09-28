@@ -312,7 +312,7 @@ impl State {
         if self.hover_since.is_some() && self.tip.is_none() {
             return Some(SECOND_TICK);
         }
-        if drifter_core::corner::heat(self.pointer, drifter_core::corner::REACH) > 0.0 {
+        if drifter_core::corner::heat(self.pointer, self.tunables.hot_corner_size) > 0.0 {
             return Some(TICK);
         }
         if self.drawers[Edge::Top.index()].visible() && self.font.is_some() {
@@ -332,9 +332,9 @@ impl State {
         }
 
         if let Some(buffer) = self.glow.as_ref() {
-            let warmth = drifter_core::corner::heat(self.pointer, drifter_core::corner::REACH);
+            let warmth = drifter_core::corner::heat(self.pointer, self.tunables.hot_corner_size);
             if warmth > 0.0 && !self.overview() {
-                let reach = drifter_core::corner::REACH;
+                let reach = self.tunables.hot_corner_size;
                 let rect = Rect::new(Vec2::ZERO, Vec2::splat(reach));
                 elements.push(Skin::Texture(element(buffer, rect, (warmth * 0.55) as f32)));
             }
@@ -1147,6 +1147,7 @@ impl State {
             return;
         }
         if self.overview() || self.flight.is_some() {
+            self.corner_since = None;
             return;
         }
         match self.corner_since {
@@ -1559,6 +1560,7 @@ impl State {
             }
         }
         self.settle_tip();
+        self.watch_corner();
         if !self.awaiting
             && let Err(error) = self.draw()
         {
