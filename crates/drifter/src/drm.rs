@@ -99,8 +99,8 @@ pub fn show_color(
         let mut map = device
             .map_dumb_buffer(&mut buffer)
             .map_err(|e| format!("cannot map dumb buffer: {e}"))?;
-        for pixel in map.as_mut().chunks_exact_mut(4) {
-            pixel.copy_from_slice(&color.to_ne_bytes());
+        for pixel in map.as_mut().as_chunks_mut::<4>().0 {
+            *pixel = color.to_ne_bytes();
         }
     }
 
@@ -156,10 +156,10 @@ fn pick_crtc(
         return Some(crtc);
     }
     for encoder in conn.encoders() {
-        if let Ok(info) = device.get_encoder(*encoder) {
-            if let Some(crtc) = resources.filter_crtcs(info.possible_crtcs()).first() {
-                return Some(*crtc);
-            }
+        if let Ok(info) = device.get_encoder(*encoder)
+            && let Some(crtc) = resources.filter_crtcs(info.possible_crtcs()).first()
+        {
+            return Some(*crtc);
         }
     }
     None
