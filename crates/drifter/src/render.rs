@@ -157,6 +157,7 @@ pub struct State {
     dock: Dock,
     pinned: Vec<(String, Option<TextureBuffer<GlesTexture>>)>,
     trash: Option<TextureBuffer<GlesTexture>>,
+    dot: Option<TextureBuffer<GlesTexture>>,
     rule: Option<TextureBuffer<GlesTexture>>,
     app_icons: std::collections::HashMap<String, TextureBuffer<GlesTexture>>,
     format: String,
@@ -386,6 +387,20 @@ impl State {
                         self.dock
                             .slot_rect(band, pinned, hidden.len(), Slot::Minimized(index));
                     elements.push(Skin::Texture(element(buffer, rect, 1.0)));
+                }
+            }
+            if let Some(buffer) = self.dot.as_ref() {
+                for (index, (name, _)) in self.pinned.iter().enumerate() {
+                    let running = self
+                        .windows
+                        .iter()
+                        .any(|window| window.placed && window.app.as_str() == name.as_str());
+                    if running {
+                        let rect =
+                            self.dock
+                                .dot_rect(band, pinned, hidden.len(), Slot::Pinned(index));
+                        elements.push(Skin::Texture(element(buffer, rect, 0.9)));
+                    }
                 }
             }
             if let Some(buffer) = self.trash.as_ref() {
@@ -672,6 +687,12 @@ impl State {
 
         let view = self.camera.visible_rect(self.screen);
         let chrome = self.chrome;
+        let taken: Vec<Vec2> = self
+            .windows
+            .iter()
+            .filter(|window| window.placed && window.toplevel.wl_surface() != surface)
+            .map(|window| window.content.origin)
+            .collect();
         let Some(window) = self
             .windows
             .iter_mut()
@@ -697,7 +718,8 @@ impl State {
         let seen = view.origin;
         let middle = seen + (view.size - size) / 2.0;
         let top = middle.y.max(seen.y + chrome.title + chrome.edge);
-        window.content.origin = Vec2::new(middle.x, top).round();
+        let wanted = Vec2::new(middle.x, top);
+        window.content.origin = drifter_core::window::cascade(wanted, &taken, 34.0, view);
         window.placed = true;
     }
 
@@ -827,7 +849,9 @@ impl State {
                 else {
                     return true;
                 };
+                let seat = self.dock_slot(index);
                 self.windows[place].hidden = false;
+                self.windows[place].motion = Some(Motion::new(Phase::Restoring, seat));
                 self.raise(place);
             }
         }
@@ -1562,12 +1586,18 @@ impl State {
         use wayland_protocols::xdg::shell::server::xdg_toplevel;
 
         match slot {
-            0 => self.windows[index].toplevel.send_close(),
+            0 => {
+                let seat = self.dock_slot(0);
+                let window = &mut self.windows[index];
+                if !window.going {
+                    window.going = true;
+                    window.motion = Some(Motion::new(Phase::Closing, seat));
+                }
+            }
             1 => {
-                self.windows[index].hidden = true;
+                let seat = self.dock_slot(self.minimized().len());
                 self.focus = None;
-                self.remember_icon(index);
-                self.wake_windows();
+                self.windows[index].motion = Some(Motion::new(Phase::Minimizing, seat));
             }
             _ => {
                 let chrome = self.chrome;
@@ -2192,6 +2222,11 @@ pub fn open(
     let trash_image =
         drifter_core::dock::paint_trash(trash_look.icon as u32, trash_look.rule_ink());
     let trash = upload(&mut renderer, Some(&trash_image), "trash")?;
+    let dot_image = drifter_core::dock::paint_dot(
+        (trash_look.icon / 9.0).max(3.0) as u32,
+        trash_look.rule_ink(),
+    );
+    let dot = upload(&mut renderer, Some(&dot_image), "running dot")?;
 
     let dock_look = Dock::default();
     let rule_image = drifter_core::Image {
@@ -2254,6 +2289,7 @@ pub fn open(
         dock: Dock::default(),
         pinned,
         trash,
+        dot,
         rule,
         app_icons: std::collections::HashMap::new(),
         format: config.tray.format.clone(),
