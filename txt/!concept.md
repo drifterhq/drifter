@@ -41,6 +41,9 @@ TOML.
     [input]
     modifier = "Super"
 
+    [dock]
+    pinned = []
+
     [tray]
     format = "%a %b %d %I:%M:%S %p"
 
@@ -107,7 +110,10 @@ Windows
 Drawers
 
 - Push the pointer at the top edge and an inset drawer slides down, 64 px, full width. It holds the system tray.
-- Push the pointer at the bottom edge and an inset drawer holds the launcher icons and a trash can.
+- Push the pointer at the bottom edge and the dock slides up. It holds pinned apps, then a divider, then one icon for every minimized window, all centered. The trash sits alone at the far right and never moves.
+- With no `[dock] pinned` list, the dock starts with the XDG defaults: the default browser, the default file manager and the default terminal, read from mimeapps.list.
+- Clicking a pinned icon starts that app. Clicking a minimized icon brings that window back and raises it. Clicking the trash opens the XDG trash folder in the file manager.
+- Minimize hides a window and puts its icon in the dock. That is the only way a window ever leaves the screen, and the dock is always the way back.
 - The drawer opens after a short dwell at the edge, so a fast pass never pops it open. It stays open while the pointer rests on it, and hides a short delay after the pointer leaves.
 - The bar is 64 px everywhere. The corner curve reaches 10 px further down, but only within 10 px of the left and right ends. Drifter prints the measured band at startup, so this is never a guess.
 - The look: the corners of the DESKTOP OPENING are rounded, not the drawer. The panel runs the full width and curves deeper at the left and right ends, so the viewport reads as a rounded window and the drawer as the frame around it.

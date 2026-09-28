@@ -14,7 +14,7 @@ top = 36
 bottom = 64
 
 [dock]
-pinned = ["foot", "com.github.hluk.copyq"]
+pinned = []
 
 [tray]
 format = "%a %b %d %I:%M:%S %p"
