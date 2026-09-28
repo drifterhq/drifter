@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
 
-use crate::config::Config;
 use crate::geom::Vec2;
 use crate::image::Image;
 
@@ -14,9 +13,10 @@ const FALLBACKS: [&str; 7] = [
     "/Library/Fonts/Arial.ttf",
 ];
 
-pub fn font_path() -> Option<PathBuf> {
-    let chosen = Config::data_dir().join("font.ttf");
-    if chosen.is_file() {
+pub fn font_path(chosen: Option<PathBuf>) -> Option<PathBuf> {
+    if let Some(chosen) = chosen
+        && chosen.is_file()
+    {
         return Some(chosen);
     }
     FALLBACKS
@@ -41,12 +41,11 @@ impl Font {
         })
     }
 
-    pub fn find(px: f64) -> Result<Font, String> {
-        let path = font_path().ok_or_else(|| {
-            format!(
-                "no font found. put one at {}",
-                Config::data_dir().join("font.ttf").display()
-            )
+    pub fn find(chosen: Option<PathBuf>, px: f64) -> Result<Font, String> {
+        let asked = chosen.clone();
+        let path = font_path(chosen).ok_or_else(|| match asked {
+            Some(path) => format!("no font found. put one at {}", path.display()),
+            None => "no font found".to_string(),
         })?;
         Font::load(&path, px)
     }
@@ -131,7 +130,7 @@ mod tests {
     use super::*;
 
     fn font() -> Font {
-        Font::find(22.0).expect("this machine has no usable font")
+        Font::find(None, 22.0).expect("this machine has no usable font")
     }
 
     fn opaque(image: &Image) -> usize {
@@ -146,7 +145,7 @@ mod tests {
 
     #[test]
     fn a_font_is_found_on_this_machine() {
-        let path = font_path().expect("no font found");
+        let path = font_path(None).expect("no font found");
         assert!(path.is_file());
     }
 
@@ -186,8 +185,8 @@ mod tests {
 
     #[test]
     fn a_bigger_size_makes_bigger_text() {
-        let small = Font::find(12.0).unwrap();
-        let big = Font::find(36.0).unwrap();
+        let small = Font::find(None, 12.0).unwrap();
+        let big = Font::find(None, 36.0).unwrap();
         assert!(big.width_of("28") > small.width_of("28"));
         assert!(big.line_height() > small.line_height());
     }

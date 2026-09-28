@@ -10,7 +10,7 @@ pub mod tray;
 pub mod wallpaper;
 
 pub use camera::Camera;
-pub use config::{Config, Modifier, TrayConfig, Tunables, WallpaperMode};
+pub use config::{Assets, Config, Modifier, TrayConfig, Tunables, WallpaperMode};
 pub use cursor::Cursor;
 pub use drawer::{Drawer, Edge, Panel};
 pub use geom::{Rect, Vec2};

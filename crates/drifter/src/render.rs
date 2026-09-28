@@ -483,7 +483,7 @@ pub fn open(
         .map(|(image, _)| Rect::fill_centered(image.size(), screen));
     let wallpaper_element = texture.zip(rect);
 
-    let cursor_path = Config::cursor_path();
+    let cursor_path = config.cursor_path();
     let supplied = match drifter_core::image::load(&cursor_path) {
         Ok(image) => Some(image),
         Err(error) => {
@@ -527,7 +527,7 @@ pub fn open(
         .map_err(|_| "the drawer textures went missing".to_string())?;
 
     let tray = Tray::default();
-    let font = match Font::find(tray.size) {
+    let font = match Font::find(Some(config.font_path()), tray.size) {
         Ok(font) => Some(font),
         Err(error) => {
             eprintln!("drifter: no clock: {error}");

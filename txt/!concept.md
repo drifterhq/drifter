@@ -44,9 +44,14 @@ TOML.
     [tray]
     format = "%a %b %d %I:%M:%S %p"
 
+    [assets]
+    dir = "/home/dh/src/drifter/img"
+
 Defaults in code, not in the file: drawer height 64 px, drawer dwell and hide timings, hot corner dwell, pan speed, animation curve and duration. Minimum zoom is derived. It is whatever fits the whole world in the viewport.
 
-Images live at a convention path, not a config key: `~/.local/share/drifter/`, or `$XDG_DATA_HOME/drifter/`. The splash is `splash.png` there.
+Art lives in the repo, in `img/`. The repo is the single source of truth for it. Edit an image, commit, pull, and the next run shows it. Nothing is copied by hand.
+
+`assets.dir` points at that folder. Drifter loads `cursor.png` and `font.ttf` from it by name. When the key is missing it falls back to `$XDG_DATA_HOME/drifter/`. The wallpaper keeps its own full path, because it is the one image a user is most likely to keep somewhere else.
 
 ## Wallpaper modes
 

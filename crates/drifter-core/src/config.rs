@@ -52,6 +52,13 @@ impl Default for Workspace {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct Assets {
+    #[serde(default)]
+    pub dir: Option<PathBuf>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TrayConfig {
@@ -87,6 +94,8 @@ pub struct Config {
     pub input: Input,
     #[serde(default)]
     pub tray: TrayConfig,
+    #[serde(default)]
+    pub assets: Assets,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -173,8 +182,16 @@ impl Config {
         xdg_dir("XDG_DATA_HOME", ".local/share")
     }
 
-    pub fn cursor_path() -> PathBuf {
-        Config::data_dir().join("cursor.png")
+    pub fn assets_dir(&self) -> PathBuf {
+        self.assets.dir.clone().unwrap_or_else(Config::data_dir)
+    }
+
+    pub fn cursor_path(&self) -> PathBuf {
+        self.assets_dir().join("cursor.png")
+    }
+
+    pub fn font_path(&self) -> PathBuf {
+        self.assets_dir().join("font.ttf")
     }
 
     pub fn load() -> Result<Config, ConfigError> {
