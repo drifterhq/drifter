@@ -1,11 +1,13 @@
 pub mod camera;
 pub mod config;
 pub mod geom;
+pub mod mode;
 pub mod wallpaper;
 
 pub use camera::Camera;
 pub use config::{Config, Modifier, Tunables, WallpaperMode};
 pub use geom::{Rect, Vec2};
+pub use mode::Mode;
 pub use wallpaper::parallax_factor;
 
 #[cfg(test)]

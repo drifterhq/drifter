@@ -47,8 +47,14 @@ fn bootstrap() -> ExitCode {
         Ok(found) => {
             println!("seat        {}", found.seat);
             println!("            active {}", found.active);
-            println!("            {} udev device(s)", found.devices);
-            println!("            {} seat event(s) in 2s", found.events);
+            println!("            {} udev device(s)", found.devices.len());
+            for device in &found.devices {
+                println!("            {}", device.display());
+            }
+            println!(
+                "            {} paused, {} activated in 2s",
+                found.paused, found.activated
+            );
             ExitCode::SUCCESS
         }
         Err(error) => {

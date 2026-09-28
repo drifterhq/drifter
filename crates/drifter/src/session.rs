@@ -1,19 +1,22 @@
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use smithay::backend::session::Session;
 use smithay::backend::session::libseat::LibSeatSession;
+use smithay::backend::session::{Event as SessionEvent, Session};
 use smithay::backend::udev::UdevBackend;
 use smithay::reexports::calloop::EventLoop;
 
 pub struct Bootstrap {
     pub seat: String,
     pub active: bool,
-    pub devices: usize,
-    pub events: u32,
+    pub devices: Vec<PathBuf>,
+    pub paused: u32,
+    pub activated: u32,
 }
 
 struct State {
-    events: u32,
+    paused: u32,
+    activated: u32,
 }
 
 pub fn bootstrap(watch: Duration) -> Result<Bootstrap, String> {
@@ -22,17 +25,25 @@ pub fn bootstrap(watch: Duration) -> Result<Bootstrap, String> {
     let active = session.is_active();
 
     let udev = UdevBackend::new(&seat).map_err(|e| e.to_string())?;
-    let devices = udev.device_list().count();
+    let mut devices: Vec<PathBuf> = udev
+        .device_list()
+        .map(|(_, path)| path.to_path_buf())
+        .collect();
+    devices.sort();
 
     let mut event_loop = EventLoop::<State>::try_new().map_err(|e| e.to_string())?;
     event_loop
         .handle()
-        .insert_source(notifier, |_event, _, state: &mut State| {
-            state.events += 1;
+        .insert_source(notifier, |event, _, state: &mut State| match event {
+            SessionEvent::PauseSession => state.paused += 1,
+            SessionEvent::ActivateSession => state.activated += 1,
         })
         .map_err(|e| e.to_string())?;
 
-    let mut state = State { events: 0 };
+    let mut state = State {
+        paused: 0,
+        activated: 0,
+    };
     let deadline = Instant::now() + watch;
     while Instant::now() < deadline {
         event_loop
@@ -44,6 +55,7 @@ pub fn bootstrap(watch: Duration) -> Result<Bootstrap, String> {
         seat,
         active,
         devices,
-        events: state.events,
+        paused: state.paused,
+        activated: state.activated,
     })
 }
