@@ -3,6 +3,7 @@ pub mod config;
 pub mod geom;
 pub mod image;
 pub mod mode;
+pub mod startup;
 pub mod wallpaper;
 
 pub use camera::Camera;
@@ -10,6 +11,7 @@ pub use config::{Config, Modifier, Tunables, WallpaperMode};
 pub use geom::{Rect, Vec2};
 pub use image::{Image, load_png};
 pub use mode::Mode;
+pub use startup::{Phase, Startup};
 pub use wallpaper::parallax_factor;
 
 #[cfg(test)]

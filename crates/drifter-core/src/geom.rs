@@ -90,6 +90,15 @@ impl Rect {
         Rect::new((into - size) / 2.0, size)
     }
 
+    pub fn fill_centered(content: Vec2, into: Vec2) -> Rect {
+        if content.x <= 0.0 || content.y <= 0.0 {
+            return Rect::new(into / 2.0, Vec2::ZERO);
+        }
+        let scale = (into.x / content.x).max(into.y / content.y);
+        let size = content * scale;
+        Rect::new((into - size) / 2.0, size)
+    }
+
     pub fn contains(&self, p: Vec2) -> bool {
         let m = self.max();
         p.x >= self.origin.x && p.y >= self.origin.y && p.x < m.x && p.y < m.y
@@ -136,6 +145,35 @@ mod tests {
         let before = content.x / content.y;
         let after = r.size.x / r.size.y;
         assert!((before - after).abs() < 1e-9);
+    }
+
+    #[test]
+    fn fill_centered_covers_the_whole_box() {
+        let r = Rect::fill_centered(Vec2::new(2000.0, 500.0), Vec2::new(1000.0, 1000.0));
+        assert!(r.size.x >= 1000.0 && r.size.y >= 1000.0);
+    }
+
+    #[test]
+    fn fill_centered_overflows_evenly_on_both_sides() {
+        let r = Rect::fill_centered(Vec2::new(2000.0, 500.0), Vec2::new(1000.0, 1000.0));
+        assert_eq!(r.size, Vec2::new(4000.0, 1000.0));
+        assert_eq!(r.origin, Vec2::new(-1500.0, 0.0));
+    }
+
+    #[test]
+    fn fill_centered_keeps_the_aspect_ratio() {
+        let content = Vec2::new(1920.0, 1080.0);
+        let r = Rect::fill_centered(content, Vec2::new(1000.0, 1000.0));
+        assert!((content.x / content.y - r.size.x / r.size.y).abs() < 1e-9);
+    }
+
+    #[test]
+    fn fill_and_fit_agree_on_an_exact_match() {
+        let screen = Vec2::new(1920.0, 1080.0);
+        assert_eq!(
+            Rect::fill_centered(screen, screen),
+            Rect::fit_centered(screen, screen)
+        );
     }
 
     #[test]

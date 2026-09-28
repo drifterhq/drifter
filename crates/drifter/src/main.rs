@@ -8,6 +8,28 @@ mod render;
 #[cfg(target_os = "linux")]
 mod session;
 
+#[cfg(target_os = "linux")]
+fn load_image(path: &Path, what: &str) -> Option<drifter_core::Image> {
+    match drifter_core::load_png(path) {
+        Ok(image) => Some(image),
+        Err(error) => {
+            eprintln!("drifter: no {what}: {error}");
+            None
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn print_rect(what: &str, rect: Option<Rect>) {
+    match rect {
+        Some(rect) => println!(
+            "            {what} at {} {} size {} x {}",
+            rect.origin.x, rect.origin.y, rect.size.x, rect.size.y
+        ),
+        None => println!("            {what} not drawn"),
+    }
+}
+
 fn present(path: &Path) -> &'static str {
     if path.is_file() { "found" } else { "missing" }
 }
@@ -76,20 +98,24 @@ fn bootstrap(config: &Config) -> ExitCode {
 
     let want = (1920, 1080);
     let night = [0.02, 0.05, 0.10, 1.0];
-    let splash = match drifter_core::load_png(&Config::splash_path()) {
-        Ok(image) => Some(image),
-        Err(error) => {
-            eprintln!("drifter: no splash: {error}");
-            None
-        }
-    };
+
+    let splash = load_image(&Config::splash_path(), "splash");
+    let wallpaper = config
+        .workspace
+        .wallpaper
+        .as_deref()
+        .and_then(|path| load_image(path, "wallpaper"));
+
+    let loading = Duration::from_secs(3);
+
     match render::show(
         &mut seat.session,
         &card,
         want,
         night,
         splash.as_ref(),
-        Duration::from_secs(5),
+        wallpaper.as_ref(),
+        loading,
     ) {
         Ok(shown) => {
             println!("screen      {}", shown.connector);
@@ -101,13 +127,9 @@ fn bootstrap(config: &Config) -> ExitCode {
                 shown.device.display()
             );
             println!("            gl {}", shown.renderer);
-            match shown.splash {
-                Some(rect) => println!(
-                    "            splash at {} {} size {} x {}",
-                    rect.origin.x, rect.origin.y, rect.size.x, rect.size.y
-                ),
-                None => println!("            splash not drawn"),
-            }
+            print_rect("splash", shown.splash);
+            print_rect("wallpaper", shown.wallpaper);
+            println!("            phase {:?}", shown.phase);
             println!("            {} frames in {:?}", shown.frames, shown.held);
         }
         Err(error) => {

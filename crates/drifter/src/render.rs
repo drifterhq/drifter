@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 
 use drifter_core::image::Image;
 use drifter_core::mode::{self, Mode};
+use drifter_core::startup::{Phase, Startup};
 use drifter_core::{Rect, Vec2};
 use smithay::backend::allocator::gbm::{GbmAllocator, GbmBufferFlags, GbmDevice};
 use smithay::backend::drm::compositor::{DrmCompositor, FrameFlags};
@@ -21,6 +22,8 @@ use smithay::reexports::drm::control::{Device as ControlDevice, connector, crtc}
 use smithay::reexports::rustix::fs::OFlags;
 use smithay::utils::{DeviceFd, Scale, Transform};
 
+const HOLD_AFTER: Duration = Duration::from_secs(2);
+
 pub struct Shown {
     pub device: PathBuf,
     pub connector: String,
@@ -31,6 +34,8 @@ pub struct Shown {
     pub frames: u32,
     pub held: Duration,
     pub splash: Option<Rect>,
+    pub wallpaper: Option<Rect>,
+    pub phase: Phase,
 }
 
 type Compositor =
@@ -42,7 +47,8 @@ pub fn show(
     want: (u32, u32),
     background: [f32; 4],
     splash: Option<&Image>,
-    hold: Duration,
+    wallpaper: Option<&Image>,
+    loading: Duration,
 ) -> Result<Shown, String> {
     let fd = session
         .open(
@@ -140,44 +146,39 @@ pub fn show(
     let gl = describe(&mut renderer);
     let clear = Color32F::from(background);
     let screen = Vec2::new(f64::from(width), f64::from(height));
+    let startup = Startup::default();
 
-    let texture = match splash {
-        Some(image) => Some(
-            TextureBuffer::from_memory(
-                &mut renderer,
-                &image.rgba,
-                DrmFourcc::Abgr8888,
-                (image.width as i32, image.height as i32),
-                false,
-                1,
-                Transform::Normal,
-                None,
-            )
-            .map_err(|e| format!("cannot upload splash: {e}"))?,
-        ),
-        None => None,
-    };
+    let splash_texture = upload(&mut renderer, splash, "splash")?;
+    let wallpaper_texture = upload(&mut renderer, wallpaper, "wallpaper")?;
 
-    let mut placed = None;
-    let elements: Vec<TextureRenderElement<GlesTexture>> = match (&texture, splash) {
-        (Some(buffer), Some(image)) => {
-            let rect = Rect::fit_centered(image.size(), screen);
-            placed = Some(rect);
-            vec![TextureRenderElement::from_texture_buffer(
-                (rect.origin.x, rect.origin.y),
-                buffer,
-                None,
-                None,
-                Some((rect.size.x as i32, rect.size.y as i32).into()),
-                Kind::Unspecified,
-            )]
-        }
-        _ => Vec::new(),
-    };
+    let splash_rect = splash_texture
+        .as_ref()
+        .map(|_| Startup::splash_rect(screen));
+    let wallpaper_rect = wallpaper
+        .zip(wallpaper_texture.as_ref())
+        .map(|(image, _)| Startup::wallpaper_rect(image.size(), screen));
 
     let started = Instant::now();
     let mut frames = 0u32;
-    while started.elapsed() < hold {
+    let mut phase = Phase::Loading;
+
+    loop {
+        let since_loaded = started.elapsed().checked_sub(loading);
+        phase = startup.phase(since_loaded);
+        let (splash_alpha, wallpaper_alpha) = startup.alphas(since_loaded);
+
+        let mut elements: Vec<TextureRenderElement<GlesTexture>> = Vec::new();
+        if let (Some(buffer), Some(rect)) = (splash_texture.as_ref(), splash_rect)
+            && splash_alpha > 0.0
+        {
+            elements.push(element(buffer, rect, splash_alpha));
+        }
+        if let (Some(buffer), Some(rect)) = (wallpaper_texture.as_ref(), wallpaper_rect)
+            && wallpaper_alpha > 0.0
+        {
+            elements.push(element(buffer, rect, wallpaper_alpha));
+        }
+
         let result = compositor
             .render_frame(&mut renderer, &elements, clear, FrameFlags::DEFAULT)
             .map_err(|e| {
@@ -197,7 +198,11 @@ pub fn show(
                 .map_err(|e| format!("page flip failed on frame {frames}: {e}"))?;
             frames += 1;
         }
-        std::thread::sleep(Duration::from_millis(16));
+
+        if phase == Phase::Ready && started.elapsed() >= loading + startup.fade + HOLD_AFTER {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(8));
     }
 
     Ok(Shown {
@@ -209,8 +214,47 @@ pub fn show(
         renderer: gl,
         frames,
         held: started.elapsed(),
-        splash: placed,
+        splash: splash_rect,
+        wallpaper: wallpaper_rect,
+        phase,
     })
+}
+
+fn upload(
+    renderer: &mut GlesRenderer,
+    image: Option<&Image>,
+    what: &str,
+) -> Result<Option<TextureBuffer<GlesTexture>>, String> {
+    match image {
+        None => Ok(None),
+        Some(image) => TextureBuffer::from_memory(
+            renderer,
+            &image.rgba,
+            DrmFourcc::Abgr8888,
+            (image.width as i32, image.height as i32),
+            false,
+            1,
+            Transform::Normal,
+            None,
+        )
+        .map(Some)
+        .map_err(|e| format!("cannot upload {what}: {e}")),
+    }
+}
+
+fn element(
+    buffer: &TextureBuffer<GlesTexture>,
+    rect: Rect,
+    alpha: f32,
+) -> TextureRenderElement<GlesTexture> {
+    TextureRenderElement::from_texture_buffer(
+        (rect.origin.x, rect.origin.y),
+        buffer,
+        Some(alpha),
+        None,
+        Some((rect.size.x as i32, rect.size.y as i32).into()),
+        Kind::Unspecified,
+    )
 }
 
 fn describe(renderer: &mut GlesRenderer) -> String {
