@@ -217,7 +217,9 @@ Controls:
 - Push the pointer into the top-left corner and hold. The camera flies out until every window is in view, framing their bounding box with a margin. With no windows open it fits the whole world. It never zooms past 1.0 on the way in, and never past the world on the way out.
 - Zoomed out, a click never reaches the app. It flies the camera to that window at zoom 1. A click on empty world centers there instead.
 - Modifier + scroll zooms at the cursor, so the world point under the pointer stays put.
-- Modifier + push the pointer against a viewport edge pans that way.
+- Modifier + push the pointer against a viewport edge pans that way, by the distance pushed rather than at a fixed speed. The modifier also turns the drawers and the hot corner off while it is held, so the edges belong to the camera.
+- A three finger swipe on a trackpad pans in any direction. SPICE carries no gestures, so this only works on real hardware, not in the VM.
+- Scroll with no modifier goes to the focused app, untouched.
 - The camera is clamped so the viewport can never leave the world.
 - The camera position is written to `$XDG_STATE_HOME/drifter/camera` when Drifter quits and read back at startup, clamped to the world it finds. A missing or damaged file is not an error; Drifter starts at the middle of the world at zoom 1.
 

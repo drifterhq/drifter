@@ -132,6 +132,7 @@ pub struct State {
     corner_since: Option<Instant>,
     grab: Grab,
     modifier: bool,
+    fingers: u32,
     holds: drifter_core::Modifier,
     last_title: Option<(Vec2, Instant)>,
     held: Option<usize>,
@@ -1623,6 +1624,32 @@ impl State {
         pointer.frame(self);
     }
 
+    fn tell_axis(
+        &mut self,
+        event: &impl smithay::backend::input::PointerAxisEvent<LibinputInputBackend>,
+    ) {
+        use smithay::backend::input::{Axis, AxisSource, Event as InputMeta};
+        use smithay::input::pointer::{AxisFrame, PointerHandle};
+
+        let source = event.source();
+        let mut frame = AxisFrame::new(event.time_msec()).source(source);
+        for axis in [Axis::Horizontal, Axis::Vertical] {
+            if let Some(amount) = event.amount(axis) {
+                frame = frame.value(axis, amount);
+                if amount == 0.0 && source == AxisSource::Finger {
+                    frame = frame.stop(axis);
+                }
+            }
+            if let Some(ticks) = event.amount_v120(axis) {
+                frame = frame.v120(axis, ticks as i32);
+            }
+        }
+
+        let pointer: PointerHandle<State> = self.wayland.pointer.clone();
+        pointer.axis(self, frame);
+        pointer.frame(self);
+    }
+
     fn tell_keyboard(&mut self, event: &impl KeyboardKeyEvent<LibinputInputBackend>) {
         use smithay::input::keyboard::FilterResult;
         use smithay::utils::SERIAL_COUNTER;
@@ -1669,18 +1696,36 @@ impl State {
             }
             InputEvent::PointerAxis { event } => {
                 use smithay::backend::input::{Axis, PointerAxisEvent};
-                if !self.modifier {
+                if self.modifier {
+                    let steps = event
+                        .amount_v120(Axis::Vertical)
+                        .map(|raw| -raw / 120.0)
+                        .or_else(|| event.amount(Axis::Vertical).map(|raw| -raw / 10.0))
+                        .unwrap_or(0.0);
+                    if steps != 0.0 {
+                        self.zoom_by(steps);
+                    }
                     return;
                 }
-                let steps = event
-                    .amount_v120(Axis::Vertical)
-                    .map(|raw| -raw / 120.0)
-                    .or_else(|| event.amount(Axis::Vertical).map(|raw| -raw / 10.0))
-                    .unwrap_or(0.0);
-                if steps != 0.0 {
-                    self.zoom_by(steps);
-                }
+                self.tell_axis(&event);
             }
+            InputEvent::GestureSwipeBegin { event } => {
+                use smithay::backend::input::GestureSwipeBeginEvent;
+                self.fingers = event.fingers();
+            }
+            InputEvent::GestureSwipeUpdate { event } => {
+                use smithay::backend::input::GestureSwipeUpdateEvent;
+                if self.fingers < 3 {
+                    return;
+                }
+                let moved = Vec2::new(event.delta_x(), event.delta_y());
+                let mut camera = self.camera;
+                camera.pan_by_screen(moved * -1.0);
+                camera.clamp_to_world(self.world, self.screen);
+                self.camera = camera;
+                self.flight = None;
+            }
+            InputEvent::GestureSwipeEnd { .. } => self.fingers = 0,
             InputEvent::Keyboard { event } => {
                 let code = event.key_code().raw();
                 if self.holds.holds(code) {
@@ -2070,6 +2115,7 @@ pub fn open(
         corner_since: None,
         grab: Grab::None,
         modifier: false,
+        fingers: 0,
         holds: config.input.modifier,
         last_title: None,
         held: None,
