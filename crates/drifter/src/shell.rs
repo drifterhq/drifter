@@ -12,7 +12,6 @@ use smithay::utils::Serial;
 use smithay::wayland::buffer::BufferHandler;
 use smithay::wayland::compositor::{
     CompositorClientState, CompositorHandler, CompositorState, get_parent, is_sync_subsurface,
-    with_states,
 };
 use smithay::wayland::selection::SelectionHandler;
 use smithay::wayland::selection::data_device::{
@@ -20,7 +19,6 @@ use smithay::wayland::selection::data_device::{
 };
 use smithay::wayland::shell::xdg::{
     PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState,
-    XdgToplevelSurfaceData,
 };
 use smithay::wayland::shm::{ShmHandler, ShmState};
 use smithay::{
@@ -58,19 +56,6 @@ impl ClientData for Greeting {
     fn disconnected(&self, _id: ClientId, _reason: DisconnectReason) {}
 }
 
-impl Window {
-    pub fn wants(&self) -> Vec2 {
-        with_states(self.toplevel.wl_surface(), |states| {
-            let attributes = states
-                .data_map
-                .get::<XdgToplevelSurfaceData>()
-                .map(|data| data.lock().unwrap().clone());
-            let _ = attributes;
-        });
-        self.content.size
-    }
-}
-
 impl BufferHandler for State {
     fn buffer_destroyed(&mut self, _buffer: &WlBuffer) {}
 }
@@ -96,7 +81,7 @@ impl CompositorHandler for State {
             root = parent;
         }
         self.settle_window(&root);
-        self.kick();
+        self.kick_now();
     }
 }
 
@@ -162,7 +147,7 @@ impl XdgShellHandler for State {
 
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
         self.windows.retain(|window| window.toplevel != surface);
-        self.kick();
+        self.kick_now();
     }
 
     fn new_popup(&mut self, _surface: PopupSurface, _positioner: PositionerState) {}

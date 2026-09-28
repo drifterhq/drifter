@@ -39,7 +39,6 @@ use smithay::reexports::drm::control::{Device as ControlDevice, connector, crtc}
 use smithay::reexports::input::Libinput;
 use smithay::reexports::rustix::fs::OFlags;
 use smithay::reexports::wayland_server::Display;
-use smithay::utils::SERIAL_COUNTER;
 use smithay::utils::{DeviceFd, Scale, Transform};
 
 const ESCAPE: u32 = 9;
@@ -52,10 +51,12 @@ const TICK: Duration = Duration::from_millis(8);
 const SECOND_TICK: Duration = Duration::from_millis(250);
 
 smithay::backend::renderer::element::render_elements! {
-    pub Piece;
-    Texture=TextureRenderElement<GlesTexture>,
-    Client=WaylandSurfaceRenderElement<GlesRenderer>,
+    pub Piece<R> where R: smithay::backend::renderer::ImportAll;
+    Texture=TextureRenderElement<<R as smithay::backend::renderer::RendererSuper>::TextureId>,
+    Client=WaylandSurfaceRenderElement<R>,
 }
+
+type Skin = Piece<GlesRenderer>;
 
 type Compositor =
     DrmCompositor<GbmAllocator<DrmDeviceFd>, GbmFramebufferExporter<DrmDeviceFd>, (), DrmDeviceFd>;
@@ -133,18 +134,18 @@ impl State {
         None
     }
 
-    fn elements(&mut self) -> Vec<Piece> {
-        let mut elements: Vec<Piece> = vec![Piece::Texture(element(
+    fn elements(&mut self) -> Vec<Skin> {
+        let mut elements: Vec<Skin> = vec![Skin::Texture(element(
             &self.arrow,
             cursor::rect(self.pointer, self.arrow_size, self.arrow_hotspot),
             1.0,
         ))];
         if let Some((_, buffer, rect)) = self.clock.as_ref() {
-            elements.push(Piece::Texture(element(buffer, *rect, 1.0)));
+            elements.push(Skin::Texture(element(buffer, *rect, 1.0)));
         }
         if let Some(band) = self.tray_band() {
             for (slot, (_, buffer)) in self.icons.iter().enumerate() {
-                elements.push(Piece::Texture(element(
+                elements.push(Skin::Texture(element(
                     buffer,
                     self.tray.icon_rect(band, slot),
                     1.0,
@@ -155,7 +156,7 @@ impl State {
             let drawer = &self.drawers[edge.index()];
             if drawer.visible() {
                 let rect = drawer.rect(self.screen, &self.shapes[edge.index()]);
-                elements.push(Piece::Texture(element(
+                elements.push(Skin::Texture(element(
                     &self.panels[edge.index()],
                     rect,
                     1.0,
@@ -183,17 +184,17 @@ impl State {
                     1.0,
                     Kind::Unspecified,
                 );
-            elements.extend(client.into_iter().map(Piece::Client));
+            elements.extend(client.into_iter().map(Skin::Client));
             self.dress(content, &mut elements);
         }
 
         if let Some((buffer, rect)) = self.wallpaper.as_ref() {
-            elements.push(Piece::Texture(element(buffer, *rect, 1.0)));
+            elements.push(Skin::Texture(element(buffer, *rect, 1.0)));
         }
         elements
     }
 
-    fn dress(&self, content: Rect, elements: &mut Vec<Piece>) {
+    fn dress(&self, content: Rect, elements: &mut Vec<Skin>) {
         let layout = self.chrome.layout(content);
         let pieces = [
             (ChromePiece::TitleLeft, layout.title_left),
@@ -210,7 +211,7 @@ impl State {
                 continue;
             }
             if let Some((buffer, _)) = self.skin.get(&piece.file_name(true)) {
-                elements.push(Piece::Texture(element(buffer, rect, 1.0)));
+                elements.push(Skin::Texture(element(buffer, rect, 1.0)));
             }
         }
 
@@ -226,7 +227,7 @@ impl State {
             if let Some((buffer, size)) = self.skin.get(*name) {
                 let place = self.chrome.button_rect(slot);
                 let rect = Rect::new(bar.origin + place.origin, *size);
-                elements.push(Piece::Texture(element(buffer, rect, 1.0)));
+                elements.push(Skin::Texture(element(buffer, rect, 1.0)));
             }
         }
     }
@@ -967,11 +968,7 @@ pub fn open(
 
 fn state_poll_fd(
     state: &State,
-) -> smithay::reexports::calloop::generic::Generic<
-    smithay::reexports::calloop::generic::FdWrapper<
-        smithay::reexports::wayland_server::backend::WaylandSocket,
-    >,
-> {
+) -> smithay::reexports::calloop::generic::Generic<std::os::fd::OwnedFd> {
     use smithay::reexports::calloop::{Interest, Mode as PollMode, generic::Generic};
     let fd = state
         .display
