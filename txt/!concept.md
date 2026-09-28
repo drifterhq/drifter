@@ -93,7 +93,7 @@ Zoom
 
 Camera
 
-- Push the pointer into the top-left corner to zoom out to the whole world.
+- Push the pointer into the top-left corner to zoom out until every window is in view. The camera only zooms and pans. It never moves a window to make them fit.
 - Zoomed out, clicks never reach the app. A click means "put this window in the center of my viewport". The camera then elastically zooms back in to it.
 - Focus does not follow the camera. Camera and focus are separate.
 - Modifier + push the pointer against the viewport edge pans the viewport that way.
@@ -209,7 +209,7 @@ Clients are told nothing about any of this. Pointer events reach them in world c
 The camera moves by flights. A flight eases with the same spring as the drawers, and its zoom glides in log space, so half way from 0.25 to 1.0 is 0.5 rather than 0.625. A straight line mix makes the first half of a zoom out look like the whole of it.
 
 Controls:
-- Push the pointer into the top-left corner and hold. The camera flies out to fit the whole world.
+- Push the pointer into the top-left corner and hold. The camera flies out until every window is in view, framing their bounding box with a margin. With no windows open it fits the whole world. It never zooms past 1.0 on the way in, and never past the world on the way out.
 - Zoomed out, a click never reaches the app. It flies the camera to that window at zoom 1. A click on empty world centers there instead.
 - Modifier + scroll zooms at the cursor, so the world point under the pointer stays put.
 - Modifier + push the pointer against a viewport edge pans that way.

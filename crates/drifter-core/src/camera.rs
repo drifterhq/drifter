@@ -41,6 +41,27 @@ impl Camera {
         Camera::new(world / 2.0, Camera::fit_zoom(viewport, world))
     }
 
+    pub fn showing(things: &[Rect], viewport: Vec2, margin: f64, world: Vec2) -> Self {
+        let Some(first) = things.first() else {
+            return Camera::fitting_world(viewport, world);
+        };
+
+        let mut low = first.origin;
+        let mut high = first.max();
+        for thing in things.iter().skip(1) {
+            low = low.min(thing.origin);
+            high = high.max(thing.max());
+        }
+
+        let span = (high - low) + Vec2::splat(margin * 2.0);
+        let least = Camera::fit_zoom(viewport, world);
+        let zoom = Camera::fit_zoom(viewport, span).clamp(least, Camera::WORK_ZOOM);
+
+        let mut camera = Camera::new((low + high) / 2.0, zoom);
+        camera.clamp_to_world(world, viewport);
+        camera
+    }
+
     pub fn zoom_at(&mut self, screen: Vec2, zoom: f64, viewport: Vec2) {
         let anchor = self.world_from_screen(screen, viewport);
         self.zoom = zoom;
@@ -134,6 +155,55 @@ mod tests {
     use std::time::Duration;
 
     const VIEWPORT: Vec2 = Vec2::new(1920.0, 1080.0);
+
+    #[test]
+    fn showing_nothing_falls_back_to_the_whole_world() {
+        let camera = Camera::showing(&[], VIEWPORT, 40.0, WORLD);
+        assert_eq!(camera, Camera::fitting_world(VIEWPORT, WORLD));
+    }
+
+    #[test]
+    fn showing_one_small_window_never_zooms_past_the_work_zoom() {
+        let window = Rect::new(Vec2::new(2800.0, 1600.0), Vec2::new(200.0, 150.0));
+        let camera = Camera::showing(&[window], VIEWPORT, 40.0, WORLD);
+        assert_eq!(camera.zoom, Camera::WORK_ZOOM);
+    }
+
+    #[test]
+    fn showing_centers_on_the_windows_not_on_the_world() {
+        let one = Rect::new(Vec2::new(400.0, 300.0), Vec2::new(600.0, 400.0));
+        let two = Rect::new(Vec2::new(1200.0, 900.0), Vec2::new(600.0, 400.0));
+        let camera = Camera::showing(&[one, two], VIEWPORT, 0.0, WORLD);
+        let middle = (one.origin + two.max()) / 2.0;
+        assert_eq!(camera.center, middle);
+    }
+
+    #[test]
+    fn showing_zooms_out_far_enough_to_hold_every_window() {
+        let one = Rect::new(Vec2::new(200.0, 200.0), Vec2::new(800.0, 600.0));
+        let two = Rect::new(Vec2::new(3600.0, 2200.0), Vec2::new(800.0, 600.0));
+        let camera = Camera::showing(&[one, two], VIEWPORT, 0.0, WORLD);
+        let seen = camera.visible_rect(VIEWPORT);
+        assert!(seen.origin.x <= one.origin.x + 1.0);
+        assert!(seen.origin.y <= one.origin.y + 1.0);
+        assert!(seen.max().x >= two.max().x - 1.0);
+        assert!(seen.max().y >= two.max().y - 1.0);
+    }
+
+    #[test]
+    fn showing_never_zooms_out_past_the_world() {
+        let huge = Rect::new(Vec2::new(-9000.0, -9000.0), Vec2::new(30000.0, 30000.0));
+        let camera = Camera::showing(&[huge], VIEWPORT, 0.0, WORLD);
+        assert_eq!(camera.zoom, Camera::fit_zoom(VIEWPORT, WORLD));
+    }
+
+    #[test]
+    fn the_margin_pushes_the_windows_off_the_very_edge() {
+        let window = Rect::new(Vec2::new(0.0, 0.0), Vec2::new(3840.0, 2160.0));
+        let tight = Camera::showing(&[window], VIEWPORT, 0.0, WORLD);
+        let roomy = Camera::showing(&[window], VIEWPORT, 200.0, WORLD);
+        assert!(roomy.zoom < tight.zoom);
+    }
 
     #[test]
     fn a_camera_survives_a_round_trip_through_text() {

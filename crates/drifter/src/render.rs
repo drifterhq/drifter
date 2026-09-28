@@ -933,8 +933,15 @@ impl State {
             Some(since) => {
                 if Instant::now().duration_since(since) >= self.tunables.hot_corner_dwell {
                     self.corner_since = None;
-                    let whole = Camera::fitting_world(self.screen, self.world);
-                    self.fly_to(whole);
+                    let framed: Vec<Rect> = self
+                        .windows
+                        .iter()
+                        .filter(|window| window.placed && !window.hidden)
+                        .map(|window| self.chrome.layout(window.content).frame)
+                        .collect();
+                    let target =
+                        Camera::showing(&framed, self.screen, self.chrome.title * 2.0, self.world);
+                    self.fly_to(target);
                 }
             }
         }
