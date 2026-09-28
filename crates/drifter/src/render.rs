@@ -1710,7 +1710,7 @@ impl State {
                 self.tell_axis(&event);
             }
             InputEvent::GestureSwipeBegin { event } => {
-                use smithay::backend::input::GestureSwipeBeginEvent;
+                use smithay::backend::input::GestureBeginEvent;
                 self.fingers = event.fingers();
             }
             InputEvent::GestureSwipeUpdate { event } => {
