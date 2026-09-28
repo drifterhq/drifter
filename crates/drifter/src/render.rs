@@ -252,10 +252,10 @@ impl State {
                 let y = event.y_transformed(self.screen.y as i32);
                 self.pointer_to(Vec2::new(x, y));
             }
-            InputEvent::Keyboard { event } => {
-                if event.state() == KeyState::Pressed && event.key_code().raw() == ESCAPE {
-                    self.signal.stop();
-                }
+            InputEvent::Keyboard { event }
+                if event.state() == KeyState::Pressed && event.key_code().raw() == ESCAPE =>
+            {
+                self.signal.stop();
             }
             _ => {}
         }
