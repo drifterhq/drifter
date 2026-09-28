@@ -1,6 +1,11 @@
+use std::path::Path;
 use std::process::ExitCode;
 
-use drifter_core::{Camera, Config, Tunables, Vec2, wallpaper};
+use drifter_core::{Camera, Config, Rect, Tunables, Vec2, wallpaper};
+
+fn present(path: &Path) -> &'static str {
+    if path.is_file() { "found" } else { "missing" }
+}
 
 fn main() -> ExitCode {
     let path = Config::config_path();
@@ -17,8 +22,10 @@ fn main() -> ExitCode {
     let fit = Camera::fit_zoom(screen, world);
     let tunables = Tunables::default();
     let needed = wallpaper::required_size(config.workspace.wallpaper_mode, screen, world);
+    let splash = Config::splash_path();
+    let splash_rect = Rect::fit_centered(screen, screen);
 
-    println!("config      {}", path.display());
+    println!("config      {} ({})", path.display(), present(&path));
     println!(
         "workspace   {} x {} screens",
         config.workspace.width, config.workspace.height
@@ -30,9 +37,14 @@ fn main() -> ExitCode {
     println!("wallpaper   {:?}", config.workspace.wallpaper_mode);
     println!("            wants {} x {} px", needed.x, needed.y);
     match &config.workspace.wallpaper {
-        Some(image) => println!("            {}", image.display()),
+        Some(image) => println!("            {} ({})", image.display(), present(image)),
         None => println!("            none set"),
     }
+    println!("splash      {} ({})", splash.display(), present(&splash));
+    println!(
+        "            draws at {} {} size {} x {}",
+        splash_rect.origin.x, splash_rect.origin.y, splash_rect.size.x, splash_rect.size.y
+    );
     println!("drawers     {} px", tunables.drawer_height);
 
     ExitCode::SUCCESS

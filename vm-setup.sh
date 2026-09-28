@@ -10,12 +10,21 @@ sudo apt-get update
 
 sudo apt-get install -y linux-image-amd64
 
-entry=$(awk -F"'" '/^menuentry / {print $2}' /boot/grub/grub.cfg | grep -v -- '-cloud-' | grep -v recovery | head -1)
-if [ -n "$entry" ]; then
-    sudo sed -i "s/^GRUB_DEFAULT=.*/GRUB_DEFAULT=\"$entry\"/" /etc/default/grub
-    grep -q '^GRUB_DEFAULT=' /etc/default/grub || echo "GRUB_DEFAULT=\"$entry\"" | sudo tee -a /etc/default/grub
-    sudo update-grub
+sub=$(grep -oE "gnulinux-advanced-[0-9a-f-]+" /boot/grub/grub.cfg | head -1)
+gen=$(grep -oE "gnulinux-[0-9][^']*-advanced-[0-9a-f-]+" /boot/grub/grub.cfg | grep -v -- '-cloud-' | head -1)
+if [ -z "$sub" ] || [ -z "$gen" ]; then
+    echo "could not find a non-cloud kernel entry in /boot/grub/grub.cfg" >&2
+    echo "without the generic kernel there is no /dev/dri and drifter cannot run" >&2
+    exit 1
 fi
+sudo sed -i "/^GRUB_DEFAULT=/d" /etc/default/grub
+echo "GRUB_DEFAULT=\"$sub>$gen\"" | sudo tee -a /etc/default/grub >/dev/null
+
+if ! grep -q 'video=Virtual-1:1920x1080' /etc/default/grub; then
+    sudo sed -i 's/^\(GRUB_CMDLINE_LINUX="[^"]*\)"/\1 video=Virtual-1:1920x1080"/' /etc/default/grub
+fi
+
+sudo update-grub
 
 sudo apt-get install -y \
     build-essential pkg-config cmake git curl \
@@ -54,6 +63,6 @@ printf '%s\n' "$cargo_line" | sudo tee /etc/profile.d/cargo.sh >/dev/null
 sudo chmod 0644 /etc/profile.d/cargo.sh
 
 echo
-echo "done. reboot to pick up the generic kernel, then check:"
+echo "done. reboot to pick up the generic kernel and the new groups, then check:"
 echo "  ls /dev/dri            expect card0 and renderD128"
 echo "  ssh trixie rustc -V    expect a version, proving PATH works non-interactively"

@@ -43,6 +43,8 @@ TOML.
 
 Defaults in code, not in the file: drawer height 64 px, drawer dwell and hide timings, hot corner dwell, pan speed, animation curve and duration. Minimum zoom is derived. It is whatever fits the whole world in the viewport.
 
+Images live at a convention path, not a config key: `~/.local/share/drifter/`, or `$XDG_DATA_HOME/drifter/`. The splash is `splash.png` there.
+
 ## Wallpaper modes
 
 One key, `wallpaper_mode`. Three names for the user. One factor in the code.
@@ -90,6 +92,12 @@ Drawers
 - Push the pointer at the bottom edge and an inset drawer holds the launcher icons and a trash can.
 - A drawer hides after a set delay once the pointer leaves.
 - All animation is smooth and elastic.
+
+Splash
+
+- At startup Drifter draws `splash.png` from the data directory, scaled to fit the screen and centered, holding the aspect ratio. It stays up until the first frame of the world is ready.
+- It is how you know Drifter came up at all. If the screen is black, Drifter did not reach its first frame.
+- If the file is missing, Drifter starts on black and says so on stderr. A missing splash is never fatal.
 
 Pointer
 

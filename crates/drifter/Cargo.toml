@@ -6,3 +6,18 @@ license.workspace = true
 
 [dependencies]
 drifter-core.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+smithay = { version = "0.7.0", default-features = false, features = [
+    "backend_drm",
+    "backend_gbm",
+    "backend_egl",
+    "backend_libinput",
+    "backend_udev",
+    "backend_session_libseat",
+    "desktop",
+    "renderer_gl",
+    "renderer_pixman",
+    "renderer_multi",
+    "wayland_frontend",
+] }

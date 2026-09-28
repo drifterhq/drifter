@@ -81,8 +81,66 @@ impl Rect {
         self.origin + self.size
     }
 
+    pub fn fit_centered(content: Vec2, into: Vec2) -> Rect {
+        if content.x <= 0.0 || content.y <= 0.0 {
+            return Rect::new(into / 2.0, Vec2::ZERO);
+        }
+        let scale = (into.x / content.x).min(into.y / content.y);
+        let size = content * scale;
+        Rect::new((into - size) / 2.0, size)
+    }
+
     pub fn contains(&self, p: Vec2) -> bool {
         let m = self.max();
         p.x >= self.origin.x && p.y >= self.origin.y && p.x < m.x && p.y < m.y
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fit_centered_fills_an_exact_match() {
+        let screen = Vec2::new(1920.0, 1080.0);
+        let r = Rect::fit_centered(screen, screen);
+        assert_eq!(r.origin, Vec2::ZERO);
+        assert_eq!(r.size, screen);
+    }
+
+    #[test]
+    fn fit_centered_scales_up_and_centers_a_half_size_image() {
+        let r = Rect::fit_centered(Vec2::new(960.0, 540.0), Vec2::new(1920.0, 1080.0));
+        assert_eq!(r.size, Vec2::new(1920.0, 1080.0));
+        assert_eq!(r.origin, Vec2::ZERO);
+    }
+
+    #[test]
+    fn fit_centered_letterboxes_a_wider_image() {
+        let r = Rect::fit_centered(Vec2::new(2000.0, 500.0), Vec2::new(1000.0, 1000.0));
+        assert_eq!(r.size, Vec2::new(1000.0, 250.0));
+        assert_eq!(r.origin, Vec2::new(0.0, 375.0));
+    }
+
+    #[test]
+    fn fit_centered_pillarboxes_a_taller_image() {
+        let r = Rect::fit_centered(Vec2::new(500.0, 2000.0), Vec2::new(1000.0, 1000.0));
+        assert_eq!(r.size, Vec2::new(250.0, 1000.0));
+        assert_eq!(r.origin, Vec2::new(375.0, 0.0));
+    }
+
+    #[test]
+    fn fit_centered_never_distorts_the_aspect_ratio() {
+        let content = Vec2::new(1920.0, 1080.0);
+        let r = Rect::fit_centered(content, Vec2::new(3000.0, 1000.0));
+        let before = content.x / content.y;
+        let after = r.size.x / r.size.y;
+        assert!((before - after).abs() < 1e-9);
+    }
+
+    #[test]
+    fn fit_centered_survives_a_zero_sized_image() {
+        let r = Rect::fit_centered(Vec2::ZERO, Vec2::new(1000.0, 1000.0));
+        assert_eq!(r.size, Vec2::ZERO);
     }
 }

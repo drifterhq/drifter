@@ -93,6 +93,23 @@ impl Default for Tunables {
     }
 }
 
+fn xdg_dir(var: &str, fallback: &str) -> PathBuf {
+    resolve_xdg(std::env::var_os(var), std::env::var_os("HOME"), fallback)
+}
+
+fn resolve_xdg(
+    xdg: Option<std::ffi::OsString>,
+    home: Option<std::ffi::OsString>,
+    fallback: &str,
+) -> PathBuf {
+    let base = xdg
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| home.map(|h| PathBuf::from(h).join(fallback)))
+        .unwrap_or_else(|| PathBuf::from(fallback));
+    base.join("drifter")
+}
+
 #[derive(Debug)]
 pub enum ConfigError {
     Read {
@@ -124,12 +141,15 @@ impl std::error::Error for ConfigError {}
 
 impl Config {
     pub fn config_path() -> PathBuf {
-        let base = std::env::var_os("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .filter(|p| p.is_absolute())
-            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
-            .unwrap_or_else(|| PathBuf::from(".config"));
-        base.join("drifter").join("drifter.toml")
+        xdg_dir("XDG_CONFIG_HOME", ".config").join("drifter.toml")
+    }
+
+    pub fn data_dir() -> PathBuf {
+        xdg_dir("XDG_DATA_HOME", ".local/share")
+    }
+
+    pub fn splash_path() -> PathBuf {
+        Config::data_dir().join("splash.png")
     }
 
     pub fn load() -> Result<Config, ConfigError> {
@@ -236,6 +256,24 @@ mod tests {
     #[test]
     fn unknown_keys_are_rejected() {
         assert!(Config::parse("[workspace]\nwidht = 4\n").is_err());
+    }
+
+    #[test]
+    fn xdg_wins_when_it_is_absolute() {
+        let p = resolve_xdg(Some("/xdg".into()), Some("/home/dh".into()), ".config");
+        assert_eq!(p, Path::new("/xdg/drifter"));
+    }
+
+    #[test]
+    fn a_relative_xdg_value_is_ignored_and_home_is_used() {
+        let p = resolve_xdg(Some("relative".into()), Some("/home/dh".into()), ".config");
+        assert_eq!(p, Path::new("/home/dh/.config/drifter"));
+    }
+
+    #[test]
+    fn home_is_used_when_xdg_is_unset() {
+        let p = resolve_xdg(None, Some("/home/dh".into()), ".local/share");
+        assert_eq!(p, Path::new("/home/dh/.local/share/drifter"));
     }
 
     #[test]
