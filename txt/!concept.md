@@ -90,8 +90,9 @@ Drawers
 
 - Push the pointer at the top edge and an inset drawer slides down, 64 px, full width. It holds the system tray and system info.
 - Push the pointer at the bottom edge and an inset drawer holds the launcher icons and a trash can.
-- A drawer hides after a set delay once the pointer leaves.
-- All animation is smooth and elastic.
+- The drawer opens after a short dwell at the edge, so a fast pass never pops it open. It stays open while the pointer rests on it, and hides a short delay after the pointer leaves.
+- The look: the two corners facing into the screen are rounded. An inset shadow runs along that same inner edge, inside the panel, so the drawer reads as a recess and not as a floating bar.
+- The slide is elastic. It eases out past its resting place and settles back. The panel texture carries slack past the screen edge, so the spring can never open a gap and show wallpaper behind the drawer.
 
 Pointer
 
@@ -115,6 +116,12 @@ Session
 5. Click a window in overview. Camera flies to it and settles at 1.0.
 6. Modifier + scroll zoom at the cursor. Modifier + edge push to pan.
 7. Save and restore camera position across logout.
+
+## Running it
+
+Escape quits. There is nothing else to leave with while Drifter owns the tty, so the key stays until a real menu exists.
+
+SIGUSR1 toggles the top drawer and SIGUSR2 toggles the bottom one. This is how a drawer is driven from another machine over ssh, with no mouse: `pkill -USR1 -x drifter`. It is a trigger for the same code path the pointer uses, not a test hook.
 
 ## Frame loop
 
