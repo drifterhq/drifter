@@ -836,7 +836,6 @@ impl State {
         };
         let click = match code {
             BTN_LEFT => crate::tray::Click::Left,
-            BTN_RIGHT => crate::tray::Click::Right,
             BTN_MIDDLE => crate::tray::Click::Middle,
             _ => return,
         };

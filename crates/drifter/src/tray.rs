@@ -26,7 +26,6 @@ pub enum Update {
 
 pub enum Click {
     Left,
-    Right,
     Middle,
 }
 
@@ -447,7 +446,6 @@ fn serve(
         };
         let method = match click {
             Click::Left => "Activate",
-            Click::Right => "ContextMenu",
             Click::Middle => "SecondaryActivate",
         };
         if let Err(error) = proxy.call_method(method, &(x, y)) {
