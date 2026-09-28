@@ -30,6 +30,14 @@ impl Default for Dock {
 }
 
 impl Dock {
+    pub fn rule_ink(&self) -> [u8; 3] {
+        [
+            self.rule[0].saturating_add(80),
+            self.rule[1].saturating_add(80),
+            self.rule[2].saturating_add(80),
+        ]
+    }
+
     pub fn width(&self, pinned: usize, minimized: usize) -> f64 {
         let count = pinned + minimized;
         if count == 0 {
@@ -311,6 +319,12 @@ mod tests {
             image.rgba[index + 2],
             image.rgba[index + 3],
         ]
+    }
+
+    #[test]
+    fn the_trash_ink_is_lighter_than_the_divider() {
+        let dock = Dock::default();
+        assert!(dock.rule_ink()[0] > dock.rule[0]);
     }
 
     #[test]

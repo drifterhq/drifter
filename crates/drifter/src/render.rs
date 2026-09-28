@@ -1610,16 +1610,10 @@ pub fn open(
         pinned.push((name.clone(), buffer));
     }
 
-    let trash = crate::apps::icon_file(crate::apps::TRASH_ICON)
-        .and_then(|path| drifter_core::image::load(&path).ok())
-        .map(|image| image.scaled(Dock::default().icon as u32, Dock::default().icon as u32));
-    let trash = match trash {
-        Some(image) => upload(&mut renderer, Some(&image), "trash icon")?,
-        None => {
-            eprintln!("drifter: no trash icon named {}", crate::apps::TRASH_ICON);
-            None
-        }
-    };
+    let trash_look = Dock::default();
+    let trash_image =
+        drifter_core::dock::paint_trash(trash_look.icon as u32, trash_look.rule_ink());
+    let trash = upload(&mut renderer, Some(&trash_image), "trash")?;
 
     let dock_look = Dock::default();
     let rule_image = drifter_core::Image {

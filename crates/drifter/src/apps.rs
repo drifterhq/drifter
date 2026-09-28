@@ -102,8 +102,6 @@ pub fn launch(command: &str, socket: &str) {
     }
 }
 
-pub const TRASH_ICON: &str = "user-trash";
-
 pub fn defaults() -> Vec<String> {
     let mut chosen = Vec::new();
     for mime in ["x-scheme-handler/http", "inode/directory"] {
