@@ -19,7 +19,6 @@ fn report(config: &Config) {
     let tunables = Tunables::default();
     let needed = wallpaper::required_size(config.workspace.wallpaper_mode, screen, world);
     let splash = Config::splash_path();
-    let splash_rect = Rect::fit_centered(screen, screen);
 
     println!(
         "workspace   {} x {} screens",
@@ -36,10 +35,17 @@ fn report(config: &Config) {
         None => println!("            none set"),
     }
     println!("splash      {} ({})", splash.display(), present(&splash));
-    println!(
-        "            draws at {} {} size {} x {}",
-        splash_rect.origin.x, splash_rect.origin.y, splash_rect.size.x, splash_rect.size.y
-    );
+    match drifter_core::load_png(&splash) {
+        Ok(image) => {
+            let rect = Rect::fit_centered(image.size(), screen);
+            println!("            {} x {} decoded", image.width, image.height);
+            println!(
+                "            draws at {} {} size {} x {}",
+                rect.origin.x, rect.origin.y, rect.size.x, rect.size.y
+            );
+        }
+        Err(error) => println!("            not usable: {error}"),
+    }
     println!("drawers     {} px", tunables.drawer_height);
 }
 
