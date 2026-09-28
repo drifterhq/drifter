@@ -15,8 +15,8 @@ use smithay::backend::drm::exporter::gbm::GbmFramebufferExporter;
 use smithay::backend::drm::{DrmDevice, DrmDeviceFd, DrmEvent};
 use smithay::backend::egl::{EGLContext, EGLDisplay};
 use smithay::backend::input::{
-    AbsolutePositionEvent, ButtonState, InputEvent, KeyState, KeyboardKeyEvent, PointerButtonEvent,
-    PointerMotionEvent,
+    AbsolutePositionEvent, ButtonState, Event as InputMeta, InputEvent, KeyState, KeyboardKeyEvent,
+    PointerButtonEvent, PointerMotionEvent,
 };
 use smithay::backend::libinput::{LibinputInputBackend, LibinputSessionInterface};
 use smithay::backend::renderer::Color32F;
@@ -524,27 +524,108 @@ impl State {
         }
     }
 
+    fn under_pointer(&self) -> Option<(usize, Vec2)> {
+        self.windows
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, window)| window.placed && window.content.contains(self.pointer))
+            .map(|(index, window)| (index, self.pointer - window.content.origin))
+    }
+
+    fn tell_pointer(&mut self, time: u32) {
+        use smithay::input::pointer::MotionEvent;
+        use smithay::utils::SERIAL_COUNTER;
+
+        let focus = self.under_pointer().map(|(index, inside)| {
+            (
+                self.windows[index].toplevel.wl_surface().clone(),
+                smithay::utils::Point::from((inside.x, inside.y)),
+            )
+        });
+        let pointer = self.wayland.pointer.clone();
+        let at = smithay::utils::Point::from((self.pointer.x, self.pointer.y));
+        pointer.motion(
+            self,
+            focus,
+            &MotionEvent {
+                location: at,
+                serial: SERIAL_COUNTER.next_serial(),
+                time,
+            },
+        );
+        pointer.frame(self);
+    }
+
+    fn tell_button(&mut self, code: u32, state: ButtonState, time: u32) {
+        use smithay::input::pointer::ButtonEvent;
+        use smithay::utils::SERIAL_COUNTER;
+
+        let serial = SERIAL_COUNTER.next_serial();
+        if state == ButtonState::Pressed
+            && let Some((index, _)) = self.under_pointer()
+        {
+            let window = self.windows.remove(index);
+            let surface = window.toplevel.wl_surface().clone();
+            self.windows.push(window);
+            let keyboard = self.wayland.keyboard.clone();
+            keyboard.set_focus(self, Some(surface), serial);
+        }
+
+        let pointer = self.wayland.pointer.clone();
+        pointer.button(
+            self,
+            &ButtonEvent {
+                button: code,
+                state,
+                serial,
+                time,
+            },
+        );
+        pointer.frame(self);
+    }
+
+    fn tell_keyboard(&mut self, event: &impl KeyboardKeyEvent<LibinputInputBackend>) {
+        use smithay::input::keyboard::FilterResult;
+        use smithay::utils::SERIAL_COUNTER;
+
+        let keyboard = self.wayland.keyboard.clone();
+        let time = event.time_msec();
+        keyboard.input::<(), _>(
+            self,
+            event.key_code(),
+            event.state(),
+            SERIAL_COUNTER.next_serial(),
+            time,
+            |_, _, _| FilterResult::Forward,
+        );
+    }
+
     fn input(&mut self, event: InputEvent<LibinputInputBackend>) {
         match event {
             InputEvent::PointerMotion { event } => {
                 let delta = Vec2::new(event.delta_x(), event.delta_y());
                 self.pointer_to(self.pointer + delta);
+                self.tell_pointer(event.time_msec());
             }
             InputEvent::PointerMotionAbsolute { event } => {
                 let x = event.x_transformed(self.screen.x as i32);
                 let y = event.y_transformed(self.screen.y as i32);
                 self.pointer_to(Vec2::new(x, y));
+                self.tell_pointer(event.time_msec());
             }
             InputEvent::PointerButton { event } => {
                 if event.state() == ButtonState::Pressed {
                     self.press(event.button_code());
                 }
+                self.tell_button(event.button_code(), event.state(), event.time_msec());
             }
             InputEvent::Keyboard { event }
                 if event.state() == KeyState::Pressed && event.key_code().raw() == ESCAPE =>
             {
                 self.signal.stop();
             }
+            InputEvent::Keyboard { event } => self.tell_keyboard(&event),
             _ => {}
         }
     }

@@ -31,13 +31,14 @@ use crate::render::State;
 
 pub struct Wayland {
     pub handle: DisplayHandle,
-    pub socket: String,
     pub compositor: CompositorState,
     pub xdg: XdgShellState,
     pub shm: ShmState,
     pub seats: SeatState<State>,
     pub data_device: DataDeviceState,
     pub seat: Seat<State>,
+    pub keyboard: smithay::input::keyboard::KeyboardHandle<State>,
+    pub pointer: smithay::input::pointer::PointerHandle<State>,
 }
 
 pub struct Window {
@@ -200,19 +201,24 @@ pub fn start(display: &Display<State>) -> Result<Wayland, String> {
     let xdg = XdgShellState::new::<State>(&handle);
     let shm = ShmState::new::<State>(&handle, Vec::new());
     let mut seats = SeatState::new();
-    let seat = seats.new_wl_seat(&handle, "drifter");
+    let mut seat = seats.new_wl_seat(&handle, "drifter");
+    let keyboard = seat
+        .add_keyboard(Default::default(), 200, 25)
+        .map_err(|e| format!("cannot make a keyboard: {e}"))?;
+    let pointer = seat.add_pointer();
     let data_device = DataDeviceState::new::<State>(&handle);
     smithay::wayland::shell::xdg::decoration::XdgDecorationState::new::<State>(&handle);
 
     Ok(Wayland {
         handle,
-        socket: String::new(),
         compositor,
         xdg,
         shm,
         seats,
         data_device,
         seat,
+        keyboard,
+        pointer,
     })
 }
 
