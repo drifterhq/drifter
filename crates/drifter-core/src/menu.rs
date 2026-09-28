@@ -416,8 +416,7 @@ mod tests {
         let items = items();
         let size = look.size(&items, None);
         let image = look.paint(&items, size, None, None);
-        let corner = ((0usize) * (image.width as usize)) * 4;
-        assert_eq!(image.rgba[corner + 3], 0);
+        assert_eq!(image.rgba[3], 0);
         let middle = (((image.height / 2) as usize) * (image.width as usize)
             + (image.width / 2) as usize)
             * 4;
