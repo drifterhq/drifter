@@ -1,7 +1,3 @@
-use std::collections::HashMap;
-
-use zbus::zvariant::{OwnedValue, Value};
-
 const WATCHER: &str = "org.kde.StatusNotifierWatcher";
 const WATCHER_PATH: &str = "/StatusNotifierWatcher";
 
@@ -107,9 +103,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         watcher.call_method("RegisterStatusNotifierItem", &(path))?;
         println!("registered {id} at {path}");
     }
-
-    let _unused: HashMap<String, OwnedValue> = HashMap::new();
-    let _also: Option<Value<'_>> = None;
 
     println!("waiting for clicks. ctrl-c to stop.");
     loop {
