@@ -192,10 +192,11 @@ fn terminal() -> Option<String> {
             let hidden = text
                 .lines()
                 .any(|line| line.trim() == "NoDisplay=true" || line.trim() == "Hidden=true");
-            if terminal && !hidden {
-                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                    found.push(stem.to_string());
-                }
+            if terminal
+                && !hidden
+                && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+            {
+                found.push(stem.to_string());
             }
         }
         found.sort();
