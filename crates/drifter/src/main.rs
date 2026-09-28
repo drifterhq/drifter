@@ -8,6 +8,8 @@ mod render;
 #[cfg(target_os = "linux")]
 mod session;
 #[cfg(target_os = "linux")]
+mod shell;
+#[cfg(target_os = "linux")]
 mod tray;
 
 #[cfg(target_os = "linux")]
@@ -128,6 +130,7 @@ fn bootstrap(config: &Config) -> ExitCode {
         "            corners reach {} px further at the two ends",
         found.corner
     );
+    println!("wayland     {}", found.socket);
     println!("running     drifter holds the screen until it is killed");
 
     match screen.run() {

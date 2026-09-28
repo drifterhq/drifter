@@ -385,6 +385,7 @@ dependencies = [
  "calloop",
  "drifter-core",
  "smithay",
+ "wayland-protocols",
  "zbus",
 ]
 

@@ -1,4 +1,4 @@
-use crate::geom::Vec2;
+use crate::geom::{Rect, Vec2};
 use crate::image::Image;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -156,14 +156,11 @@ impl Look {
 }
 
 impl Chrome {
-    pub fn button_rect(&self, slot: usize) -> crate::geom::Rect {
+    pub fn button_rect(&self, slot: usize) -> Rect {
         let step = self.button + self.gap;
         let x = self.margin + step * slot as f64;
         let y = (self.title - self.button) / 2.0;
-        crate::geom::Rect::new(
-            crate::geom::Vec2::new(x, y),
-            crate::geom::Vec2::splat(self.button),
-        )
+        Rect::new(Vec2::new(x, y), Vec2::splat(self.button))
     }
 
     pub fn buttons_width(&self, count: usize) -> f64 {
@@ -307,6 +304,81 @@ fn glyph(image: &mut Image, button: Button) {
                 image.rgba[index + channel] = (f64::from(*value) * a).round() as u8;
             }
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Layout {
+    pub frame: Rect,
+    pub content: Rect,
+    pub title_left: Rect,
+    pub title_mid: Rect,
+    pub title_right: Rect,
+    pub edge_left: Rect,
+    pub edge_right: Rect,
+    pub edge_bottom: Rect,
+    pub corner_left: Rect,
+    pub corner_right: Rect,
+}
+
+impl Chrome {
+    pub fn layout(&self, content: Rect) -> Layout {
+        let frame = Rect::new(
+            Vec2::new(content.origin.x - self.edge, content.origin.y - self.title),
+            Vec2::new(
+                content.size.x + self.edge * 2.0,
+                content.size.y + self.title + self.edge,
+            ),
+        );
+        let right = frame.max().x;
+        let bottom = frame.max().y;
+
+        Layout {
+            frame,
+            content,
+            title_left: Rect::new(frame.origin, Vec2::new(self.radius, self.title)),
+            title_mid: Rect::new(
+                Vec2::new(frame.origin.x + self.radius, frame.origin.y),
+                Vec2::new((frame.size.x - self.radius * 2.0).max(0.0), self.title),
+            ),
+            title_right: Rect::new(
+                Vec2::new(right - self.radius, frame.origin.y),
+                Vec2::new(self.radius, self.title),
+            ),
+            edge_left: Rect::new(
+                Vec2::new(frame.origin.x, content.origin.y),
+                Vec2::new(self.edge, content.size.y),
+            ),
+            edge_right: Rect::new(
+                Vec2::new(content.max().x, content.origin.y),
+                Vec2::new(self.edge, content.size.y),
+            ),
+            edge_bottom: Rect::new(
+                Vec2::new(frame.origin.x + self.radius, bottom - self.edge),
+                Vec2::new((frame.size.x - self.radius * 2.0).max(0.0), self.edge),
+            ),
+            corner_left: Rect::new(
+                Vec2::new(frame.origin.x, bottom - self.radius),
+                Vec2::splat(self.radius),
+            ),
+            corner_right: Rect::new(
+                Vec2::new(right - self.radius, bottom - self.radius),
+                Vec2::splat(self.radius),
+            ),
+        }
+    }
+
+    pub fn title_bar(&self, content: Rect) -> Rect {
+        let frame = self.layout(content).frame;
+        Rect::new(frame.origin, Vec2::new(frame.size.x, self.title))
+    }
+
+    pub fn button_at(&self, content: Rect, pointer: Vec2, count: usize) -> Option<usize> {
+        let bar = self.title_bar(content);
+        (0..count).find(|slot| {
+            let rect = self.button_rect(*slot);
+            Rect::new(bar.origin + rect.origin, rect.size).contains(pointer)
+        })
     }
 }
 
@@ -490,6 +562,72 @@ mod tests {
         let chrome = chrome();
         let wanted = chrome.margin * 2.0 + chrome.button * 3.0 + chrome.gap * 2.0;
         assert_eq!(chrome.buttons_width(3), wanted);
+    }
+
+    #[test]
+    fn the_frame_wraps_the_content_on_every_side() {
+        let chrome = chrome();
+        let content = Rect::new(Vec2::new(400.0, 300.0), Vec2::new(800.0, 600.0));
+        let layout = chrome.layout(content);
+        assert_eq!(layout.frame.origin.x, content.origin.x - chrome.edge);
+        assert_eq!(layout.frame.origin.y, content.origin.y - chrome.title);
+        assert_eq!(layout.frame.max().x, content.max().x + chrome.edge);
+        assert_eq!(layout.frame.max().y, content.max().y + chrome.edge);
+    }
+
+    #[test]
+    fn the_title_pieces_cover_the_whole_bar_with_no_gap() {
+        let chrome = chrome();
+        let content = Rect::new(Vec2::new(0.0, 100.0), Vec2::new(500.0, 400.0));
+        let layout = chrome.layout(content);
+        assert_eq!(layout.title_left.max().x, layout.title_mid.origin.x);
+        assert_eq!(layout.title_mid.max().x, layout.title_right.origin.x);
+        assert_eq!(layout.title_right.max().x, layout.frame.max().x);
+        for piece in [layout.title_left, layout.title_mid, layout.title_right] {
+            assert_eq!(piece.size.y, chrome.title);
+            assert_eq!(piece.origin.y, layout.frame.origin.y);
+        }
+    }
+
+    #[test]
+    fn the_side_edges_hug_the_content() {
+        let chrome = chrome();
+        let content = Rect::new(Vec2::new(200.0, 200.0), Vec2::new(300.0, 300.0));
+        let layout = chrome.layout(content);
+        assert_eq!(layout.edge_left.max().x, content.origin.x);
+        assert_eq!(layout.edge_right.origin.x, content.max().x);
+        assert_eq!(layout.edge_left.size.y, content.size.y);
+    }
+
+    #[test]
+    fn the_bottom_corners_sit_at_the_bottom_of_the_frame() {
+        let chrome = chrome();
+        let content = Rect::new(Vec2::new(10.0, 60.0), Vec2::new(200.0, 150.0));
+        let layout = chrome.layout(content);
+        assert_eq!(layout.corner_left.origin.x, layout.frame.origin.x);
+        assert_eq!(layout.corner_left.max().y, layout.frame.max().y);
+        assert_eq!(layout.corner_right.max().x, layout.frame.max().x);
+        assert_eq!(layout.corner_right.max().y, layout.frame.max().y);
+    }
+
+    #[test]
+    fn a_tiny_window_does_not_give_the_title_a_negative_width() {
+        let chrome = chrome();
+        let content = Rect::new(Vec2::ZERO, Vec2::new(4.0, 4.0));
+        let layout = chrome.layout(content);
+        assert!(layout.title_mid.size.x >= 0.0);
+        assert!(layout.edge_bottom.size.x >= 0.0);
+    }
+
+    #[test]
+    fn a_click_on_the_title_bar_finds_the_buttons() {
+        let chrome = chrome();
+        let content = Rect::new(Vec2::new(100.0, 100.0), Vec2::new(400.0, 300.0));
+        let bar = chrome.title_bar(content);
+        let first = chrome.button_rect(0);
+        let middle = bar.origin + first.origin + first.size / 2.0;
+        assert_eq!(chrome.button_at(content, middle, 3), Some(0));
+        assert_eq!(chrome.button_at(content, bar.center(), 3), None);
     }
 
     #[test]
