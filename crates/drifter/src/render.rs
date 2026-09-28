@@ -378,12 +378,12 @@ impl State {
                     1.0,
                     Kind::Unspecified,
                 );
-            elements.extend(client.into_iter().map(|piece| {
-                Skin::Client(RescaleRenderElement::from_element(piece, anchor, zoom))
-            }));
             if dressed {
                 self.dress(content, awake, &mut elements);
             }
+            elements.extend(client.into_iter().map(|piece| {
+                Skin::Client(RescaleRenderElement::from_element(piece, anchor, zoom))
+            }));
         }
 
         if let Some((buffer, rect)) = self.wallpaper.as_ref() {
@@ -1098,6 +1098,9 @@ impl State {
 
     fn settle(&mut self) {
         let now = Instant::now();
+        if self.modifier {
+            self.dwell = None;
+        }
         if let Some((edge, since)) = self.dwell
             && now.duration_since(since) >= self.tunables.drawer_dwell
         {
