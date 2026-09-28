@@ -1,56 +1,56 @@
 # Drifter. One file, set once.
-# Paths are relative to this file. An absolute path is used as written.
+# Relative paths start from this file. Absolute paths are used as written.
 
 [workspace]
-# The world, counted in screens. 3 by 3 on a 1080p screen is 5760 x 3240 px.
-# Fixed forever. It is never grown by window sprawl.
+# World size, counted in screens.
+# 3 by 3 on a 1080p screen gives 5760 x 3240 px.
 width = 3
 height = 3
 
-# Any PNG or JPEG. The format is read from the file, not from its name.
-# A missing file is reported and Drifter starts with no wallpaper.
+# PNG or JPEG. Drifter reads the format from the first bytes of the file.
+# If the file is missing, Drifter logs it and runs with no wallpaper.
 wallpaper = "../img/wallpaper.jpeg"
 
-# fixed    one screen, never moves, never zooms. The cheap one.
-# pan      world sized, moves and zooms with the world, so it reads as a map.
-# parallax any size between the two, moves slower than the world.
+# fixed    one screen. Stays put at every zoom.
+# pan      world sized. Moves and zooms with the world.
+# parallax any size between those two. Moves slower than the world.
 wallpaper_mode = "fixed"
 
 [input]
-# The key held for camera work: zoom with the scroll wheel, pan by pushing
-# an edge. While it is held the drawers and the hot corner stay out of the way.
-# super, alt or ctrl.
+# Held for camera work. Scroll to zoom, push an edge to pan.
+# While held, the drawers and the hot corner stay closed.
+# Choices: super, alt, ctrl.
 modifier = "ctrl"
 
 [drawers]
-# Height in pixels of each bar. The top holds the tray, the bottom is the dock.
-# Push the pointer at an edge to open one. At least 16.
+# Bar heights in pixels. Minimum 16.
+# Top holds the tray. Bottom holds the dock.
 top = 36
 bottom = 64
 
 [dock]
-# Apps pinned to the left of the dock, by desktop file name without .desktop.
-# Leave it empty and Drifter uses the XDG defaults: your browser, your file
-# manager and your terminal.
+# Apps pinned at the left, named by desktop file without .desktop.
+# Example: ["foot", "com.github.hluk.copyq"]
+# Empty means Drifter reads your XDG defaults for browser, files and terminal.
 pinned = []
 
 [tray]
-# strftime, so %a weekday, %b month, %d day, %I hour 12, %M minute,
-# %S second, %p AM or PM. %H is the 24 hour clock.
+# strftime. %a weekday, %b month, %d day, %I hour on 12, %H hour on 24,
+# %M minute, %S second, %p AM or PM.
 format = "%a %b %d %I:%M:%S %p"
 
-# Clock text height in pixels. At least 6.
+# Clock text height in pixels. Minimum 6.
 size = 13
 
 [assets]
-# Any PNG with transparency. The TOP LEFT PIXEL is the point that clicks.
+# PNG with transparency. The top left pixel is the point that clicks.
 cursor = "../img/cursor.png"
 
-# Any TTF. Without it Drifter looks for a normal system font, and with no
-# font at all it skips the clock rather than refusing to start.
+# TTF. Without this key Drifter searches the usual system font paths.
+# With no font anywhere, Drifter starts and skips the clock.
 font = "../fonts/WorkSans.ttf"
 
-# The folder holding the window skin: the title bar pieces, the edges, the
-# corners, the same again as -idle, and the buttons with -hover and -press.
-# The art sets the sizes, so a taller title-mid.png gives a taller title bar.
+# Folder holding the window skin: title bar pieces, edges, corners,
+# the same set again as -idle, and buttons with -hover and -press.
+# Sizes come from the art. A taller title-mid.png gives a taller title bar.
 window = "../img/window"
