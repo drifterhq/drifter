@@ -36,7 +36,7 @@ pub struct Wayland {
     pub shm: ShmState,
     pub seats: SeatState<State>,
     pub data_device: DataDeviceState,
-    pub seat: Seat<State>,
+    pub _seat: Seat<State>,
     pub keyboard: smithay::input::keyboard::KeyboardHandle<State>,
     pub pointer: smithay::input::pointer::PointerHandle<State>,
 }
@@ -216,7 +216,7 @@ pub fn start(display: &Display<State>) -> Result<Wayland, String> {
         shm,
         seats,
         data_device,
-        seat,
+        _seat: seat,
         keyboard,
         pointer,
     })
