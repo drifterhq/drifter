@@ -267,7 +267,7 @@ impl State {
         let geometry = smithay::wayland::compositor::with_states(surface, |states| {
             states
                 .cached_state
-                .get::<smithay::wayland::compositor::SurfaceCachedState>()
+                .get::<smithay::wayland::shell::xdg::SurfaceCachedState>()
                 .current()
                 .geometry
         });
@@ -797,14 +797,14 @@ pub fn open(
     );
 
     let (width, height) = drm_mode.size();
-    let output = OutputModeSource::Static {
+    let mode_source = OutputModeSource::Static {
         size: (i32::from(width), i32::from(height)).into(),
         scale: Scale::from(1.0),
         transform: Transform::Normal,
     };
 
     let compositor: Compositor = DrmCompositor::new(
-        output,
+        mode_source,
         surface,
         None,
         allocator,
