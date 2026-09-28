@@ -104,6 +104,7 @@ pub struct State {
     display: Option<Display<State>>,
     chrome: Chrome,
     grab: Grab,
+    held: Option<usize>,
     focus: Option<usize>,
     skin: std::collections::HashMap<String, (TextureBuffer<GlesTexture>, Vec2)>,
     started: Instant,
@@ -215,7 +216,7 @@ impl State {
             .windows
             .iter()
             .rev()
-            .filter(|window| window.placed)
+            .filter(|window| window.placed && !window.hidden)
             .enumerate()
             .map(|(order, window)| {
                 (
@@ -298,15 +299,15 @@ impl State {
         }
 
         let bar = self.chrome.title_bar(content);
-        for (slot, name) in [
-            "button-close.png",
-            "button-minimize.png",
-            "button-maximize.png",
-        ]
-        .iter()
-        .enumerate()
-        {
-            if let Some((buffer, size)) = self.skin.get(*name) {
+        let over = self.chrome.button_at(content, self.pointer, 3);
+        for (slot, name) in ["close", "minimize", "maximize"].iter().enumerate() {
+            let look = match (over == Some(slot), self.held == Some(slot)) {
+                (true, true) => "-press",
+                (true, false) => "-hover",
+                _ => "",
+            };
+            let file = format!("button-{name}{look}.png");
+            if let Some((buffer, size)) = self.skin.get(&file) {
                 let place = self.chrome.button_rect(slot);
                 let rect = Rect::new(bar.origin + place.origin, *size);
                 elements.push(Skin::Texture(element(buffer, rect, 1.0)));
@@ -647,7 +648,9 @@ impl State {
             .iter()
             .enumerate()
             .rev()
-            .find(|(_, window)| window.placed && window.content.contains(self.pointer))
+            .find(|(_, window)| {
+                window.placed && !window.hidden && window.content.contains(self.pointer)
+            })
             .map(|(index, window)| (index, self.pointer - window.content.origin))
     }
 
@@ -706,7 +709,7 @@ impl State {
             .iter()
             .enumerate()
             .rev()
-            .filter(|(_, window)| window.placed)
+            .filter(|(_, window)| window.placed && !window.hidden)
             .find_map(|(index, window)| {
                 self.chrome
                     .grip_at(window.content, self.pointer, 3)
@@ -727,6 +730,7 @@ impl State {
 
         match grip {
             Grip::Button(slot) => {
+                self.held = Some(slot);
                 self.press_button(index, slot);
             }
             Grip::Title => {
@@ -753,27 +757,43 @@ impl State {
 
     fn press_button(&mut self, index: usize, slot: usize) {
         use wayland_protocols::xdg::shell::server::xdg_toplevel;
-        let window = &self.windows[index];
+
         match slot {
-            0 => window.toplevel.send_close(),
+            0 => self.windows[index].toplevel.send_close(),
             1 => {
-                window.toplevel.with_pending_state(|state| {
-                    state.states.unset(xdg_toplevel::State::Activated);
-                });
-                window.toplevel.send_pending_configure();
+                self.windows[index].hidden = true;
+                if self.focus == Some(index) {
+                    self.focus = None;
+                }
+                self.wake_windows();
             }
             _ => {
                 let screen = self.screen;
                 let chrome = self.chrome;
                 let window = &mut self.windows[index];
-                let room = Vec2::new(
-                    screen.x - chrome.edge * 2.0,
-                    screen.y - chrome.title - chrome.edge,
-                );
-                window.content = Rect::new(Vec2::new(chrome.edge, chrome.title), room);
-                let size = window.content.size;
+                let want = match window.restore.take() {
+                    Some(back) => back,
+                    None => {
+                        window.restore = Some(window.content);
+                        Rect::new(
+                            Vec2::new(chrome.edge, chrome.title),
+                            Vec2::new(
+                                screen.x - chrome.edge * 2.0,
+                                screen.y - chrome.title - chrome.edge,
+                            ),
+                        )
+                    }
+                };
+                window.content = want;
+                window.touched = true;
+                let full = window.restore.is_some();
                 window.toplevel.with_pending_state(|state| {
-                    state.size = Some((size.x as i32, size.y as i32).into());
+                    state.size = Some((want.size.x as i32, want.size.y as i32).into());
+                    if full {
+                        state.states.set(xdg_toplevel::State::Maximized);
+                    } else {
+                        state.states.unset(xdg_toplevel::State::Maximized);
+                    }
                 });
                 window.toplevel.send_pending_configure();
             }
@@ -818,6 +838,7 @@ impl State {
         let serial = SERIAL_COUNTER.next_serial();
         if state == ButtonState::Released {
             self.grab = Grab::None;
+            self.held = None;
         }
         if state == ButtonState::Pressed {
             if self.take_grab() {
@@ -1186,6 +1207,7 @@ pub fn open(
         display: Some(display),
         chrome,
         grab: Grab::None,
+        held: None,
         focus: None,
         skin,
         started: Instant::now(),

@@ -47,6 +47,8 @@ pub struct Window {
     pub inset: Vec2,
     pub placed: bool,
     pub touched: bool,
+    pub hidden: bool,
+    pub restore: Option<Rect>,
 }
 
 #[derive(Default)]
@@ -147,6 +149,8 @@ impl XdgShellHandler for State {
             inset: Vec2::ZERO,
             placed: false,
             touched: false,
+            hidden: false,
+            restore: None,
         });
     }
 
