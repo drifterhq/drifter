@@ -14,7 +14,8 @@ use smithay::backend::drm::exporter::gbm::GbmFramebufferExporter;
 use smithay::backend::drm::{DrmDevice, DrmDeviceFd, DrmEvent};
 use smithay::backend::egl::{EGLContext, EGLDisplay};
 use smithay::backend::input::{
-    AbsolutePositionEvent, InputEvent, KeyState, KeyboardKeyEvent, PointerMotionEvent,
+    AbsolutePositionEvent, ButtonState, InputEvent, KeyState, KeyboardKeyEvent, PointerButtonEvent,
+    PointerMotionEvent,
 };
 use smithay::backend::libinput::{LibinputInputBackend, LibinputSessionInterface};
 use smithay::backend::renderer::Color32F;
@@ -25,6 +26,7 @@ use smithay::backend::renderer::gles::GlesTexture;
 use smithay::backend::session::libseat::{LibSeatSession, LibSeatSessionNotifier};
 use smithay::backend::session::{Event as SessionEvent, Session};
 use smithay::output::OutputModeSource;
+use smithay::reexports::calloop::channel::Event as ChannelEvent;
 use smithay::reexports::calloop::signals::{Signal, Signals};
 use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
 use smithay::reexports::calloop::{EventLoop, LoopHandle, LoopSignal};
@@ -35,6 +37,9 @@ use smithay::reexports::rustix::fs::OFlags;
 use smithay::utils::{DeviceFd, Scale, Transform};
 
 const ESCAPE: u32 = 9;
+const BTN_LEFT: u32 = 0x110;
+const BTN_RIGHT: u32 = 0x111;
+const BTN_MIDDLE: u32 = 0x112;
 const PANEL_COLOR: [u8; 3] = [16, 18, 26];
 const PANEL_ALPHA: u8 = 235;
 const TICK: Duration = Duration::from_millis(8);
@@ -75,6 +80,8 @@ struct State {
     tray: Tray,
     format: String,
     clock: Option<(String, TextureBuffer<GlesTexture>, Rect)>,
+    icons: Vec<(String, TextureBuffer<GlesTexture>)>,
+    tray_bus: Option<crate::tray::Tray>,
     drawers: [Drawer; 2],
     tunables: Tunables,
     screen: Vec2,
@@ -115,6 +122,11 @@ impl State {
         )];
         if let Some((_, buffer, rect)) = self.clock.as_ref() {
             elements.push(element(buffer, *rect, 1.0));
+        }
+        if let Some(band) = self.tray_band() {
+            for (slot, (_, buffer)) in self.icons.iter().enumerate() {
+                elements.push(element(buffer, self.tray.icon_rect(band, slot), 1.0));
+            }
         }
         for edge in Edge::ALL {
             let drawer = &self.drawers[edge.index()];
@@ -174,6 +186,45 @@ impl State {
         self.frames += 1;
         self.awaiting = true;
         Ok(true)
+    }
+
+    fn tray_band(&self) -> Option<Rect> {
+        let drawer = self.drawers[Edge::Top.index()];
+        drawer
+            .visible()
+            .then(|| drawer.band(self.screen, &self.panel))
+    }
+
+    fn take_icons(&mut self, icons: Vec<crate::tray::Icon>) {
+        let wanted = self.tray.icon as u32;
+        self.icons.clear();
+        for icon in icons {
+            let image = icon.image.scaled(wanted, wanted);
+            match upload(&mut self.renderer, Some(&image), "tray icon") {
+                Ok(Some(buffer)) => self.icons.push((icon.service, buffer)),
+                Ok(None) => {}
+                Err(error) => eprintln!("drifter: {error}"),
+            }
+        }
+    }
+
+    fn press(&mut self, code: u32) {
+        let Some(band) = self.tray_band() else {
+            return;
+        };
+        let Some(slot) = self.tray.icon_at(band, self.pointer, self.icons.len()) else {
+            return;
+        };
+        let click = match code {
+            BTN_LEFT => crate::tray::Click::Left,
+            BTN_RIGHT => crate::tray::Click::Right,
+            BTN_MIDDLE => crate::tray::Click::Middle,
+            _ => return,
+        };
+        if let Some(bus) = self.tray_bus.as_ref() {
+            let (service, _) = &self.icons[slot];
+            bus.click(service, click, self.pointer.x as i32, self.pointer.y as i32);
+        }
     }
 
     fn wind_the_clock(&mut self) {
@@ -322,6 +373,11 @@ impl State {
                 let x = event.x_transformed(self.screen.x as i32);
                 let y = event.y_transformed(self.screen.y as i32);
                 self.pointer_to(Vec2::new(x, y));
+            }
+            InputEvent::PointerButton { event } => {
+                if event.state() == ButtonState::Pressed {
+                    self.press(event.button_code());
+                }
             }
             InputEvent::Keyboard { event }
                 if event.state() == KeyState::Pressed && event.key_code().raw() == ESCAPE =>
@@ -527,6 +583,13 @@ pub fn open(
         .map_err(|_| "the drawer textures went missing".to_string())?;
 
     let tray = Tray::default();
+    let (tray_bus, tray_icons) = match crate::tray::start() {
+        Ok((bus, icons)) => (Some(bus), Some(icons)),
+        Err(error) => {
+            eprintln!("drifter: no tray: {error}");
+            (None, None)
+        }
+    };
     let font = match Font::find(Some(config.font_path()), tray.size) {
         Ok(font) => Some(font),
         Err(error) => {
@@ -555,6 +618,8 @@ pub fn open(
         tray,
         format: config.tray.format.clone(),
         clock: None,
+        icons: Vec::new(),
+        tray_bus,
         drawers: [Drawer::new(Edge::Top), Drawer::new(Edge::Bottom)],
         tunables,
         screen,
@@ -621,6 +686,17 @@ pub fn open(
             },
         )
         .map_err(|e| format!("cannot watch input events: {e}"))?;
+
+    if let Some(icons) = tray_icons {
+        handle
+            .insert_source(icons, |event, _, state: &mut State| {
+                if let ChannelEvent::Msg(icons) = event {
+                    state.take_icons(icons);
+                    state.kick();
+                }
+            })
+            .map_err(|e| format!("cannot watch the tray: {e}"))?;
+    }
 
     let signals = Signals::new(&[Signal::SIGUSR1, Signal::SIGUSR2])
         .map_err(|e| format!("cannot watch signals: {e}"))?;

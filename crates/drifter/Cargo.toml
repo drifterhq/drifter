@@ -22,3 +22,4 @@ smithay = { version = "0.7.0", default-features = false, features = [
     "renderer_multi",
     "wayland_frontend",
 ] }
+zbus = { version = "5.19.0", features = ["blocking-api"] }

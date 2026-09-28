@@ -7,6 +7,8 @@ use drifter_core::{Camera, Config, Tunables, Vec2, wallpaper};
 mod render;
 #[cfg(target_os = "linux")]
 mod session;
+#[cfg(target_os = "linux")]
+mod tray;
 
 #[cfg(target_os = "linux")]
 fn load_image(path: &Path, what: &str) -> Option<drifter_core::Image> {

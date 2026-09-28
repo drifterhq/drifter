@@ -12,6 +12,49 @@ impl Image {
     pub fn size(&self) -> Vec2 {
         Vec2::new(f64::from(self.width), f64::from(self.height))
     }
+
+    pub fn premultiply(&mut self) {
+        for pixel in self.rgba.as_chunks_mut::<4>().0 {
+            let a = u32::from(pixel[3]);
+            for channel in 0..3 {
+                pixel[channel] = ((u32::from(pixel[channel]) * a + 127) / 255) as u8;
+            }
+        }
+    }
+
+    pub fn scaled(&self, width: u32, height: u32) -> Image {
+        let width = width.max(1);
+        let height = height.max(1);
+        if width == self.width && height == self.height {
+            return Image {
+                width,
+                height,
+                rgba: self.rgba.clone(),
+            };
+        }
+
+        let mut rgba = vec![0u8; (width as usize) * (height as usize) * 4];
+        let across = f64::from(self.width) / f64::from(width);
+        let down = f64::from(self.height) / f64::from(height);
+
+        for y in 0..height {
+            let from_y = ((f64::from(y) + 0.5) * down).floor() as u32;
+            let from_y = from_y.min(self.height - 1);
+            for x in 0..width {
+                let from_x = ((f64::from(x) + 0.5) * across).floor() as u32;
+                let from_x = from_x.min(self.width - 1);
+                let source = ((from_y as usize) * (self.width as usize) + from_x as usize) * 4;
+                let target = ((y as usize) * (width as usize) + x as usize) * 4;
+                rgba[target..target + 4].copy_from_slice(&self.rgba[source..source + 4]);
+            }
+        }
+
+        Image {
+            width,
+            height,
+            rgba,
+        }
+    }
 }
 
 pub fn load(path: &Path) -> Result<Image, String> {
@@ -50,11 +93,13 @@ fn load_jpeg(path: &Path, bytes: &[u8]) -> Result<Image, String> {
         }
     };
 
-    Ok(Image {
+    let mut image = Image {
         width: u32::from(info.width),
         height: u32::from(info.height),
         rgba,
-    })
+    };
+    image.premultiply();
+    Ok(image)
 }
 
 fn load_png(path: &Path, bytes: &[u8]) -> Result<Image, String> {
@@ -92,11 +137,13 @@ fn load_png(path: &Path, bytes: &[u8]) -> Result<Image, String> {
         }
     };
 
-    Ok(Image {
+    let mut image = Image {
         width: info.width,
         height: info.height,
         rgba,
-    })
+    };
+    image.premultiply();
+    Ok(image)
 }
 
 #[cfg(test)]
@@ -127,7 +174,7 @@ mod tests {
         write_png(&path, 2, 1, png::ColorType::Rgba, &[1, 2, 3, 4, 5, 6, 7, 8]);
         let image = load(&path).unwrap();
         assert_eq!((image.width, image.height), (2, 1));
-        assert_eq!(image.rgba, vec![1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(image.rgba, vec![0, 0, 0, 4, 0, 0, 0, 8]);
     }
 
     #[test]
@@ -189,6 +236,61 @@ mod tests {
         std::fs::write(&path, hex(TINY_JPEG)).unwrap();
         let image = load(&path).unwrap();
         assert_eq!((image.width, image.height), (4, 2));
+    }
+
+    #[test]
+    fn loading_premultiplies_so_the_renderer_sees_what_it_expects() {
+        let path = scratch("half.png");
+        write_png(&path, 1, 1, png::ColorType::Rgba, &[255, 255, 255, 128]);
+        let image = load(&path).unwrap();
+        assert_eq!(image.rgba, vec![128, 128, 128, 128]);
+    }
+
+    #[test]
+    fn a_fully_opaque_image_is_unchanged_by_premultiplying() {
+        let path = scratch("opaque.png");
+        write_png(&path, 2, 1, png::ColorType::Rgb, &[9, 8, 7, 6, 5, 4]);
+        let image = load(&path).unwrap();
+        assert_eq!(image.rgba, vec![9, 8, 7, 255, 6, 5, 4, 255]);
+    }
+
+    #[test]
+    fn a_clear_pixel_loses_its_color() {
+        let path = scratch("clear.png");
+        write_png(&path, 1, 1, png::ColorType::Rgba, &[200, 100, 50, 0]);
+        let image = load(&path).unwrap();
+        assert_eq!(image.rgba, vec![0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn scaling_down_keeps_the_asked_for_size() {
+        let path = scratch("big.png");
+        write_png(&path, 8, 8, png::ColorType::Rgba, &[255; 8 * 8 * 4]);
+        let image = load(&path).unwrap().scaled(24, 24);
+        assert_eq!((image.width, image.height), (24, 24));
+        assert_eq!(image.rgba.len(), 24 * 24 * 4);
+    }
+
+    #[test]
+    fn scaling_to_the_same_size_changes_nothing() {
+        let path = scratch("same.png");
+        write_png(&path, 2, 2, png::ColorType::Rgba, &[7; 16]);
+        let image = load(&path).unwrap();
+        let same = image.scaled(2, 2);
+        assert_eq!(same.rgba, image.rgba);
+    }
+
+    #[test]
+    fn scaling_keeps_the_corners_where_they_belong() {
+        let mut image = Image {
+            width: 2,
+            height: 2,
+            rgba: vec![1, 1, 1, 255, 2, 2, 2, 255, 3, 3, 3, 255, 4, 4, 4, 255],
+        };
+        image.premultiply();
+        let big = image.scaled(4, 4);
+        assert_eq!(big.rgba[0], 1);
+        assert_eq!(big.rgba[(3 * 4 + 3) * 4], 4);
     }
 
     #[test]
