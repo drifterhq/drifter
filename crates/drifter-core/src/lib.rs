@@ -8,6 +8,7 @@ pub mod mode;
 pub mod text;
 pub mod tray;
 pub mod wallpaper;
+pub mod window;
 
 pub use camera::Camera;
 pub use config::{Assets, Config, Modifier, TrayConfig, Tunables, WallpaperMode};

@@ -1,0 +1,507 @@
+use crate::geom::Vec2;
+use crate::image::Image;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Chrome {
+    pub title: f64,
+    pub edge: f64,
+    pub radius: f64,
+    pub button: f64,
+    pub gap: f64,
+    pub margin: f64,
+    pub frame: [u8; 3],
+    pub frame_alpha: u8,
+    pub idle: [u8; 3],
+    pub idle_alpha: u8,
+}
+
+impl Default for Chrome {
+    fn default() -> Self {
+        Chrome {
+            title: 30.0,
+            edge: 4.0,
+            radius: 10.0,
+            button: 12.0,
+            gap: 8.0,
+            margin: 11.0,
+            frame: [30, 33, 42],
+            frame_alpha: 242,
+            idle: [24, 26, 33],
+            idle_alpha: 230,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Piece {
+    TitleLeft,
+    TitleMid,
+    TitleRight,
+    EdgeLeft,
+    EdgeRight,
+    EdgeBottom,
+    CornerBottomLeft,
+    CornerBottomRight,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Button {
+    Close,
+    Minimize,
+    Maximize,
+    Restore,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Look {
+    Rest,
+    Hover,
+    Press,
+}
+
+impl Piece {
+    pub const ALL: [Piece; 8] = [
+        Piece::TitleLeft,
+        Piece::TitleMid,
+        Piece::TitleRight,
+        Piece::EdgeLeft,
+        Piece::EdgeRight,
+        Piece::EdgeBottom,
+        Piece::CornerBottomLeft,
+        Piece::CornerBottomRight,
+    ];
+
+    pub fn file_name(self, active: bool) -> String {
+        let name = match self {
+            Piece::TitleLeft => "title-left",
+            Piece::TitleMid => "title-mid",
+            Piece::TitleRight => "title-right",
+            Piece::EdgeLeft => "edge-left",
+            Piece::EdgeRight => "edge-right",
+            Piece::EdgeBottom => "edge-bottom",
+            Piece::CornerBottomLeft => "corner-bottom-left",
+            Piece::CornerBottomRight => "corner-bottom-right",
+        };
+        match active {
+            true => format!("{name}.png"),
+            false => format!("{name}-idle.png"),
+        }
+    }
+
+    pub fn size(self, chrome: &Chrome) -> Vec2 {
+        let tile = 8.0;
+        match self {
+            Piece::TitleLeft | Piece::TitleRight => Vec2::new(chrome.radius, chrome.title),
+            Piece::TitleMid => Vec2::new(tile, chrome.title),
+            Piece::EdgeLeft | Piece::EdgeRight => Vec2::new(chrome.edge, tile),
+            Piece::EdgeBottom => Vec2::new(tile, chrome.edge),
+            Piece::CornerBottomLeft | Piece::CornerBottomRight => {
+                Vec2::new(chrome.radius, chrome.radius)
+            }
+        }
+    }
+
+    fn corners(self, radius: f64) -> [f64; 4] {
+        match self {
+            Piece::TitleLeft => [radius, 0.0, 0.0, 0.0],
+            Piece::TitleRight => [0.0, radius, 0.0, 0.0],
+            Piece::CornerBottomLeft => [0.0, 0.0, 0.0, radius],
+            Piece::CornerBottomRight => [0.0, 0.0, radius, 0.0],
+            _ => [0.0; 4],
+        }
+    }
+}
+
+impl Button {
+    pub const ALL: [Button; 4] = [
+        Button::Close,
+        Button::Minimize,
+        Button::Maximize,
+        Button::Restore,
+    ];
+
+    pub fn file_name(self, look: Look) -> String {
+        let name = match self {
+            Button::Close => "close",
+            Button::Minimize => "minimize",
+            Button::Maximize => "maximize",
+            Button::Restore => "restore",
+        };
+        match look {
+            Look::Rest => format!("button-{name}.png"),
+            Look::Hover => format!("button-{name}-hover.png"),
+            Look::Press => format!("button-{name}-press.png"),
+        }
+    }
+
+    fn color(self) -> [u8; 3] {
+        match self {
+            Button::Close => [255, 95, 87],
+            Button::Minimize => [254, 188, 46],
+            Button::Maximize | Button::Restore => [40, 200, 64],
+        }
+    }
+}
+
+impl Look {
+    pub const ALL: [Look; 3] = [Look::Rest, Look::Hover, Look::Press];
+
+    fn shade(self) -> f64 {
+        match self {
+            Look::Rest => 1.0,
+            Look::Hover => 1.0,
+            Look::Press => 0.78,
+        }
+    }
+}
+
+impl Chrome {
+    pub fn button_rect(&self, slot: usize) -> crate::geom::Rect {
+        let step = self.button + self.gap;
+        let x = self.margin + step * slot as f64;
+        let y = (self.title - self.button) / 2.0;
+        crate::geom::Rect::new(
+            crate::geom::Vec2::new(x, y),
+            crate::geom::Vec2::splat(self.button),
+        )
+    }
+
+    pub fn buttons_width(&self, count: usize) -> f64 {
+        if count == 0 {
+            return self.margin;
+        }
+        self.margin + (self.button + self.gap) * count as f64 - self.gap + self.margin
+    }
+}
+
+fn rounded(size: Vec2, corners: [f64; 4], color: [u8; 3], alpha: u8, shade: f64) -> Image {
+    let width = size.x.round().max(1.0) as u32;
+    let height = size.y.round().max(1.0) as u32;
+    let mut rgba = vec![0u8; (width as usize) * (height as usize) * 4];
+    let base = f64::from(alpha) / 255.0;
+
+    for y in 0..height {
+        let py = f64::from(y) + 0.5;
+        for x in 0..width {
+            let px = f64::from(x) + 0.5;
+            let coverage = (inside(px, py, size, corners) + 0.5).clamp(0.0, 1.0);
+            if coverage <= 0.0 {
+                continue;
+            }
+
+            let lit = shade;
+            let pixel_alpha = base * coverage;
+            let index = ((y as usize) * (width as usize) + x as usize) * 4;
+            for (channel, value) in color.iter().enumerate() {
+                rgba[index + channel] = (f64::from(*value) * lit * pixel_alpha)
+                    .round()
+                    .clamp(0.0, 255.0) as u8;
+            }
+            rgba[index + 3] = (pixel_alpha * 255.0).round().clamp(0.0, 255.0) as u8;
+        }
+    }
+
+    Image {
+        width,
+        height,
+        rgba,
+    }
+}
+
+fn inside(px: f64, py: f64, size: Vec2, corners: [f64; 4]) -> f64 {
+    let [top_left, top_right, bottom_right, bottom_left] = corners;
+    let corner = if top_left > 0.0 && px < top_left && py < top_left {
+        Some((top_left, Vec2::new(top_left, top_left)))
+    } else if top_right > 0.0 && px > size.x - top_right && py < top_right {
+        Some((top_right, Vec2::new(size.x - top_right, top_right)))
+    } else if bottom_right > 0.0 && px > size.x - bottom_right && py > size.y - bottom_right {
+        Some((
+            bottom_right,
+            Vec2::new(size.x - bottom_right, size.y - bottom_right),
+        ))
+    } else if bottom_left > 0.0 && px < bottom_left && py > size.y - bottom_left {
+        Some((bottom_left, Vec2::new(bottom_left, size.y - bottom_left)))
+    } else {
+        None
+    };
+
+    if let Some((radius, center)) = corner {
+        let dx = px - center.x;
+        let dy = py - center.y;
+        return radius - (dx * dx + dy * dy).sqrt();
+    }
+
+    px.min(size.x - px).min(py).min(size.y - py)
+}
+
+pub fn paint(piece: Piece, chrome: &Chrome, active: bool) -> Image {
+    let (color, alpha) = match active {
+        true => (chrome.frame, chrome.frame_alpha),
+        false => (chrome.idle, chrome.idle_alpha),
+    };
+    rounded(
+        piece.size(chrome),
+        piece.corners(chrome.radius),
+        color,
+        alpha,
+        1.0,
+    )
+}
+
+pub fn paint_button(button: Button, look: Look, chrome: &Chrome) -> Image {
+    let size = Vec2::splat(chrome.button);
+    let mut image = rounded(
+        size,
+        [chrome.button / 2.0; 4],
+        button.color(),
+        255,
+        look.shade(),
+    );
+
+    if look != Look::Rest {
+        glyph(&mut image, button);
+    }
+    image
+}
+
+fn glyph(image: &mut Image, button: Button) {
+    let width = f64::from(image.width);
+    let height = f64::from(image.height);
+    let ink = [28u8, 24, 20];
+    let thickness = (width / 10.0).max(1.0);
+    let reach = width * 0.28;
+    let middle = Vec2::new(width / 2.0, height / 2.0);
+
+    for y in 0..image.height {
+        let py = f64::from(y) + 0.5;
+        for x in 0..image.width {
+            let px = f64::from(x) + 0.5;
+            let dx = px - middle.x;
+            let dy = py - middle.y;
+            let on = match button {
+                Button::Close => {
+                    (dx - dy).abs() <= thickness && dx.abs() <= reach && dy.abs() <= reach
+                        || (dx + dy).abs() <= thickness && dx.abs() <= reach && dy.abs() <= reach
+                }
+                Button::Minimize => dy.abs() <= thickness / 2.0 && dx.abs() <= reach,
+                Button::Maximize => {
+                    (dx.abs() <= reach && dy.abs() <= reach)
+                        && (dx.abs() >= reach - thickness || dy.abs() >= reach - thickness)
+                }
+                Button::Restore => {
+                    (dx + 1.0).abs() <= reach
+                        && (dy - 1.0).abs() <= reach
+                        && ((dx + 1.0).abs() >= reach - thickness
+                            || (dy - 1.0).abs() >= reach - thickness)
+                }
+            };
+            if !on {
+                continue;
+            }
+            let index = ((y as usize) * (image.width as usize) + x as usize) * 4;
+            if image.rgba[index + 3] == 0 {
+                continue;
+            }
+            let a = f64::from(image.rgba[index + 3]) / 255.0;
+            for (channel, value) in ink.iter().enumerate() {
+                image.rgba[index + channel] = (f64::from(*value) * a).round() as u8;
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn chrome() -> Chrome {
+        Chrome::default()
+    }
+
+    fn pixel(image: &Image, x: u32, y: u32) -> [u8; 4] {
+        let index = ((y as usize) * (image.width as usize) + x as usize) * 4;
+        [
+            image.rgba[index],
+            image.rgba[index + 1],
+            image.rgba[index + 2],
+            image.rgba[index + 3],
+        ]
+    }
+
+    #[test]
+    fn every_piece_has_its_own_file_name() {
+        let mut names: Vec<String> = Vec::new();
+        for piece in Piece::ALL {
+            for active in [true, false] {
+                names.push(piece.file_name(active));
+            }
+        }
+        for button in Button::ALL {
+            for look in Look::ALL {
+                names.push(button.file_name(look));
+            }
+        }
+        let mut unique = names.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(unique.len(), names.len(), "two pieces share a file name");
+    }
+
+    #[test]
+    fn the_title_bar_pieces_are_all_the_same_height() {
+        let chrome = chrome();
+        for piece in [Piece::TitleLeft, Piece::TitleMid, Piece::TitleRight] {
+            assert_eq!(piece.size(&chrome).y, chrome.title);
+        }
+    }
+
+    #[test]
+    fn the_title_corners_are_cut_away_and_the_middle_is_not() {
+        let chrome = chrome();
+        let left = paint(Piece::TitleLeft, &chrome, true);
+        assert_eq!(pixel(&left, 0, 0)[3], 0, "the top left corner is square");
+        assert_eq!(
+            pixel(&left, left.width - 1, left.height - 1)[3],
+            chrome.frame_alpha
+        );
+
+        let mid = paint(Piece::TitleMid, &chrome, true);
+        assert_eq!(pixel(&mid, 0, 0)[3], chrome.frame_alpha);
+    }
+
+    #[test]
+    fn the_right_cap_is_the_mirror_of_the_left_one() {
+        let chrome = chrome();
+        let left = paint(Piece::TitleLeft, &chrome, true);
+        let right = paint(Piece::TitleRight, &chrome, true);
+        assert_eq!(left.width, right.width);
+        for y in 0..left.height {
+            for x in 0..left.width {
+                assert_eq!(
+                    pixel(&left, x, y),
+                    pixel(&right, right.width - 1 - x, y),
+                    "the caps are not mirror images at {x} {y}"
+                );
+            }
+        }
+        assert_eq!(pixel(&left, 0, 0)[3], 0);
+        assert_eq!(pixel(&right, right.width - 1, 0)[3], 0);
+    }
+
+    #[test]
+    fn the_bottom_corners_round_downward() {
+        let chrome = chrome();
+        let left = paint(Piece::CornerBottomLeft, &chrome, true);
+        assert_eq!(pixel(&left, 0, left.height - 1)[3], 0);
+        assert_eq!(pixel(&left, left.width - 1, 0)[3], chrome.frame_alpha);
+    }
+
+    #[test]
+    fn the_idle_frame_is_darker_than_the_active_one() {
+        let chrome = chrome();
+        let active = paint(Piece::TitleMid, &chrome, true);
+        let idle = paint(Piece::TitleMid, &chrome, false);
+        assert!(pixel(&idle, 4, 4)[0] < pixel(&active, 4, 4)[0]);
+    }
+
+    #[test]
+    fn a_tiling_strip_is_the_same_all_the_way_down() {
+        let chrome = chrome();
+        let edge = paint(Piece::EdgeLeft, &chrome, true);
+        let first = pixel(&edge, 0, 0);
+        let last = pixel(&edge, 0, edge.height - 1);
+        assert_eq!(first, last, "the left edge cannot tile");
+    }
+
+    #[test]
+    fn the_buttons_are_round_and_the_right_size() {
+        let chrome = chrome();
+        let close = paint_button(Button::Close, Look::Rest, &chrome);
+        assert_eq!(close.width, chrome.button as u32);
+        assert_eq!(pixel(&close, 0, 0)[3], 0, "the button is a square");
+        let middle = close.width / 2;
+        assert_eq!(pixel(&close, middle, middle)[3], 255);
+    }
+
+    #[test]
+    fn each_button_has_its_own_color() {
+        let chrome = chrome();
+        let middle = (chrome.button as u32) / 2;
+        let close = pixel(
+            &paint_button(Button::Close, Look::Rest, &chrome),
+            middle,
+            middle,
+        );
+        let minimize = pixel(
+            &paint_button(Button::Minimize, Look::Rest, &chrome),
+            middle,
+            middle,
+        );
+        assert_ne!(close, minimize);
+    }
+
+    #[test]
+    fn the_glyph_only_shows_on_hover_and_press() {
+        let chrome = chrome();
+        let middle = (chrome.button as u32) / 2;
+        let rest = pixel(
+            &paint_button(Button::Close, Look::Rest, &chrome),
+            middle,
+            middle,
+        );
+        let hover = pixel(
+            &paint_button(Button::Close, Look::Hover, &chrome),
+            middle,
+            middle,
+        );
+        assert_ne!(rest, hover, "hover draws no glyph");
+        assert!(hover[0] < rest[0]);
+    }
+
+    #[test]
+    fn pressing_darkens_the_button() {
+        let chrome = chrome();
+        let edge = 2;
+        let hover = pixel(
+            &paint_button(Button::Minimize, Look::Hover, &chrome),
+            edge,
+            6,
+        );
+        let press = pixel(
+            &paint_button(Button::Minimize, Look::Press, &chrome),
+            edge,
+            6,
+        );
+        assert!(press[0] <= hover[0]);
+    }
+
+    #[test]
+    fn the_buttons_sit_in_a_row_and_are_centered_in_the_title_bar() {
+        let chrome = chrome();
+        let first = chrome.button_rect(0);
+        let second = chrome.button_rect(1);
+        assert_eq!(first.origin.x, chrome.margin);
+        assert_eq!(second.origin.x - first.max().x, chrome.gap);
+        assert_eq!(first.center().y, chrome.title / 2.0);
+    }
+
+    #[test]
+    fn three_buttons_take_a_known_width() {
+        let chrome = chrome();
+        let wanted = chrome.margin * 2.0 + chrome.button * 3.0 + chrome.gap * 2.0;
+        assert_eq!(chrome.buttons_width(3), wanted);
+    }
+
+    #[test]
+    fn every_pixel_is_premultiplied() {
+        let chrome = chrome();
+        let mut all = vec![paint(Piece::TitleLeft, &chrome, true)];
+        all.push(paint_button(Button::Close, Look::Hover, &chrome));
+        for image in all {
+            for pixel in image.rgba.as_chunks::<4>().0 {
+                let a = pixel[3];
+                assert!(pixel[0] <= a && pixel[1] <= a && pixel[2] <= a);
+            }
+        }
+    }
+}

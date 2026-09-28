@@ -38,9 +38,9 @@ pub struct Panel {
 impl Default for Panel {
     fn default() -> Self {
         Panel {
-            height: 64.0,
+            height: 36.0,
             radius: 10.0,
-            shadow: 16.0,
+            shadow: 12.0,
             slack: 16.0,
         }
     }

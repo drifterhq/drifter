@@ -72,7 +72,7 @@ struct State {
     renderer: GlesRenderer,
     wallpaper: Option<(TextureBuffer<GlesTexture>, Rect)>,
     panels: [TextureBuffer<GlesTexture>; 2],
-    panel: Panel,
+    shapes: [Panel; 2],
     arrow: TextureBuffer<GlesTexture>,
     arrow_size: Vec2,
     arrow_hotspot: Vec2,
@@ -131,7 +131,7 @@ impl State {
         for edge in Edge::ALL {
             let drawer = &self.drawers[edge.index()];
             if drawer.visible() {
-                let rect = drawer.rect(self.screen, &self.panel);
+                let rect = drawer.rect(self.screen, &self.shapes[edge.index()]);
                 elements.push(element(&self.panels[edge.index()], rect, 1.0));
             }
         }
@@ -192,7 +192,7 @@ impl State {
         let drawer = self.drawers[Edge::Top.index()];
         drawer
             .visible()
-            .then(|| drawer.band(self.screen, &self.panel))
+            .then(|| drawer.band(self.screen, &self.shapes[Edge::Top.index()]))
     }
 
     fn take_icons(&mut self, icons: Vec<crate::tray::Icon>) {
@@ -244,7 +244,7 @@ impl State {
         };
 
         let tray = self.tray;
-        let band = drawer.band(self.screen, &self.panel);
+        let band = drawer.band(self.screen, &self.shapes[Edge::Top.index()]);
 
         if let Some((shown, _, rect)) = self.clock.as_mut()
             && *shown == reading
@@ -336,7 +336,11 @@ impl State {
 
     fn wanted(&self) -> Option<Edge> {
         for edge in Edge::ALL {
-            if self.drawers[edge.index()].holds(self.pointer, self.screen, &self.panel) {
+            if self.drawers[edge.index()].holds(
+                self.pointer,
+                self.screen,
+                &self.shapes[edge.index()],
+            ) {
                 return Some(edge);
             }
         }
@@ -528,10 +532,16 @@ pub fn open(
     let gl = describe(&mut renderer);
     let screen = Vec2::new(f64::from(width), f64::from(height));
     let tunables = Tunables::default();
-    let panel = Panel {
-        height: tunables.drawer_height,
-        ..Panel::default()
-    };
+    let shapes = [
+        Panel {
+            height: config.drawers.top,
+            ..Panel::default()
+        },
+        Panel {
+            height: config.drawers.bottom,
+            ..Panel::default()
+        },
+    ];
 
     let texture = upload(&mut renderer, wallpaper, "wallpaper")?;
     let rect = wallpaper
@@ -539,16 +549,15 @@ pub fn open(
         .map(|(image, _)| Rect::fill_centered(image.size(), screen));
     let wallpaper_element = texture.zip(rect);
 
-    let cursor_path = config.cursor_path();
-    let supplied = match drifter_core::image::load(&cursor_path) {
-        Ok(image) => Some(image),
-        Err(error) => {
-            if cursor_path.exists() {
+    let supplied = config
+        .cursor_path()
+        .and_then(|path| match drifter_core::image::load(&path) {
+            Ok(image) => Some(image),
+            Err(error) => {
                 eprintln!("drifter: no cursor: {error}");
+                None
             }
-            None
-        }
-    };
+        });
     let (arrow_image, arrow_hotspot) = match supplied {
         Some(image) => (image, Vec2::ZERO),
         None => {
@@ -564,7 +573,7 @@ pub fn open(
         let mut probe = Drawer::new(Edge::Top);
         probe.open = true;
         probe.advance(Duration::from_secs(1), Duration::from_millis(1));
-        probe.band(screen, &panel)
+        probe.band(screen, &shapes[Edge::Top.index()])
     };
 
     let mut built = Vec::new();
@@ -573,7 +582,13 @@ pub fn open(
             Edge::Top => "top drawer",
             Edge::Bottom => "bottom drawer",
         };
-        let image = drawer::paint(edge, u32::from(width), &panel, PANEL_COLOR, PANEL_ALPHA);
+        let image = drawer::paint(
+            edge,
+            u32::from(width),
+            &shapes[edge.index()],
+            PANEL_COLOR,
+            PANEL_ALPHA,
+        );
         let buffer = upload(&mut renderer, Some(&image), what)?
             .ok_or_else(|| format!("cannot build the {what}"))?;
         built.push(buffer);
@@ -582,7 +597,10 @@ pub fn open(
         .try_into()
         .map_err(|_| "the drawer textures went missing".to_string())?;
 
-    let tray = Tray::default();
+    let tray = Tray {
+        size: config.tray.size,
+        ..Tray::default()
+    };
     let (tray_bus, tray_icons) = match crate::tray::start() {
         Ok((bus, icons)) => (Some(bus), Some(icons)),
         Err(error) => {
@@ -590,7 +608,7 @@ pub fn open(
             (None, None)
         }
     };
-    let font = match Font::find(Some(config.font_path()), tray.size) {
+    let font = match Font::find(config.font_path(), tray.size) {
         Ok(font) => Some(font),
         Err(error) => {
             eprintln!("drifter: no clock: {error}");
@@ -610,7 +628,7 @@ pub fn open(
         renderer,
         wallpaper: wallpaper_element,
         panels,
-        panel,
+        shapes,
         arrow,
         arrow_size,
         arrow_hotspot,
@@ -722,7 +740,7 @@ pub fn open(
             renderer: gl,
             wallpaper: rect,
             drawer: open_band,
-            corner: panel.radius,
+            corner: shapes[Edge::Top.index()].radius,
         },
         events,
         state,

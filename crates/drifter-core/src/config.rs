@@ -56,14 +56,59 @@ impl Default for Workspace {
 #[serde(deny_unknown_fields)]
 pub struct Assets {
     #[serde(default)]
-    pub dir: Option<PathBuf>,
+    pub cursor: Option<PathBuf>,
+    #[serde(default)]
+    pub font: Option<PathBuf>,
+    #[serde(default)]
+    pub window: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Drawers {
+    #[serde(default = "default_top_height")]
+    pub top: f64,
+    #[serde(default = "default_bottom_height")]
+    pub bottom: f64,
+}
+
+fn default_top_height() -> f64 {
+    36.0
+}
+
+fn default_bottom_height() -> f64 {
+    64.0
+}
+
+impl Default for Drawers {
+    fn default() -> Self {
+        Drawers {
+            top: default_top_height(),
+            bottom: default_bottom_height(),
+        }
+    }
+}
+
+impl Drawers {
+    pub fn height(&self, edge: crate::drawer::Edge) -> f64 {
+        match edge {
+            crate::drawer::Edge::Top => self.top,
+            crate::drawer::Edge::Bottom => self.bottom,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TrayConfig {
     #[serde(default = "default_tray_format")]
     pub format: String,
+    #[serde(default = "default_tray_size")]
+    pub size: f64,
+}
+
+fn default_tray_size() -> f64 {
+    13.0
 }
 
 fn default_tray_format() -> String {
@@ -74,6 +119,7 @@ impl Default for TrayConfig {
     fn default() -> Self {
         TrayConfig {
             format: default_tray_format(),
+            size: default_tray_size(),
         }
     }
 }
@@ -85,7 +131,7 @@ pub struct Input {
     pub modifier: Modifier,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(default)]
@@ -93,9 +139,13 @@ pub struct Config {
     #[serde(default)]
     pub input: Input,
     #[serde(default)]
+    pub drawers: Drawers,
+    #[serde(default)]
     pub tray: TrayConfig,
     #[serde(default)]
     pub assets: Assets,
+    #[serde(skip)]
+    base: PathBuf,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -125,6 +175,30 @@ impl Default for Tunables {
             camera_anim: Duration::from_millis(260),
         }
     }
+}
+
+pub fn choose_config(
+    candidates: Vec<PathBuf>,
+    xdg: PathBuf,
+    exists: impl Fn(&Path) -> bool,
+) -> PathBuf {
+    candidates
+        .into_iter()
+        .find(|path| exists(path))
+        .unwrap_or(xdg)
+}
+
+pub fn repo_config(exe: &Path) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    let mut at = exe.parent();
+    for _ in 0..4 {
+        let Some(dir) = at else {
+            break;
+        };
+        candidates.push(dir.join("conf").join("drifter.toml"));
+        at = dir.parent();
+    }
+    candidates
 }
 
 fn xdg_dir(var: &str, fallback: &str) -> PathBuf {
@@ -175,23 +249,40 @@ impl std::error::Error for ConfigError {}
 
 impl Config {
     pub fn config_path() -> PathBuf {
-        xdg_dir("XDG_CONFIG_HOME", ".config").join("drifter.toml")
+        let running = std::env::current_exe().ok();
+        let candidates = running.as_deref().map(repo_config).unwrap_or_default();
+        let xdg = xdg_dir("XDG_CONFIG_HOME", ".config").join("drifter.toml");
+        choose_config(candidates, xdg, |path| path.is_file())
     }
 
     pub fn data_dir() -> PathBuf {
         xdg_dir("XDG_DATA_HOME", ".local/share")
     }
 
-    pub fn assets_dir(&self) -> PathBuf {
-        self.assets.dir.clone().unwrap_or_else(Config::data_dir)
+    pub fn beside(&self, path: &Path) -> PathBuf {
+        if path.is_absolute() {
+            return path.to_path_buf();
+        }
+        self.base.join(path)
     }
 
-    pub fn cursor_path(&self) -> PathBuf {
-        self.assets_dir().join("cursor.png")
+    pub fn wallpaper_path(&self) -> Option<PathBuf> {
+        self.workspace
+            .wallpaper
+            .as_deref()
+            .map(|path| self.beside(path))
     }
 
-    pub fn font_path(&self) -> PathBuf {
-        self.assets_dir().join("font.ttf")
+    pub fn cursor_path(&self) -> Option<PathBuf> {
+        self.assets.cursor.as_deref().map(|path| self.beside(path))
+    }
+
+    pub fn font_path(&self) -> Option<PathBuf> {
+        self.assets.font.as_deref().map(|path| self.beside(path))
+    }
+
+    pub fn window_dir(&self) -> Option<PathBuf> {
+        self.assets.window.as_deref().map(|path| self.beside(path))
     }
 
     pub fn load() -> Result<Config, ConfigError> {
@@ -211,10 +302,11 @@ impl Config {
                 });
             }
         };
-        let config = Config::parse(&text).map_err(|message| ConfigError::Parse {
+        let mut config = Config::parse(&text).map_err(|message| ConfigError::Parse {
             path: path.to_path_buf(),
             message,
         })?;
+        config.base = path.parent().unwrap_or(Path::new(".")).to_path_buf();
         config.validate()?;
         Ok(config)
     }
@@ -227,6 +319,16 @@ impl Config {
         if self.workspace.width == 0 || self.workspace.height == 0 {
             return Err(ConfigError::Invalid(
                 "workspace width and height are counted in screens and must be at least 1".into(),
+            ));
+        }
+        if self.drawers.top < 16.0 || self.drawers.bottom < 16.0 {
+            return Err(ConfigError::Invalid(
+                "drawer heights are in pixels and must be at least 16".into(),
+            ));
+        }
+        if self.tray.size < 6.0 {
+            return Err(ConfigError::Invalid(
+                "tray size is text height in pixels and must be at least 6".into(),
             ));
         }
         Ok(())
@@ -243,6 +345,131 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_config_is_looked_for_beside_the_binary_first() {
+        let exe = Path::new("/home/dh/src/drifter/target/debug/drifter");
+        let candidates = repo_config(exe);
+        assert!(candidates.contains(&PathBuf::from("/home/dh/src/drifter/conf/drifter.toml")));
+    }
+
+    #[test]
+    fn the_repo_config_wins_over_the_home_one() {
+        let repo = PathBuf::from("/home/dh/src/drifter/conf/drifter.toml");
+        let home = PathBuf::from("/home/dh/.config/drifter/drifter.toml");
+        let chosen = choose_config(vec![repo.clone()], home, |path| path == repo);
+        assert_eq!(chosen, repo);
+    }
+
+    #[test]
+    fn the_home_config_is_used_when_there_is_no_repo_beside_the_binary() {
+        let repo = PathBuf::from("/opt/drifter/conf/drifter.toml");
+        let home = PathBuf::from("/home/dh/.config/drifter/drifter.toml");
+        let chosen = choose_config(vec![repo], home.clone(), |_| false);
+        assert_eq!(chosen, home);
+    }
+
+    #[test]
+    fn the_repo_search_gives_up_before_it_reaches_the_root() {
+        let exe = Path::new("/home/dh/src/drifter/target/debug/drifter");
+        assert!(!repo_config(exe).contains(&PathBuf::from("/conf/drifter.toml")));
+    }
+
+    #[test]
+    fn a_relative_path_is_read_next_to_the_config() {
+        let config = Config {
+            base: PathBuf::from("/home/dh/src/drifter/conf"),
+            ..Config::default()
+        };
+        assert_eq!(
+            config.beside(Path::new("../img/cursor.png")),
+            PathBuf::from("/home/dh/src/drifter/conf/../img/cursor.png")
+        );
+    }
+
+    #[test]
+    fn an_absolute_path_is_left_alone() {
+        let config = Config {
+            base: PathBuf::from("/home/dh/src/drifter/conf"),
+            ..Config::default()
+        };
+        assert_eq!(
+            config.beside(Path::new("/elsewhere/art.png")),
+            PathBuf::from("/elsewhere/art.png")
+        );
+    }
+
+    #[test]
+    fn the_asset_paths_are_none_until_the_config_names_them() {
+        let config = Config::default();
+        assert_eq!(config.cursor_path(), None);
+        assert_eq!(config.font_path(), None);
+        assert_eq!(config.wallpaper_path(), None);
+    }
+
+    #[test]
+    fn the_config_carries_the_cursor_and_the_font() {
+        let config = Config::parse(
+            "[assets]\ncursor = \"../img/cursor.png\"\nfont = \"../fonts/Inter-Regular.ttf\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            config.assets.cursor.as_deref(),
+            Some(Path::new("../img/cursor.png"))
+        );
+        assert_eq!(
+            config.assets.font.as_deref(),
+            Some(Path::new("../fonts/Inter-Regular.ttf"))
+        );
+    }
+
+    #[test]
+    fn the_top_drawer_is_thinner_than_the_bottom_one_by_default() {
+        let config = Config::default();
+        assert_eq!(config.drawers.top, 36.0);
+        assert_eq!(config.drawers.bottom, 64.0);
+        assert_eq!(config.drawers.height(crate::drawer::Edge::Top), 36.0);
+        assert_eq!(config.drawers.height(crate::drawer::Edge::Bottom), 64.0);
+    }
+
+    #[test]
+    fn the_drawer_heights_come_from_the_config() {
+        let config = Config::parse("[drawers]\ntop = 28\nbottom = 80\n").unwrap();
+        assert_eq!(config.drawers.top, 28.0);
+        assert_eq!(config.drawers.bottom, 80.0);
+    }
+
+    #[test]
+    fn a_silly_drawer_height_is_refused() {
+        let config = Config::parse("[drawers]\ntop = 2\n").unwrap();
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn the_tray_text_size_comes_from_the_config() {
+        assert_eq!(Config::default().tray.size, 13.0);
+        assert_eq!(
+            Config::parse("[tray]\nsize = 20\n").unwrap().tray.size,
+            20.0
+        );
+    }
+
+    #[test]
+    fn a_silly_tray_size_is_refused() {
+        assert!(
+            Config::parse("[tray]\nsize = 1\n")
+                .unwrap()
+                .validate()
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn the_config_in_the_repo_parses() {
+        let text = include_str!("../../../conf/drifter.toml");
+        let config = Config::parse(text).expect("conf/drifter.toml does not parse");
+        config.validate().expect("conf/drifter.toml is not valid");
+    }
 
     #[test]
     fn empty_config_is_all_defaults() {

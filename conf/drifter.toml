@@ -1,0 +1,23 @@
+# Drifter. One file, set once. Paths are relative to this file.
+
+[workspace]
+width = 3
+height = 3
+wallpaper = "../img/wallpaper.jpeg"
+wallpaper_mode = "fixed"
+
+[input]
+modifier = "super"
+
+[drawers]
+top = 36
+bottom = 64
+
+[tray]
+format = "%a %b %d %I:%M:%S %p"
+size = 13
+
+[assets]
+cursor = "../img/cursor.png"
+font = "../fonts/WorkSans.ttf"
+window = "../img/window"

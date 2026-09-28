@@ -17,11 +17,11 @@ pub struct Tray {
 impl Default for Tray {
     fn default() -> Self {
         Tray {
-            margin: 18.0,
-            size: 16.0,
-            ink: [228, 232, 242],
-            icon: 24.0,
-            gap: 10.0,
+            margin: 12.0,
+            size: 13.0,
+            ink: [236, 238, 244],
+            icon: 18.0,
+            gap: 14.0,
         }
     }
 }

@@ -44,14 +44,24 @@ TOML.
     [tray]
     format = "%a %b %d %I:%M:%S %p"
 
+    [drawers]
+    top = 36
+    bottom = 64
+
     [assets]
-    dir = "/home/dh/src/drifter/img"
+    cursor = "../img/cursor.png"
+    font = "../fonts/WorkSans.ttf"
+    window = "../img/window"
 
 Defaults in code, not in the file: drawer height 64 px, drawer dwell and hide timings, hot corner dwell, pan speed, animation curve and duration. Minimum zoom is derived. It is whatever fits the whole world in the viewport.
 
-Art lives in the repo, in `img/`. The repo is the single source of truth for it. Edit an image, commit, pull, and the next run shows it. Nothing is copied by hand.
+Art lives in the repo, in `img/` and `fonts/`. The config lives in the repo too, at `conf/drifter.toml`. The repo is the single source of truth. Edit a file, commit, pull, and the next run shows it. Nothing is copied by hand.
 
-`assets.dir` points at that folder. Drifter loads `cursor.png` and `font.ttf` from it by name. When the key is missing it falls back to `$XDG_DATA_HOME/drifter/`. The wallpaper keeps its own full path, because it is the one image a user is most likely to keep somewhere else.
+Drifter looks for `conf/drifter.toml` beside its own binary, walking up from the executable, and falls back to `$XDG_CONFIG_HOME/drifter/drifter.toml` when there is none. So a build from the repo always reads the repo's config.
+
+Paths in the config are relative to the config file. `../img/cursor.png` works on any machine that has the repo. An absolute path is left alone.
+
+The font is Work Sans, under the SIL Open Font License, kept at `fonts/` with its license.
 
 ## Wallpaper modes
 
@@ -143,6 +153,24 @@ The top drawer is the tray. It reads right to left, because the right side is wh
 The clock is only drawn while the drawer is open, so a closed tray costs nothing.
 
 Text needs a font, and Drifter has no toolkit to ask. It uses `font.ttf` in the data directory when there is one, and otherwise the first of a short list of normal system paths. With no font at all the clock is skipped and Drifter says so on stderr. It never fails to start over a font.
+
+## Windows
+
+Drifter draws every window frame itself. Client side decorations cannot work here: the compositor owns zoom, and a client drawing its own frame has no idea what zoom it is being seen at, so its shadows, corners and hit areas would all be wrong. Drifter asks for server side decorations through `xdg-decoration` and refuses the client side mode. Clients that insist on drawing their own frame still work, they just carry their own chrome inside their surface.
+
+The frame is a nine piece skin, so it can be themed by replacing PNGs and never by editing code. Pieces live in the folder named by `assets.window`:
+
+- `title-left.png`, `title-mid.png`, `title-right.png`. The middle tiles across. The caps carry the rounded top corners.
+- `edge-left.png`, `edge-right.png`, `edge-bottom.png`. All tile.
+- `corner-bottom-left.png`, `corner-bottom-right.png`.
+- The same eight again with `-idle` for an unfocused window.
+- `button-close.png`, `button-minimize.png`, `button-maximize.png`, `button-restore.png`, each with `-hover` and `-press`.
+
+The pieces decide the sizes. Title bar height is the height of `title-mid.png`, border width is the width of `edge-left.png`. So a theme with a thicker frame needs no config change.
+
+Resize edges are wider than the art. The grab area reaches a few pixels inside and outside each border, and the corners win over the sides where they overlap, because a corner is harder to hit. Drag the title bar to move. Double click the title bar to maximize.
+
+`cargo run -p drifter-core --example window` paints the default skin and writes every piece, so there is always a real file to start from.
 
 ## Images
 

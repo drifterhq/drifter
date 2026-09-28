@@ -53,7 +53,7 @@ fn report(config: &Config) {
     println!("modifier    {:?}", config.input.modifier);
     println!("wallpaper   {:?}", config.workspace.wallpaper_mode);
     println!("            wants {} x {} px", needed.x, needed.y);
-    match &config.workspace.wallpaper {
+    match &config.wallpaper_path() {
         Some(image) => println!("            {} ({})", image.display(), present(image)),
         None => println!("            none set"),
     }
@@ -87,10 +87,8 @@ fn bootstrap(config: &Config) -> ExitCode {
     let night = [0.02, 0.05, 0.10, 1.0];
 
     let wallpaper = config
-        .workspace
-        .wallpaper
-        .as_deref()
-        .and_then(|path| load_image(path, "wallpaper"));
+        .wallpaper_path()
+        .and_then(|path| load_image(&path, "wallpaper"));
 
     let screen = match render::open(
         &mut seat.session,
