@@ -77,7 +77,10 @@ pub fn ease(t: f64) -> f64 {
     1.0 + c3 * back * back * back + c1 * back * back
 }
 
-pub fn edge_at(pointer: Vec2, screen: Vec2, band: f64) -> Option<Edge> {
+pub fn edge_at(pointer: Vec2, screen: Vec2, band: f64, corner: f64) -> Option<Edge> {
+    if pointer.x < corner && pointer.y < corner {
+        return None;
+    }
     if pointer.y < band {
         Some(Edge::Top)
     } else if pointer.y > screen.y - band {
@@ -359,12 +362,37 @@ mod tests {
 
     #[test]
     fn the_pointer_finds_the_top_and_bottom_edges() {
-        assert_eq!(edge_at(Vec2::new(900.0, 0.0), SCREEN, 2.0), Some(Edge::Top));
         assert_eq!(
-            edge_at(Vec2::new(900.0, 1079.5), SCREEN, 2.0),
+            edge_at(Vec2::new(900.0, 0.0), SCREEN, 2.0, 12.0),
+            Some(Edge::Top)
+        );
+        assert_eq!(
+            edge_at(Vec2::new(900.0, 1079.5), SCREEN, 2.0, 12.0),
             Some(Edge::Bottom)
         );
-        assert_eq!(edge_at(Vec2::new(900.0, 540.0), SCREEN, 2.0), None);
+        assert_eq!(edge_at(Vec2::new(900.0, 540.0), SCREEN, 2.0, 12.0), None);
+    }
+
+    #[test]
+    fn the_hot_corner_is_not_the_top_drawer() {
+        assert_eq!(edge_at(Vec2::new(0.5, 0.5), SCREEN, 2.0, 12.0), None);
+        assert_eq!(edge_at(Vec2::new(11.0, 1.0), SCREEN, 2.0, 12.0), None);
+    }
+
+    #[test]
+    fn the_top_drawer_starts_where_the_hot_corner_ends() {
+        assert_eq!(
+            edge_at(Vec2::new(12.5, 1.0), SCREEN, 2.0, 12.0),
+            Some(Edge::Top)
+        );
+    }
+
+    #[test]
+    fn the_bottom_left_corner_is_still_the_dock() {
+        assert_eq!(
+            edge_at(Vec2::new(1.0, 1079.5), SCREEN, 2.0, 12.0),
+            Some(Edge::Bottom)
+        );
     }
 
     #[test]

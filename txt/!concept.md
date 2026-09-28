@@ -110,6 +110,7 @@ Windows
 Drawers
 
 - Push the pointer at the top edge and an inset drawer slides down, `drawers.top` tall, full width. It holds the system tray.
+- The top-left hot corner is NOT part of that edge. A square of `hot_corner_size` in the corner belongs to the camera, so reaching for the overview never opens the tray. The bottom-left corner has no such hole, because there is no gesture there.
 - Push the pointer at the bottom edge and the dock slides up. It reads pinned apps, then minimized windows, then the trash, with a thin divider between each pair of groups and none where a group is empty. The whole row is centered.
 - With no `[dock] pinned` list, the dock starts with the XDG defaults: the default browser, the default file manager and the default terminal, read from mimeapps.list.
 - Clicking a pinned icon starts that app. Clicking a minimized icon brings that window back and raises it. Clicking the trash opens `~/.local/share/Trash/files` with the default file manager, or `xdg-open`. With neither installed Drifter says so on stderr.

@@ -103,7 +103,48 @@ pub fn launch(command: &str, socket: &str) {
 }
 
 pub fn file_manager() -> Option<String> {
-    handler("inode/directory")
+    handler("inode/directory").or_else(|| serving("inode/directory"))
+}
+
+fn serving(mime: &str) -> Option<String> {
+    let mut roots = Vec::new();
+    if let Some(home) = std::env::var_os("HOME") {
+        roots.push(PathBuf::from(home).join(".local/share/applications"));
+    }
+    roots.push(PathBuf::from("/usr/share/applications"));
+
+    for root in roots {
+        let Ok(entries) = std::fs::read_dir(&root) else {
+            continue;
+        };
+        let mut found: Vec<String> = Vec::new();
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("desktop") {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let serves = text
+                .lines()
+                .any(|line| line.starts_with("MimeType=") && line.contains(mime));
+            let hidden = text
+                .lines()
+                .any(|line| line.trim() == "NoDisplay=true" || line.trim() == "Hidden=true");
+            if serves
+                && !hidden
+                && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+            {
+                found.push(stem.to_string());
+            }
+        }
+        found.sort();
+        if let Some(first) = found.into_iter().next() {
+            return Some(first);
+        }
+    }
+    None
 }
 
 pub fn open_folder(path: &str, socket: &str) {
@@ -113,7 +154,7 @@ pub fn open_folder(path: &str, socket: &str) {
         launch(&format!("{exec} {path}"), socket);
         return;
     }
-    if PathBuf::from("/usr/bin/xdg-open").is_file() {
+    if PathBuf::from("/usr/bin/xdg-open").is_file() || PathBuf::from("/bin/xdg-open").is_file() {
         launch(&format!("xdg-open {path}"), socket);
         return;
     }

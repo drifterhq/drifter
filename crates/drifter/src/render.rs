@@ -1147,7 +1147,12 @@ impl State {
                 return Some(edge);
             }
         }
-        drawer::edge_at(self.pointer, self.screen, self.tunables.edge_band)
+        drawer::edge_at(
+            self.pointer,
+            self.screen,
+            self.tunables.edge_band,
+            self.tunables.hot_corner_size,
+        )
     }
 
     fn pointer_to(&mut self, position: Vec2) {
