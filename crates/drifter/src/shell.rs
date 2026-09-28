@@ -49,6 +49,7 @@ pub struct Window {
     pub touched: bool,
     pub born: std::time::Instant,
     pub hidden: bool,
+    pub decorated: bool,
     pub app: String,
     pub restore: Option<Rect>,
 }
@@ -153,6 +154,7 @@ impl XdgShellHandler for State {
             touched: false,
             born: std::time::Instant::now(),
             hidden: false,
+            decorated: false,
             app: String::new(),
             restore: None,
         });
@@ -162,6 +164,32 @@ impl XdgShellHandler for State {
         self.windows.retain(|window| window.toplevel != surface);
         self.focus = None;
         self.kick_now();
+    }
+
+    fn move_request(&mut self, surface: ToplevelSurface, _seat: WlSeat, _serial: Serial) {
+        if let Some(index) = self
+            .windows
+            .iter()
+            .position(|window| window.toplevel == surface)
+        {
+            self.start_move(index);
+        }
+    }
+
+    fn resize_request(
+        &mut self,
+        surface: ToplevelSurface,
+        _seat: WlSeat,
+        _serial: Serial,
+        edges: smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::ResizeEdge,
+    ) {
+        if let Some(index) = self
+            .windows
+            .iter()
+            .position(|window| window.toplevel == surface)
+        {
+            self.start_resize(index, edges);
+        }
     }
 
     fn new_popup(&mut self, surface: PopupSurface, positioner: PositionerState) {
@@ -192,26 +220,34 @@ impl XdgShellHandler for State {
     }
 }
 
-impl smithay::wayland::shell::xdg::decoration::XdgDecorationHandler for State {
-    fn new_decoration(&mut self, toplevel: ToplevelSurface) {
+impl State {
+    fn take_frame(&mut self, toplevel: &ToplevelSurface) {
         toplevel.with_pending_state(|state| {
             state.decoration_mode = Some(DecorationMode::ServerSide);
         });
         toplevel.send_configure();
+        if let Some(window) = self
+            .windows
+            .iter_mut()
+            .find(|window| &window.toplevel == toplevel)
+        {
+            window.decorated = true;
+        }
+        self.kick_now();
+    }
+}
+
+impl smithay::wayland::shell::xdg::decoration::XdgDecorationHandler for State {
+    fn new_decoration(&mut self, toplevel: ToplevelSurface) {
+        self.take_frame(&toplevel);
     }
 
     fn request_mode(&mut self, toplevel: ToplevelSurface, _mode: DecorationMode) {
-        toplevel.with_pending_state(|state| {
-            state.decoration_mode = Some(DecorationMode::ServerSide);
-        });
-        toplevel.send_configure();
+        self.take_frame(&toplevel);
     }
 
     fn unset_mode(&mut self, toplevel: ToplevelSurface) {
-        toplevel.with_pending_state(|state| {
-            state.decoration_mode = Some(DecorationMode::ServerSide);
-        });
-        toplevel.send_configure();
+        self.take_frame(&toplevel);
     }
 }
 

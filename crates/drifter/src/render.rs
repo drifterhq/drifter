@@ -341,6 +341,7 @@ impl State {
             Rect,
             Vec2,
             bool,
+            bool,
             smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
         )> = self
             .windows
@@ -355,12 +356,13 @@ impl State {
                         .and_then(|index| self.windows.get(index))
                         .map(|awake| awake.toplevel == window.toplevel)
                         .unwrap_or(false),
+                    window.decorated,
                     window.toplevel.wl_surface().clone(),
                 )
             })
             .collect();
         let zoom = self.camera.zoom;
-        for (content, inset, awake, surface) in windows {
+        for (content, inset, awake, dressed, surface) in windows {
             let at = self
                 .camera
                 .screen_from_world(content.origin - inset, self.screen);
@@ -380,7 +382,9 @@ impl State {
             elements.extend(client.into_iter().map(|piece| {
                 Skin::Client(RescaleRenderElement::from_element(piece, anchor, zoom))
             }));
-            self.dress(content, awake, &mut elements);
+            if dressed {
+                self.dress(content, awake, &mut elements);
+            }
         }
 
         if let Some((buffer, rect)) = self.wallpaper.as_ref() {
@@ -1257,7 +1261,7 @@ impl State {
             .iter()
             .enumerate()
             .rev()
-            .filter(|(_, window)| window.placed && !window.hidden)
+            .filter(|(_, window)| window.placed && !window.hidden && window.decorated)
             .find_map(|(index, window)| {
                 self.chrome
                     .grip_at(window.content, self.in_world(self.pointer), 3)
@@ -1315,6 +1319,41 @@ impl State {
         let keyboard = self.wayland.keyboard.clone();
         keyboard.set_focus(self, Some(surface), serial);
         true
+    }
+
+    pub fn start_move(&mut self, index: usize) {
+        let index = self.raise(index);
+        let origin = self.windows[index].content.origin;
+        self.grab = Grab::Move {
+            index,
+            offset: self.in_world(self.pointer) - origin,
+        };
+    }
+
+    pub fn start_resize(
+        &mut self,
+        index: usize,
+        edges: smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::ResizeEdge,
+    ) {
+        use drifter_core::window::Grip;
+        use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::ResizeEdge as Side;
+
+        let grip = match edges {
+            Side::Left | Side::TopLeft => Grip::Left,
+            Side::Right | Side::TopRight => Grip::Right,
+            Side::Bottom => Grip::Bottom,
+            Side::BottomLeft => Grip::BottomLeft,
+            Side::BottomRight => Grip::BottomRight,
+            _ => return,
+        };
+        let index = self.raise(index);
+        let start = self.windows[index].content;
+        self.grab = Grab::Resize {
+            index,
+            grip,
+            from: self.in_world(self.pointer),
+            start,
+        };
     }
 
     fn press_button(&mut self, index: usize, slot: usize) {
