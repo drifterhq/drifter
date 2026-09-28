@@ -9,6 +9,7 @@ use drifter_core::image::Image;
 use drifter_core::menu::{Item, Look};
 use drifter_core::mode::{self, Mode};
 use drifter_core::motion::{Motion, Phase};
+use drifter_core::settings::{self, Field, Kind};
 use drifter_core::snap::{Snap, Zone};
 use drifter_core::text::Font;
 use drifter_core::tray::Tray;
@@ -97,6 +98,15 @@ pub struct Screen {
 enum Target {
     Tray(String),
     Window(usize),
+    Desktop,
+}
+
+struct Sheet {
+    fields: Vec<Field>,
+    look: settings::Look,
+    rect: Rect,
+    art: TextureBuffer<GlesTexture>,
+    holding: Option<usize>,
 }
 
 struct Popover {
@@ -169,6 +179,9 @@ pub struct State {
     tip: Option<(TextureBuffer<GlesTexture>, Rect)>,
     tip_of: Option<String>,
     snap: Snap,
+    sheet: Option<Sheet>,
+    wallpaper_art: Option<drifter_core::Image>,
+    config_path: PathBuf,
     zone: Option<Zone>,
     plain: Option<TextureBuffer<GlesTexture>>,
     titles: std::collections::HashMap<String, (TextureBuffer<GlesTexture>, Vec2)>,
@@ -313,6 +326,10 @@ impl State {
             cursor::rect(self.pointer, self.arrow_size, self.arrow_hotspot),
             1.0,
         ))];
+        if let Some(sheet) = self.sheet.as_ref() {
+            elements.push(Skin::Texture(element(&sheet.art, sheet.rect, 1.0)));
+        }
+
         if let Some(buffer) = self.glow.as_ref() {
             let warmth = drifter_core::corner::heat(self.pointer, drifter_core::corner::REACH);
             if warmth > 0.0 && !self.overview() {
@@ -963,6 +980,11 @@ impl State {
                     bus.choose(&service, chosen.id);
                 }
             }
+            Target::Desktop => {
+                self.popover = None;
+                self.open_settings();
+                return true;
+            }
             Target::Window(index) => {
                 let index = *index;
                 match chosen.id {
@@ -1071,6 +1093,12 @@ impl State {
             return true;
         }
 
+        if self.under_pointer().is_none() && self.grip_under().is_none() {
+            let at = self.pointer;
+            self.open_popover(vec![Item::line(0, "Settings")], at, Target::Desktop);
+            return true;
+        }
+
         if let Some(band) = self.dock_band() {
             let hidden = self.minimized();
             let pinned = self.pinned.len();
@@ -1151,6 +1179,210 @@ impl State {
         camera.clamp_to_world(self.world, self.screen);
         self.camera = camera;
         self.flight = None;
+    }
+
+    fn open_settings(&mut self) {
+        let config = Config::load_from(&self.config_path).unwrap_or_default();
+        let modes = ["fixed", "pan", "parallax"];
+        let keys = ["super", "alt", "ctrl"];
+        let mode_now = format!("{:?}", config.workspace.wallpaper_mode).to_lowercase();
+        let key_now = format!("{:?}", config.input.modifier).to_lowercase();
+
+        let fields = vec![
+            Field {
+                table: "workspace",
+                key: "width",
+                label: "World width",
+                kind: Kind::Slide {
+                    least: 1.0,
+                    most: 8.0,
+                    step: 1.0,
+                },
+                value: f64::from(config.workspace.width),
+            },
+            Field {
+                table: "workspace",
+                key: "height",
+                label: "World height",
+                kind: Kind::Slide {
+                    least: 1.0,
+                    most: 8.0,
+                    step: 1.0,
+                },
+                value: f64::from(config.workspace.height),
+            },
+            Field {
+                table: "workspace",
+                key: "wallpaper_mode",
+                label: "Wallpaper",
+                kind: Kind::Pick {
+                    options: modes.iter().map(|name| name.to_string()).collect(),
+                },
+                value: modes.iter().position(|name| *name == mode_now).unwrap_or(0) as f64,
+            },
+            Field {
+                table: "input",
+                key: "modifier",
+                label: "Camera key",
+                kind: Kind::Pick {
+                    options: keys.iter().map(|name| name.to_string()).collect(),
+                },
+                value: keys.iter().position(|name| *name == key_now).unwrap_or(0) as f64,
+            },
+            Field {
+                table: "drawers",
+                key: "top",
+                label: "Tray height",
+                kind: Kind::Slide {
+                    least: 16.0,
+                    most: 96.0,
+                    step: 2.0,
+                },
+                value: config.drawers.top,
+            },
+            Field {
+                table: "drawers",
+                key: "bottom",
+                label: "Dock height",
+                kind: Kind::Slide {
+                    least: 16.0,
+                    most: 160.0,
+                    step: 2.0,
+                },
+                value: config.drawers.bottom,
+            },
+            Field {
+                table: "tray",
+                key: "size",
+                label: "Clock size",
+                kind: Kind::Slide {
+                    least: 8.0,
+                    most: 32.0,
+                    step: 1.0,
+                },
+                value: config.tray.size,
+            },
+        ];
+
+        self.build_sheet(fields, None);
+    }
+
+    fn build_sheet(&mut self, fields: Vec<Field>, keep: Option<Rect>) {
+        let look = settings::Look::default();
+        let size = look.size(&fields);
+        let image = look.paint(
+            &fields,
+            size,
+            self.wallpaper_art.as_ref(),
+            self.font.as_ref(),
+        );
+        let rect = keep.unwrap_or_else(|| Rect::new(((self.screen - size) / 2.0).round(), size));
+        match upload(&mut self.renderer, Some(&image), "settings") {
+            Ok(Some(art)) => {
+                self.sheet = Some(Sheet {
+                    fields,
+                    look,
+                    rect,
+                    art,
+                    holding: None,
+                })
+            }
+            Ok(None) => {}
+            Err(error) => eprintln!("drifter: {error}"),
+        }
+    }
+
+    fn press_sheet(&mut self, down: bool) -> bool {
+        let Some(sheet) = self.sheet.as_ref() else {
+            return false;
+        };
+        if !down {
+            if self
+                .sheet
+                .as_ref()
+                .is_some_and(|open| open.holding.is_some())
+            {
+                self.save_settings();
+                if let Some(open) = self.sheet.as_mut() {
+                    open.holding = None;
+                }
+            }
+            return false;
+        }
+        if !sheet.rect.contains(self.pointer) {
+            self.sheet = None;
+            return true;
+        }
+
+        let inside = self.pointer - sheet.rect.origin;
+        let Some(index) = sheet.look.row_at(sheet.rect.size, &sheet.fields, inside) else {
+            return true;
+        };
+        let Some(value) = sheet
+            .look
+            .value_at(sheet.rect.size, index, &sheet.fields[index], inside)
+        else {
+            return true;
+        };
+
+        let mut fields = sheet.fields.clone();
+        let keep = sheet.rect;
+        fields[index].value = value;
+        self.build_sheet(fields, Some(keep));
+        if let Some(open) = self.sheet.as_mut() {
+            open.holding = Some(index);
+        }
+        true
+    }
+
+    fn drag_sheet(&mut self) {
+        let Some(sheet) = self.sheet.as_ref() else {
+            return;
+        };
+        let Some(index) = sheet.holding else {
+            return;
+        };
+        let inside = self.pointer - sheet.rect.origin;
+        let Some(value) = sheet
+            .look
+            .value_at(sheet.rect.size, index, &sheet.fields[index], inside)
+        else {
+            return;
+        };
+        if sheet.fields[index].value == value {
+            return;
+        }
+
+        let mut fields = sheet.fields.clone();
+        let keep = sheet.rect;
+        fields[index].value = value;
+        self.build_sheet(fields, Some(keep));
+        if let Some(open) = self.sheet.as_mut() {
+            open.holding = Some(index);
+        }
+    }
+
+    fn save_settings(&mut self) {
+        let Some(sheet) = self.sheet.as_ref() else {
+            return;
+        };
+        let text = match std::fs::read_to_string(&self.config_path) {
+            Ok(text) => text,
+            Err(error) => {
+                eprintln!("drifter: cannot read the config: {error}");
+                return;
+            }
+        };
+        match settings::write_back(&text, &sheet.fields) {
+            Ok(out) => {
+                if let Err(error) = std::fs::write(&self.config_path, out) {
+                    eprintln!("drifter: cannot save the config: {error}");
+                } else {
+                    println!("drifter: settings saved to {}", self.config_path.display());
+                }
+            }
+            Err(error) => eprintln!("drifter: {error}"),
+        }
     }
 
     fn press(&mut self, code: u32) {
@@ -1724,6 +1956,13 @@ impl State {
             self.grab = Grab::None;
             self.held = None;
         }
+        if self.press_sheet(state == ButtonState::Pressed) {
+            self.kick();
+            return;
+        }
+        if self.sheet.is_some() {
+            return;
+        }
         if state == ButtonState::Pressed {
             if self.press_overview() {
                 self.kick();
@@ -1813,6 +2052,7 @@ impl State {
                 let delta = Vec2::new(event.delta_x(), event.delta_y());
                 self.pointer_to(self.pointer + delta);
                 self.drag();
+                self.drag_sheet();
                 self.hover();
                 self.tell_pointer(event.time_msec());
             }
@@ -2317,6 +2557,9 @@ pub fn open(
         tip: None,
         tip_of: None,
         snap: Snap::default(),
+        sheet: None,
+        wallpaper_art: wallpaper.cloned(),
+        config_path: Config::config_path(),
         zone: None,
         plain,
         titles: std::collections::HashMap::new(),

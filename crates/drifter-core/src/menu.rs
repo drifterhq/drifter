@@ -186,7 +186,7 @@ impl Look {
     }
 }
 
-fn corner(px: f64, py: f64, size: Vec2, radius: f64) -> f64 {
+pub(crate) fn corner(px: f64, py: f64, size: Vec2, radius: f64) -> f64 {
     let centers = [
         Vec2::new(radius, radius),
         Vec2::new(size.x - radius, radius),
@@ -209,7 +209,7 @@ fn corner(px: f64, py: f64, size: Vec2, radius: f64) -> f64 {
     px.min(size.x - px).min(py).min(size.y - py)
 }
 
-fn fill(image: &mut Image, rect: Rect, color: [u8; 3]) {
+pub(crate) fn fill(image: &mut Image, rect: Rect, color: [u8; 3]) {
     let from_y = rect.origin.y.max(0.0) as u32;
     let to_y = (rect.max().y.min(f64::from(image.height))) as u32;
     let from_x = rect.origin.x.max(0.0) as u32;
@@ -228,7 +228,7 @@ fn fill(image: &mut Image, rect: Rect, color: [u8; 3]) {
     }
 }
 
-fn paint_rule(image: &mut Image, from: f64, to: f64, y: f64, color: [u8; 3]) {
+pub(crate) fn paint_rule(image: &mut Image, from: f64, to: f64, y: f64, color: [u8; 3]) {
     let row = y.round().max(0.0) as u32;
     if row >= image.height {
         return;
@@ -245,7 +245,7 @@ fn paint_rule(image: &mut Image, from: f64, to: f64, y: f64, color: [u8; 3]) {
     }
 }
 
-fn stamp(image: &mut Image, text: &Image, at: Vec2) {
+pub(crate) fn stamp(image: &mut Image, text: &Image, at: Vec2) {
     for y in 0..text.height {
         let target_y = at.y.round() as i64 + i64::from(y);
         if target_y < 0 || target_y >= i64::from(image.height) {
