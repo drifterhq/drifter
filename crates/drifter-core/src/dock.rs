@@ -4,6 +4,7 @@ use crate::geom::{Rect, Vec2};
 pub enum Slot {
     Pinned(usize),
     Minimized(usize),
+    Trash,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -56,12 +57,17 @@ impl Dock {
         } else {
             0.0
         };
+        let y = band.origin.y + (band.size.y - self.icon) / 2.0;
+        if slot == Slot::Trash {
+            let x = band.max().x - self.margin - self.icon;
+            return Rect::new(Vec2::new(x, y).round(), Vec2::splat(self.icon));
+        }
         let place = match slot {
             Slot::Pinned(index) => step * index as f64,
             Slot::Minimized(index) => step * (pinned + index) as f64 + split,
+            Slot::Trash => 0.0,
         };
         let x = self.start(band, pinned, minimized) + place;
-        let y = band.origin.y + (band.size.y - self.icon) / 2.0;
         Rect::new(Vec2::new(x, y).round(), Vec2::splat(self.icon))
     }
 
@@ -82,7 +88,8 @@ impl Dock {
     pub fn at(&self, band: Rect, pointer: Vec2, pinned: usize, minimized: usize) -> Option<Slot> {
         let slots = (0..pinned)
             .map(Slot::Pinned)
-            .chain((0..minimized).map(Slot::Minimized));
+            .chain((0..minimized).map(Slot::Minimized))
+            .chain(std::iter::once(Slot::Trash));
         slots.into_iter().find(|slot| {
             self.slot_rect(band, pinned, minimized, *slot)
                 .contains(pointer)
@@ -197,6 +204,32 @@ mod tests {
         let band = band();
         let icon = dock.slot_rect(band, 2, 0, Slot::Pinned(0));
         assert_eq!(icon.center().y, band.center().y);
+    }
+
+    #[test]
+    fn the_trash_sits_at_the_far_right() {
+        let dock = Dock::default();
+        let band = band();
+        let trash = dock.slot_rect(band, 3, 1, Slot::Trash);
+        assert_eq!(trash.max().x, band.max().x - dock.margin);
+        assert_eq!(trash.center().y, band.center().y);
+    }
+
+    #[test]
+    fn the_trash_never_moves_when_icons_come_and_go() {
+        let dock = Dock::default();
+        let band = band();
+        let empty = dock.slot_rect(band, 0, 0, Slot::Trash);
+        let busy = dock.slot_rect(band, 6, 4, Slot::Trash);
+        assert_eq!(empty, busy);
+    }
+
+    #[test]
+    fn a_click_on_the_trash_finds_it() {
+        let dock = Dock::default();
+        let band = band();
+        let trash = dock.slot_rect(band, 2, 1, Slot::Trash);
+        assert_eq!(dock.at(band, trash.center(), 2, 1), Some(Slot::Trash));
     }
 
     #[test]

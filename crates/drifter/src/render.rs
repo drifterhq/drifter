@@ -106,7 +106,7 @@ pub struct State {
     chrome: Chrome,
     grab: Grab,
     held: Option<usize>,
-    focus: Option<usize>,
+    pub focus: Option<usize>,
     skin: std::collections::HashMap<String, (TextureBuffer<GlesTexture>, Vec2)>,
     started: Instant,
     socket: String,
@@ -123,6 +123,8 @@ pub struct State {
     tray: Tray,
     dock: Dock,
     pinned: Vec<(String, Option<TextureBuffer<GlesTexture>>)>,
+    trash: Option<TextureBuffer<GlesTexture>>,
+    rule: Option<TextureBuffer<GlesTexture>>,
     app_icons: std::collections::HashMap<String, TextureBuffer<GlesTexture>>,
     format: String,
     clock: Option<(String, TextureBuffer<GlesTexture>, Rect)>,
@@ -206,6 +208,15 @@ impl State {
                             .slot_rect(band, pinned, hidden.len(), Slot::Minimized(index));
                     elements.push(Skin::Texture(element(buffer, rect, 1.0)));
                 }
+            }
+            if let Some(buffer) = self.trash.as_ref() {
+                let rect = self.dock.slot_rect(band, pinned, hidden.len(), Slot::Trash);
+                elements.push(Skin::Texture(element(buffer, rect, 1.0)));
+            }
+            if let Some(rule) = self.dock.divider_rect(band, pinned, hidden.len())
+                && let Some(buffer) = self.rule.as_ref()
+            {
+                elements.push(Skin::Texture(element(buffer, rule, 1.0)));
             }
         }
 
@@ -533,6 +544,14 @@ impl State {
                 let name = self.pinned[index].0.clone();
                 if let Some(exec) = crate::apps::find(&name).and_then(|entry| entry.exec) {
                     crate::apps::launch(&exec, &self.socket);
+                }
+            }
+            Slot::Trash => {
+                let trash = std::env::var("HOME").unwrap_or_default() + "/.local/share/Trash/files";
+                if let Some(files) = crate::apps::defaults().get(1).cloned()
+                    && let Some(exec) = crate::apps::find(&files).and_then(|entry| entry.exec)
+                {
+                    crate::apps::launch(&format!("{exec} {trash}"), &self.socket);
                 }
             }
             Slot::Minimized(index) => {
@@ -1308,8 +1327,13 @@ pub fn open(
         }
     };
 
+    let wanted = match config.dock.pinned.is_empty() {
+        true => crate::apps::defaults(),
+        false => config.dock.pinned.clone(),
+    };
+
     let mut pinned = Vec::new();
-    for name in &config.dock.pinned {
+    for name in &wanted {
         let art = crate::apps::find(name)
             .and_then(|entry| entry.icon)
             .and_then(|path| match drifter_core::image::load(&path) {
@@ -1326,6 +1350,30 @@ pub fn open(
         };
         pinned.push((name.clone(), buffer));
     }
+
+    let trash = crate::apps::icon_file(crate::apps::TRASH_ICON)
+        .and_then(|path| drifter_core::image::load(&path).ok())
+        .map(|image| image.scaled(Dock::default().icon as u32, Dock::default().icon as u32));
+    let trash = match trash {
+        Some(image) => upload(&mut renderer, Some(&image), "trash icon")?,
+        None => {
+            eprintln!("drifter: no trash icon named {}", crate::apps::TRASH_ICON);
+            None
+        }
+    };
+
+    let dock_look = Dock::default();
+    let rule_image = drifter_core::Image {
+        width: 1,
+        height: 1,
+        rgba: vec![
+            dock_look.rule[0] / 2,
+            dock_look.rule[1] / 2,
+            dock_look.rule[2] / 2,
+            128,
+        ],
+    };
+    let rule = upload(&mut renderer, Some(&rule_image), "dock divider")?;
 
     let mut libinput = Libinput::new_with_udev(LibinputSessionInterface::from(session.clone()));
     let seat_name = session.seat();
@@ -1345,7 +1393,7 @@ pub fn open(
         focus: None,
         skin,
         started: Instant::now(),
-        socket: socket_name.clone(),
+        socket: String::new(),
         drm,
         compositor,
         renderer,
@@ -1359,6 +1407,8 @@ pub fn open(
         tray,
         dock: Dock::default(),
         pinned,
+        trash,
+        rule,
         app_icons: std::collections::HashMap::new(),
         format: config.tray.format.clone(),
         clock: None,
@@ -1458,6 +1508,7 @@ pub fn open(
         .map_err(|e| format!("cannot watch the wayland socket: {e}"))?;
 
     let mut state = state;
+    state.socket = socket_name.clone();
     let poll = state_poll_fd(&mut state);
     handle
         .insert_source(poll, |_, _, state: &mut State| {
