@@ -1628,7 +1628,7 @@ impl State {
         &mut self,
         event: &impl smithay::backend::input::PointerAxisEvent<LibinputInputBackend>,
     ) {
-        use smithay::backend::input::{Axis, AxisSource, Event as InputMeta};
+        use smithay::backend::input::{Axis, AxisSource};
         use smithay::input::pointer::{AxisFrame, PointerHandle};
 
         let source = event.source();
