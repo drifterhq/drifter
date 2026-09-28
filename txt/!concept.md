@@ -41,6 +41,9 @@ TOML.
     [input]
     modifier = "Super"
 
+    [tray]
+    format = "%a %b %d %I:%M:%S %p"
+
 Defaults in code, not in the file: drawer height 64 px, drawer dwell and hide timings, hot corner dwell, pan speed, animation curve and duration. Minimum zoom is derived. It is whatever fits the whole world in the viewport.
 
 Images live at a convention path, not a config key: `~/.local/share/drifter/`, or `$XDG_DATA_HOME/drifter/`. The splash is `splash.png` there.
@@ -88,7 +91,7 @@ Windows
 
 Drawers
 
-- Push the pointer at the top edge and an inset drawer slides down, 64 px, full width. It holds the system tray and system info.
+- Push the pointer at the top edge and an inset drawer slides down, 64 px, full width. It holds the system tray.
 - Push the pointer at the bottom edge and an inset drawer holds the launcher icons and a trash can.
 - The drawer opens after a short dwell at the edge, so a fast pass never pops it open. It stays open while the pointer rests on it, and hides a short delay after the pointer leaves.
 - The look: the corners of the DESKTOP OPENING are rounded, not the drawer. The panel runs the full width and curves deeper at the left and right ends, so the viewport reads as a rounded window and the drawer as the frame around it.
@@ -119,11 +122,24 @@ Session
 6. Modifier + scroll zoom at the cursor. Modifier + edge push to pan.
 7. Save and restore camera position across logout.
 
+## Tray
+
+The top drawer is the tray. It reads right to left, because the right side is where people look for the clock.
+
+- The clock is hard against the right edge, 18 px in, centered in the 64 px band. It ticks every second while the drawer is open.
+- `format` in the config is a strftime string. The default is `%a %b %d %I:%M:%S %p`, which reads `Mon Sep 28 12:35:26 AM`. A format Drifter cannot parse is reported on stderr and the default is used instead.
+- Status icons come later. They go to the LEFT of the clock and grow leftward, so the clock never moves when an icon appears.
+- System info comes later, on the left end of the same drawer.
+
+The clock is only drawn while the drawer is open, so a closed tray costs nothing.
+
+Text needs a font, and Drifter has no toolkit to ask. It uses `font.ttf` in the data directory when there is one, and otherwise the first of a short list of normal system paths. With no font at all the clock is skipped and Drifter says so on stderr. It never fails to start over a font.
+
 ## Images
 
 Wallpapers and other images are PNG or JPEG. The format is read from the first bytes of the file, never from the name.
 
-If the configured path is missing, Drifter looks for the same name with another image extension in the same folder. So swapping wallpaper.png for wallpaper.jpeg needs no config edit.
+The wallpaper path comes from the config and nowhere else. A missing file is reported on stderr and Drifter starts with no wallpaper. Drifter never silently picks a different file.
 
 ## Running it
 

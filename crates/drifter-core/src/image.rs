@@ -14,20 +14,6 @@ impl Image {
     }
 }
 
-const EXTENSIONS: [&str; 4] = ["png", "jpg", "jpeg", "jpe"];
-
-pub fn find(path: &Path) -> Option<std::path::PathBuf> {
-    if path.is_file() {
-        return Some(path.to_path_buf());
-    }
-    let stem = path.file_stem()?;
-    let parent = path.parent()?;
-    EXTENSIONS
-        .iter()
-        .map(|ext| parent.join(stem).with_extension(ext))
-        .find(|candidate| candidate.is_file())
-}
-
 pub fn load(path: &Path) -> Result<Image, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
@@ -203,27 +189,6 @@ mod tests {
         std::fs::write(&path, hex(TINY_JPEG)).unwrap();
         let image = load(&path).unwrap();
         assert_eq!((image.width, image.height), (4, 2));
-    }
-
-    #[test]
-    fn find_takes_the_path_that_exists() {
-        let path = scratch("there.png");
-        write_png(&path, 1, 1, png::ColorType::Rgba, &[1, 2, 3, 4]);
-        assert_eq!(find(&path), Some(path));
-    }
-
-    #[test]
-    fn find_falls_back_to_the_same_name_with_another_extension() {
-        let real = scratch("changed.jpeg");
-        std::fs::write(&real, hex(TINY_JPEG)).unwrap();
-        let asked = scratch("changed.png");
-        let _ = std::fs::remove_file(&asked);
-        assert_eq!(find(&asked), Some(real));
-    }
-
-    #[test]
-    fn find_gives_up_when_nothing_is_there() {
-        assert_eq!(find(&scratch("nothing-at-all.png")), None);
     }
 
     #[test]

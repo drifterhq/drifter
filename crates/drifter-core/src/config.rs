@@ -52,6 +52,25 @@ impl Default for Workspace {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrayConfig {
+    #[serde(default = "default_tray_format")]
+    pub format: String,
+}
+
+fn default_tray_format() -> String {
+    crate::tray::DEFAULT_FORMAT.to_string()
+}
+
+impl Default for TrayConfig {
+    fn default() -> Self {
+        TrayConfig {
+            format: default_tray_format(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct Input {
@@ -66,6 +85,8 @@ pub struct Config {
     pub workspace: Workspace,
     #[serde(default)]
     pub input: Input,
+    #[serde(default)]
+    pub tray: TrayConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -150,6 +171,10 @@ impl Config {
 
     pub fn data_dir() -> PathBuf {
         xdg_dir("XDG_DATA_HOME", ".local/share")
+    }
+
+    pub fn cursor_path() -> PathBuf {
+        Config::data_dir().join("cursor.png")
     }
 
     pub fn load() -> Result<Config, ConfigError> {

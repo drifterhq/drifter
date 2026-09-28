@@ -146,6 +146,16 @@ impl Drawer {
         Rect::new(Vec2::new(0.0, y), size)
     }
 
+    pub fn band(&self, screen: Vec2, panel: &Panel) -> Rect {
+        let rect = self.rect(screen, panel);
+        let straight = rect.origin.y + panel.inner_row(self.edge);
+        let y = match self.edge {
+            Edge::Top => straight - panel.height,
+            Edge::Bottom => straight,
+        };
+        Rect::new(Vec2::new(0.0, y), Vec2::new(screen.x, panel.height))
+    }
+
     pub fn holds(&self, pointer: Vec2, screen: Vec2, panel: &Panel) -> bool {
         self.open && self.rect(screen, panel).contains(pointer)
     }
@@ -369,6 +379,32 @@ mod tests {
     fn a_closed_drawer_holds_nothing() {
         let drawer = Drawer::new(Edge::Top);
         assert!(!drawer.holds(Vec2::new(900.0, 0.0), SCREEN, &panel()));
+    }
+
+    #[test]
+    fn the_band_of_an_open_drawer_is_the_strip_it_covers() {
+        let panel = panel();
+        let top = opened(Edge::Top).band(SCREEN, &panel);
+        assert_eq!(top.origin, Vec2::ZERO);
+        assert_eq!(top.size, Vec2::new(SCREEN.x, panel.height));
+
+        let bottom = opened(Edge::Bottom).band(SCREEN, &panel);
+        assert_eq!(bottom.origin, Vec2::new(0.0, SCREEN.y - panel.height));
+        assert_eq!(bottom.size, Vec2::new(SCREEN.x, panel.height));
+    }
+
+    #[test]
+    fn the_band_rides_in_with_the_drawer() {
+        let panel = panel();
+        let mut drawer = Drawer::new(Edge::Top);
+        drawer.open = true;
+        drawer.advance(Duration::from_millis(60), Duration::from_millis(300));
+        let band = drawer.band(SCREEN, &panel);
+        assert!(
+            band.max().y < panel.height,
+            "the band did not follow the slide"
+        );
+        assert!(band.max().y > 0.0);
     }
 
     #[test]

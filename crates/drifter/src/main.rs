@@ -51,13 +51,8 @@ fn report(config: &Config) {
     println!("modifier    {:?}", config.input.modifier);
     println!("wallpaper   {:?}", config.workspace.wallpaper_mode);
     println!("            wants {} x {} px", needed.x, needed.y);
-    match config
-        .workspace
-        .wallpaper
-        .as_deref()
-        .and_then(drifter_core::image::find)
-    {
-        Some(image) => println!("            {} (found)", image.display()),
+    match &config.workspace.wallpaper {
+        Some(image) => println!("            {} ({})", image.display(), present(image)),
         None => println!("            none set"),
     }
     println!("drawers     {} px", tunables.drawer_height);
@@ -93,12 +88,12 @@ fn bootstrap(config: &Config) -> ExitCode {
         .workspace
         .wallpaper
         .as_deref()
-        .and_then(drifter_core::image::find)
-        .and_then(|path| load_image(&path, "wallpaper"));
+        .and_then(|path| load_image(path, "wallpaper"));
 
     let screen = match render::open(
         &mut seat.session,
         seat.notifier,
+        config,
         &card,
         want,
         night,

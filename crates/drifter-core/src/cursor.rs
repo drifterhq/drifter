@@ -37,8 +37,12 @@ impl Cursor {
         (reach + Vec2::splat(OUTLINE * 2.0)) * self.scale
     }
 
+    pub fn hotspot(&self) -> Vec2 {
+        Vec2::splat(OUTLINE * self.scale)
+    }
+
     pub fn rect(&self, pointer: Vec2) -> Rect {
-        Rect::new(pointer - Vec2::splat(OUTLINE * self.scale), self.size())
+        rect(pointer, self.size(), self.hotspot())
     }
 
     pub fn paint(&self) -> Image {
@@ -83,6 +87,10 @@ impl Cursor {
             rgba,
         }
     }
+}
+
+pub fn rect(pointer: Vec2, size: Vec2, hotspot: Vec2) -> Rect {
+    Rect::new(pointer - hotspot, size)
 }
 
 fn inside(point: Vec2) -> bool {
@@ -195,6 +203,13 @@ mod tests {
             let a = pixel[3];
             assert!(pixel[0] <= a && pixel[1] <= a && pixel[2] <= a);
         }
+    }
+
+    #[test]
+    fn a_supplied_cursor_hangs_its_top_left_pixel_on_the_pointer() {
+        let where_it_goes = rect(Vec2::new(100.0, 200.0), Vec2::new(32.0, 32.0), Vec2::ZERO);
+        assert_eq!(where_it_goes.origin, Vec2::new(100.0, 200.0));
+        assert_eq!(where_it_goes.size, Vec2::new(32.0, 32.0));
     }
 
     #[test]

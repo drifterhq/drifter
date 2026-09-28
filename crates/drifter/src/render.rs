@@ -1,11 +1,13 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use drifter_core::cursor::Cursor;
+use drifter_core::cursor::{self, Cursor};
 use drifter_core::drawer::{self, Drawer, Edge, Panel};
 use drifter_core::image::Image;
 use drifter_core::mode::{self, Mode};
-use drifter_core::{Rect, Tunables, Vec2};
+use drifter_core::text::Font;
+use drifter_core::tray::Tray;
+use drifter_core::{Config, Rect, Tunables, Vec2};
 use smithay::backend::allocator::gbm::{GbmAllocator, GbmBufferFlags, GbmDevice};
 use smithay::backend::drm::compositor::{DrmCompositor, FrameFlags};
 use smithay::backend::drm::exporter::gbm::GbmFramebufferExporter;
@@ -36,6 +38,7 @@ const ESCAPE: u32 = 9;
 const PANEL_COLOR: [u8; 3] = [16, 18, 26];
 const PANEL_ALPHA: u8 = 235;
 const TICK: Duration = Duration::from_millis(8);
+const SECOND_TICK: Duration = Duration::from_millis(250);
 
 type Compositor =
     DrmCompositor<GbmAllocator<DrmDeviceFd>, GbmFramebufferExporter<DrmDeviceFd>, (), DrmDeviceFd>;
@@ -64,7 +67,12 @@ struct State {
     panels: [TextureBuffer<GlesTexture>; 2],
     panel: Panel,
     arrow: TextureBuffer<GlesTexture>,
-    cursor: Cursor,
+    arrow_size: Vec2,
+    arrow_hotspot: Vec2,
+    font: Option<Font>,
+    tray: Tray,
+    format: String,
+    clock: Option<(String, TextureBuffer<GlesTexture>, Rect)>,
     drawers: [Drawer; 2],
     tunables: Tunables,
     screen: Vec2,
@@ -87,12 +95,25 @@ impl State {
         self.drawers.iter().any(|drawer| !drawer.settled())
     }
 
-    fn pending(&self) -> bool {
-        self.dwell.is_some() || self.leave.is_some() || self.animating()
+    fn pending(&self) -> Option<Duration> {
+        if self.dwell.is_some() || self.leave.is_some() || self.animating() {
+            return Some(TICK);
+        }
+        if self.drawers[Edge::Top.index()].visible() && self.font.is_some() {
+            return Some(SECOND_TICK);
+        }
+        None
     }
 
     fn elements(&self) -> Vec<TextureRenderElement<GlesTexture>> {
-        let mut elements = vec![element(&self.arrow, self.cursor.rect(self.pointer), 1.0)];
+        let mut elements = vec![element(
+            &self.arrow,
+            cursor::rect(self.pointer, self.arrow_size, self.arrow_hotspot),
+            1.0,
+        )];
+        if let Some((_, buffer, rect)) = self.clock.as_ref() {
+            elements.push(element(buffer, *rect, 1.0));
+        }
         for edge in Edge::ALL {
             let drawer = &self.drawers[edge.index()];
             if drawer.visible() {
@@ -117,6 +138,8 @@ impl State {
         for drawer in &mut self.drawers {
             drawer.advance(dt, self.tunables.drawer_anim);
         }
+
+        self.wind_the_clock();
 
         let elements = self.elements();
         let result = self
@@ -151,6 +174,45 @@ impl State {
         Ok(true)
     }
 
+    fn wind_the_clock(&mut self) {
+        let drawer = self.drawers[Edge::Top.index()];
+        if !drawer.visible() || self.font.is_none() {
+            self.clock = None;
+            return;
+        }
+
+        let reading = match drifter_core::tray::now(&self.format) {
+            Ok(reading) => reading,
+            Err(error) => {
+                eprintln!("drifter: {error}");
+                self.format = drifter_core::tray::DEFAULT_FORMAT.to_string();
+                return;
+            }
+        };
+
+        let tray = self.tray;
+        let band = drawer.band(self.screen, &self.panel);
+
+        if let Some((shown, _, rect)) = self.clock.as_mut()
+            && *shown == reading
+        {
+            *rect = tray.clock_rect(band, rect.size);
+            return;
+        }
+
+        let image = self
+            .font
+            .as_ref()
+            .map(|font| font.paint(&reading, tray.ink))
+            .expect("the font was there a moment ago");
+        let rect = tray.clock_rect(band, image.size());
+        match upload(&mut self.renderer, Some(&image), "clock") {
+            Ok(Some(buffer)) => self.clock = Some((reading, buffer, rect)),
+            Ok(None) => {}
+            Err(error) => eprintln!("drifter: {error}"),
+        }
+    }
+
     fn kick(&mut self) {
         if !self.awaiting
             && let Err(error) = self.draw()
@@ -162,19 +224,23 @@ impl State {
     }
 
     fn tick(&mut self) {
-        if self.ticking || !self.pending() {
+        if self.ticking {
             return;
         }
+        let Some(wait) = self.pending() else {
+            return;
+        };
         let armed = self
             .handle
-            .insert_source(Timer::from_duration(TICK), |_, _, state: &mut State| {
+            .insert_source(Timer::from_duration(wait), |_, _, state: &mut State| {
                 state.ticking = false;
                 state.settle();
-                if state.pending() {
-                    state.ticking = true;
-                    TimeoutAction::ToDuration(TICK)
-                } else {
-                    TimeoutAction::Drop
+                match state.pending() {
+                    Some(wait) => {
+                        state.ticking = true;
+                        TimeoutAction::ToDuration(wait)
+                    }
+                    None => TimeoutAction::Drop,
                 }
             })
             .is_ok();
@@ -298,6 +364,7 @@ impl Screen {
 pub fn open(
     session: &mut LibSeatSession,
     seat_events: LibSeatSessionNotifier,
+    config: &Config,
     path: &Path,
     want: (u32, u32),
     background: [f32; 4],
@@ -414,8 +481,25 @@ pub fn open(
         .map(|(image, _)| Rect::fill_centered(image.size(), screen));
     let wallpaper_element = texture.zip(rect);
 
-    let cursor = Cursor::default();
-    let arrow = upload(&mut renderer, Some(&cursor.paint()), "cursor")?
+    let cursor_path = Config::cursor_path();
+    let supplied = match drifter_core::image::load(&cursor_path) {
+        Ok(image) => Some(image),
+        Err(error) => {
+            if cursor_path.exists() {
+                eprintln!("drifter: no cursor: {error}");
+            }
+            None
+        }
+    };
+    let (arrow_image, arrow_hotspot) = match supplied {
+        Some(image) => (image, Vec2::ZERO),
+        None => {
+            let drawn = Cursor::default();
+            (drawn.paint(), drawn.hotspot())
+        }
+    };
+    let arrow_size = arrow_image.size();
+    let arrow = upload(&mut renderer, Some(&arrow_image), "cursor")?
         .ok_or_else(|| "cannot build the cursor".to_string())?;
 
     let mut built = Vec::new();
@@ -433,6 +517,15 @@ pub fn open(
         .try_into()
         .map_err(|_| "the drawer textures went missing".to_string())?;
 
+    let tray = Tray::default();
+    let font = match Font::find(tray.size) {
+        Ok(font) => Some(font),
+        Err(error) => {
+            eprintln!("drifter: no clock: {error}");
+            None
+        }
+    };
+
     let mut libinput = Libinput::new_with_udev(LibinputSessionInterface::from(session.clone()));
     let seat_name = session.seat();
     libinput
@@ -447,7 +540,12 @@ pub fn open(
         panels,
         panel,
         arrow,
-        cursor,
+        arrow_size,
+        arrow_hotspot,
+        font,
+        tray,
+        format: config.tray.format.clone(),
+        clock: None,
         drawers: [Drawer::new(Edge::Top), Drawer::new(Edge::Bottom)],
         tunables,
         screen,

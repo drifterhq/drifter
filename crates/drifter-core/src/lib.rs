@@ -5,15 +5,19 @@ pub mod drawer;
 pub mod geom;
 pub mod image;
 pub mod mode;
+pub mod text;
+pub mod tray;
 pub mod wallpaper;
 
 pub use camera::Camera;
-pub use config::{Config, Modifier, Tunables, WallpaperMode};
+pub use config::{Config, Modifier, TrayConfig, Tunables, WallpaperMode};
 pub use cursor::Cursor;
 pub use drawer::{Drawer, Edge, Panel};
 pub use geom::{Rect, Vec2};
 pub use image::{Image, load};
 pub use mode::Mode;
+pub use text::Font;
+pub use tray::Tray;
 pub use wallpaper::parallax_factor;
 
 #[cfg(test)]
