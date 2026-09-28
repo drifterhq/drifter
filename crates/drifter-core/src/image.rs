@@ -16,8 +16,9 @@ impl Image {
     pub fn premultiply(&mut self) {
         for pixel in self.rgba.as_chunks_mut::<4>().0 {
             let a = u32::from(pixel[3]);
-            for channel in 0..3 {
-                pixel[channel] = ((u32::from(pixel[channel]) * a + 127) / 255) as u8;
+            let (color, _) = pixel.split_at_mut(3);
+            for channel in color {
+                *channel = ((u32::from(*channel) * a + 127) / 255) as u8;
             }
         }
     }
