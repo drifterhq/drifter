@@ -3,7 +3,7 @@ set -euo pipefail
 
 tty=${DRIFTER_TTY:-/dev/tty1}
 log=/tmp/drifter-tty.log
-here=$(dirname "$0")
+here=$(cd "$(dirname "$0")/.." && pwd)
 bin=$here/target/release/drifter
 [ -x "$bin" ] || bin=$here/target/debug/drifter
 
