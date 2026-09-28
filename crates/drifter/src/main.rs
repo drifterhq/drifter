@@ -75,12 +75,20 @@ fn bootstrap(config: &Config) -> ExitCode {
     };
 
     let want = (1920, 1080);
-    let orange = [1.0, 0.4, 0.0, 1.0];
-    match render::show_color(
+    let night = [0.02, 0.05, 0.10, 1.0];
+    let splash = match drifter_core::load_png(&Config::splash_path()) {
+        Ok(image) => Some(image),
+        Err(error) => {
+            eprintln!("drifter: no splash: {error}");
+            None
+        }
+    };
+    match render::show(
         &mut seat.session,
         &card,
         want,
-        orange,
+        night,
+        splash.as_ref(),
         Duration::from_secs(5),
     ) {
         Ok(shown) => {
@@ -93,6 +101,13 @@ fn bootstrap(config: &Config) -> ExitCode {
                 shown.device.display()
             );
             println!("            gl {}", shown.renderer);
+            match shown.splash {
+                Some(rect) => println!(
+                    "            splash at {} {} size {} x {}",
+                    rect.origin.x, rect.origin.y, rect.size.x, rect.size.y
+                ),
+                None => println!("            splash not drawn"),
+            }
             println!("            {} frames in {:?}", shown.frames, shown.held);
         }
         Err(error) => {

@@ -1,15 +1,19 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use drifter_core::image::Image;
 use drifter_core::mode::{self, Mode};
+use drifter_core::{Rect, Vec2};
 use smithay::backend::allocator::gbm::{GbmAllocator, GbmBufferFlags, GbmDevice};
 use smithay::backend::drm::compositor::{DrmCompositor, FrameFlags};
 use smithay::backend::drm::exporter::gbm::GbmFramebufferExporter;
 use smithay::backend::drm::{DrmDevice, DrmDeviceFd};
 use smithay::backend::egl::{EGLContext, EGLDisplay};
 use smithay::backend::renderer::Color32F;
-use smithay::backend::renderer::element::solid::SolidColorRenderElement;
+use smithay::backend::renderer::element::Kind;
+use smithay::backend::renderer::element::texture::{TextureBuffer, TextureRenderElement};
 use smithay::backend::renderer::gles::GlesRenderer;
+use smithay::backend::renderer::gles::GlesTexture;
 use smithay::backend::session::{Session, libseat::LibSeatSession};
 use smithay::output::OutputModeSource;
 use smithay::reexports::drm::buffer::DrmFourcc;
@@ -26,16 +30,18 @@ pub struct Shown {
     pub renderer: String,
     pub frames: u32,
     pub held: Duration,
+    pub splash: Option<Rect>,
 }
 
 type Compositor =
     DrmCompositor<GbmAllocator<DrmDeviceFd>, GbmFramebufferExporter<DrmDeviceFd>, (), DrmDeviceFd>;
 
-pub fn show_color(
+pub fn show(
     session: &mut LibSeatSession,
     path: &Path,
     want: (u32, u32),
-    color: [f32; 4],
+    background: [f32; 4],
+    splash: Option<&Image>,
     hold: Duration,
 ) -> Result<Shown, String> {
     let fd = session
@@ -132,14 +138,48 @@ pub fn show_color(
     .map_err(|e| format!("drm compositor: {e}"))?;
 
     let gl = describe(&mut renderer);
-    let clear = Color32F::from(color);
-    let nothing: [SolidColorRenderElement; 0] = [];
+    let clear = Color32F::from(background);
+    let screen = Vec2::new(f64::from(width), f64::from(height));
+
+    let texture = match splash {
+        Some(image) => Some(
+            TextureBuffer::from_memory(
+                &mut renderer,
+                &image.rgba,
+                DrmFourcc::Abgr8888,
+                (image.width as i32, image.height as i32),
+                false,
+                1,
+                Transform::Normal,
+                None,
+            )
+            .map_err(|e| format!("cannot upload splash: {e}"))?,
+        ),
+        None => None,
+    };
+
+    let mut placed = None;
+    let elements: Vec<TextureRenderElement<GlesTexture>> = match (&texture, splash) {
+        (Some(buffer), Some(image)) => {
+            let rect = Rect::fit_centered(image.size(), screen);
+            placed = Some(rect);
+            vec![TextureRenderElement::from_texture_buffer(
+                (rect.origin.x, rect.origin.y),
+                buffer,
+                None,
+                None,
+                Some((rect.size.x as i32, rect.size.y as i32).into()),
+                Kind::Unspecified,
+            )]
+        }
+        _ => Vec::new(),
+    };
 
     let started = Instant::now();
     let mut frames = 0u32;
     while started.elapsed() < hold {
         let result = compositor
-            .render_frame(&mut renderer, &nothing, clear, FrameFlags::DEFAULT)
+            .render_frame(&mut renderer, &elements, clear, FrameFlags::DEFAULT)
             .map_err(|e| {
                 if frames == 0 {
                     format!(
@@ -169,6 +209,7 @@ pub fn show_color(
         renderer: gl,
         frames,
         held: started.elapsed(),
+        splash: placed,
     })
 }
 
