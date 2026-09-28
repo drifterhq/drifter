@@ -7,6 +7,7 @@ pub mod geom;
 pub mod image;
 pub mod menu;
 pub mod mode;
+pub mod motion;
 pub mod snap;
 pub mod text;
 pub mod tray;

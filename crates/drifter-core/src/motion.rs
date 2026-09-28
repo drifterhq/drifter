@@ -1,0 +1,211 @@
+use std::time::Duration;
+
+use crate::drawer::ease;
+use crate::geom::{Rect, Vec2};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Phase {
+    Opening,
+    Closing,
+    Minimizing,
+    Restoring,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Motion {
+    pub phase: Phase,
+    pub span: Duration,
+    pub gone: Duration,
+    pub dock: Rect,
+}
+
+pub const OPEN: Duration = Duration::from_millis(190);
+pub const CLOSE: Duration = Duration::from_millis(150);
+pub const STOW: Duration = Duration::from_millis(260);
+
+impl Motion {
+    pub fn new(phase: Phase, dock: Rect) -> Self {
+        let span = match phase {
+            Phase::Opening => OPEN,
+            Phase::Closing => CLOSE,
+            Phase::Minimizing | Phase::Restoring => STOW,
+        };
+        Motion {
+            phase,
+            span,
+            gone: Duration::ZERO,
+            dock,
+        }
+    }
+
+    pub fn advance(&mut self, dt: Duration) {
+        self.gone = (self.gone + dt).min(self.span);
+    }
+
+    pub fn progress(&self) -> f64 {
+        if self.span.is_zero() {
+            return 1.0;
+        }
+        (self.gone.as_secs_f64() / self.span.as_secs_f64()).clamp(0.0, 1.0)
+    }
+
+    pub fn done(&self) -> bool {
+        self.progress() >= 1.0
+    }
+
+    pub fn shape(&self, window: Rect) -> (Rect, f32) {
+        let t = self.progress();
+        match self.phase {
+            Phase::Opening => (grow(window, 0.90 + 0.10 * ease(t)), t.min(1.0) as f32),
+            Phase::Closing => {
+                let fade = 1.0 - t;
+                (grow(window, 1.0 - 0.10 * smooth(t)), fade as f32)
+            }
+            Phase::Minimizing => {
+                let t = smooth(t);
+                (between(window, self.dock, t), (1.0 - t * t) as f32)
+            }
+            Phase::Restoring => {
+                let t = smooth(t);
+                (between(self.dock, window, t), (t * t) as f32)
+            }
+        }
+    }
+}
+
+pub fn smooth(t: f64) -> f64 {
+    let t = t.clamp(0.0, 1.0);
+    1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t)
+}
+
+pub fn grow(rect: Rect, factor: f64) -> Rect {
+    let size = rect.size * factor;
+    Rect::new(rect.center() - size / 2.0, size)
+}
+
+pub fn between(from: Rect, to: Rect, t: f64) -> Rect {
+    let t = t.clamp(0.0, 1.0);
+    Rect::new(
+        from.origin + (to.origin - from.origin) * t,
+        from.size + (to.size - from.size) * t,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn window() -> Rect {
+        Rect::new(Vec2::new(400.0, 300.0), Vec2::new(800.0, 600.0))
+    }
+
+    fn dock() -> Rect {
+        Rect::new(Vec2::new(900.0, 1020.0), Vec2::new(44.0, 44.0))
+    }
+
+    #[test]
+    fn growing_keeps_the_center_still() {
+        let rect = window();
+        let bigger = grow(rect, 1.5);
+        let smaller = grow(rect, 0.5);
+        assert_eq!(bigger.center(), rect.center());
+        assert_eq!(smaller.center(), rect.center());
+        assert_eq!(smaller.size, rect.size * 0.5);
+    }
+
+    #[test]
+    fn between_lands_on_both_ends() {
+        let from = window();
+        let to = dock();
+        assert_eq!(between(from, to, 0.0), from);
+        assert_eq!(between(from, to, 1.0), to);
+    }
+
+    #[test]
+    fn a_window_opens_from_slightly_small_and_clear() {
+        let motion = Motion::new(Phase::Opening, dock());
+        let (rect, alpha) = motion.shape(window());
+        assert!(rect.size.x < window().size.x);
+        assert_eq!(alpha, 0.0);
+        assert_eq!(rect.center(), window().center());
+    }
+
+    #[test]
+    fn a_window_finishes_opening_at_its_real_size() {
+        let mut motion = Motion::new(Phase::Opening, dock());
+        motion.advance(OPEN);
+        let (rect, alpha) = motion.shape(window());
+        assert!((rect.size.x - window().size.x).abs() < 1e-9);
+        assert_eq!(alpha, 1.0);
+        assert!(motion.done());
+    }
+
+    #[test]
+    fn an_opening_window_springs_past_its_size_on_the_way() {
+        let mut motion = Motion::new(Phase::Opening, dock());
+        let mut peak = 0.0f64;
+        for _ in 0..40 {
+            motion.advance(Duration::from_millis(5));
+            peak = peak.max(motion.shape(window()).0.size.x);
+        }
+        assert!(peak > window().size.x, "the open is flat, not elastic");
+    }
+
+    #[test]
+    fn a_closing_window_shrinks_and_fades_out() {
+        let mut motion = Motion::new(Phase::Closing, dock());
+        motion.advance(CLOSE);
+        let (rect, alpha) = motion.shape(window());
+        assert!(rect.size.x < window().size.x);
+        assert_eq!(alpha, 0.0);
+    }
+
+    #[test]
+    fn a_minimizing_window_ends_on_its_dock_icon() {
+        let mut motion = Motion::new(Phase::Minimizing, dock());
+        motion.advance(STOW);
+        let (rect, alpha) = motion.shape(window());
+        assert_eq!(rect, dock());
+        assert_eq!(alpha, 0.0);
+    }
+
+    #[test]
+    fn a_minimizing_window_starts_where_it_was() {
+        let motion = Motion::new(Phase::Minimizing, dock());
+        let (rect, alpha) = motion.shape(window());
+        assert_eq!(rect, window());
+        assert_eq!(alpha, 1.0);
+    }
+
+    #[test]
+    fn restoring_is_the_way_back() {
+        let motion = Motion::new(Phase::Restoring, dock());
+        assert_eq!(motion.shape(window()).0, dock());
+
+        let mut done = Motion::new(Phase::Restoring, dock());
+        done.advance(STOW);
+        assert_eq!(done.shape(window()).0, window());
+        assert_eq!(done.shape(window()).1, 1.0);
+    }
+
+    #[test]
+    fn a_motion_never_runs_past_its_span() {
+        let mut motion = Motion::new(Phase::Opening, dock());
+        motion.advance(Duration::from_secs(9));
+        assert_eq!(motion.progress(), 1.0);
+        assert!(motion.done());
+    }
+
+    #[test]
+    fn closing_is_quicker_than_opening_and_stowing_is_slowest() {
+        assert!(CLOSE < OPEN);
+        assert!(OPEN < STOW);
+    }
+
+    #[test]
+    fn smooth_starts_fast_and_lands_exactly() {
+        assert_eq!(smooth(0.0), 0.0);
+        assert_eq!(smooth(1.0), 1.0);
+        assert!(smooth(0.5) > 0.5, "the ease does not front load");
+    }
+}

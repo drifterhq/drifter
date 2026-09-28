@@ -111,6 +111,19 @@ impl Dock {
         rules
     }
 
+    pub fn dot_rect(&self, band: Rect, pinned: usize, minimized: usize, slot: Slot) -> Rect {
+        let icon = self.slot_rect(band, pinned, minimized, slot);
+        let side = (self.icon / 9.0).max(3.0).round();
+        Rect::new(
+            Vec2::new(
+                icon.center().x - side / 2.0,
+                (icon.max().y + side).min(band.max().y - side - 1.0),
+            )
+            .round(),
+            Vec2::splat(side),
+        )
+    }
+
     pub fn at(&self, band: Rect, pointer: Vec2, pinned: usize, minimized: usize) -> Option<Slot> {
         let slots = (0..pinned)
             .map(Slot::Pinned)
@@ -120,6 +133,36 @@ impl Dock {
             self.slot_rect(band, pinned, minimized, *slot)
                 .contains(pointer)
         })
+    }
+}
+
+pub fn paint_dot(side: u32, color: [u8; 3]) -> Image {
+    let side = side.max(2);
+    let size = f64::from(side);
+    let middle = size / 2.0;
+    let radius = middle - 0.5;
+    let mut rgba = vec![0u8; (side as usize) * (side as usize) * 4];
+
+    for y in 0..side {
+        let dy = f64::from(y) + 0.5 - middle;
+        for x in 0..side {
+            let dx = f64::from(x) + 0.5 - middle;
+            let ink = (radius - (dx * dx + dy * dy).sqrt() + 0.5).clamp(0.0, 1.0);
+            if ink <= 0.0 {
+                continue;
+            }
+            let index = ((y as usize) * (side as usize) + x as usize) * 4;
+            for (channel, value) in color.iter().enumerate() {
+                rgba[index + channel] = (f64::from(*value) * ink).round().clamp(0.0, 255.0) as u8;
+            }
+            rgba[index + 3] = (ink * 255.0).round().clamp(0.0, 255.0) as u8;
+        }
+    }
+
+    Image {
+        width: side,
+        height: side,
+        rgba,
     }
 }
 
@@ -362,6 +405,35 @@ mod tests {
     fn the_trash_ink_is_lighter_than_the_divider() {
         let dock = Dock::default();
         assert!(dock.rule_ink()[0] > dock.rule[0]);
+    }
+
+    #[test]
+    fn the_running_dot_sits_under_its_icon() {
+        let dock = Dock::default();
+        let band = band();
+        let icon = dock.slot_rect(band, 2, 0, Slot::Pinned(1));
+        let dot = dock.dot_rect(band, 2, 0, Slot::Pinned(1));
+        assert!((dot.center().x - icon.center().x).abs() <= 0.5);
+        assert!(dot.origin.y >= icon.max().y);
+        assert!(dot.max().y <= band.max().y);
+    }
+
+    #[test]
+    fn the_running_dot_is_small() {
+        let dock = Dock::default();
+        let dot = dock.dot_rect(band(), 1, 0, Slot::Pinned(0));
+        assert!(dot.size.x >= 3.0);
+        assert!(dot.size.x < dock.icon / 4.0);
+        assert_eq!(dot.size.x, dot.size.y);
+    }
+
+    #[test]
+    fn the_dot_is_round_and_solid_in_the_middle() {
+        let image = paint_dot(6, [230, 233, 240]);
+        assert_eq!((image.width, image.height), (6, 6));
+        let middle = ((3usize) * 6 + 3) * 4;
+        assert_eq!(image.rgba[middle + 3], 255);
+        assert_eq!(image.rgba[3], 0);
     }
 
     #[test]

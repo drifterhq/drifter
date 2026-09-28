@@ -8,6 +8,7 @@ use drifter_core::drawer::{self, Drawer, Edge, Panel};
 use drifter_core::image::Image;
 use drifter_core::menu::{Item, Look};
 use drifter_core::mode::{self, Mode};
+use drifter_core::motion::{Motion, Phase};
 use drifter_core::snap::{Snap, Zone};
 use drifter_core::text::Font;
 use drifter_core::tray::Tray;
@@ -226,7 +227,61 @@ impl State {
     }
 
     fn animating(&self) -> bool {
-        self.drawers.iter().any(|drawer| !drawer.settled()) || self.flight.is_some()
+        self.drawers.iter().any(|drawer| !drawer.settled())
+            || self.flight.is_some()
+            || self.windows.iter().any(|window| window.motion.is_some())
+    }
+
+    pub fn opening_motion(&self) -> Motion {
+        Motion::new(Phase::Opening, self.dock_slot(0))
+    }
+
+    fn dock_slot(&self, index: usize) -> Rect {
+        let panel = self.shapes[Edge::Bottom.index()];
+        let mut open = drifter_core::Drawer::new(Edge::Bottom);
+        open.open = true;
+        open.advance(Duration::from_secs(1), Duration::from_millis(1));
+        let band = open.band(self.screen, &panel);
+        let hidden = self.minimized().len();
+        let seat = self.dock.slot_rect(
+            band,
+            self.pinned.len(),
+            hidden.max(1),
+            Slot::Minimized(index),
+        );
+        Rect::new(self.in_world(seat.origin), seat.size / self.camera.zoom)
+    }
+
+    fn step_windows(&mut self, dt: Duration) {
+        let mut finished: Vec<usize> = Vec::new();
+        for (index, window) in self.windows.iter_mut().enumerate() {
+            let Some(motion) = window.motion.as_mut() else {
+                continue;
+            };
+            motion.advance(dt);
+            if motion.done() {
+                finished.push(index);
+            }
+        }
+
+        for index in finished.into_iter().rev() {
+            let Some(window) = self.windows.get_mut(index) else {
+                continue;
+            };
+            let phase = window.motion.take().map(|motion| motion.phase);
+            match phase {
+                Some(Phase::Minimizing) => {
+                    window.hidden = true;
+                    self.remember_icon(index);
+                    self.wake_windows();
+                }
+                Some(Phase::Closing) => {
+                    window.toplevel.send_close();
+                    window.going = false;
+                }
+                _ => {}
+            }
+        }
     }
 
     fn pending(&self) -> Option<Duration> {
@@ -368,21 +423,21 @@ impl State {
             }
         }
 
-        let windows: Vec<(
-            Rect,
-            Vec2,
-            bool,
-            bool,
-            String,
-            smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
-        )> = self
+        let zoom = self.camera.zoom;
+        let showing: Vec<(Rect, Rect, f32, Vec2, bool, bool, String, _)> = self
             .windows
             .iter()
             .rev()
             .filter(|window| window.placed && !window.hidden)
             .map(|window| {
+                let (shown, fade) = window
+                    .motion
+                    .map(|motion| motion.shape(window.content))
+                    .unwrap_or((window.content, 1.0));
                 (
                     window.content,
+                    shown,
+                    fade,
                     window.inset,
                     self.focus
                         .and_then(|index| self.windows.get(index))
@@ -394,11 +449,15 @@ impl State {
                 )
             })
             .collect();
-        let zoom = self.camera.zoom;
-        for (content, inset, awake, dressed, title, surface) in windows {
+
+        for (content, shown, fade, inset, awake, dressed, title, surface) in showing {
+            let stretch = match content.size.x > 0.0 {
+                true => shown.size.x / content.size.x,
+                false => 1.0,
+            };
             let at = self
                 .camera
-                .screen_from_world(content.origin - inset, self.screen);
+                .screen_from_world(shown.origin - inset * stretch, self.screen);
             let anchor = smithay::utils::Point::<i32, smithay::utils::Physical>::from((
                 at.x.round() as i32,
                 at.y.round() as i32,
@@ -409,14 +468,18 @@ impl State {
                     &surface,
                     anchor,
                     1.0,
-                    1.0,
+                    fade,
                     Kind::Unspecified,
                 );
             if dressed {
-                self.dress(content, awake, &title, &mut elements);
+                self.dress(shown, awake, &title, fade, &mut elements);
             }
             elements.extend(client.into_iter().map(|piece| {
-                Skin::Client(RescaleRenderElement::from_element(piece, anchor, zoom))
+                Skin::Client(RescaleRenderElement::from_element(
+                    piece,
+                    anchor,
+                    zoom * stretch,
+                ))
             }));
         }
 
@@ -482,7 +545,7 @@ impl State {
         Some((at.round(), popup.wl_surface().clone()))
     }
 
-    fn dress(&self, content: Rect, awake: bool, title: &str, elements: &mut Vec<Skin>) {
+    fn dress(&self, content: Rect, awake: bool, title: &str, fade: f32, elements: &mut Vec<Skin>) {
         let layout = self.chrome.layout(content);
         let show = |rect: Rect| self.on_screen(rect);
         let bar = self.chrome.title_bar(content);
@@ -504,7 +567,7 @@ impl State {
             if let Some((buffer, size)) = self.skin.get(&file) {
                 let place = self.chrome.button_rect(slot);
                 let rect = Rect::new(bar.origin + place.origin, *size);
-                elements.push(Skin::Texture(element(buffer, show(rect), 1.0)));
+                elements.push(Skin::Texture(element(buffer, show(rect), fade)));
             }
         }
         if let Some((buffer, size)) = self.titles.get(title).filter(|_| close_enough) {
@@ -516,7 +579,7 @@ impl State {
                     bar.origin.y + (bar.size.y - size.y) / 2.0,
                 );
                 let rect = Rect::new(at.round(), Vec2::new(width, size.y));
-                let dim = if awake { 1.0 } else { 0.55 };
+                let dim = fade * if awake { 1.0 } else { 0.55 };
                 elements.push(Skin::Texture(element(buffer, show(rect), dim)));
             }
         }
@@ -536,7 +599,7 @@ impl State {
                 continue;
             }
             if let Some((buffer, _)) = self.skin.get(&piece.file_name(awake)) {
-                elements.push(Skin::Texture(element(buffer, show(rect), 1.0)));
+                elements.push(Skin::Texture(element(buffer, show(rect), fade)));
             }
         }
     }
@@ -650,6 +713,7 @@ impl State {
             drawer.advance(dt, self.tunables.drawer_anim);
         }
         self.steer();
+        self.step_windows(dt);
 
         self.wind_the_clock();
         self.wind_titles();

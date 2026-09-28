@@ -309,6 +309,23 @@ fn glyph(image: &mut Image, button: Button) {
     }
 }
 
+pub fn cascade(wanted: Vec2, taken: &[Vec2], step: f64, room: Rect) -> Vec2 {
+    let mut place = wanted;
+    for _ in 0..12 {
+        let clash = taken
+            .iter()
+            .any(|other| (*other - place).length() < step / 2.0);
+        if !clash {
+            break;
+        }
+        place = place + Vec2::splat(step);
+        if place.x > room.max().x - step || place.y > room.max().y - step {
+            place = room.origin + Vec2::splat(step);
+        }
+    }
+    place.round()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Grip {
     Button(usize),
@@ -712,6 +729,60 @@ mod tests {
         let middle = bar.origin + first.origin + first.size / 2.0;
         assert_eq!(chrome.button_at(content, middle, 3), Some(0));
         assert_eq!(chrome.button_at(content, bar.center(), 3), None);
+    }
+
+    #[test]
+    fn the_first_window_lands_where_it_asked() {
+        let room = Rect::new(Vec2::ZERO, Vec2::new(1920.0, 1080.0));
+        let wanted = Vec2::new(600.0, 300.0);
+        assert_eq!(cascade(wanted, &[], 32.0, room), wanted);
+    }
+
+    #[test]
+    fn a_second_window_steps_off_the_first() {
+        let room = Rect::new(Vec2::ZERO, Vec2::new(1920.0, 1080.0));
+        let wanted = Vec2::new(600.0, 300.0);
+        let next = cascade(wanted, &[wanted], 32.0, room);
+        assert_ne!(next, wanted);
+        assert_eq!(next, wanted + Vec2::splat(32.0));
+    }
+
+    #[test]
+    fn a_third_window_steps_off_both() {
+        let room = Rect::new(Vec2::ZERO, Vec2::new(1920.0, 1080.0));
+        let wanted = Vec2::new(600.0, 300.0);
+        let taken = vec![wanted, wanted + Vec2::splat(32.0)];
+        assert_eq!(
+            cascade(wanted, &taken, 32.0, room),
+            wanted + Vec2::splat(64.0)
+        );
+    }
+
+    #[test]
+    fn a_window_far_from_the_others_never_moves() {
+        let room = Rect::new(Vec2::ZERO, Vec2::new(1920.0, 1080.0));
+        let wanted = Vec2::new(100.0, 100.0);
+        let taken = vec![Vec2::new(900.0, 700.0)];
+        assert_eq!(cascade(wanted, &taken, 32.0, room), wanted);
+    }
+
+    #[test]
+    fn the_cascade_wraps_rather_than_walking_off_the_view() {
+        let room = Rect::new(Vec2::ZERO, Vec2::new(400.0, 400.0));
+        let wanted = Vec2::new(360.0, 360.0);
+        let taken = vec![wanted];
+        let next = cascade(wanted, &taken, 32.0, room);
+        assert!(next.x < room.max().x && next.y < room.max().y);
+    }
+
+    #[test]
+    fn the_cascade_gives_up_rather_than_looping_forever() {
+        let room = Rect::new(Vec2::ZERO, Vec2::new(200.0, 200.0));
+        let taken: Vec<Vec2> = (0..60)
+            .map(|step| Vec2::splat(32.0 * step as f64))
+            .collect();
+        let place = cascade(Vec2::ZERO, &taken, 32.0, room);
+        assert!(place.x.is_finite() && place.y.is_finite());
     }
 
     #[test]

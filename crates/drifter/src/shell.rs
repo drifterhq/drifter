@@ -53,6 +53,8 @@ pub struct Window {
     pub app: String,
     pub title: String,
     pub restore: Option<Rect>,
+    pub motion: Option<drifter_core::motion::Motion>,
+    pub going: bool,
 }
 
 #[derive(Default)]
@@ -147,6 +149,7 @@ impl XdgShellHandler for State {
             state.states.set(xdg_toplevel::State::Activated);
         });
         surface.send_configure();
+        let start = self.opening_motion();
         self.windows.push(Window {
             toplevel: surface,
             content: Rect::new(Vec2::ZERO, Vec2::ZERO),
@@ -159,6 +162,8 @@ impl XdgShellHandler for State {
             app: String::new(),
             title: String::new(),
             restore: None,
+            motion: Some(start),
+            going: false,
         });
     }
 
