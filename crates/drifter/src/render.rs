@@ -59,10 +59,12 @@ const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 
 use smithay::backend::renderer::{ImportAll, RendererSuper, element::render_elements};
 
+use smithay::backend::renderer::element::utils::RescaleRenderElement;
+
 render_elements! {
     pub Piece<R> where R: ImportAll;
     Texture=TextureRenderElement<<R as RendererSuper>::TextureId>,
-    Client=WaylandSurfaceRenderElement<R>,
+    Client=RescaleRenderElement<WaylandSurfaceRenderElement<R>>,
 }
 
 type Skin = Piece<GlesRenderer>;
@@ -261,16 +263,24 @@ impl State {
             .filter_map(|popup| self.popup_at(popup))
             .collect();
         for (at, surface) in popups {
+            let anchor = smithay::utils::Point::<i32, smithay::utils::Physical>::from((
+                at.x as i32,
+                at.y as i32,
+            ));
             let bare: Vec<WaylandSurfaceRenderElement<GlesRenderer>> =
                 render_elements_from_surface_tree(
                     &mut self.renderer,
                     &surface,
-                    (at.x as i32, at.y as i32),
+                    anchor,
                     1.0,
                     1.0,
                     Kind::Unspecified,
                 );
-            elements.extend(bare.into_iter().map(Skin::Client));
+            elements.extend(
+                bare.into_iter().map(|piece| {
+                    Skin::Client(RescaleRenderElement::from_element(piece, anchor, 1.0))
+                }),
+            );
         }
 
         if let Some(band) = self.dock_band() {
@@ -354,16 +364,22 @@ impl State {
             let at = self
                 .camera
                 .screen_from_world(content.origin - inset, self.screen);
+            let anchor = smithay::utils::Point::<i32, smithay::utils::Physical>::from((
+                at.x.round() as i32,
+                at.y.round() as i32,
+            ));
             let client: Vec<WaylandSurfaceRenderElement<GlesRenderer>> =
                 render_elements_from_surface_tree(
                     &mut self.renderer,
                     &surface,
-                    (at.x.round() as i32, at.y.round() as i32),
-                    zoom,
+                    anchor,
+                    1.0,
                     1.0,
                     Kind::Unspecified,
                 );
-            elements.extend(client.into_iter().map(Skin::Client));
+            elements.extend(client.into_iter().map(|piece| {
+                Skin::Client(RescaleRenderElement::from_element(piece, anchor, zoom))
+            }));
             self.dress(content, awake, &mut elements);
         }
 
