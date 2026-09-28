@@ -941,11 +941,7 @@ impl State {
             return false;
         }
         let target = match self.under_pointer() {
-            Some((index, _)) => {
-                let window = self.windows[index];
-                let _ = window;
-                self.windows[index].content.center()
-            }
+            Some((index, _)) => self.windows[index].content.center(),
             None => self.in_world(self.pointer),
         };
         self.fly_to(Camera::at_work_zoom(target));
