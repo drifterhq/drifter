@@ -40,10 +40,11 @@ pub fn start() -> Result<(Tray, Channel<Vec<Icon>>), String> {
     let items: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
     let serving = items.clone();
+    let asking = job_tx.clone();
     let sender = icon_tx.clone();
     std::thread::Builder::new()
         .name("drifter-tray".to_string())
-        .spawn(move || serve(serving, sender, job_rx))
+        .spawn(move || serve(serving, sender, asking, job_rx))
         .map_err(|e| format!("cannot start the tray thread: {e}"))?;
 
     Ok((Tray { jobs: job_tx }, icon_rx))
@@ -188,7 +189,12 @@ fn find_icon(name: &str, theme: &str) -> Option<std::path::PathBuf> {
         .find(|candidate| candidate.is_file())
 }
 
-fn serve(items: Arc<Mutex<Vec<String>>>, wake: SyncSender<Vec<Icon>>, jobs: Receiver<Job>) {
+fn serve(
+    items: Arc<Mutex<Vec<String>>>,
+    wake: SyncSender<Vec<Icon>>,
+    look: Sender<Job>,
+    jobs: Receiver<Job>,
+) {
     let address = match bus_address() {
         Ok(address) => address,
         Err(error) => {
