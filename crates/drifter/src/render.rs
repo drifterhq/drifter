@@ -326,14 +326,14 @@ impl State {
         };
 
         window.inset = inset;
-        if window.placed {
-            window.content.size = size;
+        window.content.size = size;
+        if window.placed && window.touched {
             return;
         }
 
         let middle = (screen - size) / 2.0;
         let top = middle.y.max(chrome.title + chrome.edge);
-        window.content = Rect::new(Vec2::new(middle.x.max(chrome.edge), top), size);
+        window.content.origin = Vec2::new(middle.x.max(chrome.edge), top).round();
         window.placed = true;
     }
 
@@ -733,7 +733,8 @@ impl State {
             Grab::None => {}
             Grab::Move { index, offset } => {
                 if let Some(window) = self.windows.get_mut(index) {
-                    window.content.origin = self.pointer - offset;
+                    window.content.origin = (self.pointer - offset).round();
+                    window.touched = true;
                 }
             }
             Grab::Resize {
@@ -747,7 +748,8 @@ impl State {
                 let least = Vec2::new(160.0, 80.0);
                 let wanted = chrome.resize(start, grip, moved, least);
                 if let Some(window) = self.windows.get_mut(index) {
-                    window.content.origin = wanted.origin;
+                    window.content.origin = wanted.origin.round();
+                    window.touched = true;
                     window.toplevel.with_pending_state(|state| {
                         state.size = Some((wanted.size.x as i32, wanted.size.y as i32).into());
                     });
@@ -1324,12 +1326,15 @@ fn element(
     rect: Rect,
     alpha: f32,
 ) -> TextureRenderElement<GlesTexture> {
+    let origin = rect.origin.round();
+    let far = (rect.origin + rect.size).round();
+    let size = far - origin;
     TextureRenderElement::from_texture_buffer(
-        (rect.origin.x, rect.origin.y),
+        (origin.x, origin.y),
         buffer,
         Some(alpha),
         None,
-        Some((rect.size.x as i32, rect.size.y as i32).into()),
+        Some((size.x as i32, size.y as i32).into()),
         Kind::Unspecified,
     )
 }

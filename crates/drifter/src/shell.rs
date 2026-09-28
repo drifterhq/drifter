@@ -46,6 +46,7 @@ pub struct Window {
     pub content: Rect,
     pub inset: Vec2,
     pub placed: bool,
+    pub touched: bool,
 }
 
 #[derive(Default)]
@@ -145,6 +146,7 @@ impl XdgShellHandler for State {
             content: Rect::new(Vec2::ZERO, Vec2::ZERO),
             inset: Vec2::ZERO,
             placed: false,
+            touched: false,
         });
     }
 

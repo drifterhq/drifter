@@ -25,6 +25,10 @@ impl Vec2 {
         Vec2::new(self.x.max(other.x), self.y.max(other.y))
     }
 
+    pub fn round(self) -> Vec2 {
+        Vec2::new(self.x.round(), self.y.round())
+    }
+
     pub fn clamp(self, lo: Vec2, hi: Vec2) -> Vec2 {
         self.max(lo).min(hi)
     }
@@ -108,6 +112,12 @@ impl Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rounding_snaps_to_whole_pixels() {
+        assert_eq!(Vec2::new(10.4, -3.6).round(), Vec2::new(10.0, -4.0));
+        assert_eq!(Vec2::new(10.5, 2.5).round(), Vec2::new(11.0, 3.0));
+    }
 
     #[test]
     fn fit_centered_fills_an_exact_match() {
