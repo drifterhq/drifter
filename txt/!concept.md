@@ -137,7 +137,7 @@ The top drawer is the tray. It reads right to left, because the right side is wh
 - Status icons live on the LEFT end, 24 px, 10 px apart, starting 18 px in, growing rightward. They never reach the clock, so the clock never moves when an icon appears.
 - An icon does what its own program says. Left click is Activate, right click opens that program's context menu, middle click is the secondary action. Drifter routes the click and draws the icon. It never invents a menu of its own.
 - Icons come from the StatusNotifierItem D-Bus protocol, which is how modern tray apps publish themselves. Drifter owns `org.kde.StatusNotifierWatcher`, holds the registered item list, reads each item's `IconPixmap` (or its `IconName` from the icon folders), scales it to 24 px, and calls Activate, ContextMenu or SecondaryActivate on the item when it is clicked. This needs no Wayland client, so the tray works before windows do.
-- `tools/tray-demo.py` publishes two items and prints every click it receives, so the whole path can be tested with no tray app installed and without watching the screen.
+- `cargo run -p drifter --example tray-demo` publishes two items and prints every click it receives, so the whole path can be tested with no tray app installed and without watching the screen.
 - System info comes later, on the same left end, to the right of the icons.
 
 The clock is only drawn while the drawer is open, so a closed tray costs nothing.
