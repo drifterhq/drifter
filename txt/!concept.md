@@ -1,6 +1,6 @@
 # Drifter
 
-Concept notes. No tech stack chosen yet.
+The living spec. Rust and Smithay, Wayland, bare DRM. Built and running.
 
 ## What it is
 
@@ -56,7 +56,7 @@ TOML.
     font = "../fonts/WorkSans.ttf"
     window = "../img/window"
 
-Defaults in code, not in the file: drawer height 64 px, drawer dwell and hide timings, hot corner dwell, pan speed, animation curve and duration. Minimum zoom is derived. It is whatever fits the whole world in the viewport.
+Defaults in code, not in the file: drawer dwell and hide timings, hot corner dwell, pan speed, animation curve and duration, and every size inside a bar. Minimum zoom is derived. It is whatever fits the whole world in the viewport.
 
 Art lives in the repo, in `img/` and `fonts/`. The config lives in the repo too, at `conf/drifter.toml`. The repo is the single source of truth. Edit a file, commit, pull, and the next run shows it. Nothing is copied by hand.
 
@@ -109,15 +109,15 @@ Windows
 
 Drawers
 
-- Push the pointer at the top edge and an inset drawer slides down, 64 px, full width. It holds the system tray.
+- Push the pointer at the top edge and an inset drawer slides down, `drawers.top` tall, full width. It holds the system tray.
 - Push the pointer at the bottom edge and the dock slides up. It reads pinned apps, then minimized windows, then the trash, with a thin divider between each pair of groups and none where a group is empty. The whole row is centered.
 - With no `[dock] pinned` list, the dock starts with the XDG defaults: the default browser, the default file manager and the default terminal, read from mimeapps.list.
-- Clicking a pinned icon starts that app. Clicking a minimized icon brings that window back and raises it. Clicking the trash opens the XDG trash folder in the file manager.
+- Clicking a pinned icon starts that app. Clicking a minimized icon brings that window back and raises it. Clicking the trash opens `~/.local/share/Trash/files` with the default file manager, or `xdg-open`. With neither installed Drifter says so on stderr.
 - Right clicking a minimized icon gives Show and Exit. Hovering any icon shows its name.
 - The trash can is painted by Drifter, never taken from an icon theme. A machine with no theme installed still has a trash can.
 - Minimize hides a window and puts its icon in the dock. That is the only way a window ever leaves the screen, and the dock is always the way back.
 - The drawer opens after a short dwell at the edge, so a fast pass never pops it open. It stays open while the pointer rests on it, and hides a short delay after the pointer leaves.
-- The bar is 64 px everywhere. The corner curve reaches 10 px further down, but only within 10 px of the left and right ends. Drifter prints the measured band at startup, so this is never a guess.
+- Each bar is exactly its configured height everywhere. The corner curve reaches 10 px further in, but only within 10 px of the left and right ends. Drifter prints the measured band at startup, so this is never a guess.
 - The look: the corners of the DESKTOP OPENING are rounded, not the drawer. The panel runs the full width and curves deeper at the left and right ends, so the viewport reads as a rounded window and the drawer as the frame around it.
 - An inset shadow runs along the whole inner boundary, inside the panel, following the curve of the corners. The drawer reads as a recess, not as a floating bar.
 - The slide is elastic. It eases out past its resting place and settles back. The panel texture carries slack past the screen edge, so the spring can never open a gap and show wallpaper behind the drawer.
@@ -136,33 +136,35 @@ Session
 - No app restore on login. Windows are not reopened.
 - Camera position is saved across logout.
 
-## MVP order
+## What is not built yet
 
-1. Read the config: world size in screens, wallpaper. Draw the wallpaper fullscreen and hold the screen until killed.
-2. Draw the world. Draw client windows. Camera locked at zoom 1.0. This is the whole compositor and it is the big step.
-3. Top drawer with tray and system info. Bottom drawer with launcher and trash. Edge push, dwell, elastic slide.
-4. Top-left hot corner. Dwell, then zoom out to fit the world.
-5. Click a window in overview. Camera flies to it and settles at 1.0.
-6. Modifier + scroll zoom at the cursor. Modifier + edge push to pan.
-7. Done: camera position saved and restored across logout.
+The MVP list is finished: config, the compositor, both drawers, the hot corner, click to fly, free zoom, edge pan, and a camera that survives a restart.
+
+What is left:
+- System info on the left end of the top drawer, right of the tray icons.
+- A window that demands the camera.
+- Multi-monitor. One world, one camera per monitor.
+- Submenus. A dbusmenu item with `children-display` is drawn but does not open.
+- A world-sized wallpaper as mipmapped tiles. Today the whole image is one texture.
+- The headless backend and frame capture, which is testing target 2.
 
 ## Tray
 
 The top drawer is the tray. It reads right to left, because the right side is where people look for the clock.
 
-- The clock is hard against the right edge, 18 px in, centered in the 64 px band, at 16 px text. It ticks every second while the drawer is open.
+- The clock is hard against the right edge, 12 px in, centered in the band, at `tray.size` text. It ticks every second while the drawer is open.
 - `format` in the config is a strftime string. The default is `%a %b %d %I:%M:%S %p`, which reads `Mon Sep 28 12:35:26 AM`. A format Drifter cannot parse is reported on stderr and the default is used instead.
-- Status icons live on the LEFT end, 24 px, 10 px apart, starting 18 px in, growing rightward. They never reach the clock, so the clock never moves when an icon appears.
+- Status icons live on the LEFT end, 18 px, 14 px apart, starting 12 px in, growing rightward. They never reach the clock, so the clock never moves when an icon appears.
 - Left click is Activate and middle click is the secondary action. Both go straight to the program.
 - RIGHT CLICK IS DRIFTER'S. Drifter reads the item's menu over `com.canonical.dbusmenu` and paints it itself at the pointer. It never calls ContextMenu, because an app asked for its menu draws its own window, and then there are two menus.
 - Hovering an icon shows its tooltip, taken from the item's ToolTip property.
-- Icons come from the StatusNotifierItem D-Bus protocol, which is how modern tray apps publish themselves. Drifter owns `org.kde.StatusNotifierWatcher`, holds the registered item list, reads each item's `IconPixmap` (or its `IconName` from the icon folders), scales it to 24 px, and calls Activate, ContextMenu or SecondaryActivate on the item when it is clicked. This needs no Wayland client, so the tray works before windows do.
-- `cargo run -p drifter --example tray-demo` publishes two items and prints every click it receives, so the whole path can be tested with no tray app installed and without watching the screen.
+- Icons come from the StatusNotifierItem D-Bus protocol, which is how modern tray apps publish themselves. Drifter owns `org.kde.StatusNotifierWatcher`, holds the registered item list, and reads each item's `IconPixmap`, or its `IconName` from the icon folders. This needs no Wayland client, so the tray works before windows do.
+- When `DBUS_SESSION_BUS_ADDRESS` is unset, Drifter falls back to `unix:path=/run/user/<uid>/bus`. Without that a compositor started outside a login shell never gets a bus and the tray never appears.
 - System info comes later, on the same left end, to the right of the icons.
 
 The clock is only drawn while the drawer is open, so a closed tray costs nothing.
 
-Text needs a font, and Drifter has no toolkit to ask. It uses `font.ttf` in the data directory when there is one, and otherwise the first of a short list of normal system paths. With no font at all the clock is skipped and Drifter says so on stderr. It never fails to start over a font.
+Text needs a font, and Drifter has no toolkit to ask. It uses `assets.font` when the config names one, and otherwise the first of a short list of normal system paths. With no font at all the clock is skipped and Drifter says so on stderr. It never fails to start over a font.
 
 ## Windows
 
@@ -178,7 +180,9 @@ The frame is a nine piece skin, so it can be themed by replacing PNGs and never 
 
 The pieces decide the sizes. Title bar height is the height of `title-mid.png`, border width is the width of `edge-left.png`. So a theme with a thicker frame needs no config change.
 
-Resize edges are wider than the art. The grab area reaches a few pixels inside and outside each border, and the corners win over the sides where they overlap, because a corner is harder to hit. Drag the title bar to move. Double click the title bar to maximize.
+Resize edges are wider than the art. The grab area reaches 7 px inside and outside each border, and the corners win over the sides where they overlap, because a corner is harder to hit. Drag the title bar to move. Double click the title bar to maximize, and again to put it back.
+
+Close asks the app to close. Minimize hides the window into the dock. Maximize fills the viewport and remembers where the window was, so a second press restores it exactly.
 
 `cargo run -p drifter-core --example window` paints the default skin and writes every piece, so there is always a real file to start from.
 
@@ -225,8 +229,6 @@ The seat notifier is in the same loop. On PauseSession drawing stops and DRM mas
 ## Open items
 
 Direct scanout needs the drm node. GbmFramebufferExporter::new takes an import_node as its second argument. With None, client buffers are never direct-scanned-out, they always go through the renderer. That is fine while nothing is on screen but a clear color. Once real clients land, pass Some(drm_node) or every window costs a composite pass it does not need.
-
-Stack. Wayland, because the compositor tells each surface its size and scale, so a window can be told the screen is one screen through the normal path. On X11 apps read the root window size directly. Recommendation is Rust + Smithay: niri already proves a viewport-with-smooth-animation compositor works there, and a compositor crash loses every open window, so memory safety pays for itself.
 
 A window demands the camera. Proposal: lock the camera to that window at 1.0 and disable zoom, pan and the hot corner until it releases. On multi-monitor, the monitor whose camera holds the window obeys.
 

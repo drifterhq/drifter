@@ -55,6 +55,7 @@ const PANEL_ALPHA: u8 = 235;
 const TICK: Duration = Duration::from_millis(8);
 const SECOND_TICK: Duration = Duration::from_millis(250);
 const SETTLING: Duration = Duration::from_secs(2);
+const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 
 use smithay::backend::renderer::{ImportAll, RendererSuper, element::render_elements};
 
@@ -130,6 +131,7 @@ pub struct State {
     corner_since: Option<Instant>,
     grab: Grab,
     modifier: bool,
+    last_title: Option<(Vec2, Instant)>,
     held: Option<usize>,
     pub focus: Option<usize>,
     skin: std::collections::HashMap<String, (TextureBuffer<GlesTexture>, Vec2)>,
@@ -1252,10 +1254,24 @@ impl State {
                 self.press_button(index, slot);
             }
             Grip::Title => {
-                self.grab = Grab::Move {
-                    index,
-                    offset: self.in_world(self.pointer) - content.origin,
-                };
+                let now = Instant::now();
+                let again = self
+                    .last_title
+                    .map(|(at, when)| {
+                        (self.pointer - at).length() < 6.0
+                            && now.duration_since(when) < DOUBLE_CLICK
+                    })
+                    .unwrap_or(false);
+                if again {
+                    self.last_title = None;
+                    self.press_button(index, 2);
+                } else {
+                    self.last_title = Some((self.pointer, now));
+                    self.grab = Grab::Move {
+                        index,
+                        offset: self.in_world(self.pointer) - content.origin,
+                    };
+                }
             }
             other => {
                 self.grab = Grab::Resize {
@@ -1860,6 +1876,7 @@ pub fn open(
         corner_since: None,
         grab: Grab::None,
         modifier: false,
+        last_title: None,
         held: None,
         focus: None,
         skin,
