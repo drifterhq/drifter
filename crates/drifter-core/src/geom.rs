@@ -107,6 +107,11 @@ impl Rect {
         Rect::new((into - size) / 2.0, size)
     }
 
+    pub fn round_out(&self) -> Rect {
+        let origin = self.origin.round();
+        Rect::new(origin, (self.origin + self.size).round() - origin)
+    }
+
     pub fn contains(&self, p: Vec2) -> bool {
         let m = self.max();
         p.x >= self.origin.x && p.y >= self.origin.y && p.x < m.x && p.y < m.y
@@ -194,6 +199,14 @@ mod tests {
             Rect::fill_centered(screen, screen),
             Rect::fit_centered(screen, screen)
         );
+    }
+
+    #[test]
+    fn rounding_a_rect_keeps_both_edges_on_whole_pixels() {
+        let rect = Rect::new(Vec2::new(10.4, 20.6), Vec2::new(100.3, 50.9));
+        let snapped = rect.round_out();
+        assert_eq!(snapped.origin, Vec2::new(10.0, 21.0));
+        assert_eq!(snapped.max(), Vec2::new(111.0, 72.0));
     }
 
     #[test]

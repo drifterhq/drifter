@@ -1471,20 +1471,23 @@ impl State {
                 self.wake_windows();
             }
             _ => {
-                let screen = self.screen;
                 let chrome = self.chrome;
+                let view = self.camera.visible_rect(self.screen);
+                let room = view.size.min(self.screen);
+                let full = Rect::new(view.center() - room / 2.0, room);
                 let window = &mut self.windows[index];
                 let want = match window.restore.take() {
                     Some(back) => back,
                     None => {
                         window.restore = Some(window.content);
                         Rect::new(
-                            Vec2::new(chrome.edge, chrome.title),
+                            Vec2::new(full.origin.x + chrome.edge, full.origin.y + chrome.title),
                             Vec2::new(
-                                screen.x - chrome.edge * 2.0,
-                                screen.y - chrome.title - chrome.edge,
+                                full.size.x - chrome.edge * 2.0,
+                                full.size.y - chrome.title - chrome.edge,
                             ),
                         )
+                        .round_out()
                     }
                 };
                 window.content = want;
