@@ -55,7 +55,7 @@ Parallax takes no tuning number. Derive the factor:
 
     factor = (wallpaper_size - viewport_size) / (world_size - viewport_size)
 
-Derived that way the wallpaper edges land exactly on the world edges, so you never pan off the picture and never see a seam. A 2K wallpaper, a 1080p viewport and a 4K world give about 0.44.
+Derived that way the wallpaper edges land exactly on the world edges, so you never pan off the picture and never see a seam. A 2K wallpaper, a 1080p viewport and a 4K world give exactly one third.
 
 The supplied image does not have to be an exact size. Drifter scales it to what the mode needs, keeps the aspect ratio, and crops the overflow.
 

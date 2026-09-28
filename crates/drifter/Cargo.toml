@@ -1,0 +1,8 @@
+[package]
+name = "drifter"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+drifter-core.workspace = true
