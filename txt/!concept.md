@@ -124,6 +124,8 @@ Session
 
 ## Open items
 
+Direct scanout needs the drm node. GbmFramebufferExporter::new takes an import_node as its second argument. With None, client buffers are never direct-scanned-out, they always go through the renderer. That is fine while nothing is on screen but a clear color. Once real clients land, pass Some(drm_node) or every window costs a composite pass it does not need.
+
 Stack. Wayland, because the compositor tells each surface its size and scale, so a window can be told the screen is one screen through the normal path. On X11 apps read the root window size directly. Recommendation is Rust + Smithay: niri already proves a viewport-with-smooth-animation compositor works there, and a compositor crash loses every open window, so memory safety pays for itself.
 
 A window demands the camera. Proposal: lock the camera to that window at 1.0 and disable zoom, pan and the hot corner until it releases. On multi-monitor, the monitor whose camera holds the window obeys.

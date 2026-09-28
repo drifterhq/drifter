@@ -4,13 +4,14 @@ use std::time::{Duration, Instant};
 use drifter_core::mode::{self, Mode};
 use smithay::backend::allocator::gbm::{GbmAllocator, GbmBufferFlags, GbmDevice};
 use smithay::backend::drm::compositor::{DrmCompositor, FrameFlags};
+use smithay::backend::drm::exporter::gbm::GbmFramebufferExporter;
 use smithay::backend::drm::{DrmDevice, DrmDeviceFd};
 use smithay::backend::egl::{EGLContext, EGLDisplay};
 use smithay::backend::renderer::Color32F;
-use smithay::backend::renderer::damage::OutputModeSource;
 use smithay::backend::renderer::element::solid::SolidColorRenderElement;
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::session::{Session, libseat::LibSeatSession};
+use smithay::output::OutputModeSource;
 use smithay::reexports::drm::buffer::DrmFourcc;
 use smithay::reexports::drm::control::{Device as ControlDevice, connector, crtc};
 use smithay::reexports::rustix::fs::OFlags;
@@ -27,7 +28,8 @@ pub struct Shown {
     pub held: Duration,
 }
 
-type Compositor = DrmCompositor<GbmAllocator<DrmDeviceFd>, GbmDevice<DrmDeviceFd>, (), DrmDeviceFd>;
+type Compositor =
+    DrmCompositor<GbmAllocator<DrmDeviceFd>, GbmFramebufferExporter<DrmDeviceFd>, (), DrmDeviceFd>;
 
 pub fn show_color(
     session: &mut LibSeatSession,
@@ -45,7 +47,7 @@ pub fn show_color(
 
     let drm_fd = DrmDeviceFd::new(DeviceFd::from(fd));
     let gbm = GbmDevice::new(drm_fd.clone()).map_err(|e| format!("gbm device: {e}"))?;
-    let (drm, _notifier) =
+    let (mut drm, _notifier) =
         DrmDevice::new(drm_fd, true).map_err(|e| format!("cannot open drm device: {e}"))?;
 
     let resources = drm
@@ -121,7 +123,7 @@ pub fn show_color(
         surface,
         None,
         allocator,
-        gbm.clone(),
+        GbmFramebufferExporter::new(gbm.clone(), None),
         [DrmFourcc::Xrgb8888, DrmFourcc::Argb8888],
         renderer_formats,
         (64, 64).into(),
@@ -136,19 +138,25 @@ pub fn show_color(
     let started = Instant::now();
     let mut frames = 0u32;
     while started.elapsed() < hold {
-        compositor
+        let result = compositor
             .render_frame(&mut renderer, &nothing, clear, FrameFlags::DEFAULT)
             .map_err(|e| {
-                format!(
-                    "render failed: {e}\n\
-                     drifter needs drm master, which needs a real tty.\n\
-                     run it from tty1, not over ssh. smithay only warns when master is denied."
-                )
+                if frames == 0 {
+                    format!(
+                        "first render failed: {e}\n\
+                         drifter needs drm master, which needs a real tty.\n\
+                         run it from tty1, not over ssh. smithay only warns when master is denied."
+                    )
+                } else {
+                    format!("render failed on frame {frames}: {e}")
+                }
             })?;
-        compositor
-            .queue_frame(())
-            .map_err(|e| format!("page flip failed: {e}"))?;
-        frames += 1;
+        if !result.is_empty {
+            compositor
+                .queue_frame(())
+                .map_err(|e| format!("page flip failed on frame {frames}: {e}"))?;
+            frames += 1;
+        }
         std::thread::sleep(Duration::from_millis(16));
     }
 
