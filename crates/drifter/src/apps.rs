@@ -93,6 +93,8 @@ pub fn launch(command: &str, socket: &str) {
     let result = std::process::Command::new(program)
         .args(words)
         .env("WAYLAND_DISPLAY", socket)
+        .env("GTK_CSD", "0")
+        .env("QT_WAYLAND_DISABLE_WINDOWDECORATION", "1")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -164,7 +166,7 @@ pub fn open_folder(path: &str, socket: &str) {
 pub fn defaults() -> Vec<String> {
     let mut chosen = Vec::new();
     for mime in ["x-scheme-handler/http", "inode/directory"] {
-        if let Some(id) = handler(mime) {
+        if let Some(id) = handler(mime).or_else(|| serving(mime)) {
             chosen.push(id);
         }
     }

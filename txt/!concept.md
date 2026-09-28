@@ -169,7 +169,11 @@ Text needs a font, and Drifter has no toolkit to ask. It uses `assets.font` when
 
 ## Windows
 
-Drifter draws every window frame itself. Client side decorations cannot work here: the compositor owns zoom, and a client drawing its own frame has no idea what zoom it is being seen at, so its shadows, corners and hit areas would all be wrong. Drifter asks for server side decorations through `xdg-decoration` and refuses the client side mode. Clients that insist on drawing their own frame still work, they just carry their own chrome inside their surface.
+Drifter draws every window frame itself. Client side decorations cannot work here: the compositor owns zoom, and a client drawing its own frame has no idea what zoom it is being seen at, so its shadows, corners and hit areas would all be wrong.
+
+Drifter decorates a window by default and offers server side mode through `xdg-decoration`. A client that explicitly asks for client side mode is believed, and Drifter draws no frame around it, because two frames is worse than the wrong one.
+
+GTK never implemented `xdg-decoration` and always draws its own title bar. GTK 3 does obey `GTK_CSD=0`, so every app Drifter launches gets that in its environment, along with `QT_WAYLAND_DISABLE_WINDOWDECORATION=1`. An app started by hand from a terminal misses both and will carry its own chrome.
 
 The frame is a nine piece skin, so it can be themed by replacing PNGs and never by editing code. Pieces live in the folder named by `assets.window`:
 

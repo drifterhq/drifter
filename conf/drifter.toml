@@ -7,7 +7,7 @@ wallpaper = "../img/wallpaper.jpeg"
 wallpaper_mode = "fixed"
 
 [input]
-modifier = "super"
+modifier = "ctrl"
 
 [drawers]
 top = 36

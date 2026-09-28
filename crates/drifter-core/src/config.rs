@@ -24,6 +24,20 @@ pub enum Modifier {
     Ctrl,
 }
 
+impl Modifier {
+    pub fn keys(self) -> [u32; 2] {
+        match self {
+            Modifier::Super => [133, 134],
+            Modifier::Alt => [64, 108],
+            Modifier::Ctrl => [37, 105],
+        }
+    }
+
+    pub fn holds(self, key: u32) -> bool {
+        self.keys().contains(&key)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Workspace {
@@ -493,6 +507,31 @@ mod tests {
         let text = include_str!("../../../conf/drifter.toml");
         let config = Config::parse(text).expect("conf/drifter.toml does not parse");
         config.validate().expect("conf/drifter.toml is not valid");
+    }
+
+    #[test]
+    fn every_modifier_has_a_left_and_a_right_key() {
+        for modifier in [Modifier::Super, Modifier::Alt, Modifier::Ctrl] {
+            let keys = modifier.keys();
+            assert_ne!(keys[0], keys[1]);
+            assert!(modifier.holds(keys[0]) && modifier.holds(keys[1]));
+        }
+    }
+
+    #[test]
+    fn the_modifiers_never_share_a_key() {
+        let all = [Modifier::Super, Modifier::Alt, Modifier::Ctrl];
+        let mut seen: Vec<u32> = all.iter().flat_map(|m| m.keys()).collect();
+        let count = seen.len();
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen.len(), count);
+    }
+
+    #[test]
+    fn a_plain_letter_is_never_the_modifier() {
+        assert!(!Modifier::Ctrl.holds(38));
+        assert!(!Modifier::Super.holds(9));
     }
 
     #[test]

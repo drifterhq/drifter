@@ -48,8 +48,6 @@ const ESCAPE: u32 = 9;
 const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
 const BTN_MIDDLE: u32 = 0x112;
-const SUPER_LEFT: u32 = 133;
-const SUPER_RIGHT: u32 = 134;
 const PANEL_COLOR: [u8; 3] = [16, 18, 26];
 const PANEL_ALPHA: u8 = 235;
 const TICK: Duration = Duration::from_millis(8);
@@ -133,6 +131,7 @@ pub struct State {
     corner_since: Option<Instant>,
     grab: Grab,
     modifier: bool,
+    holds: drifter_core::Modifier,
     last_title: Option<(Vec2, Instant)>,
     held: Option<usize>,
     pub focus: Option<usize>,
@@ -591,7 +590,6 @@ impl State {
             drawer.advance(dt, self.tunables.drawer_anim);
         }
         self.steer();
-        self.push_edge(dt);
 
         self.wind_the_clock();
 
@@ -938,6 +936,10 @@ impl State {
     }
 
     fn watch_corner(&mut self) {
+        if self.modifier {
+            self.corner_since = None;
+            return;
+        }
         let size = self.tunables.hot_corner_size;
         let in_corner = self.pointer.x < size && self.pointer.y < size;
 
@@ -987,34 +989,6 @@ impl State {
         camera.clamp_to_world(self.world, self.screen);
         self.camera = camera;
         self.flight = None;
-    }
-
-    fn push_edge(&mut self, dt: Duration) {
-        if !self.modifier {
-            return;
-        }
-        let band = self.tunables.edge_band.max(2.0);
-        let speed = self.tunables.edge_pan_speed * dt.as_secs_f64();
-        let mut push = Vec2::ZERO;
-        if self.pointer.x < band {
-            push.x = -speed;
-        }
-        if self.pointer.x > self.screen.x - band {
-            push.x = speed;
-        }
-        if self.pointer.y < band {
-            push.y = -speed;
-        }
-        if self.pointer.y > self.screen.y - band {
-            push.y = speed;
-        }
-        if push == Vec2::ZERO {
-            return;
-        }
-        let mut camera = self.camera;
-        camera.pan_by_screen(push);
-        camera.clamp_to_world(self.world, self.screen);
-        self.camera = camera;
     }
 
     fn press(&mut self, code: u32) {
@@ -1176,7 +1150,23 @@ impl State {
     }
 
     fn pointer_to(&mut self, position: Vec2) {
-        self.pointer = position.clamp(Vec2::ZERO, self.screen - Vec2::splat(1.0));
+        let edge = self.screen - Vec2::splat(1.0);
+        let inside = position.clamp(Vec2::ZERO, edge);
+        let push = position - inside;
+        self.pointer = inside;
+
+        if self.modifier {
+            if push != Vec2::ZERO {
+                let mut camera = self.camera;
+                camera.pan_by_screen(push);
+                camera.clamp_to_world(self.world, self.screen);
+                self.camera = camera;
+                self.flight = None;
+            }
+            self.dwell = None;
+            return;
+        }
+
         match self.wanted() {
             Some(edge) => {
                 self.leave = None;
@@ -1565,8 +1555,11 @@ impl State {
             }
             InputEvent::Keyboard { event } => {
                 let code = event.key_code().raw();
-                if matches!(code, SUPER_LEFT | SUPER_RIGHT) {
+                if self.holds.holds(code) {
                     self.modifier = event.state() == KeyState::Pressed;
+                    if self.modifier {
+                        self.corner_since = None;
+                    }
                 }
                 self.tell_keyboard(&event);
             }
@@ -1943,6 +1936,7 @@ pub fn open(
         corner_since: None,
         grab: Grab::None,
         modifier: false,
+        holds: config.input.modifier,
         last_title: None,
         held: None,
         focus: None,
