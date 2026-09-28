@@ -50,9 +50,11 @@ const PANEL_ALPHA: u8 = 235;
 const TICK: Duration = Duration::from_millis(8);
 const SECOND_TICK: Duration = Duration::from_millis(250);
 
-smithay::backend::renderer::element::render_elements! {
-    pub Piece<R> where R: smithay::backend::renderer::ImportAll;
-    Texture=TextureRenderElement<<R as smithay::backend::renderer::RendererSuper>::TextureId>,
+use smithay::backend::renderer::{ImportAll, RendererSuper, element::render_elements};
+
+render_elements! {
+    pub Piece<R> where R: ImportAll;
+    Texture=TextureRenderElement<<R as RendererSuper>::TextureId>,
     Client=WaylandSurfaceRenderElement<R>,
 }
 
