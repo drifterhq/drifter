@@ -1,5 +1,6 @@
 pub mod camera;
 pub mod config;
+pub mod drawer;
 pub mod geom;
 pub mod image;
 pub mod mode;
@@ -7,6 +8,7 @@ pub mod wallpaper;
 
 pub use camera::Camera;
 pub use config::{Config, Modifier, Tunables, WallpaperMode};
+pub use drawer::{Drawer, Edge, Panel};
 pub use geom::{Rect, Vec2};
 pub use image::{Image, load_png};
 pub use mode::Mode;

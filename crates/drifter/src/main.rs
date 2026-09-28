@@ -90,7 +90,14 @@ fn bootstrap(config: &Config) -> ExitCode {
         .as_deref()
         .and_then(|path| load_image(path, "wallpaper"));
 
-    let screen = match render::open(&mut seat.session, &card, want, night, wallpaper.as_ref()) {
+    let screen = match render::open(
+        &mut seat.session,
+        seat.notifier,
+        &card,
+        want,
+        night,
+        wallpaper.as_ref(),
+    ) {
         Ok(screen) => screen,
         Err(error) => {
             eprintln!("drifter: {error}");
@@ -111,7 +118,7 @@ fn bootstrap(config: &Config) -> ExitCode {
     print_rect("wallpaper", found.wallpaper);
     println!("running     drifter holds the screen until it is killed");
 
-    match screen.run(seat.notifier) {
+    match screen.run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("drifter: {error}");
