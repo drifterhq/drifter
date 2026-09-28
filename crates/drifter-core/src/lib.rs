@@ -1,5 +1,6 @@
 pub mod camera;
 pub mod config;
+pub mod corner;
 pub mod cursor;
 pub mod dock;
 pub mod drawer;

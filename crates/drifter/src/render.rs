@@ -158,6 +158,7 @@ pub struct State {
     pinned: Vec<(String, Option<TextureBuffer<GlesTexture>>)>,
     trash: Option<TextureBuffer<GlesTexture>>,
     dot: Option<TextureBuffer<GlesTexture>>,
+    glow: Option<TextureBuffer<GlesTexture>>,
     rule: Option<TextureBuffer<GlesTexture>>,
     app_icons: std::collections::HashMap<String, TextureBuffer<GlesTexture>>,
     format: String,
@@ -297,6 +298,9 @@ impl State {
         if self.hover_since.is_some() && self.tip.is_none() {
             return Some(SECOND_TICK);
         }
+        if drifter_core::corner::heat(self.pointer, drifter_core::corner::REACH) > 0.0 {
+            return Some(TICK);
+        }
         if self.drawers[Edge::Top.index()].visible() && self.font.is_some() {
             return Some(SECOND_TICK);
         }
@@ -309,6 +313,15 @@ impl State {
             cursor::rect(self.pointer, self.arrow_size, self.arrow_hotspot),
             1.0,
         ))];
+        if let Some(buffer) = self.glow.as_ref() {
+            let warmth = drifter_core::corner::heat(self.pointer, drifter_core::corner::REACH);
+            if warmth > 0.0 && !self.overview() {
+                let reach = drifter_core::corner::REACH;
+                let rect = Rect::new(Vec2::ZERO, Vec2::splat(reach));
+                elements.push(Skin::Texture(element(buffer, rect, (warmth * 0.55) as f32)));
+            }
+        }
+
         if let Some(zone) = self.zone
             && let Some(buffer) = self.plain.as_ref()
         {
@@ -2227,6 +2240,9 @@ pub fn open(
         trash_look.rule_ink(),
     );
     let dot = upload(&mut renderer, Some(&dot_image), "running dot")?;
+    let glow_image =
+        drifter_core::corner::paint_glow(drifter_core::corner::REACH as u32, [255, 214, 160]);
+    let glow = upload(&mut renderer, Some(&glow_image), "hot corner")?;
 
     let dock_look = Dock::default();
     let rule_image = drifter_core::Image {
@@ -2290,6 +2306,7 @@ pub fn open(
         pinned,
         trash,
         dot,
+        glow,
         rule,
         app_icons: std::collections::HashMap::new(),
         format: config.tray.format.clone(),
