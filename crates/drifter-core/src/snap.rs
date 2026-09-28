@@ -31,7 +31,6 @@ impl Snap {
         let left = pointer.x <= view.origin.x + self.edge;
         let right = pointer.x >= view.max().x - self.edge;
         let top = pointer.y <= view.origin.y + self.edge;
-        let bottom = pointer.y >= view.max().y - self.edge;
 
         let high = pointer.y <= view.origin.y + self.corner;
         let low = pointer.y >= view.max().y - self.corner;
