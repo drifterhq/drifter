@@ -9,7 +9,7 @@ use drifter_core::image::Image;
 use drifter_core::menu::{Item, Look};
 use drifter_core::mode::{self, Mode};
 use drifter_core::motion::{Motion, Phase};
-use drifter_core::settings::{self, Field, Kind};
+use drifter_core::settings::{self, Field, Kind as Widget};
 use drifter_core::snap::{Snap, Zone};
 use drifter_core::text::Font;
 use drifter_core::tray::Tray;
@@ -1193,7 +1193,7 @@ impl State {
                 table: "workspace",
                 key: "width",
                 label: "World width",
-                kind: Kind::Slide {
+                kind: Widget::Slide {
                     least: 1.0,
                     most: 8.0,
                     step: 1.0,
@@ -1204,7 +1204,7 @@ impl State {
                 table: "workspace",
                 key: "height",
                 label: "World height",
-                kind: Kind::Slide {
+                kind: Widget::Slide {
                     least: 1.0,
                     most: 8.0,
                     step: 1.0,
@@ -1215,7 +1215,7 @@ impl State {
                 table: "workspace",
                 key: "wallpaper_mode",
                 label: "Wallpaper",
-                kind: Kind::Pick {
+                kind: Widget::Pick {
                     options: modes.iter().map(|name| name.to_string()).collect(),
                 },
                 value: modes.iter().position(|name| *name == mode_now).unwrap_or(0) as f64,
@@ -1224,7 +1224,7 @@ impl State {
                 table: "input",
                 key: "modifier",
                 label: "Camera key",
-                kind: Kind::Pick {
+                kind: Widget::Pick {
                     options: keys.iter().map(|name| name.to_string()).collect(),
                 },
                 value: keys.iter().position(|name| *name == key_now).unwrap_or(0) as f64,
@@ -1233,7 +1233,7 @@ impl State {
                 table: "drawers",
                 key: "top",
                 label: "Tray height",
-                kind: Kind::Slide {
+                kind: Widget::Slide {
                     least: 16.0,
                     most: 96.0,
                     step: 2.0,
@@ -1244,7 +1244,7 @@ impl State {
                 table: "drawers",
                 key: "bottom",
                 label: "Dock height",
-                kind: Kind::Slide {
+                kind: Widget::Slide {
                     least: 16.0,
                     most: 160.0,
                     step: 2.0,
@@ -1255,7 +1255,7 @@ impl State {
                 table: "tray",
                 key: "size",
                 label: "Clock size",
-                kind: Kind::Slide {
+                kind: Widget::Slide {
                     least: 8.0,
                     most: 32.0,
                     step: 1.0,
