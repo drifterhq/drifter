@@ -3,10 +3,12 @@ set -euo pipefail
 
 tty=${DRIFTER_TTY:-/dev/tty1}
 log=/tmp/drifter-tty.log
-bin=$(dirname "$0")/target/debug/drifter
+here=$(dirname "$0")
+bin=$here/target/release/drifter
+[ -x "$bin" ] || bin=$here/target/debug/drifter
 
 if [ ! -x "$bin" ]; then
-    echo "build it first: cargo build --workspace" >&2
+    echo "build it first: cargo build --release" >&2
     exit 1
 fi
 
