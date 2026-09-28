@@ -3,7 +3,8 @@ use std::path::PathBuf;
 use drifter_core::Cursor;
 
 fn main() {
-    let image = Cursor::default().paint();
+    let mut image = Cursor::default().paint();
+    image.straighten();
     let out: PathBuf = [env!("CARGO_MANIFEST_DIR"), "..", "..", "img", "cursor.png"]
         .iter()
         .collect();

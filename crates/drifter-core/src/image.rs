@@ -2,6 +2,7 @@ use std::path::Path;
 
 use crate::geom::Vec2;
 
+#[derive(Clone)]
 pub struct Image {
     pub width: u32,
     pub height: u32,
@@ -19,6 +20,19 @@ impl Image {
             let (color, _) = pixel.split_at_mut(3);
             for channel in color {
                 *channel = ((u32::from(*channel) * a + 127) / 255) as u8;
+            }
+        }
+    }
+
+    pub fn straighten(&mut self) {
+        for pixel in self.rgba.as_chunks_mut::<4>().0 {
+            let a = u32::from(pixel[3]);
+            if a == 0 || a == 255 {
+                continue;
+            }
+            let (color, _) = pixel.split_at_mut(3);
+            for channel in color {
+                *channel = ((u32::from(*channel) * 255 + a / 2) / a).min(255) as u8;
             }
         }
     }
@@ -237,6 +251,36 @@ mod tests {
         std::fs::write(&path, hex(TINY_JPEG)).unwrap();
         let image = load(&path).unwrap();
         assert_eq!((image.width, image.height), (4, 2));
+    }
+
+    #[test]
+    fn straightening_undoes_premultiplying() {
+        let mut image = Image {
+            width: 2,
+            height: 1,
+            rgba: vec![200, 100, 50, 128, 255, 255, 255, 255],
+        };
+        let before = image.rgba.clone();
+        image.premultiply();
+        assert_ne!(image.rgba, before, "premultiply did nothing");
+        image.straighten();
+        for (now, then) in image.rgba.iter().zip(before.iter()) {
+            assert!(
+                now.abs_diff(*then) <= 1,
+                "the round trip lost the color: {now} against {then}"
+            );
+        }
+    }
+
+    #[test]
+    fn straightening_leaves_a_clear_pixel_alone() {
+        let mut image = Image {
+            width: 1,
+            height: 1,
+            rgba: vec![0, 0, 0, 0],
+        };
+        image.straighten();
+        assert_eq!(image.rgba, vec![0, 0, 0, 0]);
     }
 
     #[test]

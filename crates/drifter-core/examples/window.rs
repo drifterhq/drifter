@@ -11,6 +11,9 @@ fn out_dir() -> PathBuf {
 }
 
 fn write(dir: &std::path::Path, name: &str, image: &drifter_core::Image) {
+    let mut image = image.clone();
+    image.straighten();
+    let image = &image;
     let path = dir.join(name);
     let file = std::fs::File::create(&path).expect("cannot write the piece");
     let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), image.width, image.height);
