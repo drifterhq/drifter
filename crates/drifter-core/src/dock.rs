@@ -38,19 +38,17 @@ impl Dock {
         ]
     }
 
+    fn splits(&self, pinned: usize, minimized: usize) -> usize {
+        let groups = [pinned, minimized, 1];
+        let filled: Vec<usize> = groups.into_iter().filter(|count| *count > 0).collect();
+        filled.len().saturating_sub(1)
+    }
+
     pub fn width(&self, pinned: usize, minimized: usize) -> f64 {
-        let count = pinned + minimized;
-        if count == 0 {
-            return 0.0;
-        }
+        let count = pinned + minimized + 1;
         let icons = self.icon * count as f64;
-        let gaps = self.gap * (count.saturating_sub(1)) as f64;
-        let split = if pinned > 0 && minimized > 0 {
-            self.divider
-        } else {
-            0.0
-        };
-        icons + gaps + split
+        let gaps = self.gap * (count - 1) as f64;
+        icons + gaps + self.divider * self.splits(pinned, minimized) as f64
     }
 
     pub fn start(&self, band: Rect, pinned: usize, minimized: usize) -> f64 {
@@ -61,37 +59,56 @@ impl Dock {
 
     pub fn slot_rect(&self, band: Rect, pinned: usize, minimized: usize, slot: Slot) -> Rect {
         let step = self.icon + self.gap;
-        let split = if pinned > 0 && minimized > 0 {
-            self.divider
-        } else {
-            0.0
-        };
         let y = band.origin.y + (band.size.y - self.icon) / 2.0;
-        if slot == Slot::Trash {
-            let x = band.max().x - self.margin - self.icon;
-            return Rect::new(Vec2::new(x, y).round(), Vec2::splat(self.icon));
-        }
+        let before_minimized = if pinned > 0 { self.divider } else { 0.0 };
         let place = match slot {
             Slot::Pinned(index) => step * index as f64,
-            Slot::Minimized(index) => step * (pinned + index) as f64 + split,
-            Slot::Trash => 0.0,
+            Slot::Minimized(index) => step * (pinned + index) as f64 + before_minimized,
+            Slot::Trash => {
+                step * (pinned + minimized) as f64
+                    + self.divider * self.splits(pinned, minimized) as f64
+            }
         };
         let x = self.start(band, pinned, minimized) + place;
         Rect::new(Vec2::new(x, y).round(), Vec2::splat(self.icon))
     }
 
-    pub fn divider_rect(&self, band: Rect, pinned: usize, minimized: usize) -> Option<Rect> {
-        if pinned == 0 || minimized == 0 {
-            return None;
-        }
-        let before = self.slot_rect(band, pinned, minimized, Slot::Pinned(pinned - 1));
-        let after = self.slot_rect(band, pinned, minimized, Slot::Minimized(0));
-        let middle = (before.max().x + after.origin.x) / 2.0;
+    pub fn dividers(&self, band: Rect, pinned: usize, minimized: usize) -> Vec<Rect> {
+        let mut rules = Vec::new();
         let tall = self.icon * 0.6;
-        Some(Rect::new(
-            Vec2::new(middle - 0.5, band.origin.y + (band.size.y - tall) / 2.0).round(),
-            Vec2::new(1.0, tall),
-        ))
+        let y = band.origin.y + (band.size.y - tall) / 2.0;
+        let between = |before: Rect, after: Rect, rules: &mut Vec<Rect>| {
+            let middle = (before.max().x + after.origin.x) / 2.0;
+            rules.push(Rect::new(
+                Vec2::new(middle - 0.5, y).round(),
+                Vec2::new(1.0, tall),
+            ));
+        };
+
+        if pinned > 0 && minimized > 0 {
+            between(
+                self.slot_rect(band, pinned, minimized, Slot::Pinned(pinned - 1)),
+                self.slot_rect(band, pinned, minimized, Slot::Minimized(0)),
+                &mut rules,
+            );
+        }
+        let last = match (minimized > 0, pinned > 0) {
+            (true, _) => {
+                Some(self.slot_rect(band, pinned, minimized, Slot::Minimized(minimized - 1)))
+            }
+            (false, true) => {
+                Some(self.slot_rect(band, pinned, minimized, Slot::Pinned(pinned - 1)))
+            }
+            _ => None,
+        };
+        if let Some(last) = last {
+            between(
+                last,
+                self.slot_rect(band, pinned, minimized, Slot::Trash),
+                &mut rules,
+            );
+        }
+        rules
     }
 
     pub fn at(&self, band: Rect, pointer: Vec2, pinned: usize, minimized: usize) -> Option<Slot> {
@@ -109,31 +126,13 @@ impl Dock {
 pub fn paint_trash(side: u32, color: [u8; 3]) -> Image {
     let size = f64::from(side.max(8));
     let mut rgba = vec![0u8; (side as usize) * (side as usize) * 4];
-
     let unit = size / 24.0;
-    let lid_top = 5.0 * unit;
-    let lid_bottom = 7.5 * unit;
-    let body_top = lid_bottom;
-    let body_bottom = 21.0 * unit;
-    let handle_top = 3.0 * unit;
-    let thick = (unit * 1.6).max(1.0);
 
     for y in 0..side {
         let py = f64::from(y) + 0.5;
         for x in 0..side {
             let px = f64::from(x) + 0.5;
-            let ink = trash_ink(
-                px,
-                py,
-                size,
-                unit,
-                lid_top,
-                lid_bottom,
-                body_top,
-                body_bottom,
-                handle_top,
-                thick,
-            );
+            let ink = can_ink(px, py, size, unit);
             if ink <= 0.0 {
                 continue;
             }
@@ -152,54 +151,67 @@ pub fn paint_trash(side: u32, color: [u8; 3]) -> Image {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn trash_ink(
-    px: f64,
-    py: f64,
-    size: f64,
-    unit: f64,
-    lid_top: f64,
-    lid_bottom: f64,
-    body_top: f64,
-    body_bottom: f64,
-    handle_top: f64,
-    thick: f64,
-) -> f64 {
+fn can_ink(px: f64, py: f64, size: f64, unit: f64) -> f64 {
     let middle = size / 2.0;
-    let from_middle = (px - middle).abs();
+    let dx = px - middle;
 
-    if py >= lid_top && py < lid_bottom && from_middle <= 9.5 * unit {
-        return 1.0;
+    let handle = bar(dx, py, 2.6 * unit, 4.4 * unit, 6.0 * unit, 0.9 * unit);
+    let lid = bar(dx, py, 8.4 * unit, 6.6 * unit, 8.6 * unit, 0.9 * unit);
+    let body = can_body(dx, py, unit);
+    let slots = slot_cut(dx, py, unit);
+
+    let solid = handle.max(lid).max(body);
+    (solid - slots).clamp(0.0, 1.0)
+}
+
+fn bar(dx: f64, py: f64, half: f64, top: f64, bottom: f64, radius: f64) -> f64 {
+    let inside_x = half - dx.abs();
+    let inside_y = (py - top).min(bottom - py);
+    rounded(inside_x, inside_y, half, (bottom - top) / 2.0, radius)
+}
+
+fn can_body(dx: f64, py: f64, unit: f64) -> f64 {
+    let top = 9.0 * unit;
+    let bottom = 20.5 * unit;
+    if py < top - 1.0 || py > bottom + 1.0 {
+        return 0.0;
     }
+    let down = ((py - top) / (bottom - top)).clamp(0.0, 1.0);
+    let half = 7.2 * unit - down * 1.1 * unit;
+    let inside_x = half - dx.abs();
+    let inside_y = (py - top).min(bottom - py);
+    rounded(inside_x, inside_y, half, (bottom - top) / 2.0, 1.6 * unit)
+}
 
-    if py >= handle_top && py < lid_top {
-        let inner = 2.2 * unit;
-        let outer = 4.0 * unit;
-        if from_middle <= outer && (from_middle >= inner || py >= lid_top - thick) {
-            return 1.0;
-        }
+fn rounded(inside_x: f64, inside_y: f64, half_x: f64, half_y: f64, radius: f64) -> f64 {
+    if inside_x <= -1.0 || inside_y <= -1.0 {
+        return 0.0;
     }
+    let corner_x = half_x - radius;
+    let corner_y = half_y - radius;
+    let over_x = (half_x - inside_x).abs() - corner_x;
+    let over_y = (half_y - inside_y).abs() - corner_y;
+    let distance = if over_x > 0.0 && over_y > 0.0 {
+        radius - (over_x * over_x + over_y * over_y).sqrt()
+    } else {
+        inside_x.min(inside_y)
+    };
+    (distance + 0.5).clamp(0.0, 1.0)
+}
 
-    if py >= body_top && py < body_bottom {
-        let down = (py - body_top) / (body_bottom - body_top);
-        let half = 8.0 * unit - down * 1.4 * unit;
-        if from_middle > half {
-            return 0.0;
-        }
-        if from_middle >= half - thick || py >= body_bottom - thick {
-            return 1.0;
-        }
-        for ridge in [-3.6, 0.0, 3.6] {
-            if (px - middle - ridge * unit).abs() <= thick * 0.45
-                && py >= body_top + 2.0 * unit
-                && py < body_bottom - 2.0 * unit
-            {
-                return 1.0;
-            }
-        }
+fn slot_cut(dx: f64, py: f64, unit: f64) -> f64 {
+    let top = 11.5 * unit;
+    let bottom = 18.0 * unit;
+    if py < top || py > bottom {
+        return 0.0;
     }
-
-    0.0
+    let mut cut: f64 = 0.0;
+    for place in [-2.6, 0.0, 2.6] {
+        let inside_x = 0.3 * unit - (dx - place * unit).abs();
+        let inside_y = (py - top).min(bottom - py);
+        cut = cut.max((inside_x.min(inside_y) + 0.5).clamp(0.0, 1.0));
+    }
+    cut
 }
 
 #[cfg(test)]
@@ -224,8 +236,8 @@ mod tests {
         let dock = Dock::default();
         let band = band();
         let first = dock.slot_rect(band, 4, 0, Slot::Pinned(0));
-        let last = dock.slot_rect(band, 4, 0, Slot::Pinned(3));
-        let middle = (first.origin.x + last.max().x) / 2.0;
+        let trash = dock.slot_rect(band, 4, 0, Slot::Trash);
+        let middle = (first.origin.x + trash.max().x) / 2.0;
         assert!((middle - band.center().x).abs() < 1.0);
     }
 
@@ -239,32 +251,56 @@ mod tests {
     }
 
     #[test]
-    fn the_divider_sits_between_the_two_groups() {
+    fn a_divider_sits_between_each_pair_of_groups() {
         let dock = Dock::default();
         let band = band();
-        let rule = dock.divider_rect(band, 2, 2).expect("there is a divider");
+        let rules = dock.dividers(band, 2, 2);
+        assert_eq!(rules.len(), 2, "pinned, minimized and trash need two rules");
+
         let last_pinned = dock.slot_rect(band, 2, 2, Slot::Pinned(1));
         let first_minimized = dock.slot_rect(band, 2, 2, Slot::Minimized(0));
-        assert!(rule.origin.x >= last_pinned.max().x);
-        assert!(rule.max().x <= first_minimized.origin.x);
+        assert!(rules[0].origin.x >= last_pinned.max().x);
+        assert!(rules[0].max().x <= first_minimized.origin.x);
+
+        let last_minimized = dock.slot_rect(band, 2, 2, Slot::Minimized(1));
+        let trash = dock.slot_rect(band, 2, 2, Slot::Trash);
+        assert!(rules[1].origin.x >= last_minimized.max().x);
+        assert!(rules[1].max().x <= trash.origin.x);
     }
 
     #[test]
-    fn there_is_no_divider_when_one_side_is_empty() {
+    fn nothing_minimized_gives_one_divider_not_two() {
         let dock = Dock::default();
-        assert_eq!(dock.divider_rect(band(), 3, 0), None);
-        assert_eq!(dock.divider_rect(band(), 0, 3), None);
+        assert_eq!(dock.dividers(band(), 3, 0).len(), 1);
     }
 
     #[test]
-    fn the_divider_takes_room_so_the_groups_never_touch() {
+    fn an_empty_dock_still_has_no_divider_before_the_trash() {
         let dock = Dock::default();
-        assert_eq!(dock.width(2, 2) - dock.width(4, 0), dock.divider);
+        assert!(dock.dividers(band(), 0, 0).is_empty());
     }
 
     #[test]
-    fn an_empty_dock_has_no_width() {
-        assert_eq!(Dock::default().width(0, 0), 0.0);
+    fn the_trash_comes_after_the_minimized_icons() {
+        let dock = Dock::default();
+        let band = band();
+        let last = dock.slot_rect(band, 1, 2, Slot::Minimized(1));
+        let trash = dock.slot_rect(band, 1, 2, Slot::Trash);
+        assert!(trash.origin.x > last.max().x);
+    }
+
+    #[test]
+    fn every_divider_takes_room_in_the_width() {
+        let dock = Dock::default();
+        let one = dock.width(3, 0);
+        let two = dock.width(2, 1);
+        assert_eq!(two - one, dock.divider);
+    }
+
+    #[test]
+    fn an_empty_dock_still_holds_the_trash() {
+        let dock = Dock::default();
+        assert_eq!(dock.width(0, 0), dock.icon);
     }
 
     #[test]
@@ -296,11 +332,12 @@ mod tests {
     }
 
     #[test]
-    fn a_click_on_the_divider_hits_nothing() {
+    fn a_click_on_a_divider_hits_nothing() {
         let dock = Dock::default();
         let band = band();
-        let rule = dock.divider_rect(band, 2, 2).unwrap();
-        assert_eq!(dock.at(band, rule.center(), 2, 2), None);
+        for rule in dock.dividers(band, 2, 2) {
+            assert_eq!(dock.at(band, rule.center(), 2, 2), None);
+        }
     }
 
     #[test]
@@ -341,14 +378,55 @@ mod tests {
         assert!(ink > 100, "the trash can is nearly empty");
     }
 
+    fn filled_rows(image: &Image) -> Vec<u32> {
+        (0..image.height)
+            .filter(|y| (0..image.width).any(|x| trash_pixel(image, x, *y)[3] > 128))
+            .collect()
+    }
+
     #[test]
-    fn the_trash_has_a_lid_above_its_body() {
+    fn the_trash_is_a_handle_then_a_lid_then_a_body() {
         let image = paint_trash(48, [255, 255, 255]);
-        let middle = image.width / 2;
-        let lid = trash_pixel(&image, middle, 12);
-        let body_wall = trash_pixel(&image, 11, 30);
-        assert!(lid[3] > 0, "no lid");
-        assert!(body_wall[3] > 0, "no body");
+        let rows = filled_rows(&image);
+        let widths: Vec<usize> = rows
+            .iter()
+            .map(|y| {
+                (0..image.width)
+                    .filter(|x| trash_pixel(&image, *x, *y)[3] > 128)
+                    .count()
+            })
+            .collect();
+
+        let widest = widths.iter().copied().max().expect("the can is empty");
+        let lid = widths.iter().position(|w| *w == widest).unwrap();
+        assert!(
+            lid > 0,
+            "the widest part is the very top, so there is no handle"
+        );
+        assert!(
+            widths[..lid].iter().all(|w| *w < widest),
+            "the handle is as wide as the lid"
+        );
+        assert!(
+            widths[lid + 1..].iter().any(|w| *w > 2),
+            "there is no body under the lid"
+        );
+    }
+
+    #[test]
+    fn the_trash_has_slots_cut_into_the_body() {
+        let image = paint_trash(48, [255, 255, 255]);
+        let deep = image.height * 2 / 3;
+        let mut runs = 0;
+        let mut inside = false;
+        for x in 0..image.width {
+            let solid = trash_pixel(&image, x, deep)[3] > 128;
+            if solid && !inside {
+                runs += 1;
+            }
+            inside = solid;
+        }
+        assert!(runs >= 3, "the body has no slots cut into it");
     }
 
     #[test]
@@ -380,21 +458,24 @@ mod tests {
     }
 
     #[test]
-    fn the_trash_sits_at_the_far_right() {
+    fn the_trash_is_the_last_thing_in_the_row() {
         let dock = Dock::default();
         let band = band();
         let trash = dock.slot_rect(band, 3, 1, Slot::Trash);
-        assert_eq!(trash.max().x, band.max().x - dock.margin);
+        for slot in [Slot::Pinned(2), Slot::Minimized(0)] {
+            assert!(dock.slot_rect(band, 3, 1, slot).max().x <= trash.origin.x);
+        }
         assert_eq!(trash.center().y, band.center().y);
     }
 
     #[test]
-    fn the_trash_never_moves_when_icons_come_and_go() {
+    fn the_whole_row_including_the_trash_stays_centered() {
         let dock = Dock::default();
         let band = band();
-        let empty = dock.slot_rect(band, 0, 0, Slot::Trash);
-        let busy = dock.slot_rect(band, 6, 4, Slot::Trash);
-        assert_eq!(empty, busy);
+        let first = dock.slot_rect(band, 2, 1, Slot::Pinned(0));
+        let trash = dock.slot_rect(band, 2, 1, Slot::Trash);
+        let middle = (first.origin.x + trash.max().x) / 2.0;
+        assert!((middle - band.center().x).abs() < 1.0);
     }
 
     #[test]

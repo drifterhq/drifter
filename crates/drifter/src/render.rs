@@ -242,10 +242,10 @@ impl State {
                 let rect = self.dock.slot_rect(band, pinned, hidden.len(), Slot::Trash);
                 elements.push(Skin::Texture(element(buffer, rect, 1.0)));
             }
-            if let Some(rule) = self.dock.divider_rect(band, pinned, hidden.len())
-                && let Some(buffer) = self.rule.as_ref()
-            {
-                elements.push(Skin::Texture(element(buffer, rule, 1.0)));
+            if let Some(buffer) = self.rule.as_ref() {
+                for rule in self.dock.dividers(band, pinned, hidden.len()) {
+                    elements.push(Skin::Texture(element(buffer, rule, 1.0)));
+                }
             }
         }
 

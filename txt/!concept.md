@@ -110,7 +110,7 @@ Windows
 Drawers
 
 - Push the pointer at the top edge and an inset drawer slides down, 64 px, full width. It holds the system tray.
-- Push the pointer at the bottom edge and the dock slides up. It holds pinned apps, then a divider, then one icon for every minimized window, all centered. The trash sits alone at the far right and never moves.
+- Push the pointer at the bottom edge and the dock slides up. It reads pinned apps, then minimized windows, then the trash, with a thin divider between each pair of groups and none where a group is empty. The whole row is centered.
 - With no `[dock] pinned` list, the dock starts with the XDG defaults: the default browser, the default file manager and the default terminal, read from mimeapps.list.
 - Clicking a pinned icon starts that app. Clicking a minimized icon brings that window back and raises it. Clicking the trash opens the XDG trash folder in the file manager.
 - Right clicking a minimized icon gives Show and Exit. Hovering any icon shows its name.
