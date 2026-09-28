@@ -63,6 +63,13 @@ pub struct Assets {
     pub window: Option<PathBuf>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct DockConfig {
+    #[serde(default)]
+    pub pinned: Vec<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Drawers {
@@ -142,6 +149,8 @@ pub struct Config {
     pub drawers: Drawers,
     #[serde(default)]
     pub tray: TrayConfig,
+    #[serde(default)]
+    pub dock: DockConfig,
     #[serde(default)]
     pub assets: Assets,
     #[serde(skip)]
@@ -443,6 +452,17 @@ mod tests {
     fn a_silly_drawer_height_is_refused() {
         let config = Config::parse("[drawers]\ntop = 2\n").unwrap();
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn the_dock_is_empty_until_the_config_pins_something() {
+        assert!(Config::default().dock.pinned.is_empty());
+    }
+
+    #[test]
+    fn the_dock_keeps_the_order_the_config_gives() {
+        let config = Config::parse("[dock]\npinned = [\"foot\", \"copyq\"]\n").unwrap();
+        assert_eq!(config.dock.pinned, vec!["foot", "copyq"]);
     }
 
     #[test]

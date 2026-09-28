@@ -48,6 +48,7 @@ pub struct Window {
     pub placed: bool,
     pub touched: bool,
     pub hidden: bool,
+    pub app: String,
     pub restore: Option<Rect>,
 }
 
@@ -150,12 +151,14 @@ impl XdgShellHandler for State {
             placed: false,
             touched: false,
             hidden: false,
+            app: String::new(),
             restore: None,
         });
     }
 
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
         self.windows.retain(|window| window.toplevel != surface);
+        self.focus = None;
         self.kick_now();
     }
 

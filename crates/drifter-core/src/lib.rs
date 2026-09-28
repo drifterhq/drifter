@@ -1,6 +1,7 @@
 pub mod camera;
 pub mod config;
 pub mod cursor;
+pub mod dock;
 pub mod drawer;
 pub mod geom;
 pub mod image;
@@ -12,7 +13,7 @@ pub mod wallpaper;
 pub mod window;
 
 pub use camera::Camera;
-pub use config::{Assets, Config, Modifier, TrayConfig, Tunables, WallpaperMode};
+pub use config::{Assets, Config, DockConfig, Modifier, TrayConfig, Tunables, WallpaperMode};
 pub use cursor::Cursor;
 pub use drawer::{Drawer, Edge, Panel};
 pub use geom::{Rect, Vec2};

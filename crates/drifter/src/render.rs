@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use drifter_core::cursor::{self, Cursor};
+use drifter_core::dock::{Dock, Slot};
 use drifter_core::drawer::{self, Drawer, Edge, Panel};
 use drifter_core::image::Image;
 use drifter_core::mode::{self, Mode};
@@ -108,6 +109,7 @@ pub struct State {
     focus: Option<usize>,
     skin: std::collections::HashMap<String, (TextureBuffer<GlesTexture>, Vec2)>,
     started: Instant,
+    socket: String,
     drm: DrmDevice,
     compositor: Compositor,
     renderer: GlesRenderer,
@@ -119,6 +121,9 @@ pub struct State {
     arrow_hotspot: Vec2,
     font: Option<Font>,
     tray: Tray,
+    dock: Dock,
+    pinned: Vec<(String, Option<TextureBuffer<GlesTexture>>)>,
+    app_icons: std::collections::HashMap<String, TextureBuffer<GlesTexture>>,
     format: String,
     clock: Option<(String, TextureBuffer<GlesTexture>, Rect)>,
     icons: Vec<(String, TextureBuffer<GlesTexture>)>,
@@ -183,6 +188,27 @@ impl State {
             elements.extend(bare.into_iter().map(Skin::Client));
         }
 
+        if let Some(band) = self.dock_band() {
+            let hidden = self.minimized();
+            let pinned = self.pinned.len();
+            for (index, (_, buffer)) in self.pinned.iter().enumerate() {
+                if let Some(buffer) = buffer {
+                    let rect = self
+                        .dock
+                        .slot_rect(band, pinned, hidden.len(), Slot::Pinned(index));
+                    elements.push(Skin::Texture(element(buffer, rect, 1.0)));
+                }
+            }
+            for (index, window) in hidden.iter().enumerate() {
+                if let Some(buffer) = self.app_icons.get(window.as_str()) {
+                    let rect =
+                        self.dock
+                            .slot_rect(band, pinned, hidden.len(), Slot::Minimized(index));
+                    elements.push(Skin::Texture(element(buffer, rect, 1.0)));
+                }
+            }
+        }
+
         if let Some((_, buffer, rect)) = self.clock.as_ref() {
             elements.push(Skin::Texture(element(buffer, *rect, 1.0)));
         }
@@ -217,12 +243,14 @@ impl State {
             .iter()
             .rev()
             .filter(|window| window.placed && !window.hidden)
-            .enumerate()
-            .map(|(order, window)| {
+            .map(|window| {
                 (
                     window.content,
                     window.inset,
-                    self.focus == Some(self.windows.len() - 1 - order),
+                    self.focus
+                        .and_then(|index| self.windows.get(index))
+                        .map(|awake| awake.toplevel == window.toplevel)
+                        .unwrap_or(false),
                     window.toplevel.wl_surface().clone(),
                 )
             })
@@ -358,6 +386,14 @@ impl State {
             return;
         }
 
+        let app = smithay::wayland::compositor::with_states(surface, |states| {
+            states
+                .data_map
+                .get::<smithay::wayland::shell::xdg::XdgToplevelSurfaceData>()
+                .and_then(|data| data.lock().ok().and_then(|data| data.app_id.clone()))
+        })
+        .unwrap_or_default();
+
         let fresh = self
             .windows
             .iter()
@@ -380,6 +416,9 @@ impl State {
 
         window.inset = inset;
         window.content.size = size;
+        if !app.is_empty() {
+            window.app = app;
+        }
         if window.placed && window.touched {
             return;
         }
@@ -462,6 +501,56 @@ impl State {
 
     pub fn kick_now(&mut self) {
         self.kick();
+    }
+
+    fn dock_band(&self) -> Option<Rect> {
+        let drawer = self.drawers[Edge::Bottom.index()];
+        drawer
+            .visible()
+            .then(|| drawer.band(self.screen, &self.shapes[Edge::Bottom.index()]))
+    }
+
+    fn minimized(&self) -> Vec<String> {
+        self.windows
+            .iter()
+            .filter(|window| window.hidden)
+            .map(|window| window.app.clone())
+            .collect()
+    }
+
+    fn press_dock(&mut self) -> bool {
+        let Some(band) = self.dock_band() else {
+            return false;
+        };
+        let hidden = self.minimized();
+        let pinned = self.pinned.len();
+        let Some(slot) = self.dock.at(band, self.pointer, pinned, hidden.len()) else {
+            return false;
+        };
+
+        match slot {
+            Slot::Pinned(index) => {
+                let name = self.pinned[index].0.clone();
+                if let Some(exec) = crate::apps::find(&name).and_then(|entry| entry.exec) {
+                    crate::apps::launch(&exec, &self.socket);
+                }
+            }
+            Slot::Minimized(index) => {
+                let Some(place) = self
+                    .windows
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, window)| window.hidden)
+                    .map(|(at, _)| at)
+                    .nth(index)
+                else {
+                    return true;
+                };
+                self.windows[place].hidden = false;
+                self.raise(place);
+            }
+        }
+        true
     }
 
     fn tray_band(&self) -> Option<Rect> {
@@ -762,9 +851,8 @@ impl State {
             0 => self.windows[index].toplevel.send_close(),
             1 => {
                 self.windows[index].hidden = true;
-                if self.focus == Some(index) {
-                    self.focus = None;
-                }
+                self.focus = None;
+                self.remember_icon(index);
                 self.wake_windows();
             }
             _ => {
@@ -797,6 +885,29 @@ impl State {
                 });
                 window.toplevel.send_pending_configure();
             }
+        }
+    }
+
+    fn remember_icon(&mut self, index: usize) {
+        let name = self.windows[index].app.clone();
+        if name.is_empty() || self.app_icons.contains_key(&name) {
+            return;
+        }
+        let wanted = self.dock.icon as u32;
+        let art = crate::apps::find(&name)
+            .and_then(|entry| entry.icon)
+            .and_then(|path| drifter_core::image::load(&path).ok())
+            .map(|image| image.scaled(wanted, wanted));
+        let Some(image) = art else {
+            eprintln!("drifter: no dock icon for {name}");
+            return;
+        };
+        match upload(&mut self.renderer, Some(&image), "dock icon") {
+            Ok(Some(buffer)) => {
+                self.app_icons.insert(name, buffer);
+            }
+            Ok(None) => {}
+            Err(error) => eprintln!("drifter: {error}"),
         }
     }
 
@@ -841,6 +952,10 @@ impl State {
             self.held = None;
         }
         if state == ButtonState::Pressed {
+            if self.press_dock() {
+                self.kick();
+                return;
+            }
             if self.take_grab() {
                 return;
             }
@@ -1193,6 +1308,25 @@ pub fn open(
         }
     };
 
+    let mut pinned = Vec::new();
+    for name in &config.dock.pinned {
+        let art = crate::apps::find(name)
+            .and_then(|entry| entry.icon)
+            .and_then(|path| match drifter_core::image::load(&path) {
+                Ok(image) => Some(image),
+                Err(error) => {
+                    eprintln!("drifter: no dock icon for {name}: {error}");
+                    None
+                }
+            })
+            .map(|image| image.scaled(Dock::default().icon as u32, Dock::default().icon as u32));
+        let buffer = match art {
+            Some(image) => upload(&mut renderer, Some(&image), "dock icon")?,
+            None => None,
+        };
+        pinned.push((name.clone(), buffer));
+    }
+
     let mut libinput = Libinput::new_with_udev(LibinputSessionInterface::from(session.clone()));
     let seat_name = session.seat();
     libinput
@@ -1211,6 +1345,7 @@ pub fn open(
         focus: None,
         skin,
         started: Instant::now(),
+        socket: socket_name.clone(),
         drm,
         compositor,
         renderer,
@@ -1222,6 +1357,9 @@ pub fn open(
         arrow_hotspot,
         font,
         tray,
+        dock: Dock::default(),
+        pinned,
+        app_icons: std::collections::HashMap::new(),
         format: config.tray.format.clone(),
         clock: None,
         icons: Vec::new(),
