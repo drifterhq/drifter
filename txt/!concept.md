@@ -194,6 +194,23 @@ Escape quits. There is nothing else to leave with while Drifter owns the tty, so
 
 SIGUSR1 toggles the top drawer and SIGUSR2 toggles the bottom one. This is how a drawer is driven from another machine over ssh, with no mouse: `pkill -USR1 -x drifter`. It is a trigger for the same code path the pointer uses, not a test hook.
 
+## Camera
+
+Windows live in WORLD coordinates and never move when the camera does. Drawers, the dock, the tray, menus, hover text and the cursor live in SCREEN coordinates and never zoom, because they belong to Drifter rather than to the world.
+
+Every window rect is mapped through the camera on its way to the screen. Client surfaces are drawn with the camera zoom as their render scale, so a zoomed out window is a real scaled window, not a thumbnail.
+
+Clients are told nothing about any of this. Pointer events reach them in world coordinates, so a click lands on the same pixel whatever the zoom.
+
+The camera moves by flights. A flight eases with the same spring as the drawers, and its zoom glides in log space, so half way from 0.25 to 1.0 is 0.5 rather than 0.625. A straight line mix makes the first half of a zoom out look like the whole of it.
+
+Controls:
+- Push the pointer into the top-left corner and hold. The camera flies out to fit the whole world.
+- Zoomed out, a click never reaches the app. It flies the camera to that window at zoom 1. A click on empty world centers there instead.
+- Modifier + scroll zooms at the cursor, so the world point under the pointer stays put.
+- Modifier + push the pointer against a viewport edge pans that way.
+- The camera is clamped so the viewport can never leave the world.
+
 ## Frame loop
 
 Drifter renders from the DRM VBlank event, never from a sleep.

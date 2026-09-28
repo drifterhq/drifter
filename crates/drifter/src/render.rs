@@ -77,6 +77,7 @@ pub struct Found {
     pub renderer: String,
     pub socket: String,
     pub wallpaper: Option<Rect>,
+    pub camera: drifter_core::camera::Camera,
     pub drawer: Rect,
     pub corner: f64,
 }
@@ -1995,6 +1996,7 @@ pub fn open(
             renderer: gl,
             socket: socket_name.clone(),
             wallpaper: rect,
+            camera: Camera::at_work_zoom(world / 2.0),
             drawer: open_band,
             corner: shapes[Edge::Top.index()].radius,
         },

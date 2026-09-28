@@ -135,6 +135,10 @@ fn bootstrap(config: &Config) -> ExitCode {
         found.corner
     );
     println!("wayland     {}", found.socket);
+    println!(
+        "camera      at {} {} zoom {:.4}",
+        found.camera.center.x, found.camera.center.y, found.camera.zoom
+    );
     println!("running     drifter holds the screen until it is killed");
 
     match screen.run() {
