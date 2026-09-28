@@ -113,6 +113,8 @@ Drawers
 - Push the pointer at the bottom edge and the dock slides up. It holds pinned apps, then a divider, then one icon for every minimized window, all centered. The trash sits alone at the far right and never moves.
 - With no `[dock] pinned` list, the dock starts with the XDG defaults: the default browser, the default file manager and the default terminal, read from mimeapps.list.
 - Clicking a pinned icon starts that app. Clicking a minimized icon brings that window back and raises it. Clicking the trash opens the XDG trash folder in the file manager.
+- Right clicking a minimized icon gives Show and Exit. Hovering any icon shows its name.
+- The trash can is painted by Drifter, never taken from an icon theme. A machine with no theme installed still has a trash can.
 - Minimize hides a window and puts its icon in the dock. That is the only way a window ever leaves the screen, and the dock is always the way back.
 - The drawer opens after a short dwell at the edge, so a fast pass never pops it open. It stays open while the pointer rests on it, and hides a short delay after the pointer leaves.
 - The bar is 64 px everywhere. The corner curve reaches 10 px further down, but only within 10 px of the left and right ends. Drifter prints the measured band at startup, so this is never a guess.
@@ -151,7 +153,9 @@ The top drawer is the tray. It reads right to left, because the right side is wh
 - The clock is hard against the right edge, 18 px in, centered in the 64 px band, at 16 px text. It ticks every second while the drawer is open.
 - `format` in the config is a strftime string. The default is `%a %b %d %I:%M:%S %p`, which reads `Mon Sep 28 12:35:26 AM`. A format Drifter cannot parse is reported on stderr and the default is used instead.
 - Status icons live on the LEFT end, 24 px, 10 px apart, starting 18 px in, growing rightward. They never reach the clock, so the clock never moves when an icon appears.
-- An icon does what its own program says. Left click is Activate, right click opens that program's context menu, middle click is the secondary action. Drifter routes the click and draws the icon. It never invents a menu of its own.
+- Left click is Activate and middle click is the secondary action. Both go straight to the program.
+- RIGHT CLICK IS DRIFTER'S. Drifter reads the item's menu over `com.canonical.dbusmenu` and paints it itself at the pointer. It never calls ContextMenu, because an app asked for its menu draws its own window, and then there are two menus.
+- Hovering an icon shows its tooltip, taken from the item's ToolTip property.
 - Icons come from the StatusNotifierItem D-Bus protocol, which is how modern tray apps publish themselves. Drifter owns `org.kde.StatusNotifierWatcher`, holds the registered item list, reads each item's `IconPixmap` (or its `IconName` from the icon folders), scales it to 24 px, and calls Activate, ContextMenu or SecondaryActivate on the item when it is clicked. This needs no Wayland client, so the tray works before windows do.
 - `cargo run -p drifter --example tray-demo` publishes two items and prints every click it receives, so the whole path can be tested with no tray app installed and without watching the screen.
 - System info comes later, on the same left end, to the right of the icons.
