@@ -155,7 +155,22 @@ impl XdgShellHandler for State {
         self.kick_now();
     }
 
-    fn new_popup(&mut self, _surface: PopupSurface, _positioner: PositionerState) {}
+    fn new_popup(&mut self, surface: PopupSurface, positioner: PositionerState) {
+        surface.with_pending_state(|state| {
+            state.geometry = positioner.get_geometry();
+        });
+        if let Err(error) = surface.send_configure() {
+            eprintln!("drifter: popup refused: {error}");
+            return;
+        }
+        self.popups.push(surface);
+        self.kick_now();
+    }
+
+    fn popup_destroyed(&mut self, surface: PopupSurface) {
+        self.popups.retain(|popup| popup != &surface);
+        self.kick_now();
+    }
 
     fn grab(&mut self, _surface: PopupSurface, _seat: WlSeat, _serial: Serial) {}
 

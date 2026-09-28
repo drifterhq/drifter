@@ -4,6 +4,7 @@ pub mod cursor;
 pub mod drawer;
 pub mod geom;
 pub mod image;
+pub mod menu;
 pub mod mode;
 pub mod text;
 pub mod tray;

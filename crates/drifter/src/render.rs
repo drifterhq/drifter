@@ -100,6 +100,7 @@ pub struct State {
     pub output: smithay::output::Output,
     pub wayland: crate::shell::Wayland,
     pub windows: Vec<crate::shell::Window>,
+    pub popups: Vec<smithay::wayland::shell::xdg::PopupSurface>,
     display: Option<Display<State>>,
     chrome: Chrome,
     grab: Grab,
@@ -159,6 +160,28 @@ impl State {
             cursor::rect(self.pointer, self.arrow_size, self.arrow_hotspot),
             1.0,
         ))];
+        let popups: Vec<(
+            Vec2,
+            smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+        )> = self
+            .popups
+            .iter()
+            .rev()
+            .filter_map(|popup| self.popup_at(popup))
+            .collect();
+        for (at, surface) in popups {
+            let bare: Vec<WaylandSurfaceRenderElement<GlesRenderer>> =
+                render_elements_from_surface_tree(
+                    &mut self.renderer,
+                    &surface,
+                    (at.x as i32, at.y as i32),
+                    1.0,
+                    1.0,
+                    Kind::Unspecified,
+                );
+            elements.extend(bare.into_iter().map(Skin::Client));
+        }
+
         if let Some((_, buffer, rect)) = self.clock.as_ref() {
             elements.push(Skin::Texture(element(buffer, *rect, 1.0)));
         }
@@ -222,6 +245,35 @@ impl State {
             elements.push(Skin::Texture(element(buffer, *rect, 1.0)));
         }
         elements
+    }
+
+    fn popup_at(
+        &self,
+        popup: &smithay::wayland::shell::xdg::PopupSurface,
+    ) -> Option<(
+        Vec2,
+        smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+    )> {
+        if !popup.alive() {
+            return None;
+        }
+        let parent = popup.get_parent_surface()?;
+        let anchor = self
+            .windows
+            .iter()
+            .find(|window| window.toplevel.wl_surface() == &parent)
+            .map(|window| window.content.origin - window.inset)
+            .or_else(|| {
+                self.popups
+                    .iter()
+                    .find(|other| other.wl_surface() == &parent)
+                    .and_then(|other| self.popup_at(other))
+                    .map(|(at, _)| at)
+            })?;
+
+        let place = popup.with_pending_state(|state| state.geometry.loc);
+        let at = anchor + Vec2::new(f64::from(place.x), f64::from(place.y));
+        Some((at.round(), popup.wl_surface().clone()))
     }
 
     fn dress(&self, content: Rect, awake: bool, elements: &mut Vec<Skin>) {
@@ -1130,6 +1182,7 @@ pub fn open(
         output,
         wayland,
         windows: Vec::new(),
+        popups: Vec::new(),
         display: Some(display),
         chrome,
         grab: Grab::None,
