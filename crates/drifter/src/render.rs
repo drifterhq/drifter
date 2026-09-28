@@ -54,6 +54,7 @@ const PANEL_COLOR: [u8; 3] = [16, 18, 26];
 const PANEL_ALPHA: u8 = 235;
 const TICK: Duration = Duration::from_millis(8);
 const SECOND_TICK: Duration = Duration::from_millis(250);
+const SETTLING: Duration = Duration::from_secs(2);
 
 use smithay::backend::renderer::{ImportAll, RendererSuper, element::render_elements};
 
@@ -539,11 +540,13 @@ impl State {
         };
 
         window.inset = inset;
+        let grew = window.content.size != size;
         window.content.size = size;
         if !app.is_empty() {
             window.app = app;
         }
-        if window.placed && window.touched {
+
+        if window.placed && (window.touched || !grew || window.born.elapsed() > SETTLING) {
             return;
         }
 
