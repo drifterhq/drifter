@@ -93,12 +93,6 @@ Drawers
 - A drawer hides after a set delay once the pointer leaves.
 - All animation is smooth and elastic.
 
-Splash
-
-- At startup Drifter draws `splash.png` from the data directory, scaled to fit the screen and centered, holding the aspect ratio. It stays up until the first frame of the world is ready.
-- It is how you know Drifter came up at all. If the screen is black, Drifter did not reach its first frame.
-- If the file is missing, Drifter starts on black and says so on stderr. A missing splash is never fatal.
-
 Pointer
 
 - The pointer is trapped in the viewport. Its world position is derived from the viewport position. Edge push does not work otherwise.
@@ -114,13 +108,23 @@ Session
 
 ## MVP order
 
-1. Read the config: world size in screens, wallpaper.
+1. Read the config: world size in screens, wallpaper. Draw the wallpaper fullscreen and hold the screen until killed.
 2. Draw the world. Draw client windows. Camera locked at zoom 1.0. This is the whole compositor and it is the big step.
 3. Top drawer with tray and system info. Bottom drawer with launcher and trash. Edge push, dwell, elastic slide.
 4. Top-left hot corner. Dwell, then zoom out to fit the world.
 5. Click a window in overview. Camera flies to it and settles at 1.0.
 6. Modifier + scroll zoom at the cursor. Modifier + edge push to pan.
 7. Save and restore camera position across logout.
+
+## Frame loop
+
+Drifter renders from the DRM VBlank event, never from a sleep.
+
+After `queue_frame` the compositor holds a pending frame. Until the page flip event is read off the DRM fd and `frame_submitted` is called, every later `queue_frame` returns Ok and is silently dropped. The screen then freezes on frame 1 while the frame counter keeps climbing, so a frame count is never proof that anything moved. Only the screen is.
+
+So the DrmDeviceNotifier runs as a calloop event source. On VBlank: `frame_submitted`, then draw the next frame. When nothing changed, `render_frame` reports empty, no flip is queued, and the loop blocks with no work until something wakes it.
+
+The seat notifier is in the same loop. On PauseSession drawing stops and DRM master is released. On ActivateSession master is taken back, the compositor state and buffers are reset, and the screen is redrawn. Without this a VT switch away and back leaves a dead screen.
 
 ## Open items
 

@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::process::ExitCode;
 
-use drifter_core::{Camera, Config, Rect, Tunables, Vec2, wallpaper};
+use drifter_core::{Camera, Config, Tunables, Vec2, wallpaper};
 
 #[cfg(target_os = "linux")]
 mod render;
@@ -20,7 +20,7 @@ fn load_image(path: &Path, what: &str) -> Option<drifter_core::Image> {
 }
 
 #[cfg(target_os = "linux")]
-fn print_rect(what: &str, rect: Option<Rect>) {
+fn print_rect(what: &str, rect: Option<drifter_core::Rect>) {
     match rect {
         Some(rect) => println!(
             "            {what} at {} {} size {} x {}",
@@ -40,7 +40,6 @@ fn report(config: &Config) {
     let fit = Camera::fit_zoom(screen, world);
     let tunables = Tunables::default();
     let needed = wallpaper::required_size(config.workspace.wallpaper_mode, screen, world);
-    let splash = Config::splash_path();
 
     println!(
         "workspace   {} x {} screens",
@@ -56,25 +55,11 @@ fn report(config: &Config) {
         Some(image) => println!("            {} ({})", image.display(), present(image)),
         None => println!("            none set"),
     }
-    println!("splash      {} ({})", splash.display(), present(&splash));
-    match drifter_core::load_png(&splash) {
-        Ok(image) => {
-            let rect = Rect::fit_centered(image.size(), screen);
-            println!("            {} x {} decoded", image.width, image.height);
-            println!(
-                "            draws at {} {} size {} x {}",
-                rect.origin.x, rect.origin.y, rect.size.x, rect.size.y
-            );
-        }
-        Err(error) => println!("            not usable: {error}"),
-    }
     println!("drawers     {} px", tunables.drawer_height);
 }
 
 #[cfg(target_os = "linux")]
 fn bootstrap(config: &Config) -> ExitCode {
-    use std::time::Duration;
-
     let mut seat = match session::open() {
         Ok(seat) => seat,
         Err(error) => {
@@ -99,53 +84,37 @@ fn bootstrap(config: &Config) -> ExitCode {
     let want = (1920, 1080);
     let night = [0.02, 0.05, 0.10, 1.0];
 
-    let splash = load_image(&Config::splash_path(), "splash");
     let wallpaper = config
         .workspace
         .wallpaper
         .as_deref()
         .and_then(|path| load_image(path, "wallpaper"));
 
-    let loading = Duration::from_secs(3);
-
-    match render::show(
-        &mut seat.session,
-        &card,
-        want,
-        night,
-        splash.as_ref(),
-        wallpaper.as_ref(),
-        loading,
-    ) {
-        Ok(shown) => {
-            println!("screen      {}", shown.connector);
-            println!(
-                "            {} x {} @ {} on {}",
-                shown.width,
-                shown.height,
-                shown.refresh,
-                shown.device.display()
-            );
-            println!("            gl {}", shown.renderer);
-            print_rect("splash", shown.splash);
-            print_rect("wallpaper", shown.wallpaper);
-            println!("            phase {:?}", shown.phase);
-            println!("            {} frames in {:?}", shown.frames, shown.held);
-        }
+    let screen = match render::open(&mut seat.session, &card, want, night, wallpaper.as_ref()) {
+        Ok(screen) => screen,
         Err(error) => {
             eprintln!("drifter: {error}");
             return ExitCode::FAILURE;
         }
-    }
+    };
 
-    let _ = config;
-    match session::watch(seat.notifier, Duration::from_millis(200)) {
-        Ok((paused, activated)) => {
-            println!("            {paused} paused, {activated} activated while settling");
-            ExitCode::SUCCESS
-        }
+    let found = screen.found();
+    println!("screen      {}", found.connector);
+    println!(
+        "            {} x {} @ {} on {}",
+        found.width,
+        found.height,
+        found.refresh,
+        found.device.display()
+    );
+    println!("            gl {}", found.renderer);
+    print_rect("wallpaper", found.wallpaper);
+    println!("running     drifter holds the screen until it is killed");
+
+    match screen.run(seat.notifier) {
+        Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("drifter: seat watch failed: {error}");
+            eprintln!("drifter: {error}");
             ExitCode::FAILURE
         }
     }

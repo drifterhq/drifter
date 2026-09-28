@@ -1,55 +1,177 @@
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
 
 use drifter_core::image::Image;
 use drifter_core::mode::{self, Mode};
-use drifter_core::startup::{Phase, Startup};
 use drifter_core::{Rect, Vec2};
 use smithay::backend::allocator::gbm::{GbmAllocator, GbmBufferFlags, GbmDevice};
 use smithay::backend::drm::compositor::{DrmCompositor, FrameFlags};
 use smithay::backend::drm::exporter::gbm::GbmFramebufferExporter;
-use smithay::backend::drm::{DrmDevice, DrmDeviceFd};
+use smithay::backend::drm::{DrmDevice, DrmDeviceFd, DrmDeviceNotifier, DrmEvent};
 use smithay::backend::egl::{EGLContext, EGLDisplay};
 use smithay::backend::renderer::Color32F;
 use smithay::backend::renderer::element::Kind;
 use smithay::backend::renderer::element::texture::{TextureBuffer, TextureRenderElement};
 use smithay::backend::renderer::gles::GlesRenderer;
 use smithay::backend::renderer::gles::GlesTexture;
-use smithay::backend::session::{Session, libseat::LibSeatSession};
+use smithay::backend::session::libseat::{LibSeatSession, LibSeatSessionNotifier};
+use smithay::backend::session::{Event as SessionEvent, Session};
 use smithay::output::OutputModeSource;
+use smithay::reexports::calloop::EventLoop;
 use smithay::reexports::drm::buffer::DrmFourcc;
 use smithay::reexports::drm::control::{Device as ControlDevice, connector, crtc};
 use smithay::reexports::rustix::fs::OFlags;
 use smithay::utils::{DeviceFd, Scale, Transform};
 
-const HOLD_AFTER: Duration = Duration::from_secs(2);
+type Compositor =
+    DrmCompositor<GbmAllocator<DrmDeviceFd>, GbmFramebufferExporter<DrmDeviceFd>, (), DrmDeviceFd>;
 
-pub struct Shown {
+pub struct Found {
     pub device: PathBuf,
     pub connector: String,
     pub width: u16,
     pub height: u16,
     pub refresh: u32,
     pub renderer: String,
-    pub frames: u32,
-    pub held: Duration,
-    pub splash: Option<Rect>,
     pub wallpaper: Option<Rect>,
-    pub phase: Phase,
 }
 
-type Compositor =
-    DrmCompositor<GbmAllocator<DrmDeviceFd>, GbmFramebufferExporter<DrmDeviceFd>, (), DrmDeviceFd>;
+pub struct Screen {
+    found: Found,
+    notifier: DrmDeviceNotifier,
+    state: State,
+}
 
-pub fn show(
+struct State {
+    _drm: DrmDevice,
+    compositor: Compositor,
+    renderer: GlesRenderer,
+    elements: Vec<TextureRenderElement<GlesTexture>>,
+    clear: Color32F,
+    active: bool,
+    frames: u32,
+    vblanks: u32,
+    failure: Option<String>,
+}
+
+impl State {
+    fn draw(&mut self) -> Result<bool, String> {
+        if !self.active {
+            return Ok(false);
+        }
+
+        let result = self
+            .compositor
+            .render_frame(
+                &mut self.renderer,
+                &self.elements,
+                self.clear,
+                FrameFlags::DEFAULT,
+            )
+            .map_err(|e| {
+                if self.frames == 0 {
+                    format!(
+                        "first render failed: {e}\n\
+                         drifter needs drm master, which needs a real tty.\n\
+                         run it from tty1, not over ssh. smithay only warns when master is denied."
+                    )
+                } else {
+                    format!("render failed after {} frames: {e}", self.frames)
+                }
+            })?;
+
+        if result.is_empty {
+            return Ok(false);
+        }
+
+        self.compositor
+            .queue_frame(())
+            .map_err(|e| format!("page flip failed after {} frames: {e}", self.frames))?;
+        self.frames += 1;
+        Ok(true)
+    }
+}
+
+impl Screen {
+    pub fn found(&self) -> &Found {
+        &self.found
+    }
+
+    pub fn run(self, seat: LibSeatSessionNotifier) -> Result<(), String> {
+        let Screen {
+            notifier,
+            mut state,
+            ..
+        } = self;
+
+        let mut events: EventLoop<State> =
+            EventLoop::try_new().map_err(|e| format!("cannot create the event loop: {e}"))?;
+        let signal = events.get_signal();
+
+        events
+            .handle()
+            .insert_source(seat, |event, _metadata, state: &mut State| match event {
+                SessionEvent::PauseSession => {
+                    state.active = false;
+                    state._drm.pause();
+                }
+                SessionEvent::ActivateSession => {
+                    state.active = true;
+                    if let Err(error) = state._drm.activate(true) {
+                        eprintln!("drifter: cannot take the screen back: {error}");
+                    }
+                    if let Err(error) = state.compositor.reset_state() {
+                        eprintln!("drifter: cannot reset the compositor: {error}");
+                    }
+                    state.compositor.reset_buffers();
+                    if let Err(error) = state.draw() {
+                        eprintln!("drifter: cannot redraw after a switch: {error}");
+                    }
+                }
+            })
+            .map_err(|e| format!("cannot watch seat events: {e}"))?;
+
+        events
+            .handle()
+            .insert_source(
+                notifier,
+                move |event, _metadata, state: &mut State| match event {
+                    DrmEvent::VBlank(_) => {
+                        state.vblanks += 1;
+                        if let Err(error) = state.compositor.frame_submitted() {
+                            state.failure = Some(format!("frame submit failed: {error}"));
+                            signal.stop();
+                            return;
+                        }
+                        if let Err(error) = state.draw() {
+                            state.failure = Some(error);
+                            signal.stop();
+                        }
+                    }
+                    DrmEvent::Error(error) => eprintln!("drifter: drm event: {error}"),
+                },
+            )
+            .map_err(|e| format!("cannot watch drm events: {e}"))?;
+
+        state.draw()?;
+
+        events
+            .run(None, &mut state, |_| {})
+            .map_err(|e| format!("event loop failed: {e}"))?;
+
+        match state.failure {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
+    }
+}
+
+pub fn open(
     session: &mut LibSeatSession,
     path: &Path,
     want: (u32, u32),
     background: [f32; 4],
-    splash: Option<&Image>,
     wallpaper: Option<&Image>,
-    loading: Duration,
-) -> Result<Shown, String> {
+) -> Result<Screen, String> {
     let fd = session
         .open(
             path,
@@ -59,9 +181,10 @@ pub fn show(
 
     let drm_fd = DrmDeviceFd::new(DeviceFd::from(fd));
     let gbm = GbmDevice::new(drm_fd.clone()).map_err(|e| format!("gbm device: {e}"))?;
-    let (mut drm, _notifier) =
+    let (drm, notifier) =
         DrmDevice::new(drm_fd, true).map_err(|e| format!("cannot open drm device: {e}"))?;
 
+    let mut drm = drm;
     let resources = drm
         .resource_handles()
         .map_err(|e| format!("cannot read drm resources: {e}"))?;
@@ -130,7 +253,7 @@ pub fn show(
         transform: Transform::Normal,
     };
 
-    let mut compositor: Compositor = DrmCompositor::new(
+    let compositor: Compositor = DrmCompositor::new(
         output,
         surface,
         None,
@@ -144,79 +267,40 @@ pub fn show(
     .map_err(|e| format!("drm compositor: {e}"))?;
 
     let gl = describe(&mut renderer);
-    let clear = Color32F::from(background);
     let screen = Vec2::new(f64::from(width), f64::from(height));
-    let startup = Startup::default();
 
-    let splash_texture = upload(&mut renderer, splash, "splash")?;
-    let wallpaper_texture = upload(&mut renderer, wallpaper, "wallpaper")?;
+    let texture = upload(&mut renderer, wallpaper, "wallpaper")?;
+    let rect = wallpaper
+        .zip(texture.as_ref())
+        .map(|(image, _)| Rect::fill_centered(image.size(), screen));
 
-    let splash_rect = splash_texture
-        .as_ref()
-        .map(|_| Startup::splash_rect(screen));
-    let wallpaper_rect = wallpaper
-        .zip(wallpaper_texture.as_ref())
-        .map(|(image, _)| Startup::wallpaper_rect(image.size(), screen));
-
-    let started = Instant::now();
-    let mut frames = 0u32;
-    let mut phase = Phase::Loading;
-
-    loop {
-        let since_loaded = started.elapsed().checked_sub(loading);
-        phase = startup.phase(since_loaded);
-        let (splash_alpha, wallpaper_alpha) = startup.alphas(since_loaded);
-
-        let mut elements: Vec<TextureRenderElement<GlesTexture>> = Vec::new();
-        if let (Some(buffer), Some(rect)) = (splash_texture.as_ref(), splash_rect)
-            && splash_alpha > 0.0
-        {
-            elements.push(element(buffer, rect, splash_alpha));
-        }
-        if let (Some(buffer), Some(rect)) = (wallpaper_texture.as_ref(), wallpaper_rect)
-            && wallpaper_alpha > 0.0
-        {
-            elements.push(element(buffer, rect, wallpaper_alpha));
-        }
-
-        let result = compositor
-            .render_frame(&mut renderer, &elements, clear, FrameFlags::DEFAULT)
-            .map_err(|e| {
-                if frames == 0 {
-                    format!(
-                        "first render failed: {e}\n\
-                         drifter needs drm master, which needs a real tty.\n\
-                         run it from tty1, not over ssh. smithay only warns when master is denied."
-                    )
-                } else {
-                    format!("render failed on frame {frames}: {e}")
-                }
-            })?;
-        if !result.is_empty {
-            compositor
-                .queue_frame(())
-                .map_err(|e| format!("page flip failed on frame {frames}: {e}"))?;
-            frames += 1;
-        }
-
-        if phase == Phase::Ready && started.elapsed() >= loading + startup.fade + HOLD_AFTER {
-            break;
-        }
-        std::thread::sleep(Duration::from_millis(8));
+    let mut elements = Vec::new();
+    if let (Some(buffer), Some(rect)) = (texture.as_ref(), rect) {
+        elements.push(element(buffer, rect, 1.0));
     }
 
-    Ok(Shown {
-        device: path.to_path_buf(),
-        connector: name,
-        width,
-        height,
-        refresh: drm_mode.vrefresh(),
-        renderer: gl,
-        frames,
-        held: started.elapsed(),
-        splash: splash_rect,
-        wallpaper: wallpaper_rect,
-        phase,
+    Ok(Screen {
+        found: Found {
+            device: path.to_path_buf(),
+            connector: name,
+            width,
+            height,
+            refresh: drm_mode.vrefresh(),
+            renderer: gl,
+            wallpaper: rect,
+        },
+        notifier,
+        state: State {
+            _drm: drm,
+            compositor,
+            renderer,
+            elements,
+            clear: Color32F::from(background),
+            active: true,
+            frames: 0,
+            vblanks: 0,
+            failure: None,
+        },
     })
 }
 

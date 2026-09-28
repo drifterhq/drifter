@@ -148,10 +148,6 @@ impl Config {
         xdg_dir("XDG_DATA_HOME", ".local/share")
     }
 
-    pub fn splash_path() -> PathBuf {
-        Config::data_dir().join("splash.png")
-    }
-
     pub fn load() -> Result<Config, ConfigError> {
         Config::load_from(&Config::config_path())
     }
