@@ -9,6 +9,7 @@ pub mod image;
 pub mod menu;
 pub mod mode;
 pub mod motion;
+pub mod power;
 pub mod settings;
 pub mod snap;
 pub mod text;

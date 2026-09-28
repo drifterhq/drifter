@@ -142,6 +142,7 @@ Session
 The MVP list is finished: config, the compositor, both drawers, the hot corner, click to fly, free zoom, edge pan, and a camera that survives a restart.
 
 What is left:
+- Lock screen.
 - System info on the left end of the top drawer, right of the tray icons.
 - A window that demands the camera.
 - Multi-monitor. One world, one camera per monitor.
@@ -201,7 +202,9 @@ The wallpaper path comes from the config and nowhere else. A missing file is rep
 
 ## Running it
 
-Escape quits. There is nothing else to leave with while Drifter owns the tty, so the key stays until a real menu exists.
+Escape goes to the focused app like any key. Modifier + Escape opens the power menu in the middle of the screen. Right click on empty desktop opens it under Settings.
+
+The power menu lists Log out, Shut down, Suspend and Restart, in that order. Log out stops Drifter, which ends the session on the tty. The other three call `org.freedesktop.login1.Manager` on the system bus: `PowerOff`, `Suspend` and `Reboot`.
 
 SIGUSR1 toggles the top drawer and SIGUSR2 toggles the bottom one. This is how a drawer is driven from another machine over ssh, with no mouse: `pkill -USR1 -x drifter`. It is a trigger for the same code path the pointer uses, not a test hook.
 

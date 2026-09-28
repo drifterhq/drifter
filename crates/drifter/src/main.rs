@@ -6,6 +6,8 @@ use drifter_core::{Camera, Config, Vec2, wallpaper};
 #[cfg(target_os = "linux")]
 mod apps;
 #[cfg(target_os = "linux")]
+mod power;
+#[cfg(target_os = "linux")]
 mod render;
 #[cfg(target_os = "linux")]
 mod session;

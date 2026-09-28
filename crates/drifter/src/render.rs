@@ -990,7 +990,11 @@ impl State {
             }
             Target::Desktop => {
                 self.popover = None;
-                self.open_settings();
+                match drifter_core::power::Action::from_id(chosen.id) {
+                    Some(drifter_core::power::Action::Logout) => self.signal.stop(),
+                    Some(action) => crate::power::run(action),
+                    None => self.open_settings(),
+                }
                 return true;
             }
             Target::Window(index) => {
@@ -1104,7 +1108,9 @@ impl State {
 
         if self.under_pointer().is_none() && self.grip_under().is_none() {
             let at = self.pointer;
-            self.open_popover(vec![Item::line(0, "Settings")], at, Target::Desktop);
+            let mut items = vec![Item::line(0, "Settings"), Item::rule(1)];
+            items.extend(drifter_core::power::items());
+            self.open_popover(items, at, Target::Desktop);
             return true;
         }
 
@@ -2082,9 +2088,12 @@ impl State {
                 self.tell_button(event.button_code(), event.state(), event.time_msec());
             }
             InputEvent::Keyboard { event }
-                if event.state() == KeyState::Pressed && event.key_code().raw() == ESCAPE =>
+                if event.state() == KeyState::Pressed
+                    && event.key_code().raw() == ESCAPE
+                    && self.modifier =>
             {
-                self.signal.stop();
+                let middle = self.screen * 0.5;
+                self.open_popover(drifter_core::power::items(), middle, Target::Desktop);
             }
             InputEvent::PointerAxis { event } => {
                 use smithay::backend::input::{Axis, PointerAxisEvent};
