@@ -1,4 +1,5 @@
 use crate::geom::{Rect, Vec2};
+use crate::image::Image;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Slot {
@@ -95,6 +96,102 @@ impl Dock {
                 .contains(pointer)
         })
     }
+}
+
+pub fn paint_trash(side: u32, color: [u8; 3]) -> Image {
+    let size = f64::from(side.max(8));
+    let mut rgba = vec![0u8; (side as usize) * (side as usize) * 4];
+
+    let unit = size / 24.0;
+    let lid_top = 5.0 * unit;
+    let lid_bottom = 7.5 * unit;
+    let body_top = lid_bottom;
+    let body_bottom = 21.0 * unit;
+    let handle_top = 3.0 * unit;
+    let thick = (unit * 1.6).max(1.0);
+
+    for y in 0..side {
+        let py = f64::from(y) + 0.5;
+        for x in 0..side {
+            let px = f64::from(x) + 0.5;
+            let ink = trash_ink(
+                px,
+                py,
+                size,
+                unit,
+                lid_top,
+                lid_bottom,
+                body_top,
+                body_bottom,
+                handle_top,
+                thick,
+            );
+            if ink <= 0.0 {
+                continue;
+            }
+            let index = ((y as usize) * (side as usize) + x as usize) * 4;
+            for (channel, value) in color.iter().enumerate() {
+                rgba[index + channel] = (f64::from(*value) * ink).round().clamp(0.0, 255.0) as u8;
+            }
+            rgba[index + 3] = (ink * 255.0).round().clamp(0.0, 255.0) as u8;
+        }
+    }
+
+    Image {
+        width: side,
+        height: side,
+        rgba,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn trash_ink(
+    px: f64,
+    py: f64,
+    size: f64,
+    unit: f64,
+    lid_top: f64,
+    lid_bottom: f64,
+    body_top: f64,
+    body_bottom: f64,
+    handle_top: f64,
+    thick: f64,
+) -> f64 {
+    let middle = size / 2.0;
+    let from_middle = (px - middle).abs();
+
+    if py >= lid_top && py < lid_bottom && from_middle <= 9.5 * unit {
+        return 1.0;
+    }
+
+    if py >= handle_top && py < lid_top {
+        let inner = 2.2 * unit;
+        let outer = 4.0 * unit;
+        if from_middle <= outer && (from_middle >= inner || py >= lid_top - thick) {
+            return 1.0;
+        }
+    }
+
+    if py >= body_top && py < body_bottom {
+        let down = (py - body_top) / (body_bottom - body_top);
+        let half = 8.0 * unit - down * 1.4 * unit;
+        if from_middle > half {
+            return 0.0;
+        }
+        if from_middle >= half - thick || py >= body_bottom - thick {
+            return 1.0;
+        }
+        for ridge in [-3.6, 0.0, 3.6] {
+            if (px - middle - ridge * unit).abs() <= thick * 0.45
+                && py >= body_top + 2.0 * unit
+                && py < body_bottom - 2.0 * unit
+            {
+                return 1.0;
+            }
+        }
+    }
+
+    0.0
 }
 
 #[cfg(test)]
@@ -204,6 +301,68 @@ mod tests {
         let band = band();
         let icon = dock.slot_rect(band, 2, 0, Slot::Pinned(0));
         assert_eq!(icon.center().y, band.center().y);
+    }
+
+    fn trash_pixel(image: &Image, x: u32, y: u32) -> [u8; 4] {
+        let index = ((y as usize) * (image.width as usize) + x as usize) * 4;
+        [
+            image.rgba[index],
+            image.rgba[index + 1],
+            image.rgba[index + 2],
+            image.rgba[index + 3],
+        ]
+    }
+
+    #[test]
+    fn the_trash_is_drawn_not_looked_up() {
+        let image = paint_trash(44, [230, 233, 240]);
+        assert_eq!((image.width, image.height), (44, 44));
+        let ink = image
+            .rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|pixel| pixel[3] > 0)
+            .count();
+        assert!(ink > 100, "the trash can is nearly empty");
+    }
+
+    #[test]
+    fn the_trash_has_a_lid_above_its_body() {
+        let image = paint_trash(48, [255, 255, 255]);
+        let middle = image.width / 2;
+        let lid = trash_pixel(&image, middle, 12);
+        let body_wall = trash_pixel(&image, 11, 30);
+        assert!(lid[3] > 0, "no lid");
+        assert!(body_wall[3] > 0, "no body");
+    }
+
+    #[test]
+    fn the_trash_is_the_same_on_both_sides() {
+        let image = paint_trash(48, [255, 255, 255]);
+        for y in 0..image.height {
+            for x in 0..(image.width / 2) {
+                let left = trash_pixel(&image, x, y);
+                let right = trash_pixel(&image, image.width - 1 - x, y);
+                assert_eq!(left, right, "the trash is lopsided at {x} {y}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_corners_of_the_trash_are_empty() {
+        let image = paint_trash(44, [255, 255, 255]);
+        assert_eq!(trash_pixel(&image, 0, 0)[3], 0);
+        assert_eq!(trash_pixel(&image, image.width - 1, image.height - 1)[3], 0);
+    }
+
+    #[test]
+    fn every_trash_pixel_is_premultiplied() {
+        let image = paint_trash(44, [200, 210, 255]);
+        for pixel in image.rgba.as_chunks::<4>().0 {
+            let a = pixel[3];
+            assert!(pixel[0] <= a && pixel[1] <= a && pixel[2] <= a);
+        }
     }
 
     #[test]

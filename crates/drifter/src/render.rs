@@ -5,6 +5,7 @@ use drifter_core::cursor::{self, Cursor};
 use drifter_core::dock::{Dock, Slot};
 use drifter_core::drawer::{self, Drawer, Edge, Panel};
 use drifter_core::image::Image;
+use drifter_core::menu::{Item, Look};
 use drifter_core::mode::{self, Mode};
 use drifter_core::text::Font;
 use drifter_core::tray::Tray;
@@ -83,6 +84,19 @@ pub struct Screen {
     state: State,
 }
 
+enum Target {
+    Tray(String),
+    Window(usize),
+}
+
+struct Popover {
+    items: Vec<Item>,
+    rect: Rect,
+    art: TextureBuffer<GlesTexture>,
+    target: Target,
+    hover: Option<usize>,
+}
+
 enum Grab {
     None,
     Move {
@@ -128,7 +142,12 @@ pub struct State {
     app_icons: std::collections::HashMap<String, TextureBuffer<GlesTexture>>,
     format: String,
     clock: Option<(String, TextureBuffer<GlesTexture>, Rect)>,
-    icons: Vec<(String, TextureBuffer<GlesTexture>)>,
+    icons: Vec<(String, String, TextureBuffer<GlesTexture>)>,
+    popover: Option<Popover>,
+    look: Look,
+    tip: Option<(TextureBuffer<GlesTexture>, Rect)>,
+    tip_of: Option<String>,
+    hover_since: Option<(Vec2, Instant)>,
     tray_bus: Option<crate::tray::Tray>,
     drawers: [Drawer; 2],
     tunables: Tunables,
@@ -156,6 +175,9 @@ impl State {
         if self.dwell.is_some() || self.leave.is_some() || self.animating() {
             return Some(TICK);
         }
+        if self.hover_since.is_some() && self.tip.is_none() {
+            return Some(SECOND_TICK);
+        }
         if self.drawers[Edge::Top.index()].visible() && self.font.is_some() {
             return Some(SECOND_TICK);
         }
@@ -168,6 +190,13 @@ impl State {
             cursor::rect(self.pointer, self.arrow_size, self.arrow_hotspot),
             1.0,
         ))];
+        if let Some(open) = self.popover.as_ref() {
+            elements.push(Skin::Texture(element(&open.art, open.rect, 1.0)));
+        }
+        if let Some((art, rect)) = self.tip.as_ref() {
+            elements.push(Skin::Texture(element(art, *rect, 1.0)));
+        }
+
         let popups: Vec<(
             Vec2,
             smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
@@ -224,7 +253,7 @@ impl State {
             elements.push(Skin::Texture(element(buffer, *rect, 1.0)));
         }
         if let Some(band) = self.tray_band() {
-            for (slot, (_, buffer)) in self.icons.iter().enumerate() {
+            for (slot, (_, _, buffer)) in self.icons.iter().enumerate() {
                 elements.push(Skin::Texture(element(
                     buffer,
                     self.tray.icon_rect(band, slot),
@@ -585,11 +614,217 @@ impl State {
         for icon in icons {
             let image = icon.image.scaled(wanted, wanted);
             match upload(&mut self.renderer, Some(&image), "tray icon") {
-                Ok(Some(buffer)) => self.icons.push((icon.service, buffer)),
+                Ok(Some(buffer)) => self.icons.push((icon.service, icon.title, buffer)),
                 Ok(None) => {}
                 Err(error) => eprintln!("drifter: {error}"),
             }
         }
+    }
+
+    fn open_popover(&mut self, items: Vec<Item>, at: Vec2, target: Target) {
+        if items.is_empty() {
+            return;
+        }
+        let look = self.look;
+        let size = look.size(&items, self.font.as_ref());
+        let image = look.paint(&items, size, None, self.font.as_ref());
+        let rect = look.rect(at, size, self.screen);
+        match upload(&mut self.renderer, Some(&image), "menu") {
+            Ok(Some(art)) => {
+                self.popover = Some(Popover {
+                    items,
+                    rect,
+                    art,
+                    target,
+                    hover: None,
+                })
+            }
+            Ok(None) => {}
+            Err(error) => eprintln!("drifter: {error}"),
+        }
+    }
+
+    fn repaint_popover(&mut self) {
+        let Some(open) = self.popover.as_ref() else {
+            return;
+        };
+        let inside = self.pointer - open.rect.origin;
+        let hover = self.look.item_at(&open.items, open.rect.size, inside);
+        if hover == open.hover {
+            return;
+        }
+        let items = open.items.clone();
+        let size = open.rect.size;
+        let image = self.look.paint(&items, size, hover, self.font.as_ref());
+        match upload(&mut self.renderer, Some(&image), "menu") {
+            Ok(Some(art)) => {
+                if let Some(open) = self.popover.as_mut() {
+                    open.art = art;
+                    open.hover = hover;
+                }
+            }
+            Ok(None) => {}
+            Err(error) => eprintln!("drifter: {error}"),
+        }
+    }
+
+    fn press_popover(&mut self) -> bool {
+        let Some(open) = self.popover.as_ref() else {
+            return false;
+        };
+        if !open.rect.contains(self.pointer) {
+            self.popover = None;
+            return false;
+        }
+
+        let inside = self.pointer - open.rect.origin;
+        let Some(index) = self.look.item_at(&open.items, open.rect.size, inside) else {
+            return true;
+        };
+        let chosen = open.items[index].clone();
+        if !chosen.enabled {
+            return true;
+        }
+
+        match &open.target {
+            Target::Tray(service) => {
+                let service = service.clone();
+                if let Some(bus) = self.tray_bus.as_ref() {
+                    bus.choose(&service, chosen.id);
+                }
+            }
+            Target::Window(index) => {
+                let index = *index;
+                match chosen.id {
+                    0 => {
+                        if let Some(window) = self.windows.get_mut(index) {
+                            window.hidden = !window.hidden;
+                        }
+                        if self.windows.get(index).map(|w| w.hidden) == Some(false) {
+                            self.raise(index);
+                        }
+                    }
+                    _ => {
+                        if let Some(window) = self.windows.get(index) {
+                            window.toplevel.send_close();
+                        }
+                    }
+                }
+            }
+        }
+        self.popover = None;
+        true
+    }
+
+    fn show_tip(&mut self, text: &str, under: Rect, below: bool) {
+        if self.tip_of.as_deref() == Some(text) {
+            return;
+        }
+        let items = vec![Item::line(0, text)];
+        let look = Look {
+            least_width: 0.0,
+            ..self.look
+        };
+        let size = look.size(&items, self.font.as_ref());
+        let image = look.paint(&items, size, None, self.font.as_ref());
+        let at = Vec2::new(
+            under.center().x - size.x / 2.0,
+            if below {
+                under.max().y + 6.0
+            } else {
+                under.origin.y - size.y - 6.0
+            },
+        );
+        let rect = look.rect(at, size, self.screen);
+        match upload(&mut self.renderer, Some(&image), "hover text") {
+            Ok(Some(art)) => {
+                self.tip = Some((art, rect));
+                self.tip_of = Some(text.to_string());
+            }
+            Ok(None) => {}
+            Err(error) => eprintln!("drifter: {error}"),
+        }
+    }
+
+    fn settle_tip(&mut self) {
+        let Some((at, since)) = self.hover_since else {
+            self.tip = None;
+            self.tip_of = None;
+            return;
+        };
+        if (self.pointer - at).length() > 3.0 {
+            self.hover_since = Some((self.pointer, Instant::now()));
+            self.tip = None;
+            self.tip_of = None;
+            return;
+        }
+        if Instant::now().duration_since(since) < self.tunables.drawer_dwell * 4 {
+            return;
+        }
+
+        if let Some(band) = self.tray_band()
+            && let Some(slot) = self.tray.icon_at(band, self.pointer, self.icons.len())
+        {
+            let rect = self.tray.icon_rect(band, slot);
+            let text = self.icons[slot].1.clone();
+            self.show_tip(&text, rect, true);
+            return;
+        }
+
+        if let Some(band) = self.dock_band() {
+            let hidden = self.minimized();
+            let pinned = self.pinned.len();
+            if let Some(slot) = self.dock.at(band, self.pointer, pinned, hidden.len()) {
+                let rect = self.dock.slot_rect(band, pinned, hidden.len(), slot);
+                let text = match slot {
+                    Slot::Pinned(index) => self.pinned[index].0.clone(),
+                    Slot::Minimized(index) => hidden[index].clone(),
+                    Slot::Trash => "Trash".to_string(),
+                };
+                self.show_tip(&text, rect, false);
+                return;
+            }
+        }
+
+        self.tip = None;
+        self.tip_of = None;
+    }
+
+    fn open_context(&mut self) -> bool {
+        if let Some(band) = self.tray_band()
+            && let Some(slot) = self.tray.icon_at(band, self.pointer, self.icons.len())
+        {
+            let service = self.icons[slot].0.clone();
+            if let Some(bus) = self.tray_bus.as_ref() {
+                bus.ask_menu(&service, self.pointer.x, self.pointer.y);
+            }
+            return true;
+        }
+
+        if let Some(band) = self.dock_band() {
+            let hidden = self.minimized();
+            let pinned = self.pinned.len();
+            if let Some(Slot::Minimized(index)) =
+                self.dock.at(band, self.pointer, pinned, hidden.len())
+            {
+                let Some(place) = self
+                    .windows
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, window)| window.hidden)
+                    .map(|(at, _)| at)
+                    .nth(index)
+                else {
+                    return true;
+                };
+                let items = vec![Item::line(0, "Show"), Item::line(1, "Exit")];
+                let at = self.pointer;
+                self.open_popover(items, at, Target::Window(place));
+                return true;
+            }
+        }
+
+        false
     }
 
     fn press(&mut self, code: u32) {
@@ -684,6 +919,19 @@ impl State {
         self.ticking = armed;
     }
 
+    fn hover(&mut self) {
+        self.repaint_popover();
+        if self.hover_since.is_none() {
+            self.hover_since = Some((self.pointer, Instant::now()));
+        } else if let Some((at, _)) = self.hover_since
+            && (self.pointer - at).length() > 3.0
+        {
+            self.hover_since = Some((self.pointer, Instant::now()));
+            self.tip = None;
+            self.tip_of = None;
+        }
+    }
+
     fn settle(&mut self) {
         let now = Instant::now();
         if let Some((edge, since)) = self.dwell
@@ -700,6 +948,7 @@ impl State {
                 self.set(edge, false);
             }
         }
+        self.settle_tip();
         if !self.awaiting
             && let Err(error) = self.draw()
         {
@@ -971,6 +1220,14 @@ impl State {
             self.held = None;
         }
         if state == ButtonState::Pressed {
+            if self.press_popover() {
+                self.kick();
+                return;
+            }
+            if code == BTN_RIGHT && self.open_context() {
+                self.kick();
+                return;
+            }
             if self.press_dock() {
                 self.kick();
                 return;
@@ -1021,6 +1278,7 @@ impl State {
                 let delta = Vec2::new(event.delta_x(), event.delta_y());
                 self.pointer_to(self.pointer + delta);
                 self.drag();
+                self.hover();
                 self.tell_pointer(event.time_msec());
             }
             InputEvent::PointerMotionAbsolute { event } => {
@@ -1028,6 +1286,7 @@ impl State {
                 let y = event.y_transformed(self.screen.y as i32);
                 self.pointer_to(Vec2::new(x, y));
                 self.drag();
+                self.hover();
                 self.tell_pointer(event.time_msec());
             }
             InputEvent::PointerButton { event } => {
@@ -1413,6 +1672,11 @@ pub fn open(
         format: config.tray.format.clone(),
         clock: None,
         icons: Vec::new(),
+        popover: None,
+        look: Look::default(),
+        tip: None,
+        tip_of: None,
+        hover_since: None,
         tray_bus,
         drawers: [Drawer::new(Edge::Top), Drawer::new(Edge::Bottom)],
         tunables,
@@ -1484,8 +1748,14 @@ pub fn open(
     if let Some(icons) = tray_icons {
         handle
             .insert_source(icons, |event, _, state: &mut State| {
-                if let ChannelEvent::Msg(icons) = event {
-                    state.take_icons(icons);
+                if let ChannelEvent::Msg(update) = event {
+                    match update {
+                        crate::tray::Update::Icons(icons) => state.take_icons(icons),
+                        crate::tray::Update::Menu { service, items, at } => {
+                            let at = Vec2::new(at.0, at.1);
+                            state.open_popover(items, at, Target::Tray(service));
+                        }
+                    }
                     state.kick();
                 }
             })

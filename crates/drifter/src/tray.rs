@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 
@@ -10,7 +11,17 @@ const ITEM: &str = "org.kde.StatusNotifierItem";
 
 pub struct Icon {
     pub service: String,
+    pub title: String,
     pub image: Image,
+}
+
+pub enum Update {
+    Icons(Vec<Icon>),
+    Menu {
+        service: String,
+        items: Vec<drifter_core::menu::Item>,
+        at: (f64, f64),
+    },
 }
 
 pub enum Click {
@@ -22,6 +33,8 @@ pub enum Click {
 enum Job {
     Look,
     Poke(String, Click, i32, i32),
+    Menu(String, f64, f64),
+    Choose(String, i32),
 }
 
 pub struct Tray {
@@ -32,10 +45,18 @@ impl Tray {
     pub fn click(&self, service: &str, click: Click, x: i32, y: i32) {
         let _ = self.jobs.send(Job::Poke(service.to_string(), click, x, y));
     }
+
+    pub fn ask_menu(&self, service: &str, x: f64, y: f64) {
+        let _ = self.jobs.send(Job::Menu(service.to_string(), x, y));
+    }
+
+    pub fn choose(&self, service: &str, id: i32) {
+        let _ = self.jobs.send(Job::Choose(service.to_string(), id));
+    }
 }
 
-pub fn start() -> Result<(Tray, Channel<Vec<Icon>>), String> {
-    let (icon_tx, icon_rx) = sync_channel::<Vec<Icon>>(4);
+pub fn start() -> Result<(Tray, Channel<Update>), String> {
+    let (icon_tx, icon_rx) = sync_channel::<Update>(8);
     let (job_tx, job_rx) = channel();
     let items: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
 
@@ -129,11 +150,113 @@ fn read_icon(connection: &zbus::blocking::Connection, service: &str) -> Option<I
     let proxy = zbus::blocking::Proxy::new(connection, name, path, ITEM).ok()?;
 
     let image = pixmap(&proxy).or_else(|| named(&proxy))?;
+    let title = tip(&proxy).unwrap_or_else(|| service.to_string());
 
     Some(Icon {
         service: service.to_string(),
+        title,
         image,
     })
+}
+
+fn tip(proxy: &zbus::blocking::Proxy<'_>) -> Option<String> {
+    if let Ok(tooltip) =
+        proxy.get_property::<(String, Vec<(i32, i32, Vec<u8>)>, String, String)>("ToolTip")
+    {
+        let (_, _, title, body) = tooltip;
+        if !title.is_empty() {
+            return Some(title);
+        }
+        if !body.is_empty() {
+            return Some(body);
+        }
+    }
+    for key in ["Title", "Id"] {
+        if let Ok(text) = proxy.get_property::<String>(key)
+            && !text.is_empty()
+        {
+            return Some(text);
+        }
+    }
+    None
+}
+
+fn read_menu(
+    connection: &zbus::blocking::Connection,
+    service: &str,
+) -> Option<Vec<drifter_core::menu::Item>> {
+    use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
+
+    let (name, path) = split(service);
+    let item = zbus::blocking::Proxy::new(connection, name.clone(), path, ITEM).ok()?;
+    let menu_path: OwnedObjectPath = item.get_property("Menu").ok()?;
+
+    let menu =
+        zbus::blocking::Proxy::new(connection, name, menu_path, "com.canonical.dbusmenu").ok()?;
+    let _ = menu.call_method("AboutToShow", &(0i32));
+
+    let layout: (u32, (i32, HashMap<String, OwnedValue>, Vec<OwnedValue>)) = menu
+        .call("GetLayout", &(0i32, 1i32, Vec::<String>::new()))
+        .ok()?;
+
+    let mut items = Vec::new();
+    for child in layout.1.2 {
+        let value = Value::from(child);
+        let Value::Structure(node) = value else {
+            continue;
+        };
+        let fields = node.into_fields();
+        if fields.len() < 2 {
+            continue;
+        }
+        let id = match &fields[0] {
+            Value::I32(id) => *id,
+            _ => continue,
+        };
+        let Value::Dict(props) = &fields[1] else {
+            continue;
+        };
+
+        let text = |key: &str| -> Option<String> {
+            props
+                .get::<str, Value>(key)
+                .ok()
+                .flatten()
+                .and_then(|value| match value {
+                    Value::Str(text) => Some(text.to_string()),
+                    _ => None,
+                })
+        };
+        let flag = |key: &str| -> Option<bool> {
+            props
+                .get::<str, Value>(key)
+                .ok()
+                .flatten()
+                .and_then(|value| match value {
+                    Value::Bool(on) => Some(on),
+                    _ => None,
+                })
+        };
+
+        if flag("visible") == Some(false) {
+            continue;
+        }
+        if text("type").as_deref() == Some("separator") {
+            items.push(drifter_core::menu::Item::rule(id));
+            continue;
+        }
+
+        let label = text("label").unwrap_or_default();
+        if label.is_empty() {
+            continue;
+        }
+        let mut entry = drifter_core::menu::Item::line(id, &label);
+        entry.enabled = flag("enabled").unwrap_or(true);
+        entry.children = text("children-display").as_deref() == Some("submenu");
+        items.push(entry);
+    }
+
+    Some(items)
 }
 
 fn pixmap(proxy: &zbus::blocking::Proxy<'_>) -> Option<Image> {
@@ -191,7 +314,7 @@ fn find_icon(name: &str, theme: &str) -> Option<std::path::PathBuf> {
 
 fn serve(
     items: Arc<Mutex<Vec<String>>>,
-    wake: SyncSender<Vec<Icon>>,
+    wake: SyncSender<Update>,
     look: Sender<Job>,
     jobs: Receiver<Job>,
 ) {
@@ -265,7 +388,48 @@ fn serve(
                     .filter_map(|service| read_icon(&connection, service))
                     .collect::<Vec<_>>();
                 println!("drifter: tray has {} icon(s)", icons.len());
-                let _ = wake.send(icons);
+                let _ = wake.send(Update::Icons(icons));
+                continue;
+            }
+            Job::Menu(service, x, y) => {
+                match read_menu(&connection, &service) {
+                    Some(items) if !items.is_empty() => {
+                        let _ = wake.send(Update::Menu {
+                            service,
+                            items,
+                            at: (x, y),
+                        });
+                    }
+                    _ => eprintln!("drifter: {service} offers no menu"),
+                }
+                continue;
+            }
+            Job::Choose(service, id) => {
+                let (name, path) = split(&service);
+                let Ok(item) = zbus::blocking::Proxy::new(&connection, name.clone(), path, ITEM)
+                else {
+                    continue;
+                };
+                let Ok(menu_path) = item.get_property::<zbus::zvariant::OwnedObjectPath>("Menu")
+                else {
+                    continue;
+                };
+                let Ok(menu) = zbus::blocking::Proxy::new(
+                    &connection,
+                    name,
+                    menu_path,
+                    "com.canonical.dbusmenu",
+                ) else {
+                    continue;
+                };
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|gap| gap.as_secs() as u32)
+                    .unwrap_or(0);
+                let data = zbus::zvariant::Value::I32(0);
+                if let Err(error) = menu.call_method("Event", &(id, "clicked", &data, now)) {
+                    eprintln!("drifter: tray menu click failed: {error}");
+                }
                 continue;
             }
             Job::Poke(service, click, x, y) => (service, click, x, y),
@@ -289,7 +453,7 @@ fn serve(
 fn watch_signals(
     connection: zbus::blocking::Connection,
     items: Arc<Mutex<Vec<String>>>,
-    wake: SyncSender<Vec<Icon>>,
+    wake: SyncSender<Update>,
 ) {
     let rule = zbus::MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)

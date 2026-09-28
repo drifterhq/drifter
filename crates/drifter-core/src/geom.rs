@@ -25,6 +25,10 @@ impl Vec2 {
         Vec2::new(self.x.max(other.x), self.y.max(other.y))
     }
 
+    pub fn length(self) -> f64 {
+        (self.x * self.x + self.y * self.y).sqrt()
+    }
+
     pub fn round(self) -> Vec2 {
         Vec2::new(self.x.round(), self.y.round())
     }
@@ -112,6 +116,12 @@ impl Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn length_is_the_distance_from_zero() {
+        assert_eq!(Vec2::new(3.0, 4.0).length(), 5.0);
+        assert_eq!(Vec2::ZERO.length(), 0.0);
+    }
 
     #[test]
     fn rounding_snaps_to_whole_pixels() {
