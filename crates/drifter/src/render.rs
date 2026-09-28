@@ -55,6 +55,7 @@ const TICK: Duration = Duration::from_millis(8);
 const SECOND_TICK: Duration = Duration::from_millis(250);
 const SETTLING: Duration = Duration::from_secs(2);
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
+const PUSH_BAND: f64 = 8.0;
 
 use smithay::backend::renderer::{ImportAll, RendererSuper, element::render_elements};
 
@@ -1249,20 +1250,38 @@ impl State {
     fn pointer_to(&mut self, position: Vec2) {
         let edge = self.screen - Vec2::splat(1.0);
         let inside = position.clamp(Vec2::ZERO, edge);
-        let push = position - inside;
-        self.pointer = inside;
+        let was = self.pointer;
 
         if self.modifier {
-            if push != Vec2::ZERO {
+            let band = PUSH_BAND;
+            let moved = position - was;
+            let mut pan = position - inside;
+            if inside.x <= band && moved.x < 0.0 {
+                pan.x = moved.x;
+            }
+            if inside.x >= edge.x - band && moved.x > 0.0 {
+                pan.x = moved.x;
+            }
+            if inside.y <= band && moved.y < 0.0 {
+                pan.y = moved.y;
+            }
+            if inside.y >= edge.y - band && moved.y > 0.0 {
+                pan.y = moved.y;
+            }
+
+            if pan != Vec2::ZERO {
                 let mut camera = self.camera;
-                camera.pan_by_screen(push);
+                camera.pan_by_screen(pan);
                 camera.clamp_to_world(self.world, self.screen);
                 self.camera = camera;
                 self.flight = None;
             }
+            self.pointer = inside;
             self.dwell = None;
             return;
         }
+
+        self.pointer = inside;
 
         match self.wanted() {
             Some(edge) => {
