@@ -64,6 +64,44 @@ impl Camera {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Flight {
+    pub from: Camera,
+    pub to: Camera,
+    pub span: std::time::Duration,
+}
+
+impl Flight {
+    pub fn new(from: Camera, to: Camera, span: std::time::Duration) -> Self {
+        Flight { from, to, span }
+    }
+
+    pub fn progress(&self, gone: std::time::Duration) -> f64 {
+        if self.span.is_zero() {
+            return 1.0;
+        }
+        (gone.as_secs_f64() / self.span.as_secs_f64()).clamp(0.0, 1.0)
+    }
+
+    pub fn done(&self, gone: std::time::Duration) -> bool {
+        self.progress(gone) >= 1.0
+    }
+
+    pub fn at(&self, gone: std::time::Duration) -> Camera {
+        let t = crate::drawer::ease(self.progress(gone));
+        let center = self.from.center + (self.to.center - self.from.center) * t;
+        let zoom = glide(self.from.zoom, self.to.zoom, t);
+        Camera::new(center, zoom)
+    }
+}
+
+fn glide(from: f64, to: f64, t: f64) -> f64 {
+    if from <= 0.0 || to <= 0.0 {
+        return from + (to - from) * t;
+    }
+    (from.ln() + (to.ln() - from.ln()) * t).exp()
+}
+
 fn clamp_axis(center: f64, visible: f64, world: f64) -> f64 {
     if visible >= world {
         world / 2.0
@@ -76,8 +114,78 @@ fn clamp_axis(center: f64, visible: f64, world: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     const VIEWPORT: Vec2 = Vec2::new(1920.0, 1080.0);
+
+    #[test]
+    fn a_flight_starts_where_it_was_and_lands_where_it_was_sent() {
+        let from = Camera::at_work_zoom(Vec2::new(500.0, 400.0));
+        let to = Camera::new(Vec2::new(2000.0, 1500.0), 0.3333);
+        let flight = Flight::new(from, to, Duration::from_millis(260));
+
+        let start = flight.at(Duration::ZERO);
+        assert!((start.center - from.center).length() < 1e-9);
+        assert!((start.zoom - from.zoom).abs() < 1e-9);
+
+        let end = flight.at(Duration::from_millis(260));
+        assert!((end.center - to.center).length() < 1e-9);
+        assert!((end.zoom - to.zoom).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_flight_never_passes_the_time_it_was_given() {
+        let flight = Flight::new(
+            Camera::at_work_zoom(Vec2::ZERO),
+            Camera::at_work_zoom(Vec2::new(100.0, 0.0)),
+            Duration::from_millis(200),
+        );
+        assert!(flight.done(Duration::from_millis(200)));
+        assert!(!flight.done(Duration::from_millis(199)));
+        let late = flight.at(Duration::from_secs(9));
+        assert_eq!(late.center, Vec2::new(100.0, 0.0));
+    }
+
+    #[test]
+    fn zoom_glides_evenly_rather_than_in_a_straight_line() {
+        let middle = glide(0.25, 1.0, 0.5);
+        let straight = (0.25 + 1.0) / 2.0;
+        assert!(
+            middle < straight,
+            "zoom is mixed in a straight line, so half way out looks nearly all the way out"
+        );
+        assert!(
+            (middle - 0.5).abs() < 1e-9,
+            "half way should double the zoom"
+        );
+    }
+
+    #[test]
+    fn the_camera_springs_rather_than_easing_flat() {
+        let flight = Flight::new(
+            Camera::at_work_zoom(Vec2::ZERO),
+            Camera::at_work_zoom(Vec2::new(100.0, 0.0)),
+            Duration::from_millis(200),
+        );
+        let peak = (0..=100)
+            .map(|step| flight.at(Duration::from_millis(step * 2)).center.x)
+            .fold(0.0f64, f64::max);
+        assert!(
+            peak > 100.0,
+            "the camera never overshoots, so it is not elastic"
+        );
+    }
+
+    #[test]
+    fn a_flight_of_no_time_is_already_over() {
+        let flight = Flight::new(
+            Camera::at_work_zoom(Vec2::ZERO),
+            Camera::at_work_zoom(Vec2::new(5.0, 5.0)),
+            Duration::ZERO,
+        );
+        assert!(flight.done(Duration::ZERO));
+        assert_eq!(flight.at(Duration::ZERO).center, Vec2::new(5.0, 5.0));
+    }
     const WORLD: Vec2 = Vec2::new(7680.0, 6480.0);
 
     fn close(a: f64, b: f64) -> bool {

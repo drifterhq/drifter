@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use drifter_core::camera::{Camera, Flight};
 use drifter_core::cursor::{self, Cursor};
 use drifter_core::dock::{Dock, Slot};
 use drifter_core::drawer::{self, Drawer, Edge, Panel};
@@ -47,6 +48,8 @@ const ESCAPE: u32 = 9;
 const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
 const BTN_MIDDLE: u32 = 0x112;
+const SUPER_LEFT: u32 = 133;
+const SUPER_RIGHT: u32 = 134;
 const PANEL_COLOR: [u8; 3] = [16, 18, 26];
 const PANEL_ALPHA: u8 = 235;
 const TICK: Duration = Duration::from_millis(8);
@@ -118,7 +121,13 @@ pub struct State {
     pub popups: Vec<smithay::wayland::shell::xdg::PopupSurface>,
     display: Option<Display<State>>,
     chrome: Chrome,
+    camera: Camera,
+    world: Vec2,
+    mode: drifter_core::WallpaperMode,
+    flight: Option<(Flight, Instant)>,
+    corner_since: Option<Instant>,
     grab: Grab,
+    modifier: bool,
     held: Option<usize>,
     pub focus: Option<usize>,
     skin: std::collections::HashMap<String, (TextureBuffer<GlesTexture>, Vec2)>,
@@ -167,12 +176,53 @@ pub struct State {
 }
 
 impl State {
+    fn on_screen(&self, world: Rect) -> Rect {
+        let origin = self.camera.screen_from_world(world.origin, self.screen);
+        Rect::new(origin, world.size * self.camera.zoom)
+    }
+
+    fn in_world(&self, screen: Vec2) -> Vec2 {
+        self.camera.world_from_screen(screen, self.screen)
+    }
+
+    fn fly_to(&mut self, target: Camera) {
+        let mut target = target;
+        target.clamp_to_world(self.world, self.screen);
+        self.flight = Some((
+            Flight::new(self.camera, target, self.tunables.camera_anim),
+            Instant::now(),
+        ));
+    }
+
+    fn steer(&mut self) -> bool {
+        let Some((flight, since)) = self.flight else {
+            return false;
+        };
+        let gone = Instant::now().duration_since(since);
+        self.camera = flight.at(gone);
+        if flight.done(gone) {
+            self.camera = flight.to;
+            self.flight = None;
+            return false;
+        }
+        true
+    }
+
+    fn overview(&self) -> bool {
+        self.camera.zoom < Camera::WORK_ZOOM - 1e-6
+    }
+
     fn animating(&self) -> bool {
-        self.drawers.iter().any(|drawer| !drawer.settled())
+        self.drawers.iter().any(|drawer| !drawer.settled()) || self.flight.is_some()
     }
 
     fn pending(&self) -> Option<Duration> {
-        if self.dwell.is_some() || self.leave.is_some() || self.animating() {
+        if self.dwell.is_some()
+            || self.leave.is_some()
+            || self.animating()
+            || self.corner_since.is_some()
+            || self.modifier
+        {
             return Some(TICK);
         }
         if self.hover_since.is_some() && self.tip.is_none() {
@@ -295,14 +345,17 @@ impl State {
                 )
             })
             .collect();
+        let zoom = self.camera.zoom;
         for (content, inset, awake, surface) in windows {
-            let at = content.origin - inset;
+            let at = self
+                .camera
+                .screen_from_world(content.origin - inset, self.screen);
             let client: Vec<WaylandSurfaceRenderElement<GlesRenderer>> =
                 render_elements_from_surface_tree(
                     &mut self.renderer,
                     &surface,
-                    (at.x as i32, at.y as i32),
-                    1.0,
+                    (at.x.round() as i32, at.y.round() as i32),
+                    zoom,
                     1.0,
                     Kind::Unspecified,
                 );
@@ -311,9 +364,36 @@ impl State {
         }
 
         if let Some((buffer, rect)) = self.wallpaper.as_ref() {
-            elements.push(Skin::Texture(element(buffer, *rect, 1.0)));
+            elements.push(Skin::Texture(element(
+                buffer,
+                self.wallpaper_rect(*rect),
+                1.0,
+            )));
         }
         elements
+    }
+
+    fn wallpaper_rect(&self, fitted: Rect) -> Rect {
+        use drifter_core::WallpaperMode;
+        match self.mode {
+            WallpaperMode::Fixed => fitted,
+            WallpaperMode::Pan => self.on_screen(Rect::new(Vec2::ZERO, self.world)),
+            WallpaperMode::Parallax => {
+                let view = self.camera.visible_rect(self.screen);
+                let paper = fitted.size;
+                let origin = drifter_core::wallpaper::origin(
+                    WallpaperMode::Parallax,
+                    view.origin,
+                    paper,
+                    view.size,
+                    self.world,
+                );
+                Rect::new(
+                    self.camera.screen_from_world(origin, self.screen),
+                    paper * self.camera.zoom,
+                )
+            }
+        }
     }
 
     fn popup_at(
@@ -347,6 +427,7 @@ impl State {
 
     fn dress(&self, content: Rect, awake: bool, elements: &mut Vec<Skin>) {
         let layout = self.chrome.layout(content);
+        let show = |rect: Rect| self.on_screen(rect);
         let pieces = [
             (ChromePiece::TitleLeft, layout.title_left),
             (ChromePiece::TitleMid, layout.title_mid),
@@ -362,12 +443,14 @@ impl State {
                 continue;
             }
             if let Some((buffer, _)) = self.skin.get(&piece.file_name(awake)) {
-                elements.push(Skin::Texture(element(buffer, rect, 1.0)));
+                elements.push(Skin::Texture(element(buffer, show(rect), 1.0)));
             }
         }
 
         let bar = self.chrome.title_bar(content);
-        let over = self.chrome.button_at(content, self.pointer, 3);
+        let over = self
+            .chrome
+            .button_at(content, self.in_world(self.pointer), 3);
         for (slot, name) in ["close", "minimize", "maximize"].iter().enumerate() {
             let look = match (over == Some(slot), self.held == Some(slot)) {
                 (true, true) => "-press",
@@ -378,7 +461,7 @@ impl State {
             if let Some((buffer, size)) = self.skin.get(&file) {
                 let place = self.chrome.button_rect(slot);
                 let rect = Rect::new(bar.origin + place.origin, *size);
-                elements.push(Skin::Texture(element(buffer, rect, 1.0)));
+                elements.push(Skin::Texture(element(buffer, show(rect), 1.0)));
             }
         }
     }
@@ -444,7 +527,7 @@ impl State {
             self.output.enter(surface);
         }
 
-        let screen = self.screen;
+        let view = self.camera.visible_rect(self.screen);
         let chrome = self.chrome;
         let Some(window) = self
             .windows
@@ -463,9 +546,10 @@ impl State {
             return;
         }
 
-        let middle = (screen - size) / 2.0;
-        let top = middle.y.max(chrome.title + chrome.edge);
-        window.content.origin = Vec2::new(middle.x.max(chrome.edge), top).round();
+        let seen = view.origin;
+        let middle = seen + (view.size - size) / 2.0;
+        let top = middle.y.max(seen.y + chrome.title + chrome.edge);
+        window.content.origin = Vec2::new(middle.x, top).round();
         window.placed = true;
     }
 
@@ -480,6 +564,8 @@ impl State {
         for drawer in &mut self.drawers {
             drawer.advance(dt, self.tunables.drawer_anim);
         }
+        self.steer();
+        self.push_edge(dt);
 
         self.wind_the_clock();
 
@@ -827,6 +913,83 @@ impl State {
         false
     }
 
+    fn watch_corner(&mut self) {
+        let size = self.tunables.hot_corner_size;
+        let in_corner = self.pointer.x < size && self.pointer.y < size;
+
+        if !in_corner {
+            self.corner_since = None;
+            return;
+        }
+        if self.overview() || self.flight.is_some() {
+            return;
+        }
+        match self.corner_since {
+            None => self.corner_since = Some(Instant::now()),
+            Some(since) => {
+                if Instant::now().duration_since(since) >= self.tunables.hot_corner_dwell {
+                    self.corner_since = None;
+                    let whole = Camera::fitting_world(self.screen, self.world);
+                    self.fly_to(whole);
+                }
+            }
+        }
+    }
+
+    fn press_overview(&mut self) -> bool {
+        if !self.overview() {
+            return false;
+        }
+        let target = match self.under_pointer() {
+            Some((index, _)) => {
+                let window = self.windows[index];
+                let _ = window;
+                self.windows[index].content.center()
+            }
+            None => self.in_world(self.pointer),
+        };
+        self.fly_to(Camera::at_work_zoom(target));
+        true
+    }
+
+    fn zoom_by(&mut self, steps: f64) {
+        let least = Camera::fit_zoom(self.screen, self.world);
+        let wanted = (self.camera.zoom * (1.0 + steps * 0.12)).clamp(least, 4.0);
+        let mut camera = self.camera;
+        camera.zoom_at(self.pointer, wanted, self.screen);
+        camera.clamp_to_world(self.world, self.screen);
+        self.camera = camera;
+        self.flight = None;
+    }
+
+    fn push_edge(&mut self, dt: Duration) {
+        if !self.modifier {
+            return;
+        }
+        let band = self.tunables.edge_band.max(2.0);
+        let speed = self.tunables.edge_pan_speed * dt.as_secs_f64();
+        let mut push = Vec2::ZERO;
+        if self.pointer.x < band {
+            push.x = -speed;
+        }
+        if self.pointer.x > self.screen.x - band {
+            push.x = speed;
+        }
+        if self.pointer.y < band {
+            push.y = -speed;
+        }
+        if self.pointer.y > self.screen.y - band {
+            push.y = speed;
+        }
+        if push == Vec2::ZERO {
+            return;
+        }
+        let mut camera = self.camera;
+        camera.pan_by_screen(push);
+        camera.clamp_to_world(self.world, self.screen);
+        self.camera = camera;
+    }
+
     fn press(&mut self, code: u32) {
         let Some(band) = self.tray_band() else {
             return;
@@ -919,6 +1082,7 @@ impl State {
     }
 
     fn hover(&mut self) {
+        self.watch_corner();
         self.repaint_popover();
         if self.hover_since.is_none() {
             self.hover_since = Some((self.pointer, Instant::now()));
@@ -1000,14 +1164,13 @@ impl State {
     }
 
     fn under_pointer(&self) -> Option<(usize, Vec2)> {
+        let world = self.in_world(self.pointer);
         self.windows
             .iter()
             .enumerate()
             .rev()
-            .find(|(_, window)| {
-                window.placed && !window.hidden && window.content.contains(self.pointer)
-            })
-            .map(|(index, window)| (index, self.pointer - window.content.origin))
+            .find(|(_, window)| window.placed && !window.hidden && window.content.contains(world))
+            .map(|(index, window)| (index, world - window.content.origin))
     }
 
     fn tell_pointer(&mut self, time: u32) {
@@ -1023,7 +1186,8 @@ impl State {
             )
         });
         let pointer = self.wayland.pointer.clone();
-        let at = smithay::utils::Point::from((self.pointer.x, self.pointer.y));
+        let world = self.in_world(self.pointer);
+        let at = smithay::utils::Point::from((world.x, world.y));
         pointer.motion(
             self,
             focus,
@@ -1068,7 +1232,7 @@ impl State {
             .filter(|(_, window)| window.placed && !window.hidden)
             .find_map(|(index, window)| {
                 self.chrome
-                    .grip_at(window.content, self.pointer, 3)
+                    .grip_at(window.content, self.in_world(self.pointer), 3)
                     .map(|grip| (index, grip))
             })
     }
@@ -1092,14 +1256,14 @@ impl State {
             Grip::Title => {
                 self.grab = Grab::Move {
                     index,
-                    offset: self.pointer - content.origin,
+                    offset: self.in_world(self.pointer) - content.origin,
                 };
             }
             other => {
                 self.grab = Grab::Resize {
                     index,
                     grip: other,
-                    from: self.pointer,
+                    from: self.in_world(self.pointer),
                     start: content,
                 };
             }
@@ -1182,8 +1346,9 @@ impl State {
         match self.grab {
             Grab::None => {}
             Grab::Move { index, offset } => {
+                let world = self.in_world(self.pointer);
                 if let Some(window) = self.windows.get_mut(index) {
-                    window.content.origin = (self.pointer - offset).round();
+                    window.content.origin = (world - offset).round();
                     window.touched = true;
                 }
             }
@@ -1194,7 +1359,7 @@ impl State {
                 start,
             } => {
                 let chrome = self.chrome;
-                let moved = self.pointer - from;
+                let moved = self.in_world(self.pointer) - from;
                 let least = Vec2::new(160.0, 80.0);
                 let wanted = chrome.resize(start, grip, moved, least);
                 if let Some(window) = self.windows.get_mut(index) {
@@ -1219,6 +1384,10 @@ impl State {
             self.held = None;
         }
         if state == ButtonState::Pressed {
+            if self.press_overview() {
+                self.kick();
+                return;
+            }
             if self.press_popover() {
                 self.kick();
                 return;
@@ -1299,7 +1468,27 @@ impl State {
             {
                 self.signal.stop();
             }
-            InputEvent::Keyboard { event } => self.tell_keyboard(&event),
+            InputEvent::PointerAxis { event } => {
+                use smithay::backend::input::{Axis, PointerAxisEvent};
+                if !self.modifier {
+                    return;
+                }
+                let steps = event
+                    .amount_v120(Axis::Vertical)
+                    .map(|raw| -raw / 120.0)
+                    .or_else(|| event.amount(Axis::Vertical).map(|raw| -raw / 10.0))
+                    .unwrap_or(0.0);
+                if steps != 0.0 {
+                    self.zoom_by(steps);
+                }
+            }
+            InputEvent::Keyboard { event } => {
+                let code = event.key_code().raw();
+                if matches!(code, SUPER_LEFT | SUPER_RIGHT) {
+                    self.modifier = event.state() == KeyState::Pressed;
+                }
+                self.tell_keyboard(&event);
+            }
             _ => {}
         }
     }
@@ -1443,6 +1632,7 @@ pub fn open(
 
     let gl = describe(&mut renderer);
     let screen = Vec2::new(f64::from(width), f64::from(height));
+    let world = config.world_size(screen);
     let screen_mode = smithay::output::Mode {
         size: (i32::from(width), i32::from(height)).into(),
         refresh: (drm_mode.vrefresh() * 1000) as i32,
@@ -1640,7 +1830,13 @@ pub fn open(
         popups: Vec::new(),
         display: Some(display),
         chrome,
+        camera: Camera::at_work_zoom(world / 2.0),
+        world,
+        mode: config.workspace.wallpaper_mode,
+        flight: None,
+        corner_since: None,
         grab: Grab::None,
+        modifier: false,
         held: None,
         focus: None,
         skin,
