@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use crate::drawer::ease;
-use crate::geom::{Rect, Vec2};
+use crate::geom::Rect;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Phase {
@@ -94,6 +94,7 @@ pub fn between(from: Rect, to: Rect, t: f64) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::geom::Vec2;
 
     fn window() -> Rect {
         Rect::new(Vec2::new(400.0, 300.0), Vec2::new(800.0, 600.0))
