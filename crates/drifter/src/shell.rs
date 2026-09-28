@@ -44,6 +44,7 @@ pub struct Wayland {
 pub struct Window {
     pub toplevel: ToplevelSurface,
     pub content: Rect,
+    pub inset: Vec2,
     pub placed: bool,
 }
 
@@ -142,6 +143,7 @@ impl XdgShellHandler for State {
         self.windows.push(Window {
             toplevel: surface,
             content: Rect::new(Vec2::ZERO, Vec2::ZERO),
+            inset: Vec2::ZERO,
             placed: false,
         });
     }

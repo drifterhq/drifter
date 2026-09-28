@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::process::ExitCode;
 
-use drifter_core::{Camera, Config, Tunables, Vec2, wallpaper};
+use drifter_core::{Camera, Config, Vec2, wallpaper};
 
 #[cfg(target_os = "linux")]
 mod render;
@@ -42,7 +42,6 @@ fn report(config: &Config) {
     let screen = Vec2::new(1920.0, 1080.0);
     let world = config.world_size(screen);
     let fit = Camera::fit_zoom(screen, world);
-    let tunables = Tunables::default();
     let needed = wallpaper::required_size(config.workspace.wallpaper_mode, screen, world);
 
     println!(
@@ -59,7 +58,10 @@ fn report(config: &Config) {
         Some(image) => println!("            {} ({})", image.display(), present(image)),
         None => println!("            none set"),
     }
-    println!("drawers     {} px", tunables.drawer_height);
+    println!(
+        "drawers     top {} px, bottom {} px",
+        config.drawers.top, config.drawers.bottom
+    );
 }
 
 #[cfg(target_os = "linux")]

@@ -83,6 +83,7 @@ pub struct Screen {
 }
 
 pub struct State {
+    pub output: smithay::output::Output,
     pub wayland: crate::shell::Wayland,
     pub windows: Vec<crate::shell::Window>,
     display: Option<Display<State>>,
@@ -168,20 +169,28 @@ impl State {
 
         let windows: Vec<(
             Rect,
+            Vec2,
             smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
         )> = self
             .windows
             .iter()
             .rev()
             .filter(|window| window.placed)
-            .map(|window| (window.content, window.toplevel.wl_surface().clone()))
+            .map(|window| {
+                (
+                    window.content,
+                    window.inset,
+                    window.toplevel.wl_surface().clone(),
+                )
+            })
             .collect();
-        for (content, surface) in windows {
+        for (content, inset, surface) in windows {
+            let at = content.origin - inset;
             let client: Vec<WaylandSurfaceRenderElement<GlesRenderer>> =
                 render_elements_from_surface_tree(
                     &mut self.renderer,
                     &surface,
-                    (content.origin.x as i32, content.origin.y as i32),
+                    (at.x as i32, at.y as i32),
                     1.0,
                     1.0,
                     Kind::Unspecified,
@@ -238,6 +247,55 @@ impl State {
         &mut self,
         surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
     ) {
+        if !self
+            .windows
+            .iter()
+            .any(|window| window.toplevel.wl_surface() == surface)
+        {
+            return;
+        }
+
+        let whole =
+            smithay::backend::renderer::utils::with_renderer_surface_state(surface, |state| {
+                state.surface_size()
+            })
+            .flatten();
+        let Some(whole) = whole else {
+            return;
+        };
+
+        let geometry = smithay::wayland::compositor::with_states(surface, |states| {
+            states
+                .cached_state
+                .get::<smithay::wayland::compositor::SurfaceCachedState>()
+                .current()
+                .geometry
+        });
+
+        let (size, inset) = match geometry {
+            Some(area) if area.size.w > 0 && area.size.h > 0 => (
+                Vec2::new(f64::from(area.size.w), f64::from(area.size.h)),
+                Vec2::new(f64::from(area.loc.x), f64::from(area.loc.y)),
+            ),
+            _ => (
+                Vec2::new(f64::from(whole.w), f64::from(whole.h)),
+                Vec2::ZERO,
+            ),
+        };
+        if size.x <= 0.0 || size.y <= 0.0 {
+            return;
+        }
+
+        let fresh = self
+            .windows
+            .iter()
+            .find(|window| window.toplevel.wl_surface() == surface)
+            .map(|window| !window.placed)
+            .unwrap_or(false);
+        if fresh {
+            self.output.enter(surface);
+        }
+
         let screen = self.screen;
         let chrome = self.chrome;
         let Some(window) = self
@@ -248,27 +306,16 @@ impl State {
             return;
         };
 
-        let size =
-            smithay::backend::renderer::utils::with_renderer_surface_state(surface, |state| {
-                state.surface_size()
-            })
-            .flatten();
-        let Some(size) = size else {
-            return;
-        };
-        let size = Vec2::new(f64::from(size.w), f64::from(size.h));
-        if size.x <= 0.0 || size.y <= 0.0 {
+        window.inset = inset;
+        if window.placed {
+            window.content.size = size;
             return;
         }
 
-        if !window.placed {
-            let middle = (screen - size) / 2.0;
-            let top = middle.y.max(chrome.title + chrome.edge);
-            window.content = Rect::new(Vec2::new(middle.x.max(chrome.edge), top), size);
-            window.placed = true;
-        } else {
-            window.content.size = size;
-        }
+        let middle = (screen - size) / 2.0;
+        let top = middle.y.max(chrome.title + chrome.edge);
+        window.content = Rect::new(Vec2::new(middle.x.max(chrome.edge), top), size);
+        window.placed = true;
     }
 
     fn draw(&mut self) -> Result<bool, String> {
@@ -537,10 +584,12 @@ impl State {
         use smithay::input::pointer::MotionEvent;
         use smithay::utils::SERIAL_COUNTER;
 
-        let focus = self.under_pointer().map(|(index, inside)| {
+        let focus = self.under_pointer().map(|(index, _)| {
+            let window = &self.windows[index];
+            let at = window.content.origin - window.inset;
             (
-                self.windows[index].toplevel.wl_surface().clone(),
-                smithay::utils::Point::from((inside.x, inside.y)),
+                window.toplevel.wl_surface().clone(),
+                smithay::utils::Point::from((at.x, at.y)),
             )
         });
         let pointer = self.wayland.pointer.clone();
@@ -769,6 +818,17 @@ pub fn open(
 
     let gl = describe(&mut renderer);
     let screen = Vec2::new(f64::from(width), f64::from(height));
+    let screen_mode = smithay::output::Mode {
+        size: (i32::from(width), i32::from(height)).into(),
+        refresh: (drm_mode.vrefresh() * 1000) as i32,
+    };
+    output.change_current_state(
+        Some(screen_mode),
+        Some(Transform::Normal),
+        Some(smithay::output::Scale::Integer(1)),
+        Some((0, 0).into()),
+    );
+    output.set_preferred(screen_mode);
     let tunables = Tunables::default();
     let shapes = [
         Panel {
@@ -871,6 +931,16 @@ pub fn open(
     let display: Display<State> =
         Display::new().map_err(|e| format!("cannot start the wayland display: {e}"))?;
     let wayland = crate::shell::start(&display)?;
+    let output = smithay::output::Output::new(
+        "drifter".to_string(),
+        smithay::output::PhysicalProperties {
+            size: (0, 0).into(),
+            subpixel: smithay::output::Subpixel::Unknown,
+            make: "Drifter".to_string(),
+            model: "Drifter".to_string(),
+        },
+    );
+    output.create_global::<State>(&wayland.handle);
 
     let (tray_bus, tray_icons) = match crate::tray::start() {
         Ok((bus, icons)) => (Some(bus), Some(icons)),
@@ -894,6 +964,7 @@ pub fn open(
         .map_err(|_| format!("cannot take input on seat {seat_name}"))?;
 
     let state = State {
+        output,
         wayland,
         windows: Vec::new(),
         display: Some(display),

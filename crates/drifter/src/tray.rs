@@ -44,15 +44,21 @@ pub fn start() -> Result<(Tray, Channel<Vec<Icon>>), String> {
     Ok((Tray { clicks: click_tx }, icon_rx))
 }
 
-fn bus_address() -> Option<String> {
-    if std::env::var_os("DBUS_SESSION_BUS_ADDRESS").is_some() {
-        return None;
+fn bus_address() -> Result<String, String> {
+    if let Some(set) = std::env::var_os("DBUS_SESSION_BUS_ADDRESS")
+        && !set.is_empty()
+    {
+        return set
+            .into_string()
+            .map_err(|_| "DBUS_SESSION_BUS_ADDRESS is not readable text".to_string());
     }
+
     let uid = smithay::reexports::rustix::process::getuid().as_raw();
     let path = format!("/run/user/{uid}/bus");
-    std::path::Path::new(&path)
-        .exists()
-        .then(|| format!("unix:path={path}"))
+    if std::path::Path::new(&path).exists() {
+        return Ok(format!("unix:path={path}"));
+    }
+    Err(format!("no session bus. {path} does not exist"))
 }
 
 struct Watcher {
@@ -191,21 +197,20 @@ fn serve(
     wake: SyncSender<Vec<Icon>>,
     clicks: Receiver<(String, Click, i32, i32)>,
 ) {
-    let mut builder = match bus_address() {
-        Some(address) => match zbus::blocking::connection::Builder::address(address.as_str()) {
-            Ok(builder) => builder,
-            Err(error) => {
-                eprintln!("drifter: no tray: {error}");
-                return;
-            }
-        },
-        None => match zbus::blocking::connection::Builder::session() {
-            Ok(builder) => builder,
-            Err(error) => {
-                eprintln!("drifter: no tray: {error}");
-                return;
-            }
-        },
+    let address = match bus_address() {
+        Ok(address) => address,
+        Err(error) => {
+            eprintln!("drifter: no tray: {error}");
+            return;
+        }
+    };
+
+    let mut builder = match zbus::blocking::connection::Builder::address(address.as_str()) {
+        Ok(builder) => builder,
+        Err(error) => {
+            eprintln!("drifter: no tray: {address}: {error}");
+            return;
+        }
     };
 
     let watcher = Watcher {
@@ -233,10 +238,13 @@ fn serve(
         Ok(connection) => connection,
         Err(error) => {
             eprintln!("drifter: no tray: {error}");
-            eprintln!("drifter: another tray already owns {WATCHER}");
+            eprintln!("drifter: {address} may already have a tray owning {WATCHER}");
             return;
         }
     };
+
+    println!("tray        {address}");
+    println!("            owns {WATCHER}");
 
     if let Ok(interface) = connection
         .object_server()
@@ -253,7 +261,11 @@ fn serve(
         .spawn(move || watch_signals(watching, names, ping))
         .ok();
 
-    while let Ok((service, click, x, y)) = clicks.recv() {
+    loop {
+        let Ok((service, click, x, y)) = clicks.recv() else {
+            eprintln!("drifter: the tray stopped listening for clicks");
+            return;
+        };
         let (name, path) = split(&service);
         let Ok(proxy) = zbus::blocking::Proxy::new(&connection, name, path, ITEM) else {
             continue;
