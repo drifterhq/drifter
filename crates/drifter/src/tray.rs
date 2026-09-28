@@ -191,7 +191,7 @@ fn read_menu(
     connection: &zbus::blocking::Connection,
     service: &str,
 ) -> Option<Vec<drifter_core::menu::Item>> {
-    use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
+    use zbus::zvariant::{OwnedObjectPath, Value};
 
     let (name, path) = split(service);
     let item = zbus::blocking::Proxy::new(connection, name.clone(), path, ITEM).ok()?;
