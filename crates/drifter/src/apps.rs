@@ -102,6 +102,24 @@ pub fn launch(command: &str, socket: &str) {
     }
 }
 
+pub fn file_manager() -> Option<String> {
+    handler("inode/directory")
+}
+
+pub fn open_folder(path: &str, socket: &str) {
+    if let Some(files) = file_manager()
+        && let Some(exec) = find(&files).and_then(|entry| entry.exec)
+    {
+        launch(&format!("{exec} {path}"), socket);
+        return;
+    }
+    if PathBuf::from("/usr/bin/xdg-open").is_file() {
+        launch(&format!("xdg-open {path}"), socket);
+        return;
+    }
+    eprintln!("drifter: no file manager is installed, so {path} cannot be opened");
+}
+
 pub fn defaults() -> Vec<String> {
     let mut chosen = Vec::new();
     for mime in ["x-scheme-handler/http", "inode/directory"] {

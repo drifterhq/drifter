@@ -666,12 +666,10 @@ impl State {
                 }
             }
             Slot::Trash => {
-                let trash = std::env::var("HOME").unwrap_or_default() + "/.local/share/Trash/files";
-                if let Some(files) = crate::apps::defaults().get(1).cloned()
-                    && let Some(exec) = crate::apps::find(&files).and_then(|entry| entry.exec)
-                {
-                    crate::apps::launch(&format!("{exec} {trash}"), &self.socket);
-                }
+                let home = std::env::var("HOME").unwrap_or_default();
+                let trash = format!("{home}/.local/share/Trash/files");
+                let _ = std::fs::create_dir_all(&trash);
+                crate::apps::open_folder(&trash, &self.socket);
             }
             Slot::Minimized(index) => {
                 let Some(place) = self
