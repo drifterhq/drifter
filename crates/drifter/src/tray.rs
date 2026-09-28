@@ -219,7 +219,7 @@ fn read_menu(
 
         let text = |key: &str| -> Option<String> {
             props
-                .get::<str, Value>(key)
+                .get::<&str, Value>(&key)
                 .ok()
                 .flatten()
                 .and_then(|value| match value {
@@ -229,7 +229,7 @@ fn read_menu(
         };
         let flag = |key: &str| -> Option<bool> {
             props
-                .get::<str, Value>(key)
+                .get::<&str, Value>(&key)
                 .ok()
                 .flatten()
                 .and_then(|value| match value {
@@ -494,7 +494,7 @@ fn watch_signals(
         let icons = names
             .iter()
             .filter_map(|service| read_icon(&connection, service))
-            .collect();
-        let _ = wake.send(icons);
+            .collect::<Vec<_>>();
+        let _ = wake.send(Update::Icons(icons));
     }
 }

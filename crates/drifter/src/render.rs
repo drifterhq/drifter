@@ -841,7 +841,7 @@ impl State {
             _ => return,
         };
         if let Some(bus) = self.tray_bus.as_ref() {
-            let (service, _) = &self.icons[slot];
+            let service = &self.icons[slot].0;
             bus.click(service, click, self.pointer.x as i32, self.pointer.y as i32);
         }
     }
