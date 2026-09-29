@@ -168,7 +168,32 @@ fn bootstrap(_config: &Config) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// Every panic goes to the crash log with a backtrace, as well as to the
+/// terminal.
+fn keep_crashes() {
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let folder = Config::state_dir();
+        let when = drifter_core::tray::now("%Y-%m-%d %H:%M:%S").unwrap_or_default();
+        let trace = std::backtrace::Backtrace::force_capture();
+        let entry = format!("{when} drifter panicked: {info}\n{trace}\n");
+        let written = std::fs::create_dir_all(&folder).and_then(|()| {
+            use std::io::Write;
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(folder.join("crash.log"))?
+                .write_all(entry.as_bytes())
+        });
+        if let Err(error) = written {
+            eprintln!("drifter: cannot write the crash log: {error}");
+        }
+        default(info);
+    }));
+}
+
 fn main() -> ExitCode {
+    keep_crashes();
     let path = Config::config_path();
     let config = match Config::load_from(&path) {
         Ok(config) => config,

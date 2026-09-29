@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Runs Drifter, and starts it again when it crashes. A clean exit (log out,
+# or SIGTERM) ends the session. Four crashes inside a minute also end it,
+# so a Drifter that cannot start does not spin forever.
+
+here=$(cd "$(dirname "$0")/.." && pwd)
+bin=$here/target/release/drifter
+[ -x "$bin" ] || bin=$here/target/debug/drifter
+
+state=${XDG_STATE_HOME:-$HOME/.local/state}/drifter
+mkdir -p "$state"
+log=$state/crash.log
+
+export XDG_CURRENT_DESKTOP=drifter
+export XDG_SESSION_DESKTOP=drifter
+export XDG_SESSION_TYPE=wayland
+
+recent=()
+while true; do
+    "$bin"
+    code=$?
+    if [ "$code" -eq 0 ]; then
+        exit 0
+    fi
+
+    now=$(date +%s)
+    echo "$(date -Is) drifter stopped with code $code, starting it again" >>"$log"
+    kept=()
+    for when in "${recent[@]}"; do
+        [ $((now - when)) -lt 60 ] && kept+=("$when")
+    done
+    recent=("${kept[@]}" "$now")
+    if [ "${#recent[@]}" -ge 4 ]; then
+        echo "$(date -Is) four crashes in a minute, giving up" >>"$log"
+        exit "$code"
+    fi
+
+    export DRIFTER_RECOVERED=1
+    sleep 1
+done

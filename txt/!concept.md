@@ -148,10 +148,9 @@ Session
 The MVP list is finished: config, the compositor, both drawers, the hot corner, click to fly, free zoom, and edge pan.
 
 What is left:
-- Lock on idle, on lid close and on a logind Lock signal.
+- Lock on idle (Settings > Lock), on lid close and on a logind Lock signal.
+- Login apps (Settings > Login), notifications, screenshots and screen sharing, and a password prompt for polkit.
 - A `/etc/pam.d/drifter` stack of its own, so the lock does not depend on `login`.
-- System info on the left end of the top drawer, right of the tray icons.
-- A window that demands the camera.
 - Multi-monitor. One world, one camera per monitor.
 - Submenus. A dbusmenu item with `children-display` is drawn but does not open.
 - A world-sized wallpaper as mipmapped tiles. Today the whole image is one texture.
@@ -206,6 +205,16 @@ Resize edges are wider than the art. The grab area reaches 7 px inside and outsi
 
 Close asks the app to close. Minimize hides the window into the dock. Maximize fills the viewport and remembers where the window was, so a second press restores it exactly. A maximized or snapped window shows the restore button in place of maximize.
 
+### Fullscreen
+
+An app that asks for fullscreen gets exactly one screen and no frame. Drifter places that screen where the window was, pulled inside the world, and the camera flies onto it at zoom 1. While the fullscreen window has focus, the bars, the hot corner, zoom and edge pan are all off, so a game can use every edge. An app that asks before its first frame, like `foot --fullscreen`, is fullscreen from the start. Leaving fullscreen puts the window back exactly where it was.
+
+The way out is Alt-Tab. The fullscreen window stays fullscreen in the world, and the lock comes back when it has focus again.
+
+### Alt-Tab and Alt-F4
+
+Alt-Tab opens the switcher in the middle of the screen: one tile per window, newest first, each with its app icon, and the chosen window's title under the row. An app with no icon gets a plain tile with its first letter. Each Tab moves one tile, Shift-Tab moves back, and the row shrinks its tiles to fit the screen. Letting go of Alt picks the window: it comes back from the dock if it was there, takes focus, and the camera flies to it. Alt-F4 closes the focused window the same way its close button does.
+
 `cargo run -p drifter-core --example window` paints the default skin and writes every piece, so there is always a real file to start from.
 
 ## Lock
@@ -259,6 +268,8 @@ Escape goes to the focused app like any key. Three things open the power menu: t
 
 The power menu lists Lock, Log out, Shut down, Suspend and Restart, in that order. Log out stops Drifter, which ends the session on the tty. Shut down, Suspend and Restart call `org.freedesktop.login1.Manager` on the system bus: `PowerOff`, `Suspend` and `Reboot`. Suspend locks first and waits 400 ms so the lock is on the screen before the machine sleeps. If the lock cannot start, Drifter does not suspend.
 
+Media keys work in any app and never reach it. Volume up, down and mute and the mic mute key run `wpctl` on the default sink or source. Brightness goes through logind's `SetBrightness`, so the session user needs no root. Play, pause, next, previous and stop go to the MPRIS player that is playing, or else to the first one. Every key runs on a thread of its own. A small panel at the bottom of the screen shows the volume or brightness for 1.5 seconds.
+
 SIGUSR1 toggles the top drawer and SIGUSR2 toggles the bottom one. This is how a drawer is driven from another machine over ssh, with no mouse: `pkill -USR1 -x drifter`. It is a trigger for the same code path the pointer uses, not a test hook.
 
 ## Camera
@@ -293,9 +304,19 @@ So the DrmDeviceNotifier runs as a calloop event source. On VBlank: `frame_submi
 
 The seat notifier is in the same loop. On PauseSession drawing stops and DRM master is released. On ActivateSession master is taken back, the compositor state and buffers are reset, and the screen is redrawn. Without this a VT switch away and back leaves a dead screen.
 
+## Crashes
+
+`scripts/drifter-session` runs Drifter and starts it again when it crashes. A clean exit, from Log out or SIGTERM, ends the session. Four crashes inside one minute also end it, so a Drifter that cannot start does not spin forever. Every crash is written to `$XDG_STATE_HOME/drifter/crash.log`, and a panic adds its message and a backtrace. The session sets `XDG_CURRENT_DESKTOP=drifter`.
+
+Apps cannot outlive the compositor: their Wayland connection dies with it. So after a crash they are gone, and the login apps start again.
+
+A crash never unlocks the screen. Locking writes `$XDG_RUNTIME_DIR/drifter-locked` and unlocking removes it. A Drifter that starts and finds the file starts locked. The runtime folder is empty after a reboot, so a normal boot is not locked.
+
+`scripts/run-tty.sh` stops the session and Drifter, waits for the old Drifter to let go of the screen, and starts the session on tty1.
+
 ## Open items
 
-A window demands the camera. Proposal: lock the camera to that window at 1.0 and disable zoom, pan and the hot corner until it releases. On multi-monitor, the monitor whose camera holds the window obeys.
+On multi-monitor, the monitor whose camera holds a fullscreen window obeys its lock.
 
 Multi-monitor overlap. Two cameras may look at the same region. Proposal: allow it.
 

@@ -312,6 +312,11 @@ impl Config {
             .map(|path| self.beside(path))
     }
 
+    /// Where Drifter keeps what outlives a run, like the crash log.
+    pub fn state_dir() -> PathBuf {
+        xdg_dir("XDG_STATE_HOME", ".local/state").join("drifter")
+    }
+
     pub fn cursor_path(&self) -> Option<PathBuf> {
         self.assets.cursor.as_deref().map(|path| self.beside(path))
     }

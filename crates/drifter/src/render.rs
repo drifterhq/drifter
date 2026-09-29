@@ -3158,6 +3158,10 @@ impl Screen {
             ..
         } = self;
 
+        // A Drifter that crashed while locked comes back locked.
+        if lock_marker().is_some_and(|marker| marker.exists()) {
+            state.lock_now();
+        }
         state.draw()?;
 
         events
@@ -3895,6 +3899,9 @@ impl State {
             user,
             refocus,
         });
+        if let Some(marker) = lock_marker() {
+            let _ = std::fs::write(marker, b"");
+        }
         self.paint_lock();
         self.kick();
         true
@@ -4053,6 +4060,9 @@ impl State {
         let Some(mut lock) = self.lock.take() else {
             return;
         };
+        if let Some(marker) = lock_marker() {
+            let _ = std::fs::remove_file(marker);
+        }
         lock.pad.wipe();
         if let Some(surface) = lock.refocus.take()
             && surface.is_alive()
@@ -4099,6 +4109,12 @@ fn upload(
         .map(Some)
         .map_err(|e| format!("cannot upload {what}: {e}")),
     }
+}
+
+/// Marks the screen as locked, in the runtime folder, which is empty
+/// again after a reboot.
+fn lock_marker() -> Option<PathBuf> {
+    std::env::var_os("XDG_RUNTIME_DIR").map(|dir| PathBuf::from(dir).join("drifter-locked"))
 }
 
 fn element(
