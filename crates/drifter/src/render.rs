@@ -11,7 +11,6 @@ use drifter_core::menu::{Item, Look};
 use drifter_core::mode::{self, Mode};
 use drifter_core::motion::{Motion, Phase};
 use drifter_core::power::Action;
-use drifter_core::settings::{self, Field, Kind as Widget};
 use drifter_core::snap::{Snap, Zone};
 use drifter_core::text::Font;
 use drifter_core::tray::Tray;
@@ -58,6 +57,8 @@ const BTN_MIDDLE: u32 = 0x112;
 const PANEL_COLOR: [u8; 3] = [16, 18, 26];
 const PANEL_ALPHA: u8 = 235;
 const TICK: Duration = Duration::from_millis(8);
+const CONFIG_WATCH: Duration = Duration::from_millis(400);
+const SETTINGS_APP: &str = "drifter-settings";
 const SECOND_TICK: Duration = Duration::from_millis(250);
 const SETTLING: Duration = Duration::from_secs(2);
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
@@ -116,14 +117,6 @@ enum Target {
     Tray(String),
     Window(u64),
     Desktop,
-}
-
-struct Sheet {
-    fields: Vec<Field>,
-    look: settings::Look,
-    rect: Rect,
-    art: TextureBuffer<GlesTexture>,
-    holding: Option<usize>,
 }
 
 struct Popover {
@@ -241,8 +234,7 @@ pub struct State {
     tip: Option<(TextureBuffer<GlesTexture>, Rect)>,
     tip_of: Option<String>,
     snap: Snap,
-    sheet: Option<Sheet>,
-    wallpaper_art: Option<drifter_core::Image>,
+    config_seen: Option<std::time::SystemTime>,
     config_path: PathBuf,
     zone: Option<Zone>,
     plain: Option<TextureBuffer<GlesTexture>>,
@@ -394,9 +386,6 @@ impl State {
             &[smithay::wayland::shell::wlr_layer::Layer::Overlay],
             &mut elements,
         );
-        if let Some(sheet) = self.sheet.as_ref() {
-            elements.push(Skin::Texture(element(&sheet.art, sheet.rect, 1.0)));
-        }
 
         if let Some(buffer) = self.glow.as_ref() {
             let reach = drifter_core::corner::REACH;
@@ -1616,223 +1605,56 @@ impl State {
         self.flight = None;
     }
 
+    /// The settings window is its own program. A second click brings the
+    /// open one back instead of starting another.
     fn open_settings(&mut self) {
         if self.lock.is_some() {
             return;
         }
-        let config = Config::load_from(&self.config_path).unwrap_or_default();
-        let modes = ["fixed", "pan", "parallax"];
-        let keys = ["super", "alt", "ctrl"];
-        let mode_now = format!("{:?}", config.workspace.wallpaper_mode).to_lowercase();
-        let key_now = format!("{:?}", config.input.modifier).to_lowercase();
-
-        let fields = vec![
-            Field {
-                table: "workspace",
-                key: "width",
-                label: "World width",
-                kind: Widget::Slide {
-                    least: 1.0,
-                    most: 8.0,
-                    step: 1.0,
-                },
-                value: f64::from(config.workspace.width),
-            },
-            Field {
-                table: "workspace",
-                key: "height",
-                label: "World height",
-                kind: Widget::Slide {
-                    least: 1.0,
-                    most: 8.0,
-                    step: 1.0,
-                },
-                value: f64::from(config.workspace.height),
-            },
-            Field {
-                table: "workspace",
-                key: "wallpaper_mode",
-                label: "Wallpaper",
-                kind: Widget::Pick {
-                    options: modes.iter().map(|name| name.to_string()).collect(),
-                },
-                value: modes.iter().position(|name| *name == mode_now).unwrap_or(0) as f64,
-            },
-            Field {
-                table: "input",
-                key: "modifier",
-                label: "Camera key",
-                kind: Widget::Pick {
-                    options: keys.iter().map(|name| name.to_string()).collect(),
-                },
-                value: keys.iter().position(|name| *name == key_now).unwrap_or(0) as f64,
-            },
-            Field {
-                table: "drawers",
-                key: "top",
-                label: "Tray height",
-                kind: Widget::Slide {
-                    least: 16.0,
-                    most: 96.0,
-                    step: 2.0,
-                },
-                value: config.drawers.top,
-            },
-            Field {
-                table: "drawers",
-                key: "bottom",
-                label: "Dock height",
-                kind: Widget::Slide {
-                    least: 16.0,
-                    most: 160.0,
-                    step: 2.0,
-                },
-                value: config.drawers.bottom,
-            },
-            Field {
-                table: "tray",
-                key: "size",
-                label: "Clock size",
-                kind: Widget::Slide {
-                    least: 8.0,
-                    most: 32.0,
-                    step: 1.0,
-                },
-                value: config.tray.size,
-            },
-        ];
-
-        self.build_sheet(fields, None);
-    }
-
-    fn build_sheet(&mut self, fields: Vec<Field>, keep: Option<Rect>) {
-        let look = settings::Look::default();
-        let size = look.size(&fields);
-        let image = look.paint(
-            &fields,
-            size,
-            self.wallpaper_art.as_ref(),
-            self.font.as_ref(),
-        );
-        let rect = keep.unwrap_or_else(|| Rect::new(((self.screen - size) / 2.0).round(), size));
-        match upload(&mut self.renderer, Some(&image), "settings") {
-            Ok(Some(art)) => {
-                self.sheet = Some(Sheet {
-                    fields,
-                    look,
-                    rect,
-                    art,
-                    holding: None,
-                })
-            }
-            Ok(None) => {}
-            Err(error) => eprintln!("drifter: {error}"),
-        }
-    }
-
-    fn press_sheet(&mut self, down: bool) -> bool {
-        let Some(sheet) = self.sheet.as_ref() else {
-            return false;
-        };
-        if !down {
-            if self
-                .sheet
-                .as_ref()
-                .is_some_and(|open| open.holding.is_some())
-            {
-                self.save_settings();
-                if let Some(open) = self.sheet.as_mut() {
-                    open.holding = None;
-                }
-            }
-            return false;
-        }
-        if !sheet.rect.contains(self.pointer) {
-            self.sheet = None;
-            return true;
-        }
-
-        let inside = self.pointer - sheet.rect.origin;
-        let Some(index) = sheet.look.row_at(sheet.rect.size, &sheet.fields, inside) else {
-            return true;
-        };
-        let Some(value) = sheet
-            .look
-            .value_at(sheet.rect.size, index, &sheet.fields[index], inside)
-        else {
-            return true;
-        };
-
-        let mut fields = sheet.fields.clone();
-        let keep = sheet.rect;
-        fields[index].value = value;
-        self.build_sheet(fields, Some(keep));
-        if let Some(open) = self.sheet.as_mut() {
-            open.holding = Some(index);
-        }
-        true
-    }
-
-    fn drag_sheet(&mut self) {
-        let Some(sheet) = self.sheet.as_ref() else {
-            return;
-        };
-        let Some(index) = sheet.holding else {
-            return;
-        };
-        let inside = self.pointer - sheet.rect.origin;
-        let Some(value) = sheet
-            .look
-            .value_at(sheet.rect.size, index, &sheet.fields[index], inside)
-        else {
-            return;
-        };
-        if sheet.fields[index].value == value {
-            return;
-        }
-
-        let mut fields = sheet.fields.clone();
-        let keep = sheet.rect;
-        fields[index].value = value;
-        self.build_sheet(fields, Some(keep));
-        if let Some(open) = self.sheet.as_mut() {
-            open.holding = Some(index);
-        }
-    }
-
-    fn save_settings(&mut self) {
-        let Some(sheet) = self.sheet.as_ref() else {
-            return;
-        };
-        let text = match std::fs::read_to_string(&self.config_path) {
-            Ok(text) => text,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-            Err(error) => {
-                eprintln!("drifter: cannot read the config: {error}");
-                return;
-            }
-        };
-        let out = match settings::write_back(&text, &sheet.fields) {
-            Ok(out) => out,
-            Err(error) => {
-                eprintln!("drifter: {error}");
-                return;
-            }
-        };
-        if let Some(folder) = self.config_path.parent()
-            && let Err(error) = std::fs::create_dir_all(folder)
+        if let Some(place) = self
+            .windows
+            .iter()
+            .position(|window| window.app == SETTINGS_APP && !window.going)
         {
-            eprintln!("drifter: cannot make {}: {error}", folder.display());
+            if self.windows[place].hidden {
+                let index = self.windows[..place]
+                    .iter()
+                    .filter(|window| window.hidden)
+                    .count();
+                let seat = self.dock_slot(index);
+                self.windows[place].hidden = false;
+                self.windows[place].motion = Some(Motion::new(Phase::Restoring, seat));
+            }
+            let center = self.windows[place].content.center();
+            self.focus_window(place);
+            self.fly_to(Camera::at_work_zoom(center));
             return;
         }
-        if let Err(error) = std::fs::write(&self.config_path, out) {
-            eprintln!("drifter: cannot save the config: {error}");
+        let program = std::env::current_exe()
+            .map(|path| path.with_file_name(SETTINGS_APP))
+            .unwrap_or_else(|_| std::path::PathBuf::from(SETTINGS_APP));
+        crate::apps::launch(&[program.to_string_lossy().into_owned()], &self.socket);
+    }
+
+    /// Applies the config again whenever the file changes, whether the
+    /// settings window wrote it or a person did.
+    fn watch_config(&mut self) {
+        let seen = std::fs::metadata(&self.config_path)
+            .and_then(|meta| meta.modified())
+            .ok();
+        if seen == self.config_seen {
             return;
         }
-        println!("drifter: settings saved to {}", self.config_path.display());
+        self.config_seen = seen;
+        if seen.is_none() {
+            return;
+        }
         match Config::load_from(&self.config_path) {
-            Ok(config) => self.apply(&config),
-            Err(error) => eprintln!("drifter: the saved config does not load: {error}"),
+            Ok(config) => {
+                self.apply(&config);
+                self.kick_now();
+            }
+            Err(error) => eprintln!("drifter: the config did not load: {error}"),
         }
     }
 
@@ -1909,10 +1731,6 @@ impl State {
                 .popover
                 .as_ref()
                 .is_some_and(|open| open.rect.contains(self.pointer))
-            || self
-                .sheet
-                .as_ref()
-                .is_some_and(|sheet| sheet.rect.contains(self.pointer))
     }
 
     fn tray_room(&self, band: Rect) -> usize {
@@ -2757,7 +2575,6 @@ impl State {
             self.held = None;
             if let Some(at) = self.eaten.iter().position(|eaten| *eaten == code) {
                 self.eaten.swap_remove(at);
-                self.press_sheet(false);
                 self.kick();
                 return;
             }
@@ -2800,10 +2617,6 @@ impl State {
     }
 
     fn press_own(&mut self, code: u32) -> bool {
-        if self.sheet.is_some() {
-            self.press_sheet(true);
-            return true;
-        }
         if self.press_overview() {
             return true;
         }
@@ -2888,7 +2701,6 @@ impl State {
                     None => {
                         self.pointer_to(self.pointer + delta);
                         self.drag();
-                        self.drag_sheet();
                         self.hover();
                         self.tell_pointer(event.time_msec());
                     }
@@ -2900,7 +2712,6 @@ impl State {
                 let y = event.y_transformed(self.screen.y as i32);
                 self.pointer_to(Vec2::new(x, y));
                 self.drag();
-                self.drag_sheet();
                 self.hover();
                 self.tell_pointer(event.time_msec());
             }
@@ -3474,8 +3285,7 @@ pub fn open(
         tip: None,
         tip_of: None,
         snap: Snap::default(),
-        sheet: None,
-        wallpaper_art: wallpaper.cloned(),
+        config_seen: None,
         config_path: Config::config_path(),
         zone: None,
         plain,
@@ -3608,6 +3418,19 @@ pub fn open(
         })
         .map_err(|e| format!("cannot watch wayland clients: {e}"))?;
 
+    state.config_seen = std::fs::metadata(&state.config_path)
+        .and_then(|meta| meta.modified())
+        .ok();
+    handle
+        .insert_source(
+            Timer::from_duration(CONFIG_WATCH),
+            |_, _, state: &mut State| {
+                state.watch_config();
+                TimeoutAction::ToDuration(CONFIG_WATCH)
+            },
+        )
+        .map_err(|e| format!("cannot watch the config: {e}"))?;
+
     handle
         .insert_source(signals, |event, _, state: &mut State| {
             let edge = match event.signal() {
@@ -3670,7 +3493,6 @@ impl State {
 
         self.dismiss_popups();
         self.popover = None;
-        self.sheet = None;
         self.tip = None;
         self.tip_of = None;
         self.zone = None;

@@ -12,6 +12,7 @@ pub mod lock;
 pub mod menu;
 pub mod mode;
 pub mod motion;
+pub mod paint;
 pub mod power;
 pub mod settings;
 pub mod snap;
