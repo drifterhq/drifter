@@ -63,7 +63,8 @@ if ! command -v rustup >/dev/null 2>&1; then
         | sh -s -- -y --no-modify-path --default-toolchain stable --profile default
 fi
 
-"$HOME/.cargo/bin/cargo" install --locked xwayland-satellite
+"$HOME/.cargo/bin/cargo" install --locked \
+    --git https://github.com/Supreeeme/xwayland-satellite --tag v0.8.3 xwayland-satellite
 
 cargo_line='export PATH="$HOME/.cargo/bin:$PATH"'
 if ! grep -qF "$cargo_line" "$HOME/.bashrc" 2>/dev/null; then
