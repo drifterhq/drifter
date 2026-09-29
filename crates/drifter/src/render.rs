@@ -127,6 +127,7 @@ struct Switch {
     at: usize,
     layout: drifter_core::switcher::Layout,
     art: Option<TextureBuffer<GlesTexture>>,
+    icons: Vec<Option<TextureBuffer<GlesTexture>>>,
 }
 
 enum Shortcut {
@@ -2821,20 +2822,27 @@ impl State {
                 if order.is_empty() {
                     return;
                 }
-                for index in 0..self.windows.len() {
-                    self.remember_icon(index);
-                }
                 let at = match order.len() {
                     1 => 0,
                     count => drifter_core::switcher::step(0, count, back),
                 };
                 let layout =
                     drifter_core::switcher::Look::default().layout(self.screen, order.len());
+                let apps: Vec<String> = order
+                    .iter()
+                    .filter_map(|id| self.windows.iter().find(|window| window.id == *id))
+                    .map(|window| window.app.clone())
+                    .collect();
+                let icons = apps
+                    .iter()
+                    .map(|app| self.switch_icon(app, layout.icon.round() as u32))
+                    .collect();
                 self.switch = Some(Switch {
                     order,
                     at,
                     layout,
                     art: None,
+                    icons,
                 });
                 at
             }
@@ -2849,7 +2857,8 @@ impl State {
             .collect();
         let letters: Vec<Option<char>> = windows
             .iter()
-            .map(|window| match self.app_icons.contains_key(&window.app) {
+            .zip(&open.icons)
+            .map(|(window, icon)| match icon.is_some() {
                 true => None,
                 false => window
                     .app
@@ -2900,12 +2909,7 @@ impl State {
             return;
         };
         let panel = open.layout.panel;
-        for (index, id) in open.order.iter().enumerate() {
-            let icon = self
-                .windows
-                .iter()
-                .find(|window| window.id == *id)
-                .and_then(|window| self.app_icons.get(&window.app));
+        for (index, icon) in open.icons.iter().enumerate() {
             if let Some(icon) = icon {
                 let rect = open.layout.icon_rect(index);
                 let rect = Rect::new(panel.origin + rect.origin, rect.size);
@@ -2913,6 +2917,27 @@ impl State {
             }
         }
         elements.push(Skin::Texture(element(art, panel, 1.0)));
+    }
+
+    /// An app's icon at the switcher's size. A texture draws at its own
+    /// size, so the dock's smaller icons cannot be reused.
+    fn switch_icon(&mut self, app: &str, side: u32) -> Option<TextureBuffer<GlesTexture>> {
+        let key = format!("{app}@{side}");
+        if let Some(held) = self.app_icons.get(&key) {
+            return Some(held.clone());
+        }
+        if app.is_empty() || self.no_icon.contains(app) {
+            return None;
+        }
+        let image = crate::apps::find(app)
+            .and_then(|entry| entry.icon)
+            .and_then(|path| drifter_core::image::load(&path).ok())
+            .map(|image| image.scaled(side, side))?;
+        let buffer = upload(&mut self.renderer, Some(&image), "switcher icon")
+            .ok()
+            .flatten()?;
+        self.app_icons.insert(key, buffer.clone());
+        Some(buffer)
     }
 
     /// Shows a window: back from the dock if it was there, focused, and
