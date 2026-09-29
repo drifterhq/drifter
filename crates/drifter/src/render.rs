@@ -101,7 +101,7 @@ pub struct Screen {
 
 enum Target {
     Tray(String),
-    Window(usize),
+    Window(u64),
     Desktop,
 }
 
@@ -124,11 +124,11 @@ struct Popover {
 enum Grab {
     None,
     Move {
-        index: usize,
+        id: u64,
         offset: Vec2,
     },
     Resize {
-        index: usize,
+        id: u64,
         grip: drifter_core::window::Grip,
         from: Vec2,
         start: Rect,
@@ -139,11 +139,19 @@ struct Lock {
     pad: Pad,
     note: Note,
     checking: Option<Instant>,
+    ticket: Option<u64>,
     art: Option<TextureBuffer<GlesTexture>>,
     rect: Rect,
     shown: (String, String, usize, Note),
     user: std::ffi::CString,
     refocus: Option<smithay::reexports::wayland_server::protocol::wl_surface::WlSurface>,
+}
+
+struct Hit {
+    index: usize,
+    surface: smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+    origin: Vec2,
+    popup: bool,
 }
 
 enum LockKey {
@@ -158,7 +166,7 @@ pub struct State {
     pub output: smithay::output::Output,
     pub wayland: crate::shell::Wayland,
     pub windows: Vec<crate::shell::Window>,
-    pub popups: Vec<smithay::wayland::shell::xdg::PopupSurface>,
+    pub popups: smithay::desktop::PopupManager,
     display: Option<Display<State>>,
     chrome: Chrome,
     camera: Camera,
@@ -172,11 +180,15 @@ pub struct State {
     holds: drifter_core::Modifier,
     last_title: Option<(Vec2, Instant)>,
     held: Option<usize>,
-    pub focus: Option<usize>,
+    focus: Option<u64>,
+    next_window: u64,
+    eaten: Vec<u32>,
+    frame_timer: bool,
     skin: std::collections::HashMap<String, (TextureBuffer<GlesTexture>, Vec2)>,
     started: Instant,
     socket: String,
     drm: DrmDevice,
+    libinput: Libinput,
     compositor: Compositor,
     renderer: GlesRenderer,
     wallpaper: Option<(TextureBuffer<GlesTexture>, Rect)>,
@@ -202,7 +214,8 @@ pub struct State {
     lock: Option<Lock>,
     lock_big: Option<Font>,
     lock_small: Option<Font>,
-    verify: smithay::reexports::calloop::channel::Sender<crate::auth::Verdict>,
+    verify: smithay::reexports::calloop::channel::Sender<(u64, crate::auth::Verdict)>,
+    tickets: u64,
     power: Option<TextureBuffer<GlesTexture>>,
     look: Look,
     tip: Option<(TextureBuffer<GlesTexture>, Rect)>,
@@ -257,7 +270,7 @@ impl State {
             return false;
         };
         let gone = Instant::now().duration_since(since);
-        self.camera = flight.at(gone);
+        self.camera = flight.within(gone, self.world, self.screen);
         if flight.done(gone) {
             self.camera = flight.to;
             self.flight = None;
@@ -405,36 +418,6 @@ impl State {
             elements.push(Skin::Texture(element(art, *rect, 1.0)));
         }
 
-        let popups: Vec<(
-            Vec2,
-            smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
-        )> = self
-            .popups
-            .iter()
-            .rev()
-            .filter_map(|popup| self.popup_at(popup))
-            .collect();
-        for (at, surface) in popups {
-            let anchor = smithay::utils::Point::<i32, smithay::utils::Physical>::from((
-                at.x as i32,
-                at.y as i32,
-            ));
-            let bare: Vec<WaylandSurfaceRenderElement<GlesRenderer>> =
-                render_elements_from_surface_tree(
-                    &mut self.renderer,
-                    &surface,
-                    anchor,
-                    1.0,
-                    1.0,
-                    Kind::Unspecified,
-                );
-            elements.extend(
-                bare.into_iter().map(|piece| {
-                    Skin::Client(RescaleRenderElement::from_element(piece, anchor, 1.0))
-                }),
-            );
-        }
-
         if let Some(band) = self.dock_band() {
             let hidden = self.minimized();
             let pinned = self.pinned.len();
@@ -532,10 +515,7 @@ impl State {
                     shown,
                     fade,
                     window.inset,
-                    self.focus
-                        .and_then(|index| self.windows.get(index))
-                        .map(|awake| awake.toplevel == window.toplevel)
-                        .unwrap_or(false),
+                    self.focus == Some(window.id),
                     window.decorated,
                     window.title.clone(),
                     window.toplevel.wl_surface().clone(),
@@ -564,6 +544,27 @@ impl State {
                     fade,
                     Kind::Unspecified,
                 );
+            if shown == content {
+                for (origin, popup) in self.popups_of(&surface, content) {
+                    let at = self.camera.screen_from_world(origin, self.screen);
+                    let anchor = smithay::utils::Point::<i32, smithay::utils::Physical>::from((
+                        at.x.round() as i32,
+                        at.y.round() as i32,
+                    ));
+                    let bare: Vec<WaylandSurfaceRenderElement<GlesRenderer>> =
+                        render_elements_from_surface_tree(
+                            &mut self.renderer,
+                            &popup,
+                            anchor,
+                            1.0,
+                            fade,
+                            Kind::Unspecified,
+                        );
+                    elements.extend(bare.into_iter().map(|piece| {
+                        Skin::Client(RescaleRenderElement::from_element(piece, anchor, zoom))
+                    }));
+                }
+            }
             if dressed {
                 self.dress(shown, awake, &title, fade, &mut elements);
             }
@@ -609,33 +610,74 @@ impl State {
         }
     }
 
-    fn popup_at(
+    fn popup_places(
+        root: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+        content: Rect,
+    ) -> Vec<(
+        Vec2,
+        Rect,
+        smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+    )> {
+        smithay::desktop::PopupManager::popups_for_surface(root)
+            .map(|(popup, place)| {
+                let geometry = popup.geometry();
+                let at = content.origin + Vec2::new(f64::from(place.x), f64::from(place.y));
+                let origin = at - Vec2::new(f64::from(geometry.loc.x), f64::from(geometry.loc.y));
+                let size = match geometry.size.w > 0 && geometry.size.h > 0 {
+                    true => Vec2::new(f64::from(geometry.size.w), f64::from(geometry.size.h)),
+                    false => smithay::backend::renderer::utils::with_renderer_surface_state(
+                        popup.wl_surface(),
+                        |state| state.surface_size(),
+                    )
+                    .flatten()
+                    .map(|size| Vec2::new(f64::from(size.w), f64::from(size.h)))
+                    .unwrap_or(Vec2::ZERO),
+                };
+                (origin, Rect::new(at, size), popup.wl_surface().clone())
+            })
+            .collect()
+    }
+
+    fn popups_of(
         &self,
-        popup: &smithay::wayland::shell::xdg::PopupSurface,
-    ) -> Option<(
+        root: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+        content: Rect,
+    ) -> Vec<(
         Vec2,
         smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
     )> {
-        if !popup.alive() {
-            return None;
-        }
-        let parent = popup.get_parent_surface()?;
-        let anchor = self
-            .windows
-            .iter()
-            .find(|window| window.toplevel.wl_surface() == &parent)
-            .map(|window| window.content.origin - window.inset)
-            .or_else(|| {
-                self.popups
-                    .iter()
-                    .find(|other| other.wl_surface() == &parent)
-                    .and_then(|other| self.popup_at(other))
-                    .map(|(at, _)| at)
-            })?;
+        Self::popup_places(root, content)
+            .into_iter()
+            .map(|(origin, _, surface)| (origin, surface))
+            .collect()
+    }
 
-        let place = popup.with_pending_state(|state| state.geometry.loc);
-        let at = anchor + Vec2::new(f64::from(place.x), f64::from(place.y));
-        Some((at.round(), popup.wl_surface().clone()))
+    fn dismiss_popups(&mut self) {
+        use smithay::desktop::PopupManager;
+        use smithay::utils::SERIAL_COUNTER;
+
+        for window in &self.windows {
+            let root = window.toplevel.wl_surface();
+            let open: Vec<_> = PopupManager::popups_for_surface(root)
+                .map(|(popup, _)| popup)
+                .collect();
+            for popup in open {
+                let _ = PopupManager::dismiss_popup(root, &popup);
+            }
+        }
+        let time = self.started.elapsed().as_millis() as u32;
+        let pointer = self.wayland.pointer.clone();
+        if pointer.is_grabbed() {
+            pointer.unset_grab(self, SERIAL_COUNTER.next_serial(), time);
+        }
+        let keyboard = self.wayland.keyboard.clone();
+        if keyboard.is_grabbed() {
+            keyboard.unset_grab(self);
+        }
+    }
+
+    pub fn locked(&self) -> bool {
+        self.lock.is_some()
     }
 
     fn dress(&self, content: Rect, awake: bool, title: &str, fade: f32, elements: &mut Vec<Skin>) {
@@ -799,6 +841,16 @@ impl State {
         let wanted = Vec2::new(middle.x, top);
         window.content.origin = drifter_core::window::cascade(wanted, &taken, 34.0, view);
         window.placed = true;
+
+        if fresh
+            && self.lock.is_none()
+            && let Some(index) = self
+                .windows
+                .iter()
+                .position(|window| window.toplevel.wl_surface() == surface)
+        {
+            self.focus_window(index);
+        }
     }
 
     fn draw(&mut self) -> Result<bool, String> {
@@ -842,6 +894,7 @@ impl State {
             })?;
 
         if result.is_empty {
+            self.frames_later();
             return Ok(false);
         }
 
@@ -854,10 +907,29 @@ impl State {
         Ok(true)
     }
 
+    fn frames_later(&mut self) {
+        if self.frame_timer {
+            return;
+        }
+        let wait = Duration::from_millis(16);
+        self.frame_timer = self
+            .handle
+            .insert_source(Timer::from_duration(wait), |_, _, state: &mut State| {
+                state.frame_timer = false;
+                state.tell_clients();
+                TimeoutAction::Drop
+            })
+            .is_ok();
+    }
+
     fn tell_clients(&mut self) {
         let now = self.started.elapsed().as_millis() as u32;
         for window in &self.windows {
-            crate::shell::send_frame(window.toplevel.wl_surface(), now);
+            let root = window.toplevel.wl_surface();
+            crate::shell::send_frame(root, now);
+            for (popup, _) in smithay::desktop::PopupManager::popups_for_surface(root) {
+                crate::shell::send_frame(popup.wl_surface(), now);
+            }
         }
         if let Some(display) = self.display.as_mut() {
             let _ = display.flush_clients();
@@ -932,7 +1004,7 @@ impl State {
                 let seat = self.dock_slot(index);
                 self.windows[place].hidden = false;
                 self.windows[place].motion = Some(Motion::new(Phase::Restoring, seat));
-                self.raise(place);
+                self.focus_window(place);
             }
         }
         true
@@ -1047,23 +1119,25 @@ impl State {
                 }
                 return true;
             }
-            Target::Window(index) => {
-                let index = *index;
+            Target::Window(id) => {
+                let id = *id;
+                self.popover = None;
+                let Some(index) = self.place_of(id) else {
+                    return true;
+                };
                 match chosen.id {
                     0 => {
-                        if let Some(window) = self.windows.get_mut(index) {
-                            window.hidden = !window.hidden;
-                        }
-                        if self.windows.get(index).map(|w| w.hidden) == Some(false) {
-                            self.raise(index);
-                        }
-                    }
-                    _ => {
-                        if let Some(window) = self.windows.get(index) {
-                            window.toplevel.send_close();
+                        let window = &mut self.windows[index];
+                        window.hidden = !window.hidden;
+                        if window.hidden {
+                            self.focus_next(Some(id));
+                        } else {
+                            self.focus_window(index);
                         }
                     }
+                    _ => self.windows[index].toplevel.send_close(),
                 }
+                return true;
             }
         }
         self.popover = None;
@@ -1164,7 +1238,7 @@ impl State {
             return true;
         }
 
-        if self.under_pointer().is_none() && self.grip_under().is_none() {
+        if !self.over_drawer() && self.surface_under().is_none() && self.grip_under().is_none() {
             let at = self.pointer;
             let mut items = vec![Item::line(0, "Settings"), Item::rule(1)];
             items.extend(drifter_core::power::items());
@@ -1190,7 +1264,8 @@ impl State {
                 };
                 let items = vec![Item::line(0, "Show"), Item::line(1, "Exit")];
                 let at = self.pointer;
-                self.open_popover(items, at, Target::Window(place));
+                let id = self.windows[place].id;
+                self.open_popover(items, at, Target::Window(id));
                 return true;
             }
         }
@@ -1462,28 +1537,41 @@ impl State {
         }
     }
 
-    fn press(&mut self, code: u32) {
+    fn press_tray(&mut self, code: u32, had_menu: bool) -> bool {
         let Some(band) = self.tray_band() else {
-            return;
+            return false;
         };
-        if code == BTN_LEFT && self.tray.on_power(band, self.pointer) {
-            let rect = self.tray.power_rect(band);
-            let at = Vec2::new(rect.max().x, rect.max().y + 6.0);
-            self.open_popover(drifter_core::power::items(), at, Target::Desktop);
-            return;
+        if self.tray.on_power(band, self.pointer) {
+            if code == BTN_LEFT && !had_menu {
+                let rect = self.tray.power_rect(band);
+                let at = Vec2::new(rect.max().x, rect.max().y + 6.0);
+                self.open_popover(drifter_core::power::items(), at, Target::Desktop);
+            }
+            return true;
         }
         let Some(slot) = self.tray.icon_at(band, self.pointer, self.icons.len()) else {
-            return;
+            return false;
         };
         let click = match code {
             BTN_LEFT => crate::tray::Click::Left,
             BTN_MIDDLE => crate::tray::Click::Middle,
-            _ => return,
+            _ => return true,
         };
         if let Some(bus) = self.tray_bus.as_ref() {
             let service = &self.icons[slot].0;
             bus.click(service, click, self.pointer.x as i32, self.pointer.y as i32);
         }
+        true
+    }
+
+    fn over_drawer(&self) -> bool {
+        Edge::ALL.into_iter().any(|edge| {
+            let drawer = &self.drawers[edge.index()];
+            drawer.visible()
+                && drawer
+                    .rect(self.screen, &self.shapes[edge.index()])
+                    .contains(self.pointer)
+        })
     }
 
     fn wind_titles(&mut self) {
@@ -1737,16 +1825,43 @@ impl State {
             .map(|(index, window)| (index, world - window.content.origin))
     }
 
+    fn surface_under(&self) -> Option<Hit> {
+        let world = self.in_world(self.pointer);
+        for (index, window) in self.windows.iter().enumerate().rev() {
+            if !window.placed || window.hidden {
+                continue;
+            }
+            let root = window.toplevel.wl_surface();
+            for (origin, area, surface) in Self::popup_places(root, window.content) {
+                if area.contains(world) {
+                    return Some(Hit {
+                        index,
+                        surface,
+                        origin,
+                        popup: true,
+                    });
+                }
+            }
+            if window.content.contains(world) {
+                return Some(Hit {
+                    index,
+                    surface: root.clone(),
+                    origin: window.content.origin - window.inset,
+                    popup: false,
+                });
+            }
+        }
+        None
+    }
+
     fn tell_pointer(&mut self, time: u32) {
         use smithay::input::pointer::MotionEvent;
         use smithay::utils::SERIAL_COUNTER;
 
-        let focus = self.under_pointer().map(|(index, _)| {
-            let window = &self.windows[index];
-            let at = window.content.origin - window.inset;
+        let focus = self.surface_under().map(|hit| {
             (
-                window.toplevel.wl_surface().clone(),
-                smithay::utils::Point::from((at.x, at.y)),
+                hit.surface,
+                smithay::utils::Point::from((hit.origin.x, hit.origin.y)),
             )
         });
         let pointer = self.wayland.pointer.clone();
@@ -1766,17 +1881,93 @@ impl State {
 
     fn raise(&mut self, index: usize) -> usize {
         let window = self.windows.remove(index);
+        self.focus = Some(window.id);
         self.windows.push(window);
-        let top = self.windows.len() - 1;
-        self.focus = Some(top);
         self.wake_windows();
-        top
+        self.windows.len() - 1
+    }
+
+    fn focus_window(&mut self, index: usize) -> usize {
+        use smithay::utils::SERIAL_COUNTER;
+
+        let index = self.raise(index);
+        if self.lock.is_none() {
+            let surface = self.windows[index].toplevel.wl_surface().clone();
+            let keyboard = self.wayland.keyboard.clone();
+            keyboard.set_focus(self, Some(surface), SERIAL_COUNTER.next_serial());
+        }
+        index
+    }
+
+    fn focus_next(&mut self, skip: Option<u64>) {
+        use smithay::utils::SERIAL_COUNTER;
+
+        let next = self.windows.iter().rposition(|window| {
+            Some(window.id) != skip
+                && window.placed
+                && !window.hidden
+                && !window.going
+                && !window
+                    .motion
+                    .is_some_and(|motion| motion.phase == Phase::Minimizing)
+        });
+        match next {
+            Some(index) => {
+                self.focus_window(index);
+            }
+            None => {
+                self.focus = None;
+                self.wake_windows();
+                if self.lock.is_none() {
+                    let keyboard = self.wayland.keyboard.clone();
+                    keyboard.set_focus(self, None, SERIAL_COUNTER.next_serial());
+                }
+            }
+        }
+    }
+
+    fn place_of(&self, id: u64) -> Option<usize> {
+        self.windows.iter().position(|window| window.id == id)
+    }
+
+    pub fn next_window_id(&mut self) -> u64 {
+        self.next_window += 1;
+        self.next_window
+    }
+
+    pub fn window_gone(&mut self, surface: &smithay::wayland::shell::xdg::ToplevelSurface) {
+        let Some(index) = self
+            .windows
+            .iter()
+            .position(|window| &window.toplevel == surface)
+        else {
+            return;
+        };
+        let window = self.windows.remove(index);
+        let id = window.id;
+        match self.grab {
+            Grab::Move { id: held, .. } | Grab::Resize { id: held, .. } if held == id => {
+                self.grab = Grab::None;
+                self.zone = None;
+                self.held = None;
+            }
+            _ => {}
+        }
+        if matches!(
+            self.popover.as_ref().map(|open| &open.target),
+            Some(Target::Window(target)) if *target == id
+        ) {
+            self.popover = None;
+        }
+        if self.focus == Some(id) {
+            self.focus_next(None);
+        }
     }
 
     fn wake_windows(&mut self) {
         use wayland_protocols::xdg::shell::server::xdg_toplevel;
-        for (index, window) in self.windows.iter().enumerate() {
-            let awake = self.focus == Some(index);
+        for window in self.windows.iter() {
+            let awake = self.focus == Some(window.id);
             window.toplevel.with_pending_state(|state| {
                 if awake {
                     state.states.set(xdg_toplevel::State::Activated);
@@ -1807,9 +1998,9 @@ impl State {
         let Some((index, grip)) = self.grip_under() else {
             return false;
         };
-        let index = self.raise(index);
+        let index = self.focus_window(index);
         let window = &self.windows[index];
-        let surface = window.toplevel.wl_surface().clone();
+        let id = window.id;
         let content = window.content;
 
         match grip {
@@ -1832,24 +2023,20 @@ impl State {
                 } else {
                     self.last_title = Some((self.pointer, now));
                     self.grab = Grab::Move {
-                        index,
+                        id,
                         offset: self.in_world(self.pointer) - content.origin,
                     };
                 }
             }
             other => {
                 self.grab = Grab::Resize {
-                    index,
+                    id,
                     grip: other,
                     from: self.in_world(self.pointer),
                     start: content,
                 };
             }
         }
-
-        let serial = smithay::utils::SERIAL_COUNTER.next_serial();
-        let keyboard = self.wayland.keyboard.clone();
-        keyboard.set_focus(self, Some(surface), serial);
         true
     }
 
@@ -1858,10 +2045,10 @@ impl State {
             return;
         }
         let index = self.raise(index);
-        let origin = self.windows[index].content.origin;
+        let window = &self.windows[index];
         self.grab = Grab::Move {
-            index,
-            offset: self.in_world(self.pointer) - origin,
+            id: window.id,
+            offset: self.in_world(self.pointer) - window.content.origin,
         };
     }
 
@@ -1885,9 +2072,10 @@ impl State {
             _ => return,
         };
         let index = self.raise(index);
-        let start = self.windows[index].content;
+        let window = &self.windows[index];
+        let start = window.content;
         self.grab = Grab::Resize {
-            index,
+            id: window.id,
             grip,
             from: self.in_world(self.pointer),
             start,
@@ -1934,8 +2122,9 @@ impl State {
             }
             1 => {
                 let seat = self.dock_slot(self.minimized().len());
-                self.focus = None;
                 self.windows[index].motion = Some(Motion::new(Phase::Minimizing, seat));
+                let id = self.windows[index].id;
+                self.focus_next(Some(id));
             }
             _ => {
                 let chrome = self.chrome;
@@ -1999,9 +2188,9 @@ impl State {
     fn drag(&mut self) {
         match self.grab {
             Grab::None => {}
-            Grab::Move { index, offset } => {
+            Grab::Move { id, offset } => {
                 let world = self.in_world(self.pointer);
-                if let Some(window) = self.windows.get_mut(index) {
+                if let Some(window) = self.windows.iter_mut().find(|window| window.id == id) {
                     window.content.origin = (world - offset).round();
                     window.touched = true;
                 }
@@ -2014,7 +2203,7 @@ impl State {
                 };
             }
             Grab::Resize {
-                index,
+                id,
                 grip,
                 from,
                 start,
@@ -2023,7 +2212,7 @@ impl State {
                 let moved = self.in_world(self.pointer) - from;
                 let least = Vec2::new(160.0, 80.0);
                 let wanted = chrome.resize(start, grip, moved, least);
-                if let Some(window) = self.windows.get_mut(index) {
+                if let Some(window) = self.windows.iter_mut().find(|window| window.id == id) {
                     window.content.origin = wanted.origin.round();
                     window.touched = true;
                     window.toplevel.with_pending_state(|state| {
@@ -2041,46 +2230,32 @@ impl State {
 
         let serial = SERIAL_COUNTER.next_serial();
         if state == ButtonState::Released {
-            if let (Grab::Move { index, .. }, Some(zone)) = (&self.grab, self.zone) {
-                let index = *index;
+            if let (Grab::Move { id, .. }, Some(zone)) = (&self.grab, self.zone)
+                && let Some(index) = self.place_of(*id)
+            {
                 self.land(index, zone);
             }
             self.zone = None;
             self.grab = Grab::None;
             self.held = None;
-        }
-        if self.press_sheet(state == ButtonState::Pressed) {
-            self.kick();
-            return;
-        }
-        if self.sheet.is_some() {
-            return;
+            if let Some(at) = self.eaten.iter().position(|eaten| *eaten == code) {
+                self.eaten.swap_remove(at);
+                self.press_sheet(false);
+                self.kick();
+                return;
+            }
         }
         if state == ButtonState::Pressed {
-            if self.press_overview() {
+            if self.press_own(code) {
+                self.eaten.push(code);
+                self.dismiss_popups();
                 self.kick();
                 return;
             }
-            if self.press_popover() {
-                self.kick();
-                return;
-            }
-            if code == BTN_RIGHT && self.open_context() {
-                self.kick();
-                return;
-            }
-            if self.press_dock() {
-                self.kick();
-                return;
-            }
-            if self.take_grab() {
-                return;
-            }
-            if let Some((index, _)) = self.under_pointer() {
-                let index = self.raise(index);
-                let surface = self.windows[index].toplevel.wl_surface().clone();
-                let keyboard = self.wayland.keyboard.clone();
-                keyboard.set_focus(self, Some(surface), serial);
+            if let Some(hit) = self.surface_under()
+                && !hit.popup
+            {
+                self.focus_window(hit.index);
             }
         }
 
@@ -2095,6 +2270,33 @@ impl State {
             },
         );
         pointer.frame(self);
+    }
+
+    fn press_own(&mut self, code: u32) -> bool {
+        if self.sheet.is_some() {
+            self.press_sheet(true);
+            return true;
+        }
+        if self.press_overview() {
+            return true;
+        }
+        let had_menu = self.popover.is_some();
+        if self.press_popover() {
+            return true;
+        }
+        if self.press_tray(code, had_menu) {
+            return true;
+        }
+        if code == BTN_RIGHT && self.open_context() {
+            return true;
+        }
+        if self.press_dock() {
+            return true;
+        }
+        if self.over_drawer() {
+            return true;
+        }
+        self.take_grab()
     }
 
     fn tell_axis(
@@ -2162,9 +2364,6 @@ impl State {
                 self.tell_pointer(event.time_msec());
             }
             InputEvent::PointerButton { event } => {
-                if event.state() == ButtonState::Pressed {
-                    self.press(event.button_code());
-                }
                 self.tell_button(event.button_code(), event.state(), event.time_msec());
             }
             InputEvent::Keyboard { event }
@@ -2260,6 +2459,16 @@ impl State {
         }
     }
 
+    fn drop_held_input(&mut self) {
+        self.modifier = false;
+        self.fingers = 0;
+        self.grab = Grab::None;
+        self.zone = None;
+        self.held = None;
+        self.dwell = None;
+        self.corner_since = None;
+    }
+
     fn stop(&mut self, error: String) {
         self.failure = Some(error);
         self.signal.stop();
@@ -2304,6 +2513,14 @@ pub fn open(
 ) -> Result<Screen, String> {
     let events: EventLoop<'static, State> =
         EventLoop::try_new().map_err(|e| format!("cannot create the event loop: {e}"))?;
+    let signals = Signals::new(&[
+        Signal::SIGUSR1,
+        Signal::SIGUSR2,
+        Signal::SIGTERM,
+        Signal::SIGHUP,
+        Signal::SIGINT,
+    ])
+    .map_err(|e| format!("cannot watch signals: {e}"))?;
 
     let fd = session
         .open(
@@ -2536,9 +2753,6 @@ pub fn open(
     );
     output.set_preferred(screen_mode);
 
-    let signals = Signals::new(&[Signal::SIGUSR1, Signal::SIGUSR2])
-        .map_err(|e| format!("cannot watch signals: {e}"))?;
-
     let (tray_bus, tray_icons) = match crate::tray::start() {
         Ok((bus, icons)) => (Some(bus), Some(icons)),
         Err(error) => {
@@ -2579,7 +2793,7 @@ pub fn open(
     let lock_big = Font::find(config.font_path(), 56.0).ok();
     let lock_small = Font::find(config.font_path(), 15.0).ok();
     let (verify_tx, verify_rx) =
-        smithay::reexports::calloop::channel::channel::<crate::auth::Verdict>();
+        smithay::reexports::calloop::channel::channel::<(u64, crate::auth::Verdict)>();
     let spare = from_art("app");
 
     let wanted = match config.dock.pinned.is_empty() {
@@ -2645,7 +2859,7 @@ pub fn open(
         output,
         wayland,
         windows: Vec::new(),
-        popups: Vec::new(),
+        popups: smithay::desktop::PopupManager::default(),
         display: Some(display),
         chrome,
         camera: remembered,
@@ -2660,10 +2874,14 @@ pub fn open(
         last_title: None,
         held: None,
         focus: None,
+        next_window: 0,
+        eaten: Vec::new(),
+        frame_timer: false,
         skin,
         started: Instant::now(),
         socket: String::new(),
         drm,
+        libinput: libinput.clone(),
         compositor,
         renderer,
         wallpaper: wallpaper_element,
@@ -2690,6 +2908,7 @@ pub fn open(
         lock_big,
         lock_small,
         verify: verify_tx,
+        tickets: 0,
         power,
         look: Look::default(),
         tip: None,
@@ -2742,11 +2961,17 @@ pub fn open(
         .insert_source(seat_events, |event, _, state: &mut State| match event {
             SessionEvent::PauseSession => {
                 state.active = false;
+                state.libinput.suspend();
                 state.drm.pause();
+                state.drop_held_input();
             }
             SessionEvent::ActivateSession => {
                 state.active = true;
                 state.awaiting = false;
+                if state.libinput.resume().is_err() {
+                    eprintln!("drifter: cannot take the input devices back");
+                }
+                state.drop_held_input();
                 if let Err(error) = state.drm.activate(true) {
                     eprintln!("drifter: cannot take the screen back: {error}");
                 }
@@ -2789,8 +3014,8 @@ pub fn open(
 
     handle
         .insert_source(verify_rx, |event, _, state: &mut State| {
-            if let ChannelEvent::Msg(verdict) = event {
-                state.verdict(verdict);
+            if let ChannelEvent::Msg((ticket, verdict)) = event {
+                state.verdict(ticket, verdict);
                 state.kick();
             }
         })
@@ -2824,10 +3049,13 @@ pub fn open(
 
     handle
         .insert_source(signals, |event, _, state: &mut State| {
-            let edge = if event.signal() == Signal::SIGUSR1 {
-                Edge::Top
-            } else {
-                Edge::Bottom
+            let edge = match event.signal() {
+                Signal::SIGUSR1 => Edge::Top,
+                Signal::SIGUSR2 => Edge::Bottom,
+                _ => {
+                    state.signal.stop();
+                    return;
+                }
             };
             state.toggle(edge);
             state.kick();
@@ -2879,6 +3107,7 @@ impl State {
             }
         };
 
+        self.dismiss_popups();
         self.popover = None;
         self.sheet = None;
         self.tip = None;
@@ -2898,7 +3127,11 @@ impl State {
         }
 
         let keyboard = self.wayland.keyboard.clone();
-        let refocus = keyboard.current_focus();
+        let refocus = self
+            .focus
+            .and_then(|id| self.place_of(id))
+            .map(|index| self.windows[index].toplevel.wl_surface().clone())
+            .or_else(|| keyboard.current_focus());
         keyboard.set_focus(self, None, SERIAL_COUNTER.next_serial());
 
         let pointer = self.wayland.pointer.clone();
@@ -2918,6 +3151,7 @@ impl State {
             pad: Pad::new(),
             note: Note::Ask,
             checking: None,
+            ticket: None,
             art: None,
             rect: Rect::new(Vec2::ZERO, Vec2::ZERO),
             shown: (String::new(), String::new(), usize::MAX, Note::Ask),
@@ -3005,13 +3239,16 @@ impl State {
                 }
                 let mut typed = lock.pad.take();
                 let secret = std::mem::take(&mut *typed);
+                self.tickets += 1;
+                let ticket = self.tickets;
                 lock.checking = Some(Instant::now());
+                lock.ticket = Some(ticket);
                 lock.note = Note::Checking;
                 let user = lock.user.clone();
                 let sender = self.verify.clone();
                 std::thread::spawn(move || {
                     let verdict = crate::auth::verify(&user, secret);
-                    let _ = sender.send(verdict);
+                    let _ = sender.send((ticket, verdict));
                 });
             }
             LockKey::Other => {}
@@ -3047,13 +3284,17 @@ impl State {
         read.unwrap_or(LockKey::Other)
     }
 
-    fn verdict(&mut self, verdict: crate::auth::Verdict) {
+    fn verdict(&mut self, ticket: u64, verdict: crate::auth::Verdict) {
         use crate::auth::Verdict;
 
         let Some(lock) = self.lock.as_mut() else {
             return;
         };
+        if lock.ticket != Some(ticket) {
+            return;
+        }
         lock.checking = None;
+        lock.ticket = None;
         match verdict {
             Verdict::Granted => {
                 self.unlock();

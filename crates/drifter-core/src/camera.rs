@@ -128,8 +128,14 @@ impl Flight {
     pub fn at(&self, gone: std::time::Duration) -> Camera {
         let t = crate::drawer::ease(self.progress(gone));
         let center = self.from.center + (self.to.center - self.from.center) * t;
-        let zoom = glide(self.from.zoom, self.to.zoom, t);
+        let zoom = glide(self.from.zoom, self.to.zoom, t.clamp(0.0, 1.0));
         Camera::new(center, zoom)
+    }
+
+    pub fn within(&self, gone: std::time::Duration, world: Vec2, viewport: Vec2) -> Camera {
+        let mut camera = self.at(gone);
+        camera.clamp_to_world(world, viewport);
+        camera
     }
 }
 
@@ -155,6 +161,54 @@ mod tests {
     use std::time::Duration;
 
     const VIEWPORT: Vec2 = Vec2::new(1920.0, 1080.0);
+
+    #[test]
+    fn a_flight_in_never_zooms_past_its_target() {
+        let from = Camera::fitting_world(VIEWPORT, WORLD);
+        let to = Camera::at_work_zoom(WORLD / 2.0);
+        let flight = Flight::new(from, to, Duration::from_millis(400));
+        for step in 0..=400 {
+            let camera = flight.at(Duration::from_millis(step));
+            assert!(
+                camera.zoom <= to.zoom + 1e-9,
+                "step {step} zoom {}",
+                camera.zoom
+            );
+        }
+    }
+
+    #[test]
+    fn a_flight_out_never_zooms_past_the_world() {
+        let from = Camera::at_work_zoom(WORLD / 2.0);
+        let to = Camera::fitting_world(VIEWPORT, WORLD);
+        let flight = Flight::new(from, to, Duration::from_millis(400));
+        for step in 0..=400 {
+            let camera = flight.at(Duration::from_millis(step));
+            assert!(
+                camera.zoom >= to.zoom - 1e-9,
+                "step {step} zoom {}",
+                camera.zoom
+            );
+        }
+    }
+
+    #[test]
+    fn a_flight_to_the_world_edge_never_shows_outside_it() {
+        let from = Camera::at_work_zoom(WORLD / 2.0);
+        let mut to = Camera::at_work_zoom(Vec2::ZERO);
+        to.clamp_to_world(WORLD, VIEWPORT);
+        let flight = Flight::new(from, to, Duration::from_millis(400));
+        for step in 0..=400 {
+            let seen = flight
+                .within(Duration::from_millis(step), WORLD, VIEWPORT)
+                .visible_rect(VIEWPORT);
+            assert!(
+                seen.origin.x >= -1e-9 && seen.origin.y >= -1e-9,
+                "step {step}"
+            );
+            assert!(seen.max().x <= WORLD.x + 1e-9 && seen.max().y <= WORLD.y + 1e-9);
+        }
+    }
 
     #[test]
     fn showing_nothing_falls_back_to_the_whole_world() {

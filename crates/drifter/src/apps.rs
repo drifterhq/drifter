@@ -99,8 +99,13 @@ pub fn launch(command: &str, socket: &str) {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn();
-    if let Err(error) = result {
-        eprintln!("drifter: cannot start {program}: {error}");
+    match result {
+        Ok(mut child) => {
+            std::thread::spawn(move || {
+                let _ = child.wait();
+            });
+        }
+        Err(error) => eprintln!("drifter: cannot start {program}: {error}"),
     }
 }
 

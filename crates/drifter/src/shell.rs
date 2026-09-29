@@ -2,6 +2,7 @@ use std::os::unix::io::OwnedFd;
 use std::sync::Arc;
 
 use drifter_core::{Rect, Vec2};
+use smithay::desktop::PopupKind;
 use smithay::input::{Seat, SeatHandler, SeatState};
 use smithay::reexports::wayland_server::backend::{ClientData, ClientId, DisconnectReason};
 use smithay::reexports::wayland_server::protocol::wl_buffer::WlBuffer;
@@ -42,6 +43,7 @@ pub struct Wayland {
 }
 
 pub struct Window {
+    pub id: u64,
     pub toplevel: ToplevelSurface,
     pub content: Rect,
     pub inset: Vec2,
@@ -84,6 +86,7 @@ impl CompositorHandler for State {
         use smithay::backend::renderer::utils::on_commit_buffer_handler;
         on_commit_buffer_handler::<Self>(surface);
 
+        self.popups.commit(surface);
         if is_sync_subsurface(surface) {
             return;
         }
@@ -111,7 +114,13 @@ impl SeatHandler for State {
         &mut self.wayland.seats
     }
 
-    fn focus_changed(&mut self, _seat: &Seat<Self>, _focused: Option<&WlSurface>) {}
+    fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&WlSurface>) {
+        use smithay::reexports::wayland_server::Resource;
+        use smithay::wayland::selection::data_device::set_data_device_focus;
+
+        let client = focused.and_then(|surface| self.wayland.handle.get_client(surface.id()).ok());
+        set_data_device_focus(&self.wayland.handle, seat, client);
+    }
 
     fn cursor_image(
         &mut self,
@@ -144,13 +153,11 @@ impl XdgShellHandler for State {
     }
 
     fn new_toplevel(&mut self, surface: ToplevelSurface) {
-        surface.with_pending_state(|state| {
-            use wayland_protocols::xdg::shell::server::xdg_toplevel;
-            state.states.set(xdg_toplevel::State::Activated);
-        });
         surface.send_configure();
         let start = self.opening_motion();
+        let id = self.next_window_id();
         self.windows.push(Window {
+            id,
             toplevel: surface,
             content: Rect::new(Vec2::ZERO, Vec2::ZERO),
             inset: Vec2::ZERO,
@@ -168,8 +175,7 @@ impl XdgShellHandler for State {
     }
 
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
-        self.windows.retain(|window| window.toplevel != surface);
-        self.focus = None;
+        self.window_gone(&surface);
         self.kick_now();
     }
 
@@ -202,28 +208,76 @@ impl XdgShellHandler for State {
     fn new_popup(&mut self, surface: PopupSurface, positioner: PositionerState) {
         surface.with_pending_state(|state| {
             state.geometry = positioner.get_geometry();
+            state.positioner = positioner;
         });
+        if let Err(error) = self.popups.track_popup(PopupKind::Xdg(surface.clone())) {
+            eprintln!("drifter: popup lost its parent: {error}");
+            return;
+        }
         if let Err(error) = surface.send_configure() {
             eprintln!("drifter: popup refused: {error}");
             return;
         }
-        self.popups.push(surface);
         self.kick_now();
     }
 
-    fn popup_destroyed(&mut self, surface: PopupSurface) {
-        self.popups.retain(|popup| popup != &surface);
+    fn popup_destroyed(&mut self, _surface: PopupSurface) {
+        self.popups.cleanup();
         self.kick_now();
     }
 
-    fn grab(&mut self, _surface: PopupSurface, _seat: WlSeat, _serial: Serial) {}
+    fn grab(&mut self, surface: PopupSurface, seat: WlSeat, serial: Serial) {
+        use smithay::desktop::{
+            PopupKeyboardGrab, PopupPointerGrab, PopupUngrabStrategy, find_popup_root_surface,
+        };
+        use smithay::input::pointer::Focus;
+
+        if self.locked() {
+            surface.send_popup_done();
+            return;
+        }
+        let Some(seat) = Seat::<State>::from_resource(&seat) else {
+            return;
+        };
+        let kind = PopupKind::Xdg(surface);
+        let Ok(root) = find_popup_root_surface(&kind) else {
+            return;
+        };
+        let Ok(mut grab) = self.popups.grab_popup(root, kind, &seat, serial) else {
+            return;
+        };
+
+        if let Some(keyboard) = seat.get_keyboard() {
+            let earlier = grab.previous_serial().unwrap_or(serial);
+            if keyboard.is_grabbed() && !(keyboard.has_grab(serial) || keyboard.has_grab(earlier)) {
+                grab.ungrab(PopupUngrabStrategy::All);
+                return;
+            }
+            keyboard.set_focus(self, grab.current_grab(), serial);
+            keyboard.set_grab(self, PopupKeyboardGrab::new(&grab), serial);
+        }
+        if let Some(pointer) = seat.get_pointer() {
+            let earlier = grab.previous_serial().unwrap_or_else(|| grab.serial());
+            if pointer.is_grabbed() && !(pointer.has_grab(serial) || pointer.has_grab(earlier)) {
+                grab.ungrab(PopupUngrabStrategy::All);
+                return;
+            }
+            pointer.set_grab(self, PopupPointerGrab::new(&grab), serial, Focus::Keep);
+        }
+    }
 
     fn reposition_request(
         &mut self,
-        _surface: PopupSurface,
-        _positioner: PositionerState,
-        _token: u32,
+        surface: PopupSurface,
+        positioner: PositionerState,
+        token: u32,
     ) {
+        surface.with_pending_state(|state| {
+            state.geometry = positioner.get_geometry();
+            state.positioner = positioner;
+        });
+        surface.send_repositioned(token);
+        self.kick_now();
     }
 }
 

@@ -98,8 +98,13 @@ pub fn ready() -> Result<CString, String> {
     Ok(user)
 }
 
+static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 pub fn verify(user: &CStr, password: Vec<u8>) -> Verdict {
     let mut secret = Secret { bytes: password };
+    let _turn = ONE_AT_A_TIME
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let conversation = Conversation {
         talk: answer,
         data: (&mut secret as *mut Secret).cast(),

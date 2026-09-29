@@ -92,7 +92,7 @@ fn load_jpeg(path: &Path, bytes: &[u8]) -> Result<Image, String> {
         .info()
         .ok_or_else(|| format!("{}: the jpeg has no header", path.display()))?;
 
-    let rgba = match info.pixel_format {
+    let rgba: Vec<u8> = match info.pixel_format {
         jpeg_decoder::PixelFormat::RGB24 => pixels
             .as_chunks::<3>()
             .0
@@ -100,25 +100,130 @@ fn load_jpeg(path: &Path, bytes: &[u8]) -> Result<Image, String> {
             .flat_map(|p| [p[0], p[1], p[2], 255])
             .collect(),
         jpeg_decoder::PixelFormat::L8 => pixels.iter().flat_map(|g| [*g, *g, *g, 255]).collect(),
-        other => {
-            return Err(format!(
-                "{}: unsupported jpeg pixel format {other:?}",
-                path.display()
-            ));
+        jpeg_decoder::PixelFormat::L16 => {
+            let samples: Vec<u16> = pixels
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|pair| u16::from_ne_bytes(*pair))
+                .collect();
+            let top = samples.iter().copied().max().unwrap_or(0);
+            let shift = (16 - top.leading_zeros()).saturating_sub(8);
+            samples
+                .iter()
+                .flat_map(|sample| {
+                    let g = (sample >> shift) as u8;
+                    [g, g, g, 255]
+                })
+                .collect()
         }
+        jpeg_decoder::PixelFormat::CMYK32 => pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .flat_map(|p| {
+                let white = 255 - u32::from(p[3]);
+                let ink = |c: u8| ((255 - u32::from(c)) * white / 255) as u8;
+                [ink(p[0]), ink(p[1]), ink(p[2]), 255]
+            })
+            .collect(),
     };
 
+    let width = u32::from(info.width);
+    let height = u32::from(info.height);
+    fits(path, width, height, &rgba)?;
     let mut image = Image {
-        width: u32::from(info.width),
-        height: u32::from(info.height),
+        width,
+        height,
         rgba,
     };
+    if let Some(turn) = decoder.exif_data().and_then(orientation) {
+        image = orient(&image, turn);
+    }
     image.premultiply();
     Ok(image)
 }
 
+fn fits(path: &Path, width: u32, height: u32, rgba: &[u8]) -> Result<(), String> {
+    if rgba.len() != (width as usize) * (height as usize) * 4 {
+        return Err(format!(
+            "{}: decoded {} bytes for a {width} x {height} image",
+            path.display(),
+            rgba.len()
+        ));
+    }
+    Ok(())
+}
+
+fn orientation(exif: &[u8]) -> Option<u16> {
+    let big = match exif.get(0..2)? {
+        b"MM" => true,
+        b"II" => false,
+        _ => return None,
+    };
+    let short = |at: usize| -> Option<u16> {
+        let pair: [u8; 2] = exif.get(at..at + 2)?.try_into().ok()?;
+        Some(if big {
+            u16::from_be_bytes(pair)
+        } else {
+            u16::from_le_bytes(pair)
+        })
+    };
+    let long = |at: usize| -> Option<u32> {
+        let four: [u8; 4] = exif.get(at..at + 4)?.try_into().ok()?;
+        Some(if big {
+            u32::from_be_bytes(four)
+        } else {
+            u32::from_le_bytes(four)
+        })
+    };
+    if short(2)? != 42 {
+        return None;
+    }
+    let table = long(4)? as usize;
+    let count = short(table)? as usize;
+    (0..count).find_map(|entry| {
+        let at = table + 2 + entry * 12;
+        (short(at)? == 0x0112 && short(at + 2)? == 3)
+            .then(|| short(at + 8))
+            .flatten()
+    })
+}
+
+pub fn orient(image: &Image, turn: u16) -> Image {
+    if !(2..=8).contains(&turn) {
+        return image.clone();
+    }
+    let (w, h) = (image.width as usize, image.height as usize);
+    let sideways = turn >= 5;
+    let (out_w, out_h) = if sideways { (h, w) } else { (w, h) };
+    let mut rgba = vec![0u8; out_w * out_h * 4];
+    for y in 0..out_h {
+        for x in 0..out_w {
+            let (sx, sy) = match turn {
+                2 => (w - 1 - x, y),
+                3 => (w - 1 - x, h - 1 - y),
+                4 => (x, h - 1 - y),
+                5 => (y, x),
+                6 => (y, h - 1 - x),
+                7 => (w - 1 - y, h - 1 - x),
+                _ => (w - 1 - y, x),
+            };
+            let from = (sy * w + sx) * 4;
+            let to = (y * out_w + x) * 4;
+            rgba[to..to + 4].copy_from_slice(&image.rgba[from..from + 4]);
+        }
+    }
+    Image {
+        width: out_w as u32,
+        height: out_h as u32,
+        rgba,
+    }
+}
+
 fn load_png(path: &Path, bytes: &[u8]) -> Result<Image, String> {
-    let decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+    decoder.set_transformations(png::Transformations::normalize_to_color8());
     let mut reader = decoder
         .read_info()
         .map_err(|e| format!("{}: {e}", path.display()))?;
@@ -152,6 +257,7 @@ fn load_png(path: &Path, bytes: &[u8]) -> Result<Image, String> {
         }
     };
 
+    fits(path, info.width, info.height, &rgba)?;
     let mut image = Image {
         width: info.width,
         height: info.height,
@@ -198,6 +304,149 @@ mod tests {
         write_png(&path, 2, 1, png::ColorType::Rgb, &[9, 8, 7, 6, 5, 4]);
         let image = load(&path).unwrap();
         assert_eq!(image.rgba, vec![9, 8, 7, 255, 6, 5, 4, 255]);
+    }
+
+    fn write_png_deep(
+        path: &Path,
+        (width, height): (u32, u32),
+        color: png::ColorType,
+        depth: png::BitDepth,
+        palette: Option<&[u8]>,
+        data: &[u8],
+    ) {
+        let file = std::fs::File::create(path).unwrap();
+        let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), width, height);
+        encoder.set_color(color);
+        encoder.set_depth(depth);
+        if let Some(palette) = palette {
+            encoder.set_palette(palette.to_vec());
+        }
+        encoder
+            .write_header()
+            .unwrap()
+            .write_image_data(data)
+            .unwrap();
+    }
+
+    #[test]
+    fn loads_a_palette_png() {
+        let path = scratch("palette.png");
+        let palette = [255, 0, 0, 0, 0, 255];
+        write_png_deep(
+            &path,
+            (2, 1),
+            png::ColorType::Indexed,
+            png::BitDepth::Eight,
+            Some(&palette),
+            &[1, 0],
+        );
+        let image = load(&path).unwrap();
+        assert_eq!(image.rgba, vec![0, 0, 255, 255, 255, 0, 0, 255]);
+    }
+
+    #[test]
+    fn loads_a_sixteen_bit_png_as_eight_bit() {
+        let path = scratch("deep.png");
+        let pixel = [0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xff, 0xff];
+        write_png_deep(
+            &path,
+            (1, 1),
+            png::ColorType::Rgba,
+            png::BitDepth::Sixteen,
+            None,
+            &pixel,
+        );
+        let image = load(&path).unwrap();
+        assert_eq!(image.rgba, vec![0x12, 0x56, 0x9a, 0xff]);
+    }
+
+    #[test]
+    fn loads_a_one_bit_gray_png_without_panicking() {
+        let path = scratch("bits.png");
+        write_png_deep(
+            &path,
+            (8, 1),
+            png::ColorType::Grayscale,
+            png::BitDepth::One,
+            None,
+            &[0b1010_0000],
+        );
+        let image = load(&path).unwrap();
+        assert_eq!(image.rgba.len(), 8 * 4);
+        assert_eq!(&image.rgba[0..8], &[255, 255, 255, 255, 0, 0, 0, 255]);
+        let scaled = image.scaled(3, 3);
+        assert_eq!(scaled.rgba.len(), 3 * 3 * 4);
+    }
+
+    fn exif(big: bool, turn: u16) -> Vec<u8> {
+        let short = |v: u16| {
+            if big {
+                v.to_be_bytes()
+            } else {
+                v.to_le_bytes()
+            }
+        };
+        let long = |v: u32| {
+            if big {
+                v.to_be_bytes()
+            } else {
+                v.to_le_bytes()
+            }
+        };
+        let mut data = Vec::new();
+        data.extend_from_slice(if big { b"MM" } else { b"II" });
+        data.extend_from_slice(&short(42));
+        data.extend_from_slice(&long(8));
+        data.extend_from_slice(&short(2));
+        data.extend_from_slice(&short(0x010f));
+        data.extend_from_slice(&short(2));
+        data.extend_from_slice(&long(4));
+        data.extend_from_slice(b"ACME");
+        data.extend_from_slice(&short(0x0112));
+        data.extend_from_slice(&short(3));
+        data.extend_from_slice(&long(1));
+        data.extend_from_slice(&short(turn));
+        data.extend_from_slice(&[0, 0]);
+        data
+    }
+
+    #[test]
+    fn reads_the_orientation_in_either_byte_order() {
+        assert_eq!(orientation(&exif(true, 6)), Some(6));
+        assert_eq!(orientation(&exif(false, 8)), Some(8));
+        assert_eq!(orientation(b"junk"), None);
+        assert_eq!(orientation(&exif(false, 6)[..12]), None);
+    }
+
+    fn strip() -> Image {
+        Image {
+            width: 3,
+            height: 2,
+            rgba: (0..6u8).flat_map(|n| [n, 0, 0, 255]).collect(),
+        }
+    }
+
+    fn reds(image: &Image) -> Vec<u8> {
+        image.rgba.as_chunks::<4>().0.iter().map(|p| p[0]).collect()
+    }
+
+    #[test]
+    fn a_phone_photo_turned_right_stands_up() {
+        let turned = orient(&strip(), 6);
+        assert_eq!((turned.width, turned.height), (2, 3));
+        assert_eq!(reds(&turned), vec![3, 0, 4, 1, 5, 2]);
+    }
+
+    #[test]
+    fn every_orientation_keeps_every_pixel() {
+        for turn in 1..=8 {
+            let turned = orient(&strip(), turn);
+            let mut seen = reds(&turned);
+            seen.sort();
+            assert_eq!(seen, vec![0, 1, 2, 3, 4, 5], "turn {turn}");
+        }
+        assert_eq!(reds(&orient(&strip(), 3)), vec![5, 4, 3, 2, 1, 0]);
+        assert_eq!(reds(&orient(&strip(), 8)), vec![2, 5, 1, 4, 0, 3]);
     }
 
     #[test]

@@ -144,6 +144,10 @@ fn split(service: &str) -> (String, String) {
     }
 }
 
+fn owned_by(service: &str, name: &str) -> bool {
+    split(service).0 == name
+}
+
 fn read_icon(connection: &zbus::blocking::Connection, service: &str) -> Option<Icon> {
     let (name, path) = split(service);
     let proxy = zbus::blocking::Proxy::new(connection, name, path, ITEM).ok()?;
@@ -486,7 +490,7 @@ fn watch_signals(
         {
             let mut list = items.lock().unwrap();
             let before = list.len();
-            list.retain(|service| !service.starts_with(&name));
+            list.retain(|service| !owned_by(service, &name));
             changed = list.len() != before;
         }
 
@@ -500,5 +504,19 @@ fn watch_signals(
             .filter_map(|service| read_icon(&connection, service))
             .collect::<Vec<_>>();
         let _ = wake.send(Update::Icons(icons));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_name_that_leaves_takes_only_its_own_items() {
+        assert!(owned_by(":1.4/StatusNotifierItem", ":1.4"));
+        assert!(owned_by(":1.4", ":1.4"));
+        assert!(!owned_by(":1.40/StatusNotifierItem", ":1.4"));
+        assert!(!owned_by(":1.41", ":1.4"));
+        assert!(!owned_by("org.kde.StatusNotifierItem-12-1", "org.kde"));
     }
 }
