@@ -20,6 +20,16 @@ fi
 
 pkill -x drifter 2>/dev/null || true
 
+# The old one must let go of the screen before the new one can take it.
+for _ in $(seq 50); do
+    pgrep -x drifter >/dev/null || break
+    sleep 0.1
+done
+if pgrep -x drifter >/dev/null; then
+    pkill -KILL -x drifter 2>/dev/null || true
+    sleep 0.5
+fi
+
 nohup sh -c "exec <$tty >$log 2>&1; $bin" >/dev/null 2>&1 &
 
 echo "started, logging to $log"

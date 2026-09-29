@@ -401,7 +401,7 @@ impl State {
         if let Some(buffer) = self.glow.as_ref() {
             let reach = drifter_core::corner::REACH;
             let warmth = drifter_core::corner::heat(self.pointer, reach);
-            if warmth > 0.0 && !self.overview() && !self.modifier {
+            if warmth > 0.0 && !self.modifier {
                 let rect = Rect::new(Vec2::ZERO, Vec2::splat(reach));
                 elements.push(Skin::Texture(element(buffer, rect, (warmth * 0.55) as f32)));
             }

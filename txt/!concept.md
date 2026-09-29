@@ -272,7 +272,8 @@ Clients are told nothing about any of this. Pointer events reach them in world c
 The camera moves by flights. A flight eases with the same spring as the drawers, and its zoom glides in log space, so half way from 0.25 to 1.0 is 0.5 rather than 0.625. A straight line mix makes the first half of a zoom out look like the whole of it.
 
 Controls:
-- The top-left corner warms up as the pointer nears it. The glow reaches 128 px and brightens with distance, so the corner is visible before it is reached.
+- The top-left corner warms up as the pointer nears it. The glow reaches 128 px and gets brighter the closer the pointer is, so the corner is visible before it is reached.
+- The glow stays as long as the pointer stays near, also after the corner has flown the camera out to the overview. It only fades as the pointer moves away, or while the modifier is held.
 - Push the pointer into the top-left corner and hold. The camera flies out until every window is in view, framing their bounding box with a margin. With no windows open it fits the whole world. It never zooms past 1.0 on the way in, and never past the world on the way out.
 - Zoomed out, a click never reaches the app. It flies the camera to that window at zoom 1. A click on empty world centers there instead.
 - Modifier + scroll zooms at the cursor, so the world point under the pointer stays put.
