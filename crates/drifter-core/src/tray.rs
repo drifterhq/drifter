@@ -60,6 +60,36 @@ impl Tray {
             .count()
     }
 
+    /// The system info sits one gap right of the last icon shown, or at the
+    /// margin when there are no icons.
+    pub fn stats_rect(&self, band: Rect, icons: usize, text: Vec2) -> Rect {
+        let x = match icons {
+            0 => band.origin.x + self.margin,
+            shown => self.icon_rect(band, shown - 1).max().x + self.gap,
+        };
+        Rect::new(Vec2::new(x, self.centered(band, text.y)), text)
+    }
+
+    /// How many icons to show, and whether the system info fits after them.
+    /// Icons give up their room to the system info. The system info gives up
+    /// its room when it would reach the clock.
+    pub fn layout(
+        &self,
+        band: Rect,
+        before: f64,
+        icons: usize,
+        stats: Option<f64>,
+    ) -> (usize, bool) {
+        if let Some(width) = stats {
+            let shown = icons.min(self.room(band, before - width - self.gap));
+            let rect = self.stats_rect(band, shown, Vec2::new(width, 0.0));
+            if rect.max().x + self.gap <= before {
+                return (shown, true);
+            }
+        }
+        (icons.min(self.room(band, before)), false)
+    }
+
     pub fn icon_at(&self, band: Rect, pointer: Vec2, count: usize) -> Option<usize> {
         (0..count).find(|slot| self.icon_rect(band, *slot).contains(pointer))
     }
@@ -142,6 +172,48 @@ mod tests {
         assert!(last.max().x + tray.gap <= clock.origin.x);
         let next = tray.icon_rect(band, room);
         assert!(next.max().x + tray.gap > clock.origin.x);
+    }
+
+    #[test]
+    fn the_stats_sit_at_the_margin_with_no_icons() {
+        let tray = Tray::default();
+        let rect = tray.stats_rect(band(), 0, Vec2::new(200.0, 14.0));
+        assert_eq!(rect.origin.x, tray.margin);
+        assert_eq!(rect.center().y, band().center().y);
+    }
+
+    #[test]
+    fn the_stats_sit_one_gap_right_of_the_last_icon() {
+        let tray = Tray::default();
+        let rect = tray.stats_rect(band(), 3, Vec2::new(200.0, 14.0));
+        assert_eq!(rect.origin.x, tray.icon_rect(band(), 2).max().x + tray.gap);
+    }
+
+    #[test]
+    fn with_room_every_icon_and_the_stats_show() {
+        let tray = Tray::default();
+        assert_eq!(tray.layout(band(), 1500.0, 4, Some(200.0)), (4, true));
+        assert_eq!(tray.layout(band(), 1500.0, 4, None), (4, false));
+    }
+
+    #[test]
+    fn icons_give_up_room_to_the_stats() {
+        let tray = Tray::default();
+        let before = 400.0;
+        let alone = tray.layout(band(), before, 50, None).0;
+        let (shown, stats) = tray.layout(band(), before, 50, Some(200.0));
+        assert!(stats);
+        assert!(shown < alone);
+        let rect = tray.stats_rect(band(), shown, Vec2::new(200.0, 14.0));
+        assert!(rect.max().x + tray.gap <= before);
+    }
+
+    #[test]
+    fn the_stats_hide_before_they_reach_the_clock() {
+        let tray = Tray::default();
+        let (shown, stats) = tray.layout(band(), 150.0, 2, Some(200.0));
+        assert!(!stats);
+        assert_eq!(shown, tray.room(band(), 150.0).min(2));
     }
 
     #[test]

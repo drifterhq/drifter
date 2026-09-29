@@ -20,6 +20,8 @@ mod session;
 #[cfg(target_os = "linux")]
 mod shell;
 #[cfg(target_os = "linux")]
+mod stats;
+#[cfg(target_os = "linux")]
 mod tray;
 
 #[cfg(target_os = "linux")]

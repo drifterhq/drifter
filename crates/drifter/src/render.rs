@@ -226,6 +226,9 @@ pub struct State {
     app_icons: std::collections::HashMap<String, TextureBuffer<GlesTexture>>,
     format: String,
     clock: Option<(String, TextureBuffer<GlesTexture>, Rect)>,
+    stats: Option<(TextureBuffer<GlesTexture>, Vec2)>,
+    sampler: crate::stats::Sampler,
+    sampled: Option<Instant>,
     icons: Vec<(String, String, TextureBuffer<GlesTexture>)>,
     popover: Option<Popover>,
     lock: Option<Lock>,
@@ -496,7 +499,14 @@ impl State {
             )));
         }
         if let Some(band) = self.tray_band() {
-            let room = self.tray_room(band);
+            let (room, stats) = self.tray_layout(band);
+            if let (true, Some((buffer, size))) = (stats, self.stats.as_ref()) {
+                elements.push(Skin::Texture(element(
+                    buffer,
+                    self.tray.stats_rect(band, room, *size),
+                    1.0,
+                )));
+            }
             for (slot, (_, _, buffer)) in self.icons.iter().take(room).enumerate() {
                 elements.push(Skin::Texture(element(
                     buffer,
@@ -1130,6 +1140,7 @@ impl State {
         self.step_windows(dt);
 
         self.wind_the_clock();
+        self.wind_the_stats();
         self.wind_titles();
 
         self.paint_lock();
@@ -1857,6 +1868,7 @@ impl State {
                 Err(error) => eprintln!("drifter: no clock: {error}"),
             }
             self.clock = None;
+            self.stats = None;
             self.titles.clear();
         }
         self.format = config.tray.format.clone();
@@ -1902,11 +1914,20 @@ impl State {
     }
 
     fn tray_room(&self, band: Rect) -> usize {
+        self.tray_layout(band).0
+    }
+
+    fn tray_layout(&self, band: Rect) -> (usize, bool) {
         let stop = match self.clock.as_ref() {
             Some((_, _, rect)) => rect.origin.x,
             None => self.tray.power_rect(band).origin.x,
         };
-        self.icons.len().min(self.tray.room(band, stop))
+        let stats = self
+            .stats
+            .as_ref()
+            .zip(self.font.as_ref())
+            .map(|(_, font)| font.width_of(drifter_core::stats::WIDEST));
+        self.tray.layout(band, stop, self.icons.len(), stats)
     }
 
     fn over_drawer(&self) -> bool {
@@ -1993,6 +2014,36 @@ impl State {
         let rect = tray.clock_rect(band, image.size());
         match upload(&mut self.renderer, Some(&image), "clock") {
             Ok(Some(buffer)) => self.clock = Some((reading, buffer, rect)),
+            Ok(None) => {}
+            Err(error) => eprintln!("drifter: {error}"),
+        }
+    }
+
+    fn wind_the_stats(&mut self) {
+        if !self.drawers[Edge::Top.index()].visible() || self.font.is_none() {
+            self.stats = None;
+            return;
+        }
+        if self.stats.is_some()
+            && self
+                .sampled
+                .is_some_and(|at| at.elapsed() < Duration::from_secs(1))
+        {
+            return;
+        }
+        self.sampled = Some(Instant::now());
+        let Some(reading) = self.sampler.read() else {
+            self.stats = None;
+            return;
+        };
+        let image = self
+            .font
+            .as_ref()
+            .map(|font| font.paint(&reading, self.tray.ink))
+            .expect("the font was there a moment ago");
+        let size = image.size();
+        match upload(&mut self.renderer, Some(&image), "system info") {
+            Ok(Some(buffer)) => self.stats = Some((buffer, size)),
             Ok(None) => {}
             Err(error) => eprintln!("drifter: {error}"),
         }
@@ -3428,6 +3479,9 @@ pub fn open(
         app_icons: std::collections::HashMap::new(),
         format: config.tray.format.clone(),
         clock: None,
+        stats: None,
+        sampler: crate::stats::Sampler::default(),
+        sampled: None,
         icons: Vec::new(),
         popover: None,
         lock: None,

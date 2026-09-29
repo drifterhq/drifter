@@ -172,7 +172,9 @@ The top drawer is the tray. It reads right to left, because the right side is wh
 - Every tray call to an app waits at most 1 second. Clicks and menus each run on their own thread, and icons are read side by side, so an app that stops answering never blocks the others.
 - Icons that do not fit before the clock are not drawn.
 - When `DBUS_SESSION_BUS_ADDRESS` is unset, Drifter falls back to `unix:path=/run/user/<uid>/bus`. Without that a compositor started outside a login shell never gets a bus and the tray never appears.
-- System info comes later, on the same left end, to the right of the icons.
+- System info sits one gap right of the icons: `CPU 7%   RAM 42%   DSK 63%`, in the tray ink.
+- CPU is the busy share of all cores since the last reading, from `/proc/stat`. RAM is total minus available, from `/proc/meminfo`. DSK is the root filesystem, counted the way `df` counts it. They are read once a second, and only while the drawer is open.
+- The system info always keeps room for `CPU 100%   RAM 100%   DSK 100%`, so the icons never jump as the numbers change. Icons give up their room to the system info. The system info is not drawn if it would reach the clock.
 
 The clock is only drawn while the drawer is open, so a closed tray costs nothing.
 
