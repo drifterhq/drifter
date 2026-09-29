@@ -50,6 +50,8 @@ use smithay::utils::{DeviceFd, Scale, Transform};
 
 const ESCAPE: u32 = 9;
 const KEY_L: u32 = 46;
+const KEY_TAB: u32 = 23;
+const KEY_F4: u32 = 70;
 const LOCK_PATIENCE: Duration = Duration::from_secs(30);
 const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
@@ -117,6 +119,19 @@ enum Target {
     Tray(String),
     Window(u64),
     Desktop,
+}
+
+/// The Alt-Tab switcher while Alt is held: windows newest first.
+struct Switch {
+    order: Vec<u64>,
+    at: usize,
+    layout: drifter_core::switcher::Layout,
+    art: Option<TextureBuffer<GlesTexture>>,
+}
+
+enum Shortcut {
+    Switch { back: bool },
+    Close,
 }
 
 struct Popover {
@@ -217,6 +232,7 @@ pub struct State {
     glow: Option<TextureBuffer<GlesTexture>>,
     rule: Option<TextureBuffer<GlesTexture>>,
     app_icons: std::collections::HashMap<String, TextureBuffer<GlesTexture>>,
+    no_icon: std::collections::HashSet<String>,
     format: String,
     clock: Option<(String, TextureBuffer<GlesTexture>, Rect)>,
     stats: Option<(TextureBuffer<GlesTexture>, Vec2)>,
@@ -224,6 +240,7 @@ pub struct State {
     sampled: Option<Instant>,
     icons: Vec<(String, String, TextureBuffer<GlesTexture>)>,
     popover: Option<Popover>,
+    switch: Option<Switch>,
     lock: Option<Lock>,
     lock_big: Option<Font>,
     lock_small: Option<Font>,
@@ -382,6 +399,7 @@ impl State {
             return self.lock_elements();
         }
         let mut elements: Vec<Skin> = self.cursor_elements();
+        self.switch_elements(&mut elements);
         self.layer_elements(
             &[smithay::wayland::shell::wlr_layer::Layer::Overlay],
             &mut elements,
@@ -390,7 +408,7 @@ impl State {
         if let Some(buffer) = self.glow.as_ref() {
             let reach = drifter_core::corner::REACH;
             let warmth = drifter_core::corner::heat(self.pointer, reach);
-            if warmth > 0.0 && !self.modifier {
+            if warmth > 0.0 && !self.modifier && self.held_by_fullscreen().is_none() {
                 let rect = Rect::new(Vec2::ZERO, Vec2::splat(reach));
                 elements.push(Skin::Texture(element(buffer, rect, (warmth * 0.55) as f32)));
             }
@@ -538,7 +556,7 @@ impl State {
                     fade,
                     window.inset,
                     (self.focus == Some(window.id), window.restore.is_some()),
-                    window.decorated,
+                    window.decorated && window.full.is_none(),
                     window.title.clone(),
                     window.toplevel.wl_surface().clone(),
                 )
@@ -1073,6 +1091,9 @@ impl State {
         window.inset = inset;
         let grew = window.content.size != size;
         window.content.size = size;
+        if let Some((_, screen)) = window.full {
+            window.content.origin = (screen.center() - size / 2.0).round();
+        }
         if let Grab::Resize {
             id, grip, start, ..
         } = self.grab
@@ -1102,6 +1123,7 @@ impl State {
         let wanted = Vec2::new(middle.x, top);
         window.content.origin = drifter_core::window::cascade(wanted, &taken, 34.0, view);
         window.placed = true;
+        let wants_full = std::mem::take(&mut window.wants_full);
 
         if fresh
             && self.lock.is_none()
@@ -1112,6 +1134,92 @@ impl State {
         {
             self.focus_window(index);
         }
+        if wants_full
+            && let Some(index) = self
+                .windows
+                .iter()
+                .position(|window| window.toplevel.wl_surface() == surface)
+        {
+            self.enter_fullscreen(index);
+        }
+    }
+
+    /// The one screen a fullscreen window fills: centred where the window
+    /// was, and pulled inside the world so the camera can sit on it.
+    fn full_rect(&self, near: Vec2) -> Rect {
+        let half = self.screen / 2.0;
+        let center = near.clamp(half, (self.world - half).max(half));
+        Rect::from_center(center, self.screen).round_out()
+    }
+
+    pub fn enter_fullscreen(&mut self, index: usize) {
+        use wayland_protocols::xdg::shell::server::xdg_toplevel;
+
+        if self.windows[index].full.is_some() {
+            return;
+        }
+        if !self.windows[index].placed {
+            let window = &mut self.windows[index];
+            window.wants_full = true;
+            let size = (self.screen.x as i32, self.screen.y as i32);
+            window.toplevel.with_pending_state(|state| {
+                state.size = Some(size.into());
+                state.states.set(xdg_toplevel::State::Fullscreen);
+            });
+            window.toplevel.send_pending_configure();
+            return;
+        }
+        let screen = self.full_rect(self.windows[index].content.center());
+        let window = &mut self.windows[index];
+        window.full = Some((window.content, screen));
+        window.content = Rect::new(
+            screen.center() - window.content.size / 2.0,
+            window.content.size,
+        );
+        window.touched = true;
+        window.toplevel.with_pending_state(|state| {
+            state.size = Some((screen.size.x as i32, screen.size.y as i32).into());
+            state.states.set(xdg_toplevel::State::Fullscreen);
+        });
+        window.toplevel.send_pending_configure();
+        self.popover = None;
+        self.dwell = None;
+        self.leave = None;
+        for edge in Edge::ALL {
+            self.set(edge, false);
+        }
+        self.focus_window(index);
+        self.kick_now();
+    }
+
+    pub fn leave_fullscreen(&mut self, index: usize) {
+        use wayland_protocols::xdg::shell::server::xdg_toplevel;
+
+        let window = &mut self.windows[index];
+        window.wants_full = false;
+        let Some((back, _)) = window.full.take() else {
+            window.toplevel.with_pending_state(|state| {
+                state.states.unset(xdg_toplevel::State::Fullscreen);
+            });
+            window.toplevel.send_pending_configure();
+            return;
+        };
+        window.content = back;
+        window.toplevel.with_pending_state(|state| {
+            state.size = Some((back.size.x as i32, back.size.y as i32).into());
+            state.states.unset(xdg_toplevel::State::Fullscreen);
+        });
+        window.toplevel.send_pending_configure();
+        self.kick_now();
+    }
+
+    /// The focused window, when it is fullscreen. While there is one the
+    /// camera stays on it, and the bars, hot corner, zoom and pan are off.
+    fn held_by_fullscreen(&self) -> Option<usize> {
+        let focus = self.focus?;
+        self.windows
+            .iter()
+            .position(|window| window.id == focus && window.full.is_some() && !window.hidden)
     }
 
     fn draw(&mut self) -> Result<bool, String> {
@@ -1549,7 +1657,7 @@ impl State {
     }
 
     fn watch_corner(&mut self) {
-        if self.modifier || self.lock.is_some() {
+        if self.modifier || self.lock.is_some() || self.held_by_fullscreen().is_some() {
             self.corner_since = None;
             return;
         }
@@ -1596,6 +1704,9 @@ impl State {
     }
 
     fn zoom_by(&mut self, steps: f64) {
+        if self.held_by_fullscreen().is_some() {
+            return;
+        }
         let least = Camera::fit_zoom(self.screen, self.world);
         let wanted = (self.camera.zoom * (1.0 + steps * 0.12)).clamp(least, 4.0);
         let mut camera = self.camera;
@@ -1616,18 +1727,7 @@ impl State {
             .iter()
             .position(|window| window.app == SETTINGS_APP && !window.going)
         {
-            if self.windows[place].hidden {
-                let index = self.windows[..place]
-                    .iter()
-                    .filter(|window| window.hidden)
-                    .count();
-                let seat = self.dock_slot(index);
-                self.windows[place].hidden = false;
-                self.windows[place].motion = Some(Motion::new(Phase::Restoring, seat));
-            }
-            let center = self.windows[place].content.center();
-            self.focus_window(place);
-            self.fly_to(Camera::at_work_zoom(center));
+            self.bring(place);
             return;
         }
         let program = std::env::current_exe()
@@ -1961,6 +2061,9 @@ impl State {
     }
 
     fn wanted(&self) -> Option<Edge> {
+        if self.held_by_fullscreen().is_some() {
+            return None;
+        }
         for edge in Edge::ALL {
             if self.drawers[edge.index()].holds(
                 self.pointer,
@@ -2000,7 +2103,7 @@ impl State {
                 pan.y = moved.y;
             }
 
-            if pan != Vec2::ZERO {
+            if pan != Vec2::ZERO && self.held_by_fullscreen().is_none() {
                 let mut camera = self.camera;
                 camera.pan_by_screen(pan);
                 camera.clamp_to_world(self.world, self.screen);
@@ -2218,6 +2321,9 @@ impl State {
 
         let index = self.raise(index);
         self.layer_focus = None;
+        if let Some((_, screen)) = self.windows[index].full {
+            self.fly_to(Camera::at_work_zoom(screen.center()));
+        }
         if self.lock.is_none() {
             let surface = self.windows[index].toplevel.wl_surface().clone();
             let keyboard = self.wayland.keyboard.clone();
@@ -2311,7 +2417,9 @@ impl State {
             .iter()
             .enumerate()
             .rev()
-            .filter(|(_, window)| window.placed && !window.hidden && window.decorated)
+            .filter(|(_, window)| {
+                window.placed && !window.hidden && window.decorated && window.full.is_none()
+            })
             .find_map(|(index, window)| {
                 self.chrome
                     .grip_at(window.content, self.in_world(self.pointer), 3)
@@ -2368,7 +2476,7 @@ impl State {
     }
 
     pub fn start_move(&mut self, index: usize) {
-        if self.lock.is_some() {
+        if self.lock.is_some() || self.windows[index].full.is_some() {
             return;
         }
         let index = self.raise(index);
@@ -2384,7 +2492,7 @@ impl State {
         index: usize,
         edges: smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::ResizeEdge,
     ) {
-        if self.lock.is_some() {
+        if self.lock.is_some() || self.windows[index].full.is_some() {
             return;
         }
         use drifter_core::window::Grip;
@@ -2500,7 +2608,7 @@ impl State {
 
     fn remember_icon(&mut self, index: usize) {
         let name = self.windows[index].app.clone();
-        if name.is_empty() || self.app_icons.contains_key(&name) {
+        if name.is_empty() || self.app_icons.contains_key(&name) || self.no_icon.contains(&name) {
             return;
         }
         let wanted = self.dock.icon as u32;
@@ -2510,6 +2618,7 @@ impl State {
             .map(|image| image.scaled(wanted, wanted));
         let Some(image) = art else {
             eprintln!("drifter: no dock icon for {name}");
+            self.no_icon.insert(name);
             return;
         };
         match upload(&mut self.renderer, Some(&image), "dock icon") {
@@ -2671,14 +2780,169 @@ impl State {
 
         let keyboard = self.wayland.keyboard.clone();
         let time = event.time_msec();
-        keyboard.input::<(), _>(
+        let code = event.key_code().raw();
+        let pressed = event.state() == KeyState::Pressed;
+        let shortcut = keyboard.input::<Shortcut, _>(
             self,
             event.key_code(),
             event.state(),
             SERIAL_COUNTER.next_serial(),
             time,
-            |_, _, _| FilterResult::Forward,
+            |_, held, _| match (pressed && held.alt, code) {
+                (true, KEY_TAB) => FilterResult::Intercept(Shortcut::Switch { back: held.shift }),
+                (true, KEY_F4) => FilterResult::Intercept(Shortcut::Close),
+                _ => FilterResult::Forward,
+            },
         );
+        match shortcut {
+            Some(Shortcut::Switch { back }) => self.switch_step(back),
+            Some(Shortcut::Close) => self.close_focused(),
+            None => {}
+        }
+        if self.switch.is_some() && !keyboard.modifier_state().alt {
+            self.switch_commit();
+        }
+    }
+
+    fn switch_step(&mut self, back: bool) {
+        if self.lock.is_some() {
+            return;
+        }
+        let at = match self.switch.as_ref() {
+            Some(open) => drifter_core::switcher::step(open.at, open.order.len(), back),
+            None => {
+                let order: Vec<u64> = self
+                    .windows
+                    .iter()
+                    .rev()
+                    .filter(|window| window.placed && !window.going)
+                    .map(|window| window.id)
+                    .collect();
+                if order.is_empty() {
+                    return;
+                }
+                for index in 0..self.windows.len() {
+                    self.remember_icon(index);
+                }
+                let at = match order.len() {
+                    1 => 0,
+                    count => drifter_core::switcher::step(0, count, back),
+                };
+                let layout =
+                    drifter_core::switcher::Look::default().layout(self.screen, order.len());
+                self.switch = Some(Switch {
+                    order,
+                    at,
+                    layout,
+                    art: None,
+                });
+                at
+            }
+        };
+        let Some(open) = self.switch.as_ref() else {
+            return;
+        };
+        let windows: Vec<&crate::shell::Window> = open
+            .order
+            .iter()
+            .filter_map(|id| self.windows.iter().find(|window| window.id == *id))
+            .collect();
+        let letters: Vec<Option<char>> = windows
+            .iter()
+            .map(|window| match self.app_icons.contains_key(&window.app) {
+                true => None,
+                false => window
+                    .app
+                    .rsplit('.')
+                    .next()
+                    .and_then(|name| name.chars().next())
+                    .or_else(|| window.title.chars().next())
+                    .or(Some('?')),
+            })
+            .collect();
+        let title = windows
+            .get(at)
+            .map(|window| match window.title.is_empty() {
+                true => window.app.clone(),
+                false => window.title.clone(),
+            })
+            .unwrap_or_default();
+        let image = open.layout.paint(at, &title, &letters, self.font.as_ref());
+        let art = match upload(&mut self.renderer, Some(&image), "switcher") {
+            Ok(art) => art,
+            Err(error) => {
+                eprintln!("drifter: {error}");
+                None
+            }
+        };
+        if let Some(open) = self.switch.as_mut() {
+            open.at = at;
+            open.art = art;
+        }
+        self.kick_now();
+    }
+
+    fn switch_commit(&mut self) {
+        let Some(open) = self.switch.take() else {
+            return;
+        };
+        if let Some(place) = open.order.get(open.at).and_then(|id| self.place_of(*id)) {
+            self.bring(place);
+        }
+        self.kick_now();
+    }
+
+    fn switch_elements(&self, elements: &mut Vec<Skin>) {
+        let Some(open) = self.switch.as_ref() else {
+            return;
+        };
+        let Some(art) = open.art.as_ref() else {
+            return;
+        };
+        let panel = open.layout.panel;
+        for (index, id) in open.order.iter().enumerate() {
+            let icon = self
+                .windows
+                .iter()
+                .find(|window| window.id == *id)
+                .and_then(|window| self.app_icons.get(&window.app));
+            if let Some(icon) = icon {
+                let rect = open.layout.icon_rect(index);
+                let rect = Rect::new(panel.origin + rect.origin, rect.size);
+                elements.push(Skin::Texture(element(icon, rect, 1.0)));
+            }
+        }
+        elements.push(Skin::Texture(element(art, panel, 1.0)));
+    }
+
+    /// Shows a window: back from the dock if it was there, focused, and
+    /// with the camera on it.
+    fn bring(&mut self, place: usize) {
+        if self.windows[place].hidden {
+            let index = self.windows[..place]
+                .iter()
+                .filter(|window| window.hidden)
+                .count();
+            let seat = self.dock_slot(index);
+            self.windows[place].hidden = false;
+            self.windows[place].motion = Some(Motion::new(Phase::Restoring, seat));
+        }
+        let full = self.windows[place].full.is_some();
+        let center = self.windows[place].content.center();
+        let index = self.focus_window(place);
+        if !full {
+            self.fly_to(Camera::at_work_zoom(center));
+        }
+        let _ = index;
+    }
+
+    fn close_focused(&mut self) {
+        if self.lock.is_some() {
+            return;
+        }
+        if let Some(place) = self.focus.and_then(|id| self.place_of(id)) {
+            self.press_button(place, 0);
+        }
     }
 
     fn input(&mut self, event: InputEvent<LibinputInputBackend>) {
@@ -3268,6 +3532,7 @@ pub fn open(
         glow,
         rule,
         app_icons: std::collections::HashMap::new(),
+        no_icon: std::collections::HashSet::new(),
         format: config.tray.format.clone(),
         clock: None,
         stats: None,
@@ -3275,6 +3540,7 @@ pub fn open(
         sampled: None,
         icons: Vec::new(),
         popover: None,
+        switch: None,
         lock: None,
         lock_big,
         lock_small,
@@ -3493,6 +3759,7 @@ impl State {
 
         self.dismiss_popups();
         self.popover = None;
+        self.switch = None;
         self.tip = None;
         self.tip_of = None;
         self.zone = None;

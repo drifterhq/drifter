@@ -6,6 +6,7 @@ use smithay::desktop::PopupKind;
 use smithay::input::{Seat, SeatHandler, SeatState};
 use smithay::reexports::wayland_server::backend::{ClientData, ClientId, DisconnectReason};
 use smithay::reexports::wayland_server::protocol::wl_buffer::WlBuffer;
+use smithay::reexports::wayland_server::protocol::wl_output::WlOutput;
 use smithay::reexports::wayland_server::protocol::wl_seat::WlSeat;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
 use smithay::reexports::wayland_server::{Client, Display, DisplayHandle};
@@ -56,6 +57,11 @@ pub struct Window {
     pub app: String,
     pub title: String,
     pub restore: Option<Rect>,
+    /// While fullscreen: the rectangle to go back to, and the one screen
+    /// the window fills.
+    pub full: Option<(Rect, Rect)>,
+    /// The app asked for fullscreen before its first frame.
+    pub wants_full: bool,
     pub motion: Option<drifter_core::motion::Motion>,
     pub going: bool,
 }
@@ -178,6 +184,8 @@ impl XdgShellHandler for State {
             app: String::new(),
             title: String::new(),
             restore: None,
+            full: None,
+            wants_full: false,
             motion: Some(start),
             going: false,
         });
@@ -186,6 +194,26 @@ impl XdgShellHandler for State {
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
         self.window_gone(&surface);
         self.kick_now();
+    }
+
+    fn fullscreen_request(&mut self, surface: ToplevelSurface, _output: Option<WlOutput>) {
+        if let Some(index) = self
+            .windows
+            .iter()
+            .position(|window| window.toplevel == surface)
+        {
+            self.enter_fullscreen(index);
+        }
+    }
+
+    fn unfullscreen_request(&mut self, surface: ToplevelSurface) {
+        if let Some(index) = self
+            .windows
+            .iter()
+            .position(|window| window.toplevel == surface)
+        {
+            self.leave_fullscreen(index);
+        }
     }
 
     fn move_request(&mut self, surface: ToplevelSurface, _seat: WlSeat, _serial: Serial) {

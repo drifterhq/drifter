@@ -17,6 +17,7 @@ pub mod power;
 pub mod settings;
 pub mod snap;
 pub mod stats;
+pub mod switcher;
 pub mod text;
 pub mod tray;
 pub mod wallpaper;
