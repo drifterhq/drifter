@@ -2987,19 +2987,6 @@ impl State {
         }
     }
 
-    pub fn remember(&self) {
-        let path = Config::camera_path();
-        if let Some(folder) = path.parent()
-            && let Err(error) = std::fs::create_dir_all(folder)
-        {
-            eprintln!("drifter: cannot keep the camera: {error}");
-            return;
-        }
-        if let Err(error) = std::fs::write(&path, self.camera.write()) {
-            eprintln!("drifter: cannot keep the camera: {error}");
-        }
-    }
-
     fn drop_held_input(&mut self) {
         self.modifier = false;
         self.fingers = 0;
@@ -3033,8 +3020,6 @@ impl Screen {
         events
             .run(None, &mut state, |_| {})
             .map_err(|e| format!("event loop failed: {e}"))?;
-
-        state.remember();
 
         match state.failure {
             Some(error) => Err(error),
@@ -3168,16 +3153,8 @@ pub fn open(
     let gl = describe(&mut renderer);
     let screen = Vec2::new(f64::from(width), f64::from(height));
     let world = config.world_size(screen);
-    let remembered = std::fs::read_to_string(Config::camera_path())
-        .ok()
-        .and_then(|text| Camera::read(&text))
-        .map(|mut camera| {
-            let least = Camera::fit_zoom(screen, world);
-            camera.zoom = camera.zoom.clamp(least, 4.0);
-            camera.clamp_to_world(world, screen);
-            camera
-        })
-        .unwrap_or_else(|| Camera::at_work_zoom(world / 2.0));
+    // Drifter always starts with no windows, so it starts in the middle.
+    let start = Camera::at_work_zoom(world / 2.0);
     let screen_mode = smithay::output::Mode {
         size: (i32::from(width), i32::from(height)).into(),
         refresh: (drm_mode.vrefresh() * 1000) as i32,
@@ -3202,7 +3179,7 @@ pub fn open(
             image.size(),
             screen,
             world,
-            &remembered,
+            &start,
         )
         .target
     });
@@ -3439,7 +3416,7 @@ pub fn open(
         popups: smithay::desktop::PopupManager::default(),
         display: Some(display),
         chrome,
-        camera: remembered,
+        camera: start,
         world,
         mode: config.workspace.wallpaper_mode,
         flight: None,
@@ -3656,7 +3633,7 @@ pub fn open(
             renderer: gl,
             socket: socket_name.clone(),
             wallpaper: rect,
-            camera: remembered,
+            camera: start,
             drawer: open_band,
             corner: shapes[Edge::Top.index()].radius,
         },

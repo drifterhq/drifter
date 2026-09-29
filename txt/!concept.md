@@ -145,7 +145,7 @@ Session
 
 ## What is not built yet
 
-The MVP list is finished: config, the compositor, both drawers, the hot corner, click to fly, free zoom, edge pan, and a camera that survives a restart.
+The MVP list is finished: config, the compositor, both drawers, the hot corner, click to fly, free zoom, and edge pan.
 
 What is left:
 - Lock on idle, on lid close and on a logind Lock signal.
@@ -281,7 +281,7 @@ Controls:
 - A three finger swipe on a trackpad pans in any direction. SPICE carries no gestures, so this only works on real hardware, not in the VM.
 - Scroll with no modifier goes to the focused app, untouched.
 - The camera is clamped so the viewport can never leave the world.
-- The camera position is written to `$XDG_STATE_HOME/drifter/camera` when Drifter quits and read back at startup, clamped to the world it finds. A missing or damaged file is not an error; Drifter starts at the middle of the world at zoom 1.
+- Drifter always starts with an empty world, so the camera always starts in the dead center of the world at zoom 1. The camera is not saved when Drifter quits.
 
 ## Frame loop
 
