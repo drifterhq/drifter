@@ -29,6 +29,12 @@ use smithay::wayland::selection::primary_selection::{
 use smithay::wayland::shell::wlr_layer::{
     Layer, LayerSurfaceData, WlrLayerShellHandler, WlrLayerShellState,
 };
+use smithay::reexports::wayland_protocols_misc::server_decoration::server::org_kde_kwin_server_decoration::{
+    Mode as KdeMode, OrgKdeKwinServerDecoration,
+};
+use smithay::reexports::wayland_protocols_misc::server_decoration::server::org_kde_kwin_server_decoration_manager::Mode as KdeDefault;
+use smithay::reexports::wayland_server::WEnum;
+use smithay::wayland::shell::kde::decoration::{KdeDecorationHandler, KdeDecorationState};
 use smithay::wayland::shell::xdg::PopupSurface;
 use smithay::wayland::tablet_manager::TabletSeatHandler;
 use smithay::wayland::text_input::TextInputManagerState;
@@ -37,7 +43,7 @@ use smithay::wayland::xdg_activation::{
     XdgActivationHandler, XdgActivationState, XdgActivationToken, XdgActivationTokenData,
 };
 use smithay::{
-    delegate_cursor_shape, delegate_dmabuf, delegate_fractional_scale, delegate_idle_inhibit,
+    delegate_cursor_shape, delegate_dmabuf, delegate_kde_decoration, delegate_fractional_scale, delegate_idle_inhibit,
     delegate_input_method_manager, delegate_layer_shell, delegate_pointer_constraints,
     delegate_primary_selection, delegate_relative_pointer, delegate_text_input_manager,
     delegate_viewporter, delegate_xdg_activation,
@@ -63,6 +69,7 @@ pub struct Extras {
     _text: TextInputManagerState,
     _ime: InputMethodManagerState,
     _cursor_shape: CursorShapeManagerState,
+    kde_decoration: KdeDecorationState,
 }
 
 pub fn start(handle: &DisplayHandle) -> Extras {
@@ -82,6 +89,7 @@ pub fn start(handle: &DisplayHandle) -> Extras {
         _text: TextInputManagerState::new::<State>(handle),
         _ime: InputMethodManagerState::new::<State, _>(handle, |_| true),
         _cursor_shape: CursorShapeManagerState::new::<State>(handle),
+        kde_decoration: KdeDecorationState::new::<State>(handle, KdeDefault::Server),
     }
 }
 
@@ -100,6 +108,32 @@ impl DmabufHandler for State {
             let _ = notifier.successful::<State>();
         } else {
             notifier.failed();
+        }
+    }
+}
+
+/// GTK 3 ignores xdg-decoration but obeys this older KDE protocol. With
+/// Server as the default it draws no title bar of its own, so a GTK 3 app
+/// never shows two frames.
+impl KdeDecorationHandler for State {
+    fn kde_decoration_state(&self) -> &KdeDecorationState {
+        &self.wayland.extras.kde_decoration
+    }
+
+    fn new_decoration(&mut self, surface: &WlSurface, decoration: &OrgKdeKwinServerDecoration) {
+        decoration.mode(KdeMode::Server);
+        self.set_decorated(surface, true);
+    }
+
+    fn request_mode(
+        &mut self,
+        surface: &WlSurface,
+        decoration: &OrgKdeKwinServerDecoration,
+        mode: WEnum<KdeMode>,
+    ) {
+        if let WEnum::Value(mode) = mode {
+            decoration.mode(mode);
+            self.set_decorated(surface, mode == KdeMode::Server);
         }
     }
 }
@@ -271,3 +305,4 @@ delegate_text_input_manager!(State);
 delegate_input_method_manager!(State);
 delegate_cursor_shape!(State);
 delegate_layer_shell!(State);
+delegate_kde_decoration!(State);

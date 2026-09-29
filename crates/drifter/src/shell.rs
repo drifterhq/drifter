@@ -319,6 +319,18 @@ impl XdgShellHandler for State {
 }
 
 impl State {
+    /// Whether Drifter draws the frame for the window on this surface.
+    pub fn set_decorated(&mut self, surface: &WlSurface, decorated: bool) {
+        if let Some(window) = self
+            .windows
+            .iter_mut()
+            .find(|window| window.toplevel.wl_surface() == surface)
+        {
+            window.decorated = decorated;
+        }
+        self.kick_now();
+    }
+
     fn set_frame(&mut self, toplevel: &ToplevelSurface, mode: DecorationMode) {
         toplevel.with_pending_state(|state| {
             state.decoration_mode = Some(mode);
