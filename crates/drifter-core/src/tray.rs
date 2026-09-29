@@ -54,11 +54,6 @@ impl Tray {
         Rect::new(Vec2::new(x, self.centered(band, size.y)), size)
     }
 
-    pub fn stats_rect(&self, band: Rect, text: Vec2, icons: usize) -> Rect {
-        let x = self.icon_rect(band, icons).origin.x;
-        Rect::new(Vec2::new(x, self.centered(band, text.y)), text)
-    }
-
     pub fn room(&self, band: Rect, before: f64) -> usize {
         (0..)
             .take_while(|slot| self.icon_rect(band, *slot).max().x + self.gap <= before)
@@ -264,22 +259,6 @@ mod tests {
         let tray = Tray::default();
         let clock = tray.clock_rect(band(), Vec2::new(240.0, 20.0));
         assert!(tray.icon_rect(band(), 0).max().x < clock.origin.x);
-    }
-
-    #[test]
-    fn the_stats_start_at_the_left_edge_with_no_icons() {
-        let tray = Tray::default();
-        let rect = tray.stats_rect(band(), Vec2::new(200.0, 16.0), 0);
-        assert_eq!(rect.origin.x, tray.margin);
-        assert_eq!(rect.center().y, band().center().y);
-    }
-
-    #[test]
-    fn the_stats_sit_one_gap_right_of_the_last_icon() {
-        let tray = Tray::default();
-        let last = tray.icon_rect(band(), 2);
-        let rect = tray.stats_rect(band(), Vec2::new(200.0, 16.0), 3);
-        assert_eq!(rect.origin.x - last.max().x, tray.gap);
     }
 
     #[test]

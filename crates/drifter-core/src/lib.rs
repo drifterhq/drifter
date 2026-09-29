@@ -15,7 +15,6 @@ pub mod motion;
 pub mod power;
 pub mod settings;
 pub mod snap;
-pub mod stats;
 pub mod text;
 pub mod tray;
 pub mod wallpaper;
@@ -31,8 +30,6 @@ pub use mode::Mode;
 pub use text::Font;
 pub use tray::Tray;
 pub use wallpaper::parallax_factor;
-
-pub const RED: [u8; 3] = [230, 32, 41];
 
 #[cfg(test)]
 mod wallpaper_tests {
