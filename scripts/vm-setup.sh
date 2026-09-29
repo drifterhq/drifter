@@ -33,6 +33,15 @@ sudo apt-get install -y \
     libdisplay-info-dev libdrm-dev libpixman-1-dev libpam0g-dev \
     seatd foot weston mesa-utils
 
+# X11 apps run through xwayland-satellite, which needs Xwayland and the
+# xcb libraries to build. Screenshots and screen sharing use grim, slurp,
+# PipeWire and the wlr desktop portal. Volume keys use WirePlumber.
+sudo apt-get install -y \
+    xwayland libxcb1-dev libxcb-cursor-dev clang \
+    grim slurp pipewire pipewire-pulse wireplumber \
+    xdg-desktop-portal xdg-desktop-portal-wlr xdg-desktop-portal-gtk \
+    polkitd
+
 sudo systemctl enable --now seatd
 sudo usermod -aG video,render,input "$USER"
 
@@ -53,6 +62,8 @@ if ! command -v rustup >/dev/null 2>&1; then
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
         | sh -s -- -y --no-modify-path --default-toolchain stable --profile default
 fi
+
+"$HOME/.cargo/bin/cargo" install --locked xwayland-satellite
 
 cargo_line='export PATH="$HOME/.cargo/bin:$PATH"'
 if ! grep -qF "$cargo_line" "$HOME/.bashrc" 2>/dev/null; then
