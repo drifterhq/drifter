@@ -357,6 +357,8 @@ impl Default for Tunables {
     }
 }
 
+pub const DEFAULTS: &str = "default.toml";
+
 pub fn choose_config(
     candidates: Vec<PathBuf>,
     xdg: PathBuf,
@@ -432,7 +434,18 @@ impl Config {
         let running = std::env::current_exe().ok();
         let candidates = running.as_deref().map(repo_config).unwrap_or_default();
         let xdg = xdg_dir("XDG_CONFIG_HOME", ".config").join("drifter.toml");
-        choose_config(candidates, xdg, |path| path.is_file())
+        choose_config(candidates, xdg, |path| {
+            path.is_file() || path.with_file_name(DEFAULTS).is_file()
+        })
+    }
+
+    pub fn first_run(path: &Path) -> std::io::Result<bool> {
+        let defaults = path.with_file_name(DEFAULTS);
+        if path.exists() || !defaults.is_file() {
+            return Ok(false);
+        }
+        std::fs::copy(&defaults, path)?;
+        Ok(true)
     }
 
     pub fn data_dir() -> PathBuf {
@@ -576,6 +589,20 @@ mod tests {
         let home = PathBuf::from("/home/dh/.config/drifter/drifter.toml");
         let chosen = choose_config(vec![repo], home.clone(), |_| false);
         assert_eq!(chosen, home);
+    }
+
+    #[test]
+    fn the_first_run_copies_the_defaults_and_never_overwrites() {
+        let folder = std::env::temp_dir().join(format!("drifter-first-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let path = folder.join("drifter.toml");
+        std::fs::write(folder.join(DEFAULTS), "[lock]\nafter = 5\n").unwrap();
+        assert!(Config::first_run(&path).unwrap());
+        assert_eq!(Config::load_from(&path).unwrap().lock.after, 5);
+        std::fs::write(&path, "[lock]\nafter = 9\n").unwrap();
+        assert!(!Config::first_run(&path).unwrap());
+        assert_eq!(Config::load_from(&path).unwrap().lock.after, 9);
+        std::fs::remove_dir_all(&folder).unwrap();
     }
 
     #[test]

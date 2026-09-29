@@ -54,6 +54,7 @@ struct Settings {
 
 pub fn run() -> Result<(), String> {
     let path = Config::config_path();
+    Config::first_run(&path).map_err(|error| format!("cannot make {}: {error}", path.display()))?;
     let config = Config::load_from(&path).map_err(|error| error.to_string())?;
     let find = |px| Font::find(config.font_path(), px);
     let fonts = (find(13.0)?, find(11.5)?, find(22.0)?);

@@ -193,6 +193,11 @@ fn keep_crashes() {
 fn main() -> ExitCode {
     keep_crashes();
     let path = Config::config_path();
+    match Config::first_run(&path) {
+        Ok(true) => println!("config      made {} from the defaults", path.display()),
+        Ok(false) => {}
+        Err(error) => eprintln!("drifter: cannot make {}: {error}", path.display()),
+    }
     let config = match Config::load_from(&path) {
         Ok(config) => config,
         Err(error) => {

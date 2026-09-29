@@ -58,9 +58,9 @@ TOML.
 
 Defaults in code, not in the file: drawer dwell and hide timings, hot corner dwell, pan speed, animation curve and duration, and every size inside a bar. Minimum zoom is derived. It is whatever fits the whole world in the viewport.
 
-Art lives in the repo, in `img/` and `fonts/`. The config lives in the repo too, at `conf/drifter.toml`. The repo is the single source of truth. Edit a file, commit, pull, and the next run shows it. Nothing is copied by hand.
+Art lives in the repo, in `img/` and `fonts/`. The defaults live in the repo too, at `conf/default.toml`, with a comment on every key. Your own settings live beside them in `conf/drifter.toml`, which git ignores, so a pull never touches what you set. When `conf/drifter.toml` is missing, Drifter and the settings window make it by copying `conf/default.toml`. A key added to the defaults later still works in an older copy, because every key has a default in the code.
 
-Drifter looks for `conf/drifter.toml` beside its own binary, walking up from the executable, and falls back to `$XDG_CONFIG_HOME/drifter/drifter.toml` when there is none. So a build from the repo always reads the repo's config.
+Drifter looks for `conf/drifter.toml` or `conf/default.toml` beside its own binary, walking up from the executable, and falls back to `$XDG_CONFIG_HOME/drifter/drifter.toml` when there is neither. So a build from the repo always reads the repo's config.
 
 Paths in the config are relative to the config file. `../img/cursor.png` works on any machine that has the repo. An absolute path is left alone.
 
