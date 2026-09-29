@@ -1,8 +1,6 @@
 use crate::geom::{Rect, Vec2};
 use crate::image::Image;
 
-/// Draws onto a premultiplied image. Every shape has soft edges, and every
-/// shape is blended over what is already there.
 pub struct Canvas {
     pub image: Image,
 }
@@ -24,8 +22,6 @@ impl Canvas {
         self.image.size()
     }
 
-    /// A rectangle with round corners. The radius is clamped to half the
-    /// short side, so a radius that large gives a pill.
     pub fn round_rect(&mut self, rect: Rect, radius: f64, color: [u8; 3], alpha: f64) {
         let radius = radius
             .min(rect.size.x / 2.0)
@@ -42,7 +38,6 @@ impl Canvas {
         self.shape(rect, color, alpha, |p| radius - (p - center).length());
     }
 
-    /// A soft shadow under a round shape, spread by `blur` pixels.
     pub fn shadow(&mut self, rect: Rect, radius: f64, blur: f64, alpha: f64) {
         let grown = Rect::new(
             rect.origin - Vec2::splat(blur),
@@ -60,7 +55,6 @@ impl Canvas {
         });
     }
 
-    /// Draws a premultiplied image over the canvas, at a whole pixel.
     pub fn stamp(&mut self, piece: &Image, at: Vec2, alpha: f64) {
         let left = at.x.round() as i64;
         let top = at.y.round() as i64;
@@ -120,8 +114,6 @@ impl Canvas {
     }
 }
 
-/// How far a point is inside a round rectangle at the origin. Negative is
-/// outside.
 fn inside_round(p: Vec2, size: Vec2, radius: f64) -> f64 {
     let cx = p.x.clamp(radius, size.x - radius);
     let cy = p.y.clamp(radius, size.y - radius);

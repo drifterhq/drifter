@@ -33,9 +33,6 @@ sudo apt-get install -y \
     libdisplay-info-dev libdrm-dev libpixman-1-dev libpam0g-dev \
     seatd foot weston mesa-utils
 
-# X11 apps run through xwayland-satellite, which needs Xwayland and the
-# xcb libraries to build. Screenshots and screen sharing use grim, slurp,
-# PipeWire and the wlr desktop portal. Volume keys use WirePlumber.
 sudo apt-get install -y \
     xwayland libxcb1-dev libxcb-cursor-dev clang \
     grim slurp pipewire pipewire-pulse wireplumber \

@@ -1,8 +1,3 @@
-//! Media keys. Every action runs on its own thread, so a slow sound server
-//! or player never holds up a frame. Volume goes through wpctl, brightness
-//! through logind, and play and pause through the MPRIS players on the
-//! session bus.
-
 use std::process::Command;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
@@ -25,7 +20,6 @@ pub enum Key {
     Stop,
 }
 
-/// The key for an xkb keycode, which is the evdev code plus 8.
 pub fn key(code: u32) -> Option<Key> {
     Some(match code {
         121 => Key::Mute,
@@ -109,7 +103,6 @@ fn volume(target: &str, verb: &[&str], amount: &str) -> Option<Reading> {
     })
 }
 
-/// The first backlight, its brightness and its most.
 fn backlight() -> Option<(String, u32, u32)> {
     let folder = std::fs::read_dir("/sys/class/backlight")
         .ok()?
@@ -129,8 +122,6 @@ fn backlight() -> Option<(String, u32, u32)> {
     ))
 }
 
-/// Changes the backlight through logind, which lets the session user do it
-/// without root.
 fn brightness(step: f64) -> Option<Reading> {
     let (name, now, most) = backlight()?;
     let most_f = f64::from(most.max(1));
@@ -155,7 +146,6 @@ fn brightness(step: f64) -> Option<Reading> {
     })
 }
 
-/// Sends a command to the player that is playing, or else to the first one.
 fn player(method: &str) -> Option<Reading> {
     let address = crate::tray::bus_address().ok()?;
     let bus = zbus::blocking::connection::Builder::address(address.as_str())

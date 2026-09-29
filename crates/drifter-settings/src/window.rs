@@ -165,7 +165,6 @@ impl Settings {
                 return;
             }
         };
-        // Argb8888 is stored little end first: blue, green, red, alpha.
         let pixels = image.rgba.as_chunks::<4>().0;
         for (to, from) in canvas.as_chunks_mut::<4>().0.iter_mut().zip(pixels) {
             to[0] = from[2];
@@ -236,8 +235,6 @@ impl Settings {
         }
     }
 
-    /// Writes what changed into the config file, keeping everything else in
-    /// it as it was.
     fn save(&mut self) {
         let text = match std::fs::read_to_string(&self.path) {
             Ok(text) => text,

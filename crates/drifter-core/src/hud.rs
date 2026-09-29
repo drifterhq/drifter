@@ -1,6 +1,3 @@
-//! The small panel that shows the volume or the brightness for a moment
-//! after a media key.
-
 use crate::geom::{Rect, Vec2};
 use crate::image::Image;
 use crate::paint::Canvas;
@@ -16,13 +13,10 @@ pub enum Gauge {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Reading {
     pub gauge: Gauge,
-    /// 0 to 1. Volume can go past 1 in PipeWire, but the bar stops at full.
     pub level: f64,
     pub muted: bool,
 }
 
-/// Reads wpctl get-volume, which prints "Volume: 0.40" and adds
-/// " [MUTED]" when muted.
 pub fn parse_wpctl(text: &str) -> Option<(f64, bool)> {
     let rest = text.trim().strip_prefix("Volume:")?;
     let level: f64 = rest.split_whitespace().next()?.parse().ok()?;
@@ -57,7 +51,6 @@ impl Default for Look {
 }
 
 impl Look {
-    /// Bottom middle of the screen, clear of the dock.
     pub fn rect(&self, screen: Vec2) -> Rect {
         Rect::new(
             Vec2::new(

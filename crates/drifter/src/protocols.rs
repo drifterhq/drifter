@@ -112,9 +112,6 @@ impl DmabufHandler for State {
     }
 }
 
-/// GTK 3 ignores xdg-decoration but obeys this older KDE protocol. With
-/// Server as the default it draws no title bar of its own, so a GTK 3 app
-/// never shows two frames.
 impl KdeDecorationHandler for State {
     fn kde_decoration_state(&self) -> &KdeDecorationState {
         &self.wayland.extras.kde_decoration

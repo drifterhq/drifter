@@ -14,7 +14,7 @@ use drifter_core::power::Action;
 use drifter_core::snap::{Snap, Zone};
 use drifter_core::text::Font;
 use drifter_core::tray::Tray;
-use drifter_core::window::{Chrome, Piece as ChromePiece};
+use drifter_core::window::{Button as ChromeButton, Chrome, Piece as ChromePiece};
 use drifter_core::{Config, Rect, Tunables, Vec2};
 use smithay::backend::allocator::gbm::{GbmAllocator, GbmBufferFlags, GbmDevice};
 use smithay::backend::drm::compositor::{DrmCompositor, FrameFlags};
@@ -122,7 +122,6 @@ enum Target {
     Desktop,
 }
 
-/// The Alt-Tab switcher while Alt is held: windows newest first.
 struct Switch {
     order: Vec<u64>,
     at: usize,
@@ -136,6 +135,28 @@ enum Shortcut {
     Close,
     Media(crate::media::Key),
     Swallow,
+}
+
+struct Paper {
+    set: Option<PathBuf>,
+    shown: Option<PathBuf>,
+    folder: Option<PathBuf>,
+    every: u64,
+    order: drifter_core::WallpaperOrder,
+    next: Option<Instant>,
+}
+
+impl Paper {
+    fn from(config: &Config) -> Paper {
+        Paper {
+            set: config.wallpaper_path(),
+            shown: config.wallpaper_path(),
+            folder: config.wallpaper_folder(),
+            every: config.workspace.wallpaper_every,
+            order: config.workspace.wallpaper_order,
+            next: None,
+        }
+    }
 }
 
 struct Popover {
@@ -229,7 +250,9 @@ pub struct State {
     font: Option<Font>,
     tray: Tray,
     dock: Dock,
-    pinned: Vec<(String, Option<TextureBuffer<GlesTexture>>)>,
+    pinned: Pinned,
+    pinned_from: Vec<drifter_core::Launch>,
+    dock_spare: Option<drifter_core::Image>,
     trash: Option<TextureBuffer<GlesTexture>>,
     cog: Option<TextureBuffer<GlesTexture>>,
     dot: Option<TextureBuffer<GlesTexture>>,
@@ -256,6 +279,11 @@ pub struct State {
     tip_of: Option<String>,
     snap: Snap,
     config_seen: Option<std::time::SystemTime>,
+    last_input: Instant,
+    lock_after: u64,
+    login: Vec<drifter_core::Launch>,
+    paper: Paper,
+    paper_tx: smithay::reexports::calloop::channel::Sender<(PathBuf, drifter_core::Image)>,
     config_path: PathBuf,
     zone: Option<Zone>,
     plain: Option<TextureBuffer<GlesTexture>>,
@@ -477,7 +505,8 @@ impl State {
                 }
             }
             if let Some(buffer) = self.dot.as_ref() {
-                for (index, (name, _)) in self.pinned.iter().enumerate() {
+                for (index, (item, _)) in self.pinned.iter().enumerate() {
+                    let name = item.name();
                     let running = self
                         .windows
                         .iter()
@@ -960,11 +989,18 @@ impl State {
             .chrome
             .button_at(content, self.in_world(self.pointer), 3);
         let grow = if maximized { "restore" } else { "maximize" };
-        for (slot, name) in ["close", "minimize", grow]
+        for (slot, kind) in self
+            .chrome
+            .order
             .iter()
             .enumerate()
             .filter(|_| close_enough)
         {
+            let name = match kind {
+                ChromeButton::Close => "close",
+                ChromeButton::Minimize => "minimize",
+                ChromeButton::Maximize | ChromeButton::Restore => grow,
+            };
             let look = match (over == Some(slot), self.held == Some(slot)) {
                 (true, true) => "-press",
                 (true, false) => "-hover",
@@ -972,12 +1008,16 @@ impl State {
             };
             let file = format!("button-{name}{look}.png");
             if let Some((buffer, size)) = self.skin.get(&file) {
-                let place = self.chrome.button_rect(slot);
+                let place = self.chrome.button_rect(slot, bar.size.x);
                 let rect = Rect::new(bar.origin + place.origin, *size);
                 elements.push(Skin::Texture(element(buffer, show(rect), fade)));
             }
         }
-        if let Some((buffer, size)) = self.titles.get(title).filter(|_| close_enough) {
+        if let Some((buffer, size)) = self
+            .titles
+            .get(title)
+            .filter(|_| close_enough && self.chrome.show_title)
+        {
             let room = bar.size.x - self.chrome.buttons_width(3) * 2.0;
             let width = size.x.min(room.max(0.0));
             if width > 4.0 {
@@ -1156,8 +1196,6 @@ impl State {
         }
     }
 
-    /// The one screen a fullscreen window fills: centred where the window
-    /// was, and pulled inside the world so the camera can sit on it.
     fn full_rect(&self, near: Vec2) -> Rect {
         let half = self.screen / 2.0;
         let center = near.clamp(half, (self.world - half).max(half));
@@ -1225,8 +1263,6 @@ impl State {
         self.kick_now();
     }
 
-    /// The focused window, when it is fullscreen. While there is one the
-    /// camera stays on it, and the bars, hot corner, zoom and pan are off.
     fn held_by_fullscreen(&self) -> Option<usize> {
         let focus = self.focus?;
         self.windows
@@ -1376,10 +1412,7 @@ impl State {
 
         match slot {
             Slot::Pinned(index) => {
-                let name = self.pinned[index].0.clone();
-                if let Some(exec) = crate::apps::find(&name).and_then(|entry| entry.exec) {
-                    crate::apps::start(&exec, &[], &self.socket);
-                }
+                crate::apps::run(&self.pinned[index].0, &self.socket);
             }
             Slot::Settings => self.open_settings(),
             Slot::Trash => {
@@ -1611,7 +1644,7 @@ impl State {
             if let Some(slot) = self.dock.at(band, self.pointer, pinned, hidden.len()) {
                 let rect = self.dock.slot_rect(band, pinned, hidden.len(), slot);
                 let text = match slot {
-                    Slot::Pinned(index) => self.pinned[index].0.clone(),
+                    Slot::Pinned(index) => self.pinned[index].0.name(),
                     Slot::Minimized(index) => hidden[index].clone(),
                     Slot::Settings => "Settings".to_string(),
                     Slot::Trash => "Trash".to_string(),
@@ -1731,8 +1764,6 @@ impl State {
         self.flight = None;
     }
 
-    /// The settings window is its own program. A second click brings the
-    /// open one back instead of starting another.
     fn open_settings(&mut self) {
         if self.lock.is_some() {
             return;
@@ -1751,8 +1782,76 @@ impl State {
         crate::apps::launch(&[program.to_string_lossy().into_owned()], &self.socket);
     }
 
-    /// Applies the config again whenever the file changes, whether the
-    /// settings window wrote it or a person did.
+    fn watch_idle(&mut self) {
+        if self.lock_after == 0 || self.lock.is_some() {
+            return;
+        }
+        if !self.wayland.extras.inhibitors.is_empty() {
+            self.last_input = Instant::now();
+            return;
+        }
+        if self.last_input.elapsed() >= Duration::from_secs(self.lock_after * 60) {
+            self.lock_now();
+        }
+    }
+
+    fn watch_wallpaper(&mut self) {
+        let Some(folder) = self.paper.folder.clone() else {
+            return;
+        };
+        if self.paper.every == 0 {
+            self.paper.next = None;
+            return;
+        }
+        let now = Instant::now();
+        let every = Duration::from_secs(self.paper.every);
+        let due = *self.paper.next.get_or_insert(now + every);
+        if now < due {
+            return;
+        }
+        self.paper.next = Some(now + every);
+        let seed = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|since| since.as_nanos() as u64)
+            .unwrap_or(0);
+        let pictures = drifter_core::wallpaper::pictures(&folder);
+        if let Some(next) = drifter_core::wallpaper::next_picture(
+            &pictures,
+            self.paper.shown.as_deref(),
+            self.paper.order,
+            seed,
+        ) {
+            self.load_wallpaper(next);
+        }
+    }
+
+    fn load_wallpaper(&self, path: PathBuf) {
+        let reply = self.paper_tx.clone();
+        let spawned = std::thread::Builder::new()
+            .name("drifter-wallpaper".to_string())
+            .spawn(move || match drifter_core::image::load(&path) {
+                Ok(image) => {
+                    let _ = reply.send((path, image));
+                }
+                Err(error) => eprintln!("drifter: no wallpaper {}: {error}", path.display()),
+            });
+        if let Err(error) = spawned {
+            eprintln!("drifter: cannot load the wallpaper: {error}");
+        }
+    }
+
+    fn take_wallpaper(&mut self, path: PathBuf, image: drifter_core::Image) {
+        match upload(&mut self.renderer, Some(&image), "wallpaper") {
+            Ok(Some(buffer)) => {
+                self.wallpaper = Some((buffer, image.size()));
+                self.paper.shown = Some(path);
+            }
+            Ok(None) => {}
+            Err(error) => eprintln!("drifter: {error}"),
+        }
+        self.kick_now();
+    }
+
     fn watch_config(&mut self) {
         let seen = std::fs::metadata(&self.config_path)
             .and_then(|meta| meta.modified())
@@ -1809,6 +1908,38 @@ impl State {
             self.titles.clear();
         }
         self.format = config.tray.format.clone();
+        self.chrome.follow(&config.window);
+        self.lock_after = config.lock.after;
+        self.login = config.login.start.clone();
+        let paper = Paper::from(config);
+        if paper.set != self.paper.set {
+            match paper.set.clone() {
+                Some(path) => self.load_wallpaper(path),
+                None => self.wallpaper = None,
+            }
+        }
+        if (paper.folder.clone(), paper.every) != (self.paper.folder.clone(), self.paper.every) {
+            self.paper.next = None;
+        }
+        self.paper.set = paper.set;
+        self.paper.folder = paper.folder;
+        self.paper.every = paper.every;
+        self.paper.order = paper.order;
+        if self.pinned_from != config.dock.pinned {
+            let side = self.dock.icon as u32;
+            match dock_items(
+                &mut self.renderer,
+                &config.dock.pinned,
+                side,
+                self.dock_spare.as_ref(),
+            ) {
+                Ok(pinned) => {
+                    self.pinned = pinned;
+                    self.pinned_from = config.dock.pinned.clone();
+                }
+                Err(error) => eprintln!("drifter: {error}"),
+            }
+        }
         self.sampler = crate::stats::Sampler::new(&config.tray);
         self.stats = None;
     }
@@ -2456,7 +2587,7 @@ impl State {
         match grip {
             Grip::Button(slot) => {
                 self.held = Some(slot);
-                self.press_button(index, slot);
+                self.press_button(index, self.chrome.order[slot]);
             }
             Grip::Title => {
                 let now = Instant::now();
@@ -2469,7 +2600,7 @@ impl State {
                     .unwrap_or(false);
                 if again {
                     self.last_title = None;
-                    self.press_button(index, 2);
+                    self.press_button(index, ChromeButton::Maximize);
                 } else {
                     self.last_title = Some((self.pointer, now));
                     self.grab = Grab::Move {
@@ -2561,11 +2692,11 @@ impl State {
         window.toplevel.send_pending_configure();
     }
 
-    fn press_button(&mut self, index: usize, slot: usize) {
+    fn press_button(&mut self, index: usize, button: ChromeButton) {
         use wayland_protocols::xdg::shell::server::xdg_toplevel;
 
-        match slot {
-            0 => {
+        match button {
+            ChromeButton::Close => {
                 let seat = self.dock_slot(0);
                 let window = &mut self.windows[index];
                 if !window.going {
@@ -2573,13 +2704,13 @@ impl State {
                     window.motion = Some(Motion::new(Phase::Closing, seat));
                 }
             }
-            1 => {
+            ChromeButton::Minimize => {
                 let seat = self.dock_slot(self.minimized().len());
                 self.windows[index].motion = Some(Motion::new(Phase::Minimizing, seat));
                 let id = self.windows[index].id;
                 self.focus_next(Some(id));
             }
-            _ => {
+            ChromeButton::Maximize | ChromeButton::Restore => {
                 let chrome = self.chrome;
                 let zone =
                     smithay::desktop::layer_map_for_output(&self.output).non_exclusive_zone();
@@ -2920,7 +3051,6 @@ impl State {
         self.kick_now();
     }
 
-    /// Shows the volume or brightness for a moment.
     fn show_hud(&mut self, reading: drifter_core::hud::Reading) {
         let look = drifter_core::hud::Look::default();
         let image = look.paint(reading, self.font.as_ref());
@@ -2962,8 +3092,6 @@ impl State {
         elements.push(Skin::Texture(element(art, panel, 1.0)));
     }
 
-    /// An app's icon at the switcher's size. A texture draws at its own
-    /// size, so the dock's smaller icons cannot be reused.
     fn switch_icon(&mut self, app: &str, side: u32) -> Option<TextureBuffer<GlesTexture>> {
         let key = format!("{app}@{side}");
         if let Some(held) = self.app_icons.get(&key) {
@@ -2983,8 +3111,6 @@ impl State {
         Some(buffer)
     }
 
-    /// Shows a window: back from the dock if it was there, focused, and
-    /// with the camera on it.
     fn bring(&mut self, place: usize) {
         if self.windows[place].hidden {
             let index = self.windows[..place]
@@ -3009,11 +3135,12 @@ impl State {
             return;
         }
         if let Some(place) = self.focus.and_then(|id| self.place_of(id)) {
-            self.press_button(place, 0);
+            self.press_button(place, ChromeButton::Close);
         }
     }
 
     fn input(&mut self, event: InputEvent<LibinputInputBackend>) {
+        self.last_input = Instant::now();
         if self.lock.is_some() && !matches!(event, InputEvent::DeviceAdded { .. }) {
             self.locked_input(event);
             return;
@@ -3158,11 +3285,14 @@ impl Screen {
             ..
         } = self;
 
-        // A Drifter that crashed while locked comes back locked.
         if lock_marker().is_some_and(|marker| marker.exists()) {
             state.lock_now();
         }
         state.draw()?;
+
+        for item in state.login.clone() {
+            crate::apps::run(&item, &state.socket);
+        }
 
         events
             .run(None, &mut state, |_| {})
@@ -3300,7 +3430,6 @@ pub fn open(
     let gl = describe(&mut renderer);
     let screen = Vec2::new(f64::from(width), f64::from(height));
     let world = config.world_size(screen);
-    // Drifter always starts with no windows, so it starts in the middle.
     let start = Camera::at_work_zoom(world / 2.0);
     let screen_mode = smithay::output::Mode {
         size: (i32::from(width), i32::from(height)).into(),
@@ -3379,7 +3508,7 @@ pub fn open(
             }
         }
     }
-    let chrome = match skin.get("title-mid.png").zip(skin.get("edge-left.png")) {
+    let mut chrome = match skin.get("title-mid.png").zip(skin.get("edge-left.png")) {
         Some(((_, title), (_, edge))) => Chrome {
             title: title.y,
             edge: edge.x,
@@ -3387,6 +3516,7 @@ pub fn open(
         },
         None => chrome,
     };
+    chrome.follow(&config.window);
 
     let mut built = Vec::new();
     for edge in Edge::ALL {
@@ -3500,34 +3630,13 @@ pub fn open(
     let power = upload(&mut renderer, Some(&power_image), "power")?;
     let lock_big = Font::find(config.font_path(), 56.0).ok();
     let lock_small = Font::find(config.font_path(), 15.0).ok();
+    let (paper_tx, paper_rx) =
+        smithay::reexports::calloop::channel::channel::<(PathBuf, drifter_core::Image)>();
     let (verify_tx, verify_rx) =
         smithay::reexports::calloop::channel::channel::<(u64, crate::auth::Verdict)>();
     let spare = from_art("app");
 
-    let wanted = match config.dock.pinned.is_empty() {
-        true => crate::apps::defaults(),
-        false => config.dock.pinned.clone(),
-    };
-
-    let mut pinned = Vec::new();
-    for name in &wanted {
-        let art = crate::apps::find(name)
-            .and_then(|entry| entry.icon)
-            .and_then(|path| match drifter_core::image::load(&path) {
-                Ok(image) => Some(image),
-                Err(error) => {
-                    eprintln!("drifter: no dock icon for {name}: {error}");
-                    None
-                }
-            })
-            .map(|image| image.scaled(side, side))
-            .or_else(|| spare.clone());
-        let buffer = match art {
-            Some(image) => upload(&mut renderer, Some(&image), "dock icon")?,
-            None => None,
-        };
-        pinned.push((name.clone(), buffer));
-    }
+    let pinned = dock_items(&mut renderer, &config.dock.pinned, side, spare.as_ref())?;
 
     let dot_image = drifter_core::dock::paint_dot(
         (trash_look.icon / 9.0).max(3.0) as u32,
@@ -3605,6 +3714,8 @@ pub fn open(
         tray,
         dock: Dock::default(),
         pinned,
+        pinned_from: config.dock.pinned.clone(),
+        dock_spare: spare,
         trash,
         cog,
         dot,
@@ -3631,6 +3742,11 @@ pub fn open(
         tip_of: None,
         snap: Snap::default(),
         config_seen: None,
+        last_input: Instant::now(),
+        lock_after: config.lock.after,
+        login: config.login.start.clone(),
+        paper: Paper::from(config),
+        paper_tx,
         config_path: Config::config_path(),
         zone: None,
         plain,
@@ -3740,6 +3856,14 @@ pub fn open(
     }
 
     handle
+        .insert_source(paper_rx, |event, _, state: &mut State| {
+            if let ChannelEvent::Msg((path, image)) = event {
+                state.take_wallpaper(path, image);
+            }
+        })
+        .map_err(|e| format!("cannot watch the wallpaper: {e}"))?;
+
+    handle
         .insert_source(verify_rx, |event, _, state: &mut State| {
             if let ChannelEvent::Msg((ticket, verdict)) = event {
                 state.verdict(ticket, verdict);
@@ -3783,6 +3907,8 @@ pub fn open(
             Timer::from_duration(CONFIG_WATCH),
             |_, _, state: &mut State| {
                 state.watch_config();
+                state.watch_idle();
+                state.watch_wallpaper();
                 TimeoutAction::ToDuration(CONFIG_WATCH)
             },
         )
@@ -4111,8 +4237,47 @@ fn upload(
     }
 }
 
-/// Marks the screen as locked, in the runtime folder, which is empty
-/// again after a reboot.
+type Pinned = Vec<(drifter_core::Launch, Option<TextureBuffer<GlesTexture>>)>;
+
+fn dock_items(
+    renderer: &mut GlesRenderer,
+    wanted: &[drifter_core::Launch],
+    side: u32,
+    spare: Option<&drifter_core::Image>,
+) -> Result<Pinned, String> {
+    let wanted: Vec<drifter_core::Launch> = match wanted.is_empty() {
+        true => crate::apps::defaults()
+            .into_iter()
+            .map(drifter_core::Launch::App)
+            .collect(),
+        false => wanted.to_vec(),
+    };
+    let mut pinned = Vec::new();
+    for item in wanted {
+        let path = item
+            .icon()
+            .map(|path| path.to_path_buf())
+            .or_else(|| item.app().and_then(crate::apps::find).and_then(|e| e.icon))
+            .or_else(|| crate::apps::icon_file(&item.name()));
+        let art = path
+            .and_then(|path| match drifter_core::image::load(&path) {
+                Ok(image) => Some(image),
+                Err(error) => {
+                    eprintln!("drifter: no dock icon for {}: {error}", item.name());
+                    None
+                }
+            })
+            .map(|image| image.scaled(side, side))
+            .or_else(|| spare.cloned());
+        let buffer = match art {
+            Some(image) => upload(renderer, Some(&image), "dock icon")?,
+            None => None,
+        };
+        pinned.push((item, buffer));
+    }
+    Ok(pinned)
+}
+
 fn lock_marker() -> Option<PathBuf> {
     std::env::var_os("XDG_RUNTIME_DIR").map(|dir| PathBuf::from(dir).join("drifter-locked"))
 }

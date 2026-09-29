@@ -49,6 +49,138 @@ pub struct Workspace {
     pub wallpaper: Option<PathBuf>,
     #[serde(default)]
     pub wallpaper_mode: WallpaperMode,
+    #[serde(default)]
+    pub wallpaper_folder: Option<PathBuf>,
+    #[serde(default)]
+    pub wallpaper_every: u64,
+    #[serde(default)]
+    pub wallpaper_order: WallpaperOrder,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum WallpaperOrder {
+    #[default]
+    Random,
+    Ordered,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(untagged)]
+pub enum Launch {
+    App(String),
+    Full {
+        #[serde(default)]
+        app: Option<String>,
+        #[serde(default)]
+        command: Option<String>,
+        #[serde(default)]
+        icon: Option<PathBuf>,
+    },
+}
+
+impl Launch {
+    pub fn app(&self) -> Option<&str> {
+        match self {
+            Launch::App(app) => Some(app),
+            Launch::Full { app, .. } => app.as_deref(),
+        }
+    }
+
+    pub fn command(&self) -> Option<&str> {
+        match self {
+            Launch::App(_) => None,
+            Launch::Full { command, .. } => command.as_deref(),
+        }
+    }
+
+    pub fn icon(&self) -> Option<&Path> {
+        match self {
+            Launch::App(_) => None,
+            Launch::Full { icon, .. } => icon.as_deref(),
+        }
+    }
+
+    pub fn name(&self) -> String {
+        match (self.app(), self.command()) {
+            (Some(app), _) => app.to_string(),
+            (None, Some(command)) => crate::exec::words(command)
+                .and_then(|words| words.into_iter().next())
+                .unwrap_or_default(),
+            (None, None) => String::new(),
+        }
+    }
+
+    fn check(&self) -> Result<(), String> {
+        match (self.app(), self.command()) {
+            (Some(app), None) if !app.trim().is_empty() => Ok(()),
+            (None, Some(command)) if !command.trim().is_empty() => Ok(()),
+            _ => Err("each item names one app or one command".to_string()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Side {
+    #[default]
+    Left,
+    Right,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ButtonName {
+    Close,
+    Minimize,
+    Maximize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WindowConfig {
+    #[serde(default)]
+    pub buttons: Side,
+    #[serde(default = "default_order")]
+    pub order: Vec<ButtonName>,
+    #[serde(default = "yes")]
+    pub title: bool,
+}
+
+fn default_order() -> Vec<ButtonName> {
+    vec![
+        ButtonName::Close,
+        ButtonName::Minimize,
+        ButtonName::Maximize,
+    ]
+}
+
+fn yes() -> bool {
+    true
+}
+
+impl Default for WindowConfig {
+    fn default() -> Self {
+        WindowConfig {
+            buttons: Side::default(),
+            order: default_order(),
+            title: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct LockConfig {
+    #[serde(default)]
+    pub after: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct LoginConfig {
+    #[serde(default)]
+    pub start: Vec<Launch>,
 }
 
 fn default_screens() -> u32 {
@@ -62,6 +194,9 @@ impl Default for Workspace {
             height: default_screens(),
             wallpaper: None,
             wallpaper_mode: WallpaperMode::default(),
+            wallpaper_folder: None,
+            wallpaper_every: 0,
+            wallpaper_order: WallpaperOrder::default(),
         }
     }
 }
@@ -83,7 +218,7 @@ pub struct Assets {
 #[serde(deny_unknown_fields)]
 pub struct DockConfig {
     #[serde(default)]
-    pub pinned: Vec<String>,
+    pub pinned: Vec<Launch>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -181,6 +316,12 @@ pub struct Config {
     pub tray: TrayConfig,
     #[serde(default)]
     pub dock: DockConfig,
+    #[serde(default)]
+    pub window: WindowConfig,
+    #[serde(default)]
+    pub lock: LockConfig,
+    #[serde(default)]
+    pub login: LoginConfig,
     #[serde(default)]
     pub assets: Assets,
     #[serde(skip)]
@@ -312,9 +453,15 @@ impl Config {
             .map(|path| self.beside(path))
     }
 
-    /// Where Drifter keeps what outlives a run, like the crash log.
     pub fn state_dir() -> PathBuf {
         xdg_dir("XDG_STATE_HOME", ".local/state").join("drifter")
+    }
+
+    pub fn wallpaper_folder(&self) -> Option<PathBuf> {
+        self.workspace
+            .wallpaper_folder
+            .as_deref()
+            .map(|path| self.beside(path))
     }
 
     pub fn cursor_path(&self) -> Option<PathBuf> {
@@ -378,6 +525,17 @@ impl Config {
             return Err(ConfigError::Invalid(
                 "tray size is text height in pixels and must be at least 6".into(),
             ));
+        }
+        let mut order = self.window.order.clone();
+        order.sort_by_key(|name| *name as u8);
+        order.dedup();
+        if order.len() != 3 || self.window.order.len() != 3 {
+            return Err(ConfigError::Invalid(
+                "window order names close, minimize and maximize, each once".into(),
+            ));
+        }
+        for item in self.dock.pinned.iter().chain(&self.login.start) {
+            item.check().map_err(ConfigError::Invalid)?;
         }
         for metric in &self.tray.metrics {
             crate::stats::Metric::parse(metric).map_err(ConfigError::Invalid)?;
@@ -504,7 +662,8 @@ mod tests {
     #[test]
     fn the_dock_keeps_the_order_the_config_gives() {
         let config = Config::parse("[dock]\npinned = [\"foot\", \"copyq\"]\n").unwrap();
-        assert_eq!(config.dock.pinned, vec!["foot", "copyq"]);
+        let names: Vec<String> = config.dock.pinned.iter().map(Launch::name).collect();
+        assert_eq!(names, ["foot", "copyq"]);
     }
 
     #[test]
@@ -537,6 +696,74 @@ mod tests {
     fn an_empty_metric_is_refused() {
         let config = Config::parse("[tray]\nmetrics = [\"cpu\", \"\"]\n").unwrap();
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn the_new_sections_default_to_quiet() {
+        let config = Config::default();
+        assert_eq!(config.window.buttons, Side::Left);
+        assert_eq!(config.window.order, default_order());
+        assert!(config.window.title);
+        assert_eq!(config.lock.after, 0);
+        assert!(config.login.start.is_empty());
+        assert_eq!(config.workspace.wallpaper_every, 0);
+        assert_eq!(config.workspace.wallpaper_order, WallpaperOrder::Random);
+    }
+
+    #[test]
+    fn an_old_pinned_list_of_names_still_reads() {
+        let config = Config::parse("[dock]\npinned = [\"foot\", \"firefox\"]\n").unwrap();
+        assert_eq!(config.dock.pinned[0], Launch::App("foot".into()));
+        assert_eq!(config.dock.pinned[1].app(), Some("firefox"));
+    }
+
+    #[test]
+    fn a_launch_can_be_a_command_with_an_icon() {
+        let text = "[dock]\npinned = [{ command = \"foot -e htop\", icon = \"htop.png\" }]\n\
+                    [login]\nstart = [\"firefox\", { command = \"syncthing\" }]\n";
+        let config = Config::parse(text).unwrap();
+        let item = &config.dock.pinned[0];
+        assert_eq!(item.command(), Some("foot -e htop"));
+        assert_eq!(item.icon(), Some(Path::new("htop.png")));
+        assert_eq!(item.name(), "foot");
+        assert_eq!(config.login.start.len(), 2);
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn a_launch_with_both_or_neither_is_refused() {
+        let both = Config::parse("[login]\nstart = [{ app = \"a\", command = \"b\" }]\n").unwrap();
+        assert!(both.validate().is_err());
+        let neither = Config::parse("[login]\nstart = [{ icon = \"x.png\" }]\n").unwrap();
+        assert!(neither.validate().is_err());
+    }
+
+    #[test]
+    fn the_window_section_reads_side_order_and_title() {
+        let text = "[window]\nbuttons = \"right\"\norder = [\"minimize\", \"maximize\", \"close\"]\ntitle = false\n";
+        let config = Config::parse(text).unwrap();
+        assert_eq!(config.window.buttons, Side::Right);
+        assert_eq!(config.window.order[2], ButtonName::Close);
+        assert!(!config.window.title);
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn a_window_order_must_name_each_button_once() {
+        let twice =
+            Config::parse("[window]\norder = [\"close\", \"close\", \"maximize\"]\n").unwrap();
+        assert!(twice.validate().is_err());
+        let short = Config::parse("[window]\norder = [\"close\"]\n").unwrap();
+        assert!(short.validate().is_err());
+    }
+
+    #[test]
+    fn a_wallpaper_folder_is_found_beside_the_config() {
+        let text = "[workspace]\nwallpaper_folder = \"walls\"\nwallpaper_every = 600\nwallpaper_order = \"ordered\"\n";
+        let config = Config::parse(text).unwrap();
+        assert_eq!(config.workspace.wallpaper_every, 600);
+        assert_eq!(config.workspace.wallpaper_order, WallpaperOrder::Ordered);
+        assert!(config.wallpaper_folder().unwrap().ends_with("walls"));
     }
 
     #[test]

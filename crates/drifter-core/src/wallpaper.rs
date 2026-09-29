@@ -111,3 +111,108 @@ pub fn place(
         }
     }
 }
+
+pub fn pictures(folder: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let Ok(entries) = std::fs::read_dir(folder) else {
+        return Vec::new();
+    };
+    let mut found: Vec<std::path::PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| is_picture(path))
+        .collect();
+    found.sort();
+    found
+}
+
+pub fn is_picture(path: &std::path::Path) -> bool {
+    path.is_file()
+        && path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.to_lowercase())
+            .is_some_and(|ext| matches!(ext.as_str(), "png" | "jpg" | "jpeg"))
+}
+
+pub fn next_picture(
+    pictures: &[std::path::PathBuf],
+    current: Option<&std::path::Path>,
+    order: crate::config::WallpaperOrder,
+    seed: u64,
+) -> Option<std::path::PathBuf> {
+    let at = current.and_then(|now| pictures.iter().position(|path| path == now));
+    let count = pictures.len();
+    let index = match (order, at, count) {
+        (_, _, 0) => return None,
+        (_, Some(_), 1) => return None,
+        (crate::config::WallpaperOrder::Ordered, Some(at), _) => (at + 1) % count,
+        (crate::config::WallpaperOrder::Ordered, None, _) => 0,
+        (crate::config::WallpaperOrder::Random, Some(at), _) => {
+            let step = 1 + (seed % (count as u64 - 1)) as usize;
+            (at + step) % count
+        }
+        (crate::config::WallpaperOrder::Random, None, _) => (seed % count as u64) as usize,
+    };
+    pictures.get(index).cloned()
+}
+
+#[cfg(test)]
+mod folder_tests {
+    use super::*;
+    use crate::config::WallpaperOrder;
+    use std::path::PathBuf;
+
+    fn list() -> Vec<PathBuf> {
+        ["a.jpg", "b.png", "c.jpeg"]
+            .iter()
+            .map(PathBuf::from)
+            .collect()
+    }
+
+    #[test]
+    fn in_order_goes_to_the_next_and_wraps() {
+        let all = list();
+        let next = |now: &str| next_picture(&all, Some(now.as_ref()), WallpaperOrder::Ordered, 0);
+        assert_eq!(next("a.jpg"), Some(PathBuf::from("b.png")));
+        assert_eq!(next("c.jpeg"), Some(PathBuf::from("a.jpg")));
+        assert_eq!(
+            next_picture(&all, None, WallpaperOrder::Ordered, 9),
+            Some(PathBuf::from("a.jpg"))
+        );
+    }
+
+    #[test]
+    fn at_random_never_shows_the_same_picture_twice_in_a_row() {
+        let all = list();
+        for seed in 0..50 {
+            let next = next_picture(&all, Some("b.png".as_ref()), WallpaperOrder::Random, seed);
+            assert_ne!(next, Some(PathBuf::from("b.png")));
+            assert!(next.is_some());
+        }
+    }
+
+    #[test]
+    fn one_or_no_pictures_never_rotate() {
+        let one = vec![PathBuf::from("a.jpg")];
+        assert_eq!(
+            next_picture(&one, Some("a.jpg".as_ref()), WallpaperOrder::Random, 3),
+            None
+        );
+        assert_eq!(next_picture(&[], None, WallpaperOrder::Ordered, 0), None);
+    }
+
+    #[test]
+    fn only_pictures_are_listed_in_name_order() {
+        let folder = std::env::temp_dir().join(format!("drifter-walls-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        for name in ["b.PNG", "a.jpg", "notes.txt", "c.jpeg"] {
+            std::fs::write(folder.join(name), b"x").unwrap();
+        }
+        let names: Vec<String> = pictures(&folder)
+            .iter()
+            .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        std::fs::remove_dir_all(&folder).unwrap();
+        assert_eq!(names, ["a.jpg", "b.PNG", "c.jpeg"]);
+    }
+}

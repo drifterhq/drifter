@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Runs Drifter, and starts it again when it crashes. A clean exit (log out,
-# or SIGTERM) ends the session. Four crashes inside a minute also end it,
-# so a Drifter that cannot start does not spin forever.
 
 here=$(cd "$(dirname "$0")/.." && pwd)
 bin=$here/target/release/drifter

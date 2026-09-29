@@ -1,6 +1,3 @@
-//! The Alt-Tab switcher: a row of tiles in the middle of the screen, one
-//! per window, with the chosen window's title under the row.
-
 use crate::geom::{Rect, Vec2};
 use crate::image::Image;
 use crate::paint::Canvas;
@@ -41,7 +38,6 @@ impl Default for Look {
     }
 }
 
-/// Where the panel and its tiles sit for a given window count.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Layout {
     pub panel: Rect,
@@ -52,7 +48,6 @@ pub struct Layout {
 }
 
 impl Look {
-    /// Tiles shrink so the row always fits in nine tenths of the screen.
     pub fn layout(&self, screen: Vec2, count: usize) -> Layout {
         let count = count.max(1);
         let gaps = self.gap * (count - 1) as f64;
@@ -74,20 +69,16 @@ impl Look {
 }
 
 impl Layout {
-    /// A tile's place inside the panel image.
     pub fn tile_rect(&self, index: usize) -> Rect {
         let look = &self.look;
         let x = look.pad + (self.tile + look.gap) * index.min(self.count - 1) as f64;
         Rect::new(Vec2::new(x, look.pad), Vec2::splat(self.tile))
     }
 
-    /// An icon's place inside the panel image.
     pub fn icon_rect(&self, index: usize) -> Rect {
         Rect::from_center(self.tile_rect(index).center(), Vec2::splat(self.icon))
     }
 
-    /// Paints the panel. A window with no icon of its own gets a plain tile
-    /// with the first letter of its name.
     pub fn paint(
         &self,
         chosen: usize,
@@ -129,7 +120,6 @@ impl Layout {
     }
 }
 
-/// The next tile, going forward or back and wrapping at the ends.
 pub fn step(at: usize, count: usize, back: bool) -> usize {
     match (count, back) {
         (0, _) => 0,

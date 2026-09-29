@@ -4,8 +4,6 @@ use std::ffi::CString;
 use drifter_core::TrayConfig;
 use drifter_core::stats::{self, CpuTimes, Metric, Mount};
 
-/// Reads the metrics the config asks for. CPU needs two readings, so the
-/// last one is kept.
 #[derive(Default)]
 pub struct Sampler {
     metrics: Vec<Metric>,
@@ -79,7 +77,6 @@ fn disk(mounts: &[Mount], name: &str) -> Option<(String, u8)> {
     Some((label, used))
 }
 
-/// The kernel's name for the block device behind a mount, like "sda3".
 fn kernel(mount: &Mount) -> Option<String> {
     let link = std::fs::read_link(format!("/sys/dev/block/{}", mount.device)).ok()?;
     Some(link.file_name()?.to_string_lossy().into_owned())

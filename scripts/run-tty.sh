@@ -18,11 +18,9 @@ if [ ! -r "$tty" ]; then
     exit 1
 fi
 
-# Stop the session first, so it does not start the old Drifter again.
 pkill -f scripts/drifter-session 2>/dev/null || true
 pkill -x drifter 2>/dev/null || true
 
-# The old one must let go of the screen before the new one can take it.
 for _ in $(seq 50); do
     pgrep -x drifter >/dev/null || break
     sleep 0.1

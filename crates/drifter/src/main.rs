@@ -168,8 +168,6 @@ fn bootstrap(_config: &Config) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// Every panic goes to the crash log with a backtrace, as well as to the
-/// terminal.
 fn keep_crashes() {
     let default = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {

@@ -1,3 +1,4 @@
+use crate::config::{ButtonName, Side, WindowConfig};
 use crate::geom::{Rect, Vec2};
 use crate::image::Image;
 
@@ -14,6 +15,9 @@ pub struct Chrome {
     pub frame_alpha: u8,
     pub idle: [u8; 3],
     pub idle_alpha: u8,
+    pub side: Side,
+    pub order: [Button; 3],
+    pub show_title: bool,
 }
 
 impl Default for Chrome {
@@ -30,6 +34,9 @@ impl Default for Chrome {
             frame_alpha: 242,
             idle: [24, 26, 33],
             idle_alpha: 230,
+            side: Side::Left,
+            order: [Button::Close, Button::Minimize, Button::Maximize],
+            show_title: true,
         }
     }
 }
@@ -158,9 +165,25 @@ impl Look {
 }
 
 impl Chrome {
-    pub fn button_rect(&self, slot: usize) -> Rect {
+    pub fn follow(&mut self, config: &WindowConfig) {
+        self.side = config.buttons;
+        self.show_title = config.title;
+        for (slot, name) in config.order.iter().take(3).enumerate() {
+            self.order[slot] = match name {
+                ButtonName::Close => Button::Close,
+                ButtonName::Minimize => Button::Minimize,
+                ButtonName::Maximize => Button::Maximize,
+            };
+        }
+    }
+
+    pub fn button_rect(&self, slot: usize, width: f64) -> Rect {
         let step = self.button + self.gap;
-        let x = self.margin + step * slot as f64;
+        let start = match self.side {
+            Side::Left => self.margin,
+            Side::Right => width - self.buttons_width(3) + self.margin,
+        };
+        let x = start + step * slot as f64;
         let y = (self.title - self.button) / 2.0;
         Rect::new(Vec2::new(x, y), Vec2::splat(self.button))
     }
@@ -512,7 +535,7 @@ impl Chrome {
     pub fn button_at(&self, content: Rect, pointer: Vec2, count: usize) -> Option<usize> {
         let bar = self.title_bar(content);
         (0..count).find(|slot| {
-            let rect = self.button_rect(*slot);
+            let rect = self.button_rect(*slot, bar.size.x);
             Rect::new(bar.origin + rect.origin, rect.size).contains(pointer)
         })
     }
@@ -712,11 +735,49 @@ mod tests {
     #[test]
     fn the_buttons_sit_in_a_row_and_are_centered_in_the_title_bar() {
         let chrome = chrome();
-        let first = chrome.button_rect(0);
-        let second = chrome.button_rect(1);
+        let first = chrome.button_rect(0, 400.0);
+        let second = chrome.button_rect(1, 400.0);
         assert_eq!(first.origin.x, chrome.margin);
         assert_eq!(second.origin.x - first.max().x, chrome.gap);
         assert_eq!(first.center().y, chrome.title / 2.0);
+    }
+
+    #[test]
+    fn buttons_on_the_right_end_one_margin_from_the_right_edge() {
+        let mut chrome = chrome();
+        chrome.side = Side::Right;
+        let last = chrome.button_rect(2, 400.0);
+        assert_eq!(last.max().x, 400.0 - chrome.margin);
+        let content = Rect::new(Vec2::new(100.0, 100.0), Vec2::new(400.0, 300.0));
+        let bar = chrome.title_bar(content);
+        let rect = chrome.button_rect(2, bar.size.x);
+        assert_eq!(
+            chrome.button_at(content, bar.origin + rect.center(), 3),
+            Some(2)
+        );
+        let left = bar.origin + Vec2::new(chrome.margin + 4.0, chrome.title / 2.0);
+        assert_eq!(chrome.button_at(content, left, 3), None);
+    }
+
+    #[test]
+    fn the_config_sets_side_order_and_title() {
+        let mut chrome = chrome();
+        let config = WindowConfig {
+            buttons: Side::Right,
+            order: vec![
+                ButtonName::Minimize,
+                ButtonName::Maximize,
+                ButtonName::Close,
+            ],
+            title: false,
+        };
+        chrome.follow(&config);
+        assert_eq!(chrome.side, Side::Right);
+        assert_eq!(
+            chrome.order,
+            [Button::Minimize, Button::Maximize, Button::Close]
+        );
+        assert!(!chrome.show_title);
     }
 
     #[test]
@@ -786,7 +847,7 @@ mod tests {
         let chrome = chrome();
         let content = Rect::new(Vec2::new(100.0, 100.0), Vec2::new(400.0, 300.0));
         let bar = chrome.title_bar(content);
-        let first = chrome.button_rect(0);
+        let first = chrome.button_rect(0, bar.size.x);
         let middle = bar.origin + first.origin + first.size / 2.0;
         assert_eq!(chrome.button_at(content, middle, 3), Some(0));
         assert_eq!(chrome.button_at(content, bar.center(), 3), None);
@@ -860,7 +921,7 @@ mod tests {
         let chrome = chrome();
         let content = Rect::new(Vec2::new(300.0, 300.0), Vec2::new(400.0, 300.0));
         let bar = chrome.title_bar(content);
-        let first = chrome.button_rect(0);
+        let first = chrome.button_rect(0, bar.size.x);
         let on_button = bar.origin + first.origin + first.size / 2.0;
         assert_eq!(chrome.grip_at(content, on_button, 3), Some(Grip::Button(0)));
     }

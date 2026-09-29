@@ -57,10 +57,7 @@ pub struct Window {
     pub app: String,
     pub title: String,
     pub restore: Option<Rect>,
-    /// While fullscreen: the rectangle to go back to, and the one screen
-    /// the window fills.
     pub full: Option<(Rect, Rect)>,
-    /// The app asked for fullscreen before its first frame.
     pub wants_full: bool,
     pub motion: Option<drifter_core::motion::Motion>,
     pub going: bool,
@@ -319,7 +316,6 @@ impl XdgShellHandler for State {
 }
 
 impl State {
-    /// Whether Drifter draws the frame for the window on this surface.
     pub fn set_decorated(&mut self, surface: &WlSurface, decorated: bool) {
         if let Some(window) = self
             .windows

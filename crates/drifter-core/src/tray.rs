@@ -60,8 +60,6 @@ impl Tray {
             .count()
     }
 
-    /// The system info sits one gap right of the last icon shown, or at the
-    /// margin when there are no icons.
     pub fn stats_rect(&self, band: Rect, icons: usize, text: Vec2) -> Rect {
         let x = match icons {
             0 => band.origin.x + self.margin,
@@ -70,9 +68,6 @@ impl Tray {
         Rect::new(Vec2::new(x, self.centered(band, text.y)), text)
     }
 
-    /// How many icons to show, and whether the system info fits after them.
-    /// Icons give up their room to the system info. The system info gives up
-    /// its room when it would reach the clock.
     pub fn layout(
         &self,
         band: Rect,

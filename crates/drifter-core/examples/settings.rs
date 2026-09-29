@@ -1,6 +1,3 @@
-//! Draws every settings section to a PNG, so the design can be checked
-//! without a Wayland session: cargo run -p drifter-core --example settings -- <folder>
-
 use std::path::PathBuf;
 
 use drifter_core::settings::{Fonts, Look, Model, Section};

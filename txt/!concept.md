@@ -148,8 +148,9 @@ Session
 The MVP list is finished: config, the compositor, both drawers, the hot corner, click to fly, free zoom, and edge pan.
 
 What is left:
-- Lock on idle (Settings > Lock), on lid close and on a logind Lock signal.
-- Login apps (Settings > Login), notifications, screenshots and screen sharing, and a password prompt for polkit.
+- Lock on lid close and on a logind Lock signal.
+- The settings pages for Window, Lock, Login, the dock builder and the wallpaper folder. The config keys already work.
+- Notifications, screenshots and screen sharing, and a password prompt for polkit.
 - A `/etc/pam.d/drifter` stack of its own, so the lock does not depend on `login`.
 - Multi-monitor. One world, one camera per monitor.
 - Submenus. A dbusmenu item with `children-display` is drawn but does not open.
@@ -210,6 +211,10 @@ Close asks the app to close. Minimize hides the window into the dock. Maximize f
 An app that asks for fullscreen gets exactly one screen and no frame. Drifter places that screen where the window was, pulled inside the world, and the camera flies onto it at zoom 1. While the fullscreen window has focus, the bars, the hot corner, zoom and edge pan are all off, so a game can use every edge. An app that asks before its first frame, like `foot --fullscreen`, is fullscreen from the start. Leaving fullscreen puts the window back exactly where it was.
 
 The way out is Alt-Tab. The fullscreen window stays fullscreen in the world, and the lock comes back when it has focus again.
+
+### Buttons and title
+
+`[window]` in the config sets which end of the title bar holds the buttons (`buttons = "left"` or `"right"`), their order left to right (`order`, naming close, minimize and maximize once each), and whether the title shows (`title`). Maximize turns into restore on a maximized window in the same slot.
 
 ### Alt-Tab and Alt-F4
 

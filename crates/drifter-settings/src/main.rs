@@ -1,6 +1,3 @@
-//! The settings window. It reads the config, shows it, and writes a change
-//! back the moment it is made. Drifter sees the file change and applies it.
-
 #[cfg(target_os = "linux")]
 mod window;
 

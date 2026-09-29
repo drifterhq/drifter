@@ -1,8 +1,3 @@
-//! The settings window: what it shows, where everything sits, how it is
-//! drawn, and how a change is written back to the config. The window
-//! itself is the drifter-settings program; this is everything it does that
-//! is not Wayland.
-
 use crate::config::{Config, Modifier, WallpaperMode};
 use crate::geom::{Rect, Vec2};
 use crate::image::Image;
@@ -52,7 +47,6 @@ impl Section {
     }
 }
 
-/// A disk the machine has mounted, and whether the top bar shows it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Disk {
     pub label: String,
@@ -60,7 +54,6 @@ pub struct Disk {
     pub on: bool,
 }
 
-/// Every value the window can change, read from the config.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Model {
     pub world: u32,
@@ -77,13 +70,10 @@ pub struct Model {
     pub cpu: bool,
     pub ram: bool,
     pub disks: Vec<Disk>,
-    /// Metrics in the config that name no mounted disk. They are kept.
     pub kept: Vec<String>,
 }
 
 impl Model {
-    /// `mounts` is /proc/self/mountinfo read into lines, and `kernel` names
-    /// the block device behind a mount.
     pub fn read(
         config: &Config,
         mounts: &[Mount],
@@ -374,8 +364,6 @@ impl Model {
         }
     }
 
-    /// Writes what changed since `before` into the config text. Comments
-    /// and every other key are kept.
     pub fn write(&self, before: &Model, text: &str) -> Result<String, String> {
         let mut doc = text
             .parse::<toml_edit::DocumentMut>()
@@ -528,7 +516,6 @@ pub struct Group {
     pub footer: Option<String>,
 }
 
-/// What a click landed on.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Hit {
     Section(Section),
@@ -594,7 +581,6 @@ impl Default for Look {
     }
 }
 
-/// Where one group sits once it is laid out.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Placed {
     pub header: Option<Vec2>,
@@ -615,7 +601,6 @@ impl Look {
         )
     }
 
-    /// The column the pane content sits in.
     fn column(&self, size: Vec2) -> (f64, f64) {
         let room = size.x - self.sidebar - self.pad * 2.0;
         let width = room.min(self.widest).max(200.0);
@@ -679,7 +664,6 @@ impl Look {
         out
     }
 
-    /// How tall the pane content is, so the pane knows how far it scrolls.
     pub fn content_height(&self, size: Vec2, section: Section, groups: &[Group]) -> f64 {
         self.place(size, section, groups, 0.0)
             .last()
@@ -780,8 +764,6 @@ impl Look {
         None
     }
 
-    /// While a slider is held, the pointer can leave its row and still
-    /// move the knob.
     pub fn drag(
         &self,
         size: Vec2,
@@ -859,7 +841,6 @@ impl Look {
             }
         }
 
-        // The sidebar is drawn last so scrolled content slides under it.
         let side = Rect::new(Vec2::ZERO, Vec2::new(self.sidebar, size.y));
         canvas.round_rect(side, 0.0, self.side, 1.0);
         let edge = Rect::new(Vec2::new(self.sidebar - 1.0, 0.0), Vec2::new(1.0, size.y));
@@ -978,8 +959,6 @@ impl Look {
         }
     }
 
-    /// The world as a grid of screens, with the one screen the camera
-    /// shows in the middle, so the slider visibly shrinks the viewport.
     fn paint_world(&self, canvas: &mut Canvas, card: Rect, world: u32, fonts: &Fonts) {
         let tall = card.size.y - 48.0;
         let size = Vec2::new(tall * 16.0 / 9.0, tall);
@@ -1062,8 +1041,6 @@ fn has_picture(section: Section) -> bool {
     matches!(section, Section::Desktop | Section::Wallpaper)
 }
 
-/// Crops the middle of a picture to the shape asked for, then scales it,
-/// so it is never stretched.
 fn cover(art: &Image, width: u32, height: u32) -> Image {
     let want = f64::from(width) / f64::from(height.max(1));
     let have = f64::from(art.width) / f64::from(art.height.max(1));
@@ -1086,7 +1063,6 @@ fn cover(art: &Image, width: u32, height: u32) -> Image {
     .scaled(width, height)
 }
 
-/// Cuts a line short with an ellipsis when it would not fit.
 fn fit(font: &Font, text: &str, width: f64) -> String {
     if font.width_of(text) <= width {
         return text.to_string();

@@ -1,21 +1,16 @@
 use crate::image::Image;
 use crate::text::Font;
 
-/// Busy and total time for all cores, in the ticks /proc/stat counts in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CpuTimes {
     pub busy: u64,
     pub total: u64,
 }
 
-/// Every number is drawn right-aligned in a slot as wide as this, so the
-/// labels and the percent signs never move as the digits change.
 const WIDEST: &str = "100%";
 const SPACE: &str = " ";
 const BETWEEN: &str = "   ";
 
-/// Paints "CPU 7%   RAM 42%   VDA1 63%" with each number in a fixed slot.
-/// The width depends only on the labels, never on the numbers.
 pub fn paint(font: &Font, fields: &[(&str, u8)], color: [u8; 3]) -> Image {
     let slot = font.width_of(WIDEST);
     let space = font.width_of(SPACE);
@@ -64,12 +59,10 @@ fn stamp(canvas: &mut Image, piece: &Image, left: i64) {
     }
 }
 
-/// One thing the tray can show.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Metric {
     Cpu,
     Ram,
-    /// A mount point like "/" or "/home", or a device like "sda3".
     Disk(String),
 }
 
@@ -89,7 +82,6 @@ impl Metric {
     }
 }
 
-/// One line of /proc/self/mountinfo.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Mount {
     pub device: String,
@@ -112,10 +104,6 @@ pub fn mounts(mountinfo: &str) -> Vec<Mount> {
         .collect()
 }
 
-/// Finds the mount a disk metric names. A path finds the mount that holds
-/// it, and a later mount on the same point hides an earlier one. A device
-/// name matches the kernel name or the end of the mount source, and its
-/// first mount wins.
 pub fn find_disk<'a>(
     mounts: &'a [Mount],
     disk: &str,
@@ -142,9 +130,6 @@ fn holds(point: &str, path: &str) -> bool {
             .is_some_and(|rest| rest.starts_with('/'))
 }
 
-/// The disk's kernel name, like SDA3 or VDA1. The name from /sys is used
-/// when there is one. Btrfs and other filesystems with no block device of
-/// their own fall back to the last part of the mount source.
 pub fn disk_label(kernel: Option<&str>, source: &str) -> String {
     let name = kernel
         .filter(|name| !name.is_empty())
@@ -155,8 +140,6 @@ pub fn disk_label(kernel: Option<&str>, source: &str) -> String {
     }
 }
 
-/// Reads the first line of /proc/stat. Idle and iowait are the idle time,
-/// guest time is already counted inside user and nice, so it is left out.
 pub fn cpu_times(stat: &str) -> Option<CpuTimes> {
     let line = stat.lines().find(|line| line.starts_with("cpu "))?;
     let fields: Vec<u64> = line
@@ -182,7 +165,6 @@ pub fn cpu_percent(before: CpuTimes, after: CpuTimes) -> u8 {
     percent(busy, total)
 }
 
-/// Used memory is the total minus what the kernel says is available.
 pub fn ram_percent(meminfo: &str) -> Option<u8> {
     let field = |name: &str| {
         meminfo
@@ -196,8 +178,6 @@ pub fn ram_percent(meminfo: &str) -> Option<u8> {
     Some(percent(total.saturating_sub(available), total))
 }
 
-/// Counts the way df does: blocks kept for root are not part of the size,
-/// and a part used rounds up.
 pub fn disk_percent(blocks: u64, free: u64, available: u64) -> u8 {
     let used = blocks.saturating_sub(free);
     let size = used + available;

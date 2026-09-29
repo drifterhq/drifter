@@ -16,6 +16,13 @@ wallpaper = "../img/wallpaper.jpeg"
 # parallax any size between those two. Moves slower than the world.
 wallpaper_mode = "fixed"
 
+# A folder of PNG and JPEG pictures. The settings window shows them to pick
+# from. With wallpaper_every above 0, Drifter moves to another picture from
+# the folder every that many seconds, "random" or "ordered" by file name.
+# wallpaper_folder = "../img"
+wallpaper_every = 0
+wallpaper_order = "random"
+
 [input]
 # Held for camera work. Scroll to zoom, push an edge to pan.
 # While held, the drawers and the hot corner stay closed.
@@ -29,10 +36,29 @@ top = 36
 bottom = 64
 
 [dock]
-# Apps pinned at the left, named by desktop file without .desktop.
-# Example: ["foot", "com.github.hluk.copyq"]
+# Apps pinned at the left. A name is a desktop file without .desktop.
+# A table can hold a command line instead, and either can have its own icon:
+#   pinned = ["foot", { app = "firefox", icon = "/home/me/fox.png" },
+#             { command = "foot -e htop" }]
 # Empty means Drifter reads your XDG defaults for browser, files and terminal.
 pinned = []
+
+[window]
+# Which end of the title bar holds the buttons: left or right.
+buttons = "left"
+# The buttons, left to right. Name each of close, minimize, maximize once.
+order = ["close", "minimize", "maximize"]
+# Show the window title in the middle of the title bar.
+title = true
+
+[lock]
+# Minutes with no input before the screen locks. 0 never locks.
+# An app that keeps the screen awake, like a video player, holds it off.
+after = 0
+
+[login]
+# Started each time Drifter starts, in this order. Same forms as the dock.
+start = []
 
 [tray]
 # strftime. %a weekday, %b month, %d day, %I hour on 12, %H hour on 24,

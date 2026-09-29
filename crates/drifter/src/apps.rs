@@ -57,6 +57,23 @@ pub fn icon_file(name: &str) -> Option<PathBuf> {
     drifter_core::icon::find(name, None, 64)
 }
 
+pub fn run(item: &drifter_core::Launch, socket: &str) {
+    if let Some(command) = item.command() {
+        match drifter_core::exec::words(command) {
+            Some(argv) if !argv.is_empty() => launch(&argv, socket),
+            _ => eprintln!("drifter: cannot read the command line {command:?}"),
+        }
+        return;
+    }
+    let Some(app) = item.app() else {
+        return;
+    };
+    match find(app).and_then(|entry| entry.exec) {
+        Some(exec) => start(&exec, &[], socket),
+        None => eprintln!("drifter: no installed app is called {app}"),
+    }
+}
+
 pub fn start(exec: &str, files: &[&str], socket: &str) {
     match drifter_core::exec::command(exec, files) {
         Some(argv) => launch(&argv, socket),
