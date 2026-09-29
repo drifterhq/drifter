@@ -1,3 +1,6 @@
+use crate::image::Image;
+use crate::text::Font;
+
 /// Busy and total time for all cores, in the ticks /proc/stat counts in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CpuTimes {
@@ -5,11 +8,151 @@ pub struct CpuTimes {
     pub total: u64,
 }
 
-/// The widest the text can ever be, so the space it takes never changes.
-pub const WIDEST: &str = "CPU 100%   RAM 100%   DSK 100%";
+/// Every number is drawn right-aligned in a slot as wide as this, so the
+/// labels and the percent signs never move as the digits change.
+const WIDEST: &str = "100%";
+const SPACE: &str = " ";
+const BETWEEN: &str = "   ";
 
-pub fn text(cpu: u8, ram: u8, disk: u8) -> String {
-    format!("CPU {cpu}%   RAM {ram}%   DSK {disk}%")
+/// Paints "CPU 7%   RAM 42%   VDA1 63%" with each number in a fixed slot.
+/// The width depends only on the labels, never on the numbers.
+pub fn paint(font: &Font, fields: &[(&str, u8)], color: [u8; 3]) -> Image {
+    let slot = font.width_of(WIDEST);
+    let space = font.width_of(SPACE);
+    let between = font.width_of(BETWEEN);
+    let mut pieces = Vec::new();
+    let mut pen = 0.0;
+    for (index, (label, value)) in fields.iter().enumerate() {
+        if index > 0 {
+            pen += between;
+        }
+        pieces.push((pen, font.paint(label, color)));
+        pen += font.width_of(label) + space + slot;
+        let percent = (pen - font.width_of("%")).round();
+        let digits = value.to_string();
+        pieces.push((percent, font.paint("%", color)));
+        pieces.push((percent - font.width_of(&digits), font.paint(&digits, color)));
+    }
+
+    let width = pen.ceil().max(1.0) as u32;
+    let height = font.line_height().ceil().max(1.0) as u32;
+    let mut canvas = Image {
+        width,
+        height,
+        rgba: vec![0; (width as usize) * (height as usize) * 4],
+    };
+    for (x, piece) in pieces {
+        stamp(&mut canvas, &piece, x.round() as i64);
+    }
+    canvas
+}
+
+fn stamp(canvas: &mut Image, piece: &Image, left: i64) {
+    for y in 0..piece.height.min(canvas.height) {
+        for x in 0..piece.width {
+            let to = left + i64::from(x);
+            if to < 0 || to >= i64::from(canvas.width) {
+                continue;
+            }
+            let from = ((y * piece.width + x) * 4) as usize;
+            if piece.rgba[from + 3] == 0 {
+                continue;
+            }
+            let at = ((i64::from(y) * i64::from(canvas.width) + to) * 4) as usize;
+            canvas.rgba[at..at + 4].copy_from_slice(&piece.rgba[from..from + 4]);
+        }
+    }
+}
+
+/// One thing the tray can show.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Metric {
+    Cpu,
+    Ram,
+    /// A mount point like "/" or "/home", or a device like "sda3".
+    Disk(String),
+}
+
+impl Metric {
+    pub fn parse(text: &str) -> Result<Metric, String> {
+        match text.trim() {
+            "cpu" => Ok(Metric::Cpu),
+            "ram" => Ok(Metric::Ram),
+            "" => Err("a tray metric is empty. use cpu, ram, a mount point or a device".into()),
+            disk => match disk.strip_prefix("/dev/") {
+                Some(device) => Ok(Metric::Disk(
+                    device.rsplit('/').next().unwrap_or(device).to_string(),
+                )),
+                None => Ok(Metric::Disk(disk.to_string())),
+            },
+        }
+    }
+}
+
+/// One line of /proc/self/mountinfo.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Mount {
+    pub device: String,
+    pub point: String,
+    pub source: String,
+}
+
+pub fn mounts(mountinfo: &str) -> Vec<Mount> {
+    mountinfo
+        .lines()
+        .filter_map(|line| {
+            let (head, tail) = line.split_once(" - ")?;
+            let head: Vec<&str> = head.split_whitespace().collect();
+            Some(Mount {
+                device: head.get(2)?.to_string(),
+                point: head.get(4)?.to_string(),
+                source: tail.split_whitespace().nth(1)?.to_string(),
+            })
+        })
+        .collect()
+}
+
+/// Finds the mount a disk metric names. A path finds the mount that holds
+/// it, and a later mount on the same point hides an earlier one. A device
+/// name matches the kernel name or the end of the mount source, and its
+/// first mount wins.
+pub fn find_disk<'a>(
+    mounts: &'a [Mount],
+    disk: &str,
+    kernel: impl Fn(&Mount) -> Option<String>,
+) -> Option<&'a Mount> {
+    if disk.starts_with('/') {
+        return mounts
+            .iter()
+            .enumerate()
+            .filter(|(_, mount)| holds(&mount.point, disk))
+            .max_by_key(|(order, mount)| (mount.point.len(), *order))
+            .map(|(_, mount)| mount);
+    }
+    mounts.iter().find(|mount| {
+        kernel(mount).as_deref() == Some(disk) || mount.source.rsplit('/').next() == Some(disk)
+    })
+}
+
+fn holds(point: &str, path: &str) -> bool {
+    point == "/"
+        || path == point
+        || path
+            .strip_prefix(point)
+            .is_some_and(|rest| rest.starts_with('/'))
+}
+
+/// The disk's kernel name, like SDA3 or VDA1. The name from /sys is used
+/// when there is one. Btrfs and other filesystems with no block device of
+/// their own fall back to the last part of the mount source.
+pub fn disk_label(kernel: Option<&str>, source: &str) -> String {
+    let name = kernel
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| source.rsplit('/').next().unwrap_or(source));
+    match name {
+        "" => "DISK".to_string(),
+        name => name.to_uppercase(),
+    }
 }
 
 /// Reads the first line of /proc/stat. Idle and iowait are the idle time,
@@ -145,13 +288,149 @@ mod tests {
         assert_eq!(disk_percent(0, 0, 0), 0);
     }
 
-    #[test]
-    fn the_text_reads_as_three_percentages() {
-        assert_eq!(text(7, 42, 63), "CPU 7%   RAM 42%   DSK 63%");
+    fn font() -> Font {
+        Font::find(None, 13.0).expect("this machine has no usable font")
+    }
+
+    fn fields(cpu: u8, ram: u8, disk: u8) -> [(&'static str, u8); 3] {
+        [("CPU", cpu), ("RAM", ram), ("VDA1", disk)]
+    }
+
+    fn columns(image: &Image, from: u32, to: u32) -> Vec<u8> {
+        (0..image.height)
+            .flat_map(|y| {
+                let row = (y * image.width) as usize * 4;
+                image.rgba[row + from as usize * 4..row + to as usize * 4].to_vec()
+            })
+            .collect()
     }
 
     #[test]
-    fn the_widest_text_is_every_value_at_one_hundred() {
-        assert_eq!(text(100, 100, 100), WIDEST);
+    fn the_width_never_changes_with_the_numbers() {
+        let font = font();
+        let white = [255, 255, 255];
+        let low = paint(&font, &fields(1, 2, 3), white);
+        let mid = paint(&font, &fields(9, 10, 99), white);
+        let high = paint(&font, &fields(100, 100, 100), white);
+        assert_eq!(low.width, high.width);
+        assert_eq!(mid.width, high.width);
+    }
+
+    #[test]
+    fn a_second_digit_moves_nothing_but_the_digits() {
+        let font = font();
+        let white = [255, 255, 255];
+        let nine = paint(&font, &fields(9, 42, 15), white);
+        let ten = paint(&font, &fields(10, 42, 15), white);
+        let cpu = font.width_of("CPU").floor() as u32;
+        let slot_end = font.width_of("CPU") + font.width_of(" ") + font.width_of("100%");
+        let percent = (slot_end - font.width_of("%")).round() as u32;
+        assert_eq!(
+            columns(&nine, 0, cpu),
+            columns(&ten, 0, cpu),
+            "the CPU label"
+        );
+        assert_eq!(
+            columns(&nine, percent, nine.width),
+            columns(&ten, percent, ten.width),
+            "the percent sign and everything after it"
+        );
+        assert_ne!(nine.rgba, ten.rgba, "the digits did change");
+    }
+
+    #[test]
+    fn a_longer_disk_name_only_widens_its_own_label() {
+        let font = font();
+        let white = [255, 255, 255];
+        let short = paint(&font, &[("CPU", 5), ("SDA3", 5)], white);
+        let long = paint(&font, &[("CPU", 5), ("NVME0N1P3", 5)], white);
+        assert!(long.width > short.width);
+    }
+
+    const MOUNTINFO: &str = "22 1 0:21 / /proc rw - proc proc rw\n\
+        29 1 254:1 / / rw,relatime shared:1 - ext4 /dev/vda1 rw\n\
+        31 29 8:3 / /home rw - ext4 /dev/sda3 rw\n\
+        32 29 0:35 / /data rw - btrfs /dev/nvme0n1p2 rw\n";
+
+    fn kernel(mount: &Mount) -> Option<String> {
+        (mount.device == "254:1").then(|| "vda1".to_string())
+    }
+
+    #[test]
+    fn mountinfo_lines_become_mounts() {
+        let all = mounts(MOUNTINFO);
+        assert_eq!(all.len(), 4);
+        assert_eq!(
+            all[1],
+            Mount {
+                device: "254:1".into(),
+                point: "/".into(),
+                source: "/dev/vda1".into()
+            }
+        );
+    }
+
+    #[test]
+    fn a_mount_point_finds_its_own_mount() {
+        let all = mounts(MOUNTINFO);
+        assert_eq!(find_disk(&all, "/", kernel).unwrap().source, "/dev/vda1");
+        assert_eq!(
+            find_disk(&all, "/home", kernel).unwrap().source,
+            "/dev/sda3"
+        );
+    }
+
+    #[test]
+    fn a_folder_finds_the_mount_that_holds_it() {
+        let all = mounts(MOUNTINFO);
+        assert_eq!(find_disk(&all, "/home/dh", kernel).unwrap().point, "/home");
+        assert_eq!(find_disk(&all, "/homework", kernel).unwrap().point, "/");
+    }
+
+    #[test]
+    fn a_later_mount_on_the_same_point_hides_an_earlier_one() {
+        let all = mounts(
+            "1 0 8:3 / / rw - ext4 /dev/sda3 rw\n2 1 0:35 / / rw - btrfs /dev/nvme0n1p3 rw\n",
+        );
+        assert_eq!(
+            find_disk(&all, "/", kernel).unwrap().source,
+            "/dev/nvme0n1p3"
+        );
+    }
+
+    #[test]
+    fn a_device_name_finds_its_mount() {
+        let all = mounts(MOUNTINFO);
+        assert_eq!(find_disk(&all, "sda3", kernel).unwrap().point, "/home");
+        assert_eq!(find_disk(&all, "vda1", kernel).unwrap().point, "/");
+        assert_eq!(find_disk(&all, "nvme0n1p2", kernel).unwrap().point, "/data");
+    }
+
+    #[test]
+    fn a_disk_that_is_not_mounted_finds_nothing() {
+        let all = mounts(MOUNTINFO);
+        assert_eq!(find_disk(&all, "sdb1", kernel), None);
+    }
+
+    #[test]
+    fn metrics_parse_from_the_config_words() {
+        assert_eq!(Metric::parse("cpu"), Ok(Metric::Cpu));
+        assert_eq!(Metric::parse("ram"), Ok(Metric::Ram));
+        assert_eq!(Metric::parse("/home"), Ok(Metric::Disk("/home".into())));
+        assert_eq!(Metric::parse("sda3"), Ok(Metric::Disk("sda3".into())));
+        assert_eq!(Metric::parse("/dev/sda3"), Ok(Metric::Disk("sda3".into())));
+        assert!(Metric::parse(" ").is_err());
+    }
+
+    #[test]
+    fn the_disk_is_named_by_its_kernel_name_in_capitals() {
+        assert_eq!(disk_label(Some("sda3"), "/dev/sda3"), "SDA3");
+        assert_eq!(disk_label(Some("vda1"), "/dev/root"), "VDA1");
+    }
+
+    #[test]
+    fn a_disk_with_no_kernel_name_uses_its_mount_source() {
+        assert_eq!(disk_label(None, "/dev/nvme0n1p3"), "NVME0N1P3");
+        assert_eq!(disk_label(None, ""), "DISK");
     }
 }

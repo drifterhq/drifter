@@ -1872,6 +1872,8 @@ impl State {
             self.titles.clear();
         }
         self.format = config.tray.format.clone();
+        self.sampler = crate::stats::Sampler::new(&config.tray);
+        self.stats = None;
     }
 
     fn press_tray(&mut self, code: u32, had_menu: bool) -> bool {
@@ -1922,11 +1924,7 @@ impl State {
             Some((_, _, rect)) => rect.origin.x,
             None => self.tray.power_rect(band).origin.x,
         };
-        let stats = self
-            .stats
-            .as_ref()
-            .zip(self.font.as_ref())
-            .map(|(_, font)| font.width_of(drifter_core::stats::WIDEST));
+        let stats = self.stats.as_ref().map(|(_, size)| size.x);
         self.tray.layout(band, stop, self.icons.len(), stats)
     }
 
@@ -2032,14 +2030,19 @@ impl State {
             return;
         }
         self.sampled = Some(Instant::now());
-        let Some(reading) = self.sampler.read() else {
+        let fields = self.sampler.read();
+        if fields.is_empty() {
             self.stats = None;
             return;
-        };
+        }
+        let fields: Vec<(&str, u8)> = fields
+            .iter()
+            .map(|(label, value)| (label.as_str(), *value))
+            .collect();
         let image = self
             .font
             .as_ref()
-            .map(|font| font.paint(&reading, self.tray.ink))
+            .map(|font| drifter_core::stats::paint(font, &fields, self.tray.ink))
             .expect("the font was there a moment ago");
         let size = image.size();
         match upload(&mut self.renderer, Some(&image), "system info") {
@@ -3480,7 +3483,7 @@ pub fn open(
         format: config.tray.format.clone(),
         clock: None,
         stats: None,
-        sampler: crate::stats::Sampler::default(),
+        sampler: crate::stats::Sampler::new(&config.tray),
         sampled: None,
         icons: Vec::new(),
         popover: None,

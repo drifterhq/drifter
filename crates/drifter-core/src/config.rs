@@ -128,6 +128,18 @@ pub struct TrayConfig {
     pub format: String,
     #[serde(default = "default_tray_size")]
     pub size: f64,
+    #[serde(default = "default_stats")]
+    pub stats: bool,
+    #[serde(default = "default_metrics")]
+    pub metrics: Vec<String>,
+}
+
+fn default_stats() -> bool {
+    true
+}
+
+fn default_metrics() -> Vec<String> {
+    ["cpu", "ram", "/"].map(String::from).to_vec()
 }
 
 fn default_tray_size() -> f64 {
@@ -143,6 +155,8 @@ impl Default for TrayConfig {
         TrayConfig {
             format: default_tray_format(),
             size: default_tray_size(),
+            stats: default_stats(),
+            metrics: default_metrics(),
         }
     }
 }
@@ -364,6 +378,9 @@ impl Config {
                 "tray size is text height in pixels and must be at least 6".into(),
             ));
         }
+        for metric in &self.tray.metrics {
+            crate::stats::Metric::parse(metric).map_err(ConfigError::Invalid)?;
+        }
         Ok(())
     }
 
@@ -496,6 +513,29 @@ mod tests {
             Config::parse("[tray]\nsize = 20\n").unwrap().tray.size,
             20.0
         );
+    }
+
+    #[test]
+    fn the_stats_show_cpu_ram_and_the_root_disk_by_default() {
+        let config = Config::default();
+        assert!(config.tray.stats);
+        assert_eq!(config.tray.metrics, ["cpu", "ram", "/"]);
+        assert_eq!(Config::parse("[tray]\n").unwrap().tray, config.tray);
+    }
+
+    #[test]
+    fn the_stats_can_be_turned_off_and_chosen() {
+        let config =
+            Config::parse("[tray]\nstats = false\nmetrics = [\"ram\", \"/home\", \"sda3\"]\n")
+                .unwrap();
+        assert!(!config.tray.stats);
+        assert_eq!(config.tray.metrics, ["ram", "/home", "sda3"]);
+    }
+
+    #[test]
+    fn an_empty_metric_is_refused() {
+        let config = Config::parse("[tray]\nmetrics = [\"cpu\", \"\"]\n").unwrap();
+        assert!(config.validate().is_err());
     }
 
     #[test]

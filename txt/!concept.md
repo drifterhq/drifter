@@ -172,9 +172,11 @@ The top drawer is the tray. It reads right to left, because the right side is wh
 - Every tray call to an app waits at most 1 second. Clicks and menus each run on their own thread, and icons are read side by side, so an app that stops answering never blocks the others.
 - Icons that do not fit before the clock are not drawn.
 - When `DBUS_SESSION_BUS_ADDRESS` is unset, Drifter falls back to `unix:path=/run/user/<uid>/bus`. Without that a compositor started outside a login shell never gets a bus and the tray never appears.
-- System info sits one gap right of the icons: `CPU 7%   RAM 42%   DSK 63%`, in the tray ink.
-- CPU is the busy share of all cores since the last reading, from `/proc/stat`. RAM is total minus available, from `/proc/meminfo`. DSK is the root filesystem, counted the way `df` counts it. They are read once a second, and only while the drawer is open.
-- The system info always keeps room for `CPU 100%   RAM 100%   DSK 100%`, so the icons never jump as the numbers change. Icons give up their room to the system info. The system info is not drawn if it would reach the clock.
+- System info sits one gap right of the icons: `CPU 7%   RAM 42%   VDA1 63%`, in the tray ink. `stats = false` in `[tray]` hides it.
+- `metrics` in `[tray]` picks what it shows, left to right. `cpu` is the busy share of all cores since the last reading, from `/proc/stat`. `ram` is total minus available, from `/proc/meminfo`. Anything else is a disk: a mount point like `/home`, or a device like `sda3`. A disk is counted the way `df` counts it, and its label is its kernel device name in capitals, like `SDA3`. A disk that is not mounted is left out, and Drifter says so once on stderr.
+- The values are read once a second, and only while the drawer is open.
+- Every number is right-aligned in a slot as wide as `100%`. The labels and the `%` signs never move. Only the digits change.
+- Icons give up their room to the system info. The system info is not drawn if it would reach the clock.
 
 The clock is only drawn while the drawer is open, so a closed tray costs nothing.
 
