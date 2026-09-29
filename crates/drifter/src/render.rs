@@ -226,6 +226,8 @@ pub struct State {
     app_icons: std::collections::HashMap<String, TextureBuffer<GlesTexture>>,
     format: String,
     clock: Option<(String, TextureBuffer<GlesTexture>, Rect)>,
+    stats: Option<(drifter_core::stats::Stats, TextureBuffer<GlesTexture>, Vec2)>,
+    sampler: crate::stats::Sampler,
     icons: Vec<(String, String, TextureBuffer<GlesTexture>)>,
     popover: Option<Popover>,
     lock: Option<Lock>,
@@ -503,6 +505,12 @@ impl State {
                     self.tray.icon_rect(band, slot),
                     1.0,
                 )));
+            }
+            if let Some((_, buffer, size)) = self.stats.as_ref() {
+                let rect = self.tray.stats_rect(band, *size, room);
+                if rect.max().x + self.tray.gap <= self.tray_stop(band) {
+                    elements.push(Skin::Texture(element(buffer, rect, 1.0)));
+                }
             }
         }
         for edge in Edge::ALL {
@@ -1130,6 +1138,7 @@ impl State {
         self.step_windows(dt);
 
         self.wind_the_clock();
+        self.wind_the_stats();
         self.wind_titles();
 
         self.paint_lock();
@@ -1857,6 +1866,7 @@ impl State {
                 Err(error) => eprintln!("drifter: no clock: {error}"),
             }
             self.clock = None;
+            self.stats = None;
             self.titles.clear();
         }
         self.format = config.tray.format.clone();
@@ -1901,11 +1911,19 @@ impl State {
                 .is_some_and(|sheet| sheet.rect.contains(self.pointer))
     }
 
-    fn tray_room(&self, band: Rect) -> usize {
-        let stop = match self.clock.as_ref() {
+    fn tray_stop(&self, band: Rect) -> f64 {
+        match self.clock.as_ref() {
             Some((_, _, rect)) => rect.origin.x,
             None => self.tray.power_rect(band).origin.x,
+        }
+    }
+
+    fn tray_room(&self, band: Rect) -> usize {
+        let stats = match self.stats.as_ref() {
+            Some((_, _, size)) => size.x + self.tray.gap,
+            None => 0.0,
         };
+        let stop = self.tray_stop(band) - stats;
         self.icons.len().min(self.tray.room(band, stop))
     }
 
@@ -1993,6 +2011,33 @@ impl State {
         let rect = tray.clock_rect(band, image.size());
         match upload(&mut self.renderer, Some(&image), "clock") {
             Ok(Some(buffer)) => self.clock = Some((reading, buffer, rect)),
+            Ok(None) => {}
+            Err(error) => eprintln!("drifter: {error}"),
+        }
+    }
+
+    fn wind_the_stats(&mut self) {
+        let drawer = self.drawers[Edge::Top.index()];
+        let Some(font) = self.font.as_ref().filter(|_| drawer.visible()) else {
+            self.stats = None;
+            return;
+        };
+        let Some(reading) = self.sampler.read() else {
+            self.stats = None;
+            return;
+        };
+        if self
+            .stats
+            .as_ref()
+            .is_some_and(|(shown, _, _)| *shown == reading)
+        {
+            return;
+        }
+
+        let image = drifter_core::stats::paint(font, &reading, drifter_core::RED, self.tray.ink);
+        let size = image.size();
+        match upload(&mut self.renderer, Some(&image), "stats") {
+            Ok(Some(buffer)) => self.stats = Some((reading, buffer, size)),
             Ok(None) => {}
             Err(error) => eprintln!("drifter: {error}"),
         }
@@ -3428,6 +3473,8 @@ pub fn open(
         app_icons: std::collections::HashMap::new(),
         format: config.tray.format.clone(),
         clock: None,
+        stats: None,
+        sampler: crate::stats::Sampler::new(),
         icons: Vec::new(),
         popover: None,
         lock: None,

@@ -138,9 +138,9 @@ impl Button {
 
     fn color(self) -> [u8; 3] {
         match self {
-            Button::Close => [255, 95, 87],
-            Button::Minimize => [254, 188, 46],
-            Button::Maximize | Button::Restore => [40, 200, 64],
+            Button::Close => crate::RED,
+            Button::Minimize => [150, 20, 30],
+            Button::Maximize | Button::Restore => [236, 238, 244],
         }
     }
 }
