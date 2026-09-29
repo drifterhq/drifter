@@ -54,6 +54,12 @@ impl Tray {
         Rect::new(Vec2::new(x, self.centered(band, size.y)), size)
     }
 
+    pub fn room(&self, band: Rect, before: f64) -> usize {
+        (0..)
+            .take_while(|slot| self.icon_rect(band, *slot).max().x + self.gap <= before)
+            .count()
+    }
+
     pub fn icon_at(&self, band: Rect, pointer: Vec2, count: usize) -> Option<usize> {
         (0..count).find(|slot| self.icon_rect(band, *slot).contains(pointer))
     }
@@ -124,6 +130,26 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn icons_stop_short_of_the_clock() {
+        let tray = Tray::default();
+        let band = Rect::new(Vec2::ZERO, Vec2::new(400.0, 36.0));
+        let clock = tray.clock_rect(band, Vec2::new(200.0, 14.0));
+        let room = tray.room(band, clock.origin.x);
+        assert!(room > 0);
+        let last = tray.icon_rect(band, room - 1);
+        assert!(last.max().x + tray.gap <= clock.origin.x);
+        let next = tray.icon_rect(band, room);
+        assert!(next.max().x + tray.gap > clock.origin.x);
+    }
+
+    #[test]
+    fn no_room_means_no_icons() {
+        let tray = Tray::default();
+        let band = Rect::new(Vec2::ZERO, Vec2::new(400.0, 36.0));
+        assert_eq!(tray.room(band, 10.0), 0);
+    }
     use chrono::{FixedOffset, TimeZone};
 
     fn at(hour: u32, minute: u32, second: u32) -> DateTime<FixedOffset> {

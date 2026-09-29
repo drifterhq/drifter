@@ -332,6 +332,9 @@ pub enum Grip {
     Title,
     Left,
     Right,
+    Top,
+    TopLeft,
+    TopRight,
     Bottom,
     BottomLeft,
     BottomRight,
@@ -339,15 +342,30 @@ pub enum Grip {
 
 impl Grip {
     pub fn moves_left(self) -> bool {
-        matches!(self, Grip::Left | Grip::BottomLeft)
+        matches!(self, Grip::Left | Grip::TopLeft | Grip::BottomLeft)
+    }
+
+    pub fn moves_up(self) -> bool {
+        matches!(self, Grip::Top | Grip::TopLeft | Grip::TopRight)
     }
 
     pub fn changes_width(self) -> bool {
-        !matches!(self, Grip::Title | Grip::Bottom | Grip::Button(_))
+        !matches!(
+            self,
+            Grip::Title | Grip::Top | Grip::Bottom | Grip::Button(_)
+        )
     }
 
     pub fn changes_height(self) -> bool {
-        matches!(self, Grip::Bottom | Grip::BottomLeft | Grip::BottomRight)
+        matches!(
+            self,
+            Grip::Top
+                | Grip::TopLeft
+                | Grip::TopRight
+                | Grip::Bottom
+                | Grip::BottomLeft
+                | Grip::BottomRight
+        )
     }
 }
 
@@ -434,7 +452,18 @@ impl Chrome {
 
         let near_left = pointer.x < frame.origin.x + reach;
         let near_right = pointer.x > frame.max().x - reach;
+        let near_top = pointer.y < frame.origin.y + reach;
         let near_bottom = pointer.y > frame.max().y - reach;
+
+        if near_top && near_left {
+            return Some(Grip::TopLeft);
+        }
+        if near_top && near_right {
+            return Some(Grip::TopRight);
+        }
+        if near_top {
+            return Some(Grip::Top);
+        }
 
         if near_bottom && near_left {
             return Some(Grip::BottomLeft);
@@ -469,7 +498,13 @@ impl Chrome {
             }
         }
         if grip.changes_height() {
-            rect.size.y = (start.size.y + moved.y).max(least.y);
+            if grip.moves_up() {
+                let height = (start.size.y - moved.y).max(least.y);
+                rect.origin.y = start.max().y - height;
+                rect.size.y = height;
+            } else {
+                rect.size.y = (start.size.y + moved.y).max(least.y);
+            }
         }
         rect
     }
@@ -489,6 +524,32 @@ mod tests {
 
     fn chrome() -> Chrome {
         Chrome::default()
+    }
+
+    #[test]
+    fn the_top_edge_and_its_corners_are_grips() {
+        let chrome = chrome();
+        let content = Rect::new(Vec2::new(200.0, 200.0), Vec2::new(400.0, 300.0));
+        let frame = chrome.layout(content).frame;
+        let above = Vec2::new(frame.center().x, frame.origin.y - 3.0);
+        assert_eq!(chrome.grip_at(content, above, 3), Some(Grip::Top));
+        let left = frame.origin - Vec2::splat(3.0);
+        assert_eq!(chrome.grip_at(content, left, 3), Some(Grip::TopLeft));
+        let right = Vec2::new(frame.max().x + 3.0, frame.origin.y - 3.0);
+        assert_eq!(chrome.grip_at(content, right, 3), Some(Grip::TopRight));
+    }
+
+    #[test]
+    fn dragging_the_top_edge_keeps_the_bottom_still() {
+        let chrome = chrome();
+        let start = Rect::new(Vec2::new(200.0, 200.0), Vec2::new(400.0, 300.0));
+        let least = Vec2::new(160.0, 80.0);
+        let taller = chrome.resize(start, Grip::Top, Vec2::new(5.0, -50.0), least);
+        assert_eq!(taller.size, Vec2::new(400.0, 350.0));
+        assert_eq!(taller.max().y, start.max().y);
+        let corner = chrome.resize(start, Grip::TopLeft, Vec2::new(-20.0, 1000.0), least);
+        assert_eq!(corner.size, Vec2::new(420.0, 80.0));
+        assert_eq!(corner.max(), start.max());
     }
 
     fn pixel(image: &Image, x: u32, y: u32) -> [u8; 4] {

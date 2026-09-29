@@ -26,7 +26,7 @@ Size is fixed. It is never grown by window sprawl, because the overview has to l
 
 ## Config
 
-One file, set once. No CLI flags. Keep the file small and hold everything else as defaults in code, with an in-app settings panel later.
+One file, set once. No CLI flags. Keep the file small and hold everything else as defaults in code. The settings panel, from a right click on the desktop or the cog in the dock, writes the same file. It makes the file when there is none, and a change takes effect at once, with no restart.
 
 TOML.
 
@@ -80,6 +80,10 @@ Parallax takes no tuning number. Derive the factor:
 
 Derived that way the wallpaper edges land exactly on the world edges, so you never pan off the picture and never see a seam. A 2K wallpaper, a 1080p viewport and a 4K world give exactly one third.
 
+In parallax the picture is its own size, grown until it covers the screen and cut down to the world where it is larger. Zooming out shows more of the picture, until the whole picture fills the screen. It never shows past its own edges, and it never changes shape.
+
+Every mode keeps the picture's shape. Drifter cuts a centered piece of the picture with the shape the mode needs and scales that piece. It never stretches.
+
 The supplied image does not have to be an exact size. Drifter scales it to what the mode needs, keeps the aspect ratio, and crops the overflow.
 
 A world-sized wallpaper in `pan` mode is large. A 4x6 world at 4K is about 199 megapixels, roughly 800 MB raw. So it is stored as mipmapped tiles, and only the tiles near the camera are resident at full detail. Zoomed out, the whole picture is needed but only at a low mip level, which is cheap. The full-resolution image is never resident all at once.
@@ -127,6 +131,8 @@ Pointer
 
 - The pointer is trapped in the viewport. Its world position is derived from the viewport position. Edge push does not work otherwise.
 - Drifter draws its own cursor, last, over everything. A bare DRM compositor has no system cursor, so without this the screen has no pointer at all.
+- Over an app, the app picks the cursor. A cursor the app draws itself is shown as it is. A cursor the app names, such as a text beam or a resize arrow, comes from the cursor theme in `XCURSOR_THEME`, then Adwaita. A name Drifter cannot find, and the plain arrow, are Drifter's own cursor.
+- An app can lock or confine the pointer, for games. Holding the modifier breaks the hold, so the camera always works.
 
 Multi-monitor
 
@@ -162,7 +168,9 @@ The top drawer is the tray. It reads right to left, because the right side is wh
 - Left click is Activate and middle click is the secondary action. Both go straight to the program.
 - RIGHT CLICK IS DRIFTER'S. Drifter reads the item's menu over `com.canonical.dbusmenu` and paints it itself at the pointer. It never calls ContextMenu, because an app asked for its menu draws its own window, and then there are two menus.
 - Hovering an icon shows its tooltip, taken from the item's ToolTip property.
-- Icons come from the StatusNotifierItem D-Bus protocol, which is how modern tray apps publish themselves. Drifter owns `org.kde.StatusNotifierWatcher`, holds the registered item list, and reads each item's `IconPixmap`, or its `IconName` from the icon folders. This needs no Wayland client, so the tray works before windows do.
+- Icons come from the StatusNotifierItem D-Bus protocol, which is how modern tray apps publish themselves. Drifter owns `org.kde.StatusNotifierWatcher`, holds the registered item list, and reads each item's `IconPixmap`, or its `IconName` from the icon folders. This needs no Wayland client, so the tray works before windows do. An `IconName` is looked up in the item's own `IconThemePath`, then the icon theme named in the GTK settings and the themes it inherits, then hicolor, then pixmaps, at the size nearest 24 px. Only PNG icons can be drawn.
+- Every tray call to an app waits at most 1 second. Clicks and menus each run on their own thread, and icons are read side by side, so an app that stops answering never blocks the others.
+- Icons that do not fit before the clock are not drawn.
 - When `DBUS_SESSION_BUS_ADDRESS` is unset, Drifter falls back to `unix:path=/run/user/<uid>/bus`. Without that a compositor started outside a login shell never gets a bus and the tray never appears.
 - System info comes later, on the same left end, to the right of the icons.
 
@@ -192,7 +200,7 @@ The pieces decide the sizes. Title bar height is the height of `title-mid.png`, 
 
 Resize edges are wider than the art. The grab area reaches 7 px inside and outside each border, and the corners win over the sides where they overlap, because a corner is harder to hit. Drag the title bar to move. Double click the title bar to maximize, and again to put it back.
 
-Close asks the app to close. Minimize hides the window into the dock. Maximize fills the viewport and remembers where the window was, so a second press restores it exactly.
+Close asks the app to close. Minimize hides the window into the dock. Maximize fills the viewport and remembers where the window was, so a second press restores it exactly. A maximized or snapped window shows the restore button in place of maximize.
 
 `cargo run -p drifter-core --example window` paints the default skin and writes every piece, so there is always a real file to start from.
 
@@ -219,6 +227,27 @@ Log out ends the session only if Drifter is the last thing the login ran. Start 
 Wallpapers and other images are PNG or JPEG. The format is read from the first bytes of the file, never from the name.
 
 The wallpaper path comes from the config and nowhere else. A missing file is reported on stderr and Drifter starts with no wallpaper. Drifter never silently picks a different file.
+
+## Screen mode
+
+On a real panel Drifter uses the largest mode the panel offers, which is its native mode. On a virtual screen, such as virtio-gpu in the VM, it asks for 1920 x 1080, because a virtual screen offers modes up to 5120 x 2160 and llvmpipe cannot keep up with them.
+
+## Protocols
+
+Drifter speaks these, beside the core ones:
+
+- linux-dmabuf v4 with feedback for the render node, so GPU apps hand over their buffers directly. The same node is given to the scanout exporter, so a buffer can go to the screen without a composite pass.
+- Primary selection, for middle click paste.
+- xdg-activation. A request with a token under 10 seconds old raises and focuses the window, and brings it back from the dock.
+- viewporter and fractional scale. The scale is always 1.
+- xdg-output.
+- Relative pointer and pointer constraints.
+- Cursor shape.
+- Text input and input method, so an input method such as fcitx5 works.
+- Idle inhibit. Drifter keeps the list. Nothing blanks the screen yet, so nothing reads it yet.
+- wlr layer shell. Overlay layers draw over everything but Drifter's cursor. Top layers draw under Drifter's drawers and menus and over windows. Bottom and background layers draw under windows. A layer that asks for the keyboard gets it, and gives it back to the top window when it goes. Maximize leaves room for the space a bar reserves.
+
+X11 apps run through `xwayland-satellite`, when it is installed. Drifter starts it on the first free display number and gives every app it launches that `DISPLAY`. Without it Drifter says so on stderr and X11 apps cannot run.
 
 ## Running it
 
@@ -260,8 +289,6 @@ So the DrmDeviceNotifier runs as a calloop event source. On VBlank: `frame_submi
 The seat notifier is in the same loop. On PauseSession drawing stops and DRM master is released. On ActivateSession master is taken back, the compositor state and buffers are reset, and the screen is redrawn. Without this a VT switch away and back leaves a dead screen.
 
 ## Open items
-
-Direct scanout needs the drm node. GbmFramebufferExporter::new takes an import_node as its second argument. With None, client buffers are never direct-scanned-out, they always go through the renderer. That is fine while nothing is on screen but a clear color. Once real clients land, pass Some(drm_node) or every window costs a composite pass it does not need.
 
 A window demands the camera. Proposal: lock the camera to that window at 1.0 and disable zoom, pan and the hot corner until it releases. On multi-monitor, the monitor whose camera holds the window obeys.
 

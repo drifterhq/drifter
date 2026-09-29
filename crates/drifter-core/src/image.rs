@@ -37,6 +37,31 @@ impl Image {
         }
     }
 
+    pub fn tiled(&self, width: u32, height: u32) -> Image {
+        let width = width.max(1);
+        let height = height.max(1);
+        if self.width == 0 || self.height == 0 {
+            return Image {
+                width,
+                height,
+                rgba: vec![0; (width as usize) * (height as usize) * 4],
+            };
+        }
+        let mut rgba = Vec::with_capacity((width as usize) * (height as usize) * 4);
+        for y in 0..height {
+            let row = (y % self.height) as usize * self.width as usize;
+            for x in 0..width {
+                let at = (row + (x % self.width) as usize) * 4;
+                rgba.extend_from_slice(&self.rgba[at..at + 4]);
+            }
+        }
+        Image {
+            width,
+            height,
+            rgba,
+        }
+    }
+
     pub fn scaled(&self, width: u32, height: u32) -> Image {
         let width = width.max(1);
         let height = height.max(1);
@@ -447,6 +472,18 @@ mod tests {
         }
         assert_eq!(reds(&orient(&strip(), 3)), vec![5, 4, 3, 2, 1, 0]);
         assert_eq!(reds(&orient(&strip(), 8)), vec![2, 5, 1, 4, 0, 3]);
+    }
+
+    #[test]
+    fn tiling_repeats_the_piece_instead_of_stretching_it() {
+        let piece = Image {
+            width: 2,
+            height: 1,
+            rgba: vec![1, 0, 0, 255, 2, 0, 0, 255],
+        };
+        let long = piece.tiled(5, 2);
+        assert_eq!((long.width, long.height), (5, 2));
+        assert_eq!(reds(&long), vec![1, 2, 1, 2, 1, 1, 2, 1, 2, 1]);
     }
 
     #[test]

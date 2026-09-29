@@ -4,7 +4,9 @@ pub mod corner;
 pub mod cursor;
 pub mod dock;
 pub mod drawer;
+pub mod exec;
 pub mod geom;
+pub mod icon;
 pub mod image;
 pub mod lock;
 pub mod menu;
@@ -77,6 +79,83 @@ mod wallpaper_tests {
     fn a_viewport_sized_wallpaper_in_parallax_behaves_like_fixed() {
         let f = wallpaper::factor(WallpaperMode::Parallax, VIEWPORT, VIEWPORT, WORLD);
         assert_eq!(f, Vec2::ZERO);
+    }
+
+    fn aspect(rect: crate::geom::Rect) -> f64 {
+        rect.size.x / rect.size.y
+    }
+
+    const PHOTO: Vec2 = Vec2::new(4000.0, 3000.0);
+
+    #[test]
+    fn fixed_crops_the_image_to_the_screen_shape() {
+        let camera = crate::Camera::at_work_zoom(WORLD / 2.0);
+        let laid = wallpaper::place(WallpaperMode::Fixed, PHOTO, VIEWPORT, WORLD, &camera);
+        assert_eq!(laid.target.size, VIEWPORT);
+        assert!((aspect(laid.source) - aspect(laid.target)).abs() < 1e-9);
+        assert!(laid.source.origin.x >= 0.0 && laid.source.origin.y >= 0.0);
+        assert!(laid.source.max().x <= PHOTO.x + 1e-9 && laid.source.max().y <= PHOTO.y + 1e-9);
+    }
+
+    #[test]
+    fn pan_keeps_the_picture_in_shape_on_a_tall_world() {
+        let tall = Vec2::new(4.0 * 1920.0, 6.0 * 1080.0);
+        let camera = crate::Camera::at_work_zoom(tall / 2.0);
+        let laid = wallpaper::place(WallpaperMode::Pan, PHOTO, VIEWPORT, tall, &camera);
+        assert!((aspect(laid.source) - aspect(laid.target)).abs() < 1e-9);
+        assert_eq!(laid.target.size, tall);
+    }
+
+    #[test]
+    fn pan_moves_the_picture_with_the_world() {
+        let one = crate::Camera::at_work_zoom(WORLD / 2.0);
+        let mut two = one;
+        two.center.x += 100.0;
+        let a = wallpaper::place(WallpaperMode::Pan, PHOTO, VIEWPORT, WORLD, &one);
+        let b = wallpaper::place(WallpaperMode::Pan, PHOTO, VIEWPORT, WORLD, &two);
+        assert!((a.target.origin.x - b.target.origin.x - 100.0).abs() < 1e-9);
+    }
+
+    fn parallax_at(center: Vec2, zoom: f64) -> wallpaper::Placement {
+        let camera = crate::Camera::new(center, zoom);
+        wallpaper::place(WallpaperMode::Parallax, TWO_K, VIEWPORT, WORLD, &camera)
+    }
+
+    #[test]
+    fn parallax_moves_a_third_as_fast_as_the_world_with_a_2k_picture() {
+        let a = parallax_at(Vec2::new(1920.0, 1080.0), 1.0);
+        let b = parallax_at(Vec2::new(1920.0 + 300.0, 1080.0), 1.0);
+        assert!((b.source.origin.x - a.source.origin.x - 100.0).abs() < 1e-9);
+        assert_eq!(a.source.size, VIEWPORT);
+        assert_eq!(a.target.size, VIEWPORT);
+    }
+
+    #[test]
+    fn parallax_reaches_the_picture_edges_at_the_world_edges() {
+        let left = parallax_at(VIEWPORT / 2.0, 1.0);
+        let right = parallax_at(WORLD - VIEWPORT / 2.0, 1.0);
+        assert_eq!(left.source.origin, Vec2::ZERO);
+        assert!((right.source.max().x - TWO_K.x).abs() < 1e-9);
+        assert!((right.source.max().y - TWO_K.y).abs() < 1e-9);
+    }
+
+    #[test]
+    fn parallax_never_reads_outside_the_picture_at_any_zoom() {
+        for zoom in [0.5, 0.75, 1.0, 2.0, 4.0] {
+            for x in [0.0, 900.0, 1920.0, 3000.0, 3840.0] {
+                let laid = parallax_at(Vec2::new(x, 1000.0), zoom);
+                assert!(laid.source.origin.x >= -1e-9 && laid.source.origin.y >= -1e-9);
+                assert!(laid.source.max().x <= TWO_K.x + 1e-9, "zoom {zoom} x {x}");
+                assert!(laid.source.max().y <= TWO_K.y + 1e-9, "zoom {zoom} x {x}");
+                assert!((aspect(laid.source) - aspect(laid.target)).abs() < 1e-9);
+            }
+        }
+    }
+
+    #[test]
+    fn a_small_picture_is_grown_to_cover_the_screen() {
+        let paper = wallpaper::paper_size(Vec2::new(800.0, 600.0), VIEWPORT, WORLD);
+        assert!(paper.x >= VIEWPORT.x && paper.y >= VIEWPORT.y);
     }
 
     #[test]

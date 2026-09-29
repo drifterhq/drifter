@@ -8,6 +8,7 @@ use smithay::reexports::calloop::channel::{Channel, SyncSender, sync_channel};
 const WATCHER: &str = "org.kde.StatusNotifierWatcher";
 const WATCHER_PATH: &str = "/StatusNotifierWatcher";
 const ITEM: &str = "org.kde.StatusNotifierItem";
+const PATIENCE: std::time::Duration = std::time::Duration::from_secs(1);
 
 pub struct Icon {
     pub service: String,
@@ -297,28 +298,59 @@ fn named(proxy: &zbus::blocking::Proxy<'_>) -> Option<Image> {
         return None;
     }
     let theme: String = proxy.get_property("IconThemePath").unwrap_or_default();
-    let path = find_icon(&name, &theme)?;
+    let own = (!theme.is_empty()).then(|| std::path::PathBuf::from(theme));
+    let path = drifter_core::icon::find(&name, own.as_deref(), 24)?;
     drifter_core::image::load(&path).ok()
 }
 
-fn find_icon(name: &str, theme: &str) -> Option<std::path::PathBuf> {
-    let mut roots: Vec<std::path::PathBuf> = Vec::new();
-    if !theme.is_empty() {
-        roots.push(std::path::PathBuf::from(theme));
-    }
-    for size in ["32x32", "24x24", "48x48", "scalable"] {
-        roots.push(
-            std::path::PathBuf::from("/usr/share/icons/hicolor")
-                .join(size)
-                .join("apps"),
-        );
-    }
-    roots.push(std::path::PathBuf::from("/usr/share/pixmaps"));
+fn read_icons(connection: &zbus::blocking::Connection, names: &[String]) -> Vec<Icon> {
+    std::thread::scope(|scope| {
+        let reading: Vec<_> = names
+            .iter()
+            .map(|service| scope.spawn(move || read_icon(connection, service)))
+            .collect();
+        reading
+            .into_iter()
+            .filter_map(|job| job.join().ok().flatten())
+            .collect()
+    })
+}
 
-    roots
-        .into_iter()
-        .map(|root| root.join(format!("{name}.png")))
-        .find(|candidate| candidate.is_file())
+fn choose(connection: &zbus::blocking::Connection, service: &str, id: i32) {
+    let (name, path) = split(service);
+    let Ok(item) = zbus::blocking::Proxy::new(connection, name.clone(), path, ITEM) else {
+        return;
+    };
+    let Ok(menu_path) = item.get_property::<zbus::zvariant::OwnedObjectPath>("Menu") else {
+        return;
+    };
+    let Ok(menu) =
+        zbus::blocking::Proxy::new(connection, name, menu_path, "com.canonical.dbusmenu")
+    else {
+        return;
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|gap| gap.as_secs() as u32)
+        .unwrap_or(0);
+    let data = zbus::zvariant::Value::I32(0);
+    if let Err(error) = menu.call_method("Event", &(id, "clicked", &data, now)) {
+        eprintln!("drifter: tray menu click failed: {error}");
+    }
+}
+
+fn poke(connection: &zbus::blocking::Connection, service: &str, click: Click, x: i32, y: i32) {
+    let (name, path) = split(service);
+    let Ok(proxy) = zbus::blocking::Proxy::new(connection, name, path, ITEM) else {
+        return;
+    };
+    let method = match click {
+        Click::Left => "Activate",
+        Click::Middle => "SecondaryActivate",
+    };
+    if let Err(error) = proxy.call_method(method, &(x, y)) {
+        eprintln!("drifter: tray {method} failed: {error}");
+    }
 }
 
 fn serve(
@@ -336,7 +368,7 @@ fn serve(
     };
 
     let mut builder = match zbus::blocking::connection::Builder::address(address.as_str()) {
-        Ok(builder) => builder,
+        Ok(builder) => builder.method_timeout(PATIENCE),
         Err(error) => {
             eprintln!("drifter: no tray: {address}: {error}");
             return;
@@ -389,19 +421,17 @@ fn serve(
             return;
         };
 
-        let (service, click, x, y) = match job {
+        match job {
             Job::Look => {
                 let names = items.lock().unwrap().clone();
-                let icons = names
-                    .iter()
-                    .filter_map(|service| read_icon(&connection, service))
-                    .collect::<Vec<_>>();
+                let icons = read_icons(&connection, &names);
                 println!("drifter: tray has {} icon(s)", icons.len());
                 let _ = wake.send(Update::Icons(icons));
-                continue;
             }
             Job::Menu(service, x, y) => {
-                match read_menu(&connection, &service) {
+                let connection = connection.clone();
+                let wake = wake.clone();
+                std::thread::spawn(move || match read_menu(&connection, &service) {
                     Some(items) if !items.is_empty() => {
                         let _ = wake.send(Update::Menu {
                             service,
@@ -410,50 +440,16 @@ fn serve(
                         });
                     }
                     _ => eprintln!("drifter: {service} offers no menu"),
-                }
-                continue;
+                });
             }
             Job::Choose(service, id) => {
-                let (name, path) = split(&service);
-                let Ok(item) = zbus::blocking::Proxy::new(&connection, name.clone(), path, ITEM)
-                else {
-                    continue;
-                };
-                let Ok(menu_path) = item.get_property::<zbus::zvariant::OwnedObjectPath>("Menu")
-                else {
-                    continue;
-                };
-                let Ok(menu) = zbus::blocking::Proxy::new(
-                    &connection,
-                    name,
-                    menu_path,
-                    "com.canonical.dbusmenu",
-                ) else {
-                    continue;
-                };
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|gap| gap.as_secs() as u32)
-                    .unwrap_or(0);
-                let data = zbus::zvariant::Value::I32(0);
-                if let Err(error) = menu.call_method("Event", &(id, "clicked", &data, now)) {
-                    eprintln!("drifter: tray menu click failed: {error}");
-                }
-                continue;
+                let connection = connection.clone();
+                std::thread::spawn(move || choose(&connection, &service, id));
             }
-            Job::Poke(service, click, x, y) => (service, click, x, y),
-        };
-
-        let (name, path) = split(&service);
-        let Ok(proxy) = zbus::blocking::Proxy::new(&connection, name, path, ITEM) else {
-            continue;
-        };
-        let method = match click {
-            Click::Left => "Activate",
-            Click::Middle => "SecondaryActivate",
-        };
-        if let Err(error) = proxy.call_method(method, &(x, y)) {
-            eprintln!("drifter: tray {method} failed: {error}");
+            Job::Poke(service, click, x, y) => {
+                let connection = connection.clone();
+                std::thread::spawn(move || poke(&connection, &service, click, x, y));
+            }
         }
     }
 }
@@ -499,10 +495,7 @@ fn watch_signals(
         }
 
         let names = items.lock().unwrap().clone();
-        let icons = names
-            .iter()
-            .filter_map(|service| read_icon(&connection, service))
-            .collect::<Vec<_>>();
+        let icons = read_icons(&connection, &names);
         let _ = wake.send(Update::Icons(icons));
     }
 }

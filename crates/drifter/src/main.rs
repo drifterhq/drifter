@@ -8,7 +8,11 @@ mod apps;
 #[cfg(target_os = "linux")]
 mod auth;
 #[cfg(target_os = "linux")]
+mod cursors;
+#[cfg(target_os = "linux")]
 mod power;
+#[cfg(target_os = "linux")]
+mod protocols;
 #[cfg(target_os = "linux")]
 mod render;
 #[cfg(target_os = "linux")]
@@ -93,7 +97,7 @@ fn bootstrap(config: &Config) -> ExitCode {
         return ExitCode::FAILURE;
     };
 
-    let want = (1920, 1080);
+    let virtual_size = (1920, 1080);
     let night = [0.02, 0.05, 0.10, 1.0];
 
     let wallpaper = config
@@ -105,7 +109,7 @@ fn bootstrap(config: &Config) -> ExitCode {
         seat.notifier,
         config,
         &card,
-        want,
+        virtual_size,
         night,
         wallpaper.as_ref(),
     ) {

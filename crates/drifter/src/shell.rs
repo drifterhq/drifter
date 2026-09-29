@@ -40,6 +40,7 @@ pub struct Wayland {
     pub _seat: Seat<State>,
     pub keyboard: smithay::input::keyboard::KeyboardHandle<State>,
     pub pointer: smithay::input::pointer::PointerHandle<State>,
+    pub extras: crate::protocols::Extras,
 }
 
 pub struct Window {
@@ -87,6 +88,11 @@ impl CompositorHandler for State {
         on_commit_buffer_handler::<Self>(surface);
 
         self.popups.commit(surface);
+        if crate::protocols::settle_layer(&self.output, surface).is_some() {
+            self.layer_mapped(surface);
+            self.kick_now();
+            return;
+        }
         if is_sync_subsurface(surface) {
             return;
         }
@@ -117,16 +123,19 @@ impl SeatHandler for State {
     fn focus_changed(&mut self, seat: &Seat<Self>, focused: Option<&WlSurface>) {
         use smithay::reexports::wayland_server::Resource;
         use smithay::wayland::selection::data_device::set_data_device_focus;
+        use smithay::wayland::selection::primary_selection::set_primary_focus;
 
         let client = focused.and_then(|surface| self.wayland.handle.get_client(surface.id()).ok());
-        set_data_device_focus(&self.wayland.handle, seat, client);
+        set_data_device_focus(&self.wayland.handle, seat, client.clone());
+        set_primary_focus(&self.wayland.handle, seat, client);
     }
 
     fn cursor_image(
         &mut self,
         _seat: &Seat<Self>,
-        _image: smithay::input::pointer::CursorImageStatus,
+        image: smithay::input::pointer::CursorImageStatus,
     ) {
+        self.set_cursor(image);
     }
 }
 
@@ -333,6 +342,7 @@ pub fn start(display: &Display<State>) -> Result<Wayland, String> {
     let pointer = seat.add_pointer();
     let data_device = DataDeviceState::new::<State>(&handle);
     smithay::wayland::shell::xdg::decoration::XdgDecorationState::new::<State>(&handle);
+    let extras = crate::protocols::start(&handle);
 
     Ok(Wayland {
         handle,
@@ -344,6 +354,7 @@ pub fn start(display: &Display<State>) -> Result<Wayland, String> {
         _seat: seat,
         keyboard,
         pointer,
+        extras,
     })
 }
 

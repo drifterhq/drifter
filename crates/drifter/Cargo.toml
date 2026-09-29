@@ -24,5 +24,6 @@ smithay = { version = "0.7.0", default-features = false, features = [
     "wayland_frontend",
 ] }
 wayland-protocols = { version = "0.32.13", default-features = false, features = ["server", "unstable", "staging"] }
+xcursor = "0.3.11"
 zbus = { version = "5.19.0", features = ["blocking-api"] }
 zeroize = "1.9.0"

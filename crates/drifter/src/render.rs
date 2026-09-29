@@ -76,6 +76,19 @@ render_elements! {
 
 type Skin = Piece<GlesRenderer>;
 
+type ThemeCursor = (TextureBuffer<GlesTexture>, Vec2, Vec2);
+
+type Showing = (
+    Rect,
+    Rect,
+    f32,
+    Vec2,
+    (bool, bool),
+    bool,
+    String,
+    smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+);
+
 type Compositor =
     DrmCompositor<GbmAllocator<DrmDeviceFd>, GbmFramebufferExporter<DrmDeviceFd>, (), DrmDeviceFd>;
 
@@ -148,7 +161,8 @@ struct Lock {
 }
 
 struct Hit {
-    index: usize,
+    index: Option<usize>,
+    layer: bool,
     surface: smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
     origin: Vec2,
     popup: bool,
@@ -184,6 +198,9 @@ pub struct State {
     next_window: u64,
     eaten: Vec<u32>,
     frame_timer: bool,
+    cursor_status: smithay::input::pointer::CursorImageStatus,
+    named_cursors: std::collections::HashMap<&'static str, Option<ThemeCursor>>,
+    layer_focus: Option<smithay::reexports::wayland_server::protocol::wl_surface::WlSurface>,
     skin: std::collections::HashMap<String, (TextureBuffer<GlesTexture>, Vec2)>,
     started: Instant,
     socket: String,
@@ -191,7 +208,7 @@ pub struct State {
     libinput: Libinput,
     compositor: Compositor,
     renderer: GlesRenderer,
-    wallpaper: Option<(TextureBuffer<GlesTexture>, Rect)>,
+    wallpaper: Option<(TextureBuffer<GlesTexture>, Vec2)>,
     panels: [TextureBuffer<GlesTexture>; 2],
     shapes: [Panel; 2],
     arrow: TextureBuffer<GlesTexture>,
@@ -356,7 +373,7 @@ impl State {
         if self.hover_since.is_some() && self.tip.is_none() {
             return Some(SECOND_TICK);
         }
-        if drifter_core::corner::heat(self.pointer, self.tunables.hot_corner_size) > 0.0 {
+        if drifter_core::corner::heat(self.pointer, drifter_core::corner::REACH) > 0.0 {
             return Some(TICK);
         }
         if self.drawers[Edge::Top.index()].visible() && self.font.is_some() {
@@ -369,19 +386,19 @@ impl State {
         if self.lock.is_some() {
             return self.lock_elements();
         }
-        let mut elements: Vec<Skin> = vec![Skin::Texture(element(
-            &self.arrow,
-            cursor::rect(self.pointer, self.arrow_size, self.arrow_hotspot),
-            1.0,
-        ))];
+        let mut elements: Vec<Skin> = self.cursor_elements();
+        self.layer_elements(
+            &[smithay::wayland::shell::wlr_layer::Layer::Overlay],
+            &mut elements,
+        );
         if let Some(sheet) = self.sheet.as_ref() {
             elements.push(Skin::Texture(element(&sheet.art, sheet.rect, 1.0)));
         }
 
         if let Some(buffer) = self.glow.as_ref() {
-            let warmth = drifter_core::corner::heat(self.pointer, self.tunables.hot_corner_size);
-            if warmth > 0.0 && !self.overview() {
-                let reach = self.tunables.hot_corner_size;
+            let reach = drifter_core::corner::REACH;
+            let warmth = drifter_core::corner::heat(self.pointer, reach);
+            if warmth > 0.0 && !self.overview() && !self.modifier {
                 let rect = Rect::new(Vec2::ZERO, Vec2::splat(reach));
                 elements.push(Skin::Texture(element(buffer, rect, (warmth * 0.55) as f32)));
             }
@@ -479,7 +496,8 @@ impl State {
             )));
         }
         if let Some(band) = self.tray_band() {
-            for (slot, (_, _, buffer)) in self.icons.iter().enumerate() {
+            let room = self.tray_room(band);
+            for (slot, (_, _, buffer)) in self.icons.iter().take(room).enumerate() {
                 elements.push(Skin::Texture(element(
                     buffer,
                     self.tray.icon_rect(band, slot),
@@ -499,8 +517,13 @@ impl State {
             }
         }
 
+        self.layer_elements(
+            &[smithay::wayland::shell::wlr_layer::Layer::Top],
+            &mut elements,
+        );
+
         let zoom = self.camera.zoom;
-        let showing: Vec<(Rect, Rect, f32, Vec2, bool, bool, String, _)> = self
+        let showing: Vec<Showing> = self
             .windows
             .iter()
             .rev()
@@ -515,7 +538,7 @@ impl State {
                     shown,
                     fade,
                     window.inset,
-                    self.focus == Some(window.id),
+                    (self.focus == Some(window.id), window.restore.is_some()),
                     window.decorated,
                     window.title.clone(),
                     window.toplevel.wl_surface().clone(),
@@ -523,7 +546,7 @@ impl State {
             })
             .collect();
 
-        for (content, shown, fade, inset, awake, dressed, title, surface) in showing {
+        for (content, shown, fade, inset, (awake, maximized), dressed, title, surface) in showing {
             let stretch = match content.size.x > 0.0 {
                 true => shown.size.x / content.size.x,
                 false => 1.0,
@@ -566,7 +589,7 @@ impl State {
                 }
             }
             if dressed {
-                self.dress(shown, awake, &title, fade, &mut elements);
+                self.dress(shown, (awake, maximized), &title, fade, &mut elements);
             }
             elements.extend(client.into_iter().map(|piece| {
                 Skin::Client(RescaleRenderElement::from_element(
@@ -577,37 +600,25 @@ impl State {
             }));
         }
 
-        if let Some((buffer, rect)) = self.wallpaper.as_ref() {
-            elements.push(Skin::Texture(element(
-                buffer,
-                self.wallpaper_rect(*rect),
-                1.0,
-            )));
+        self.layer_elements(
+            &[
+                smithay::wayland::shell::wlr_layer::Layer::Bottom,
+                smithay::wayland::shell::wlr_layer::Layer::Background,
+            ],
+            &mut elements,
+        );
+
+        if let Some((buffer, size)) = self.wallpaper.as_ref() {
+            let laid = drifter_core::wallpaper::place(
+                self.mode,
+                *size,
+                self.screen,
+                self.world,
+                &self.camera,
+            );
+            elements.push(Skin::Texture(cropped(buffer, laid.source, laid.target)));
         }
         elements
-    }
-
-    fn wallpaper_rect(&self, fitted: Rect) -> Rect {
-        use drifter_core::WallpaperMode;
-        match self.mode {
-            WallpaperMode::Fixed => fitted,
-            WallpaperMode::Pan => self.on_screen(Rect::new(Vec2::ZERO, self.world)),
-            WallpaperMode::Parallax => {
-                let view = self.camera.visible_rect(self.screen);
-                let paper = fitted.size;
-                let origin = drifter_core::wallpaper::origin(
-                    WallpaperMode::Parallax,
-                    view.origin,
-                    paper,
-                    view.size,
-                    self.world,
-                );
-                Rect::new(
-                    self.camera.screen_from_world(origin, self.screen),
-                    paper * self.camera.zoom,
-                )
-            }
-        }
     }
 
     fn popup_places(
@@ -676,11 +687,242 @@ impl State {
         }
     }
 
+    fn cursor_elements(&mut self) -> Vec<Skin> {
+        use smithay::input::pointer::{CursorIcon, CursorImageStatus, CursorImageSurfaceData};
+        use smithay::reexports::wayland_server::Resource;
+
+        let arrow = || {
+            vec![Skin::Texture(element(
+                &self.arrow,
+                cursor::rect(self.pointer, self.arrow_size, self.arrow_hotspot),
+                1.0,
+            ))]
+        };
+        match self.cursor_status.clone() {
+            CursorImageStatus::Hidden => Vec::new(),
+            CursorImageStatus::Named(CursorIcon::Default) => arrow(),
+            CursorImageStatus::Named(icon) => {
+                let name = icon.name();
+                if !self.named_cursors.contains_key(name) {
+                    let mut names = vec![name];
+                    names.extend_from_slice(icon.alt_names());
+                    let art = crate::cursors::load(&names).and_then(|(image, hotspot)| {
+                        let size = image.size();
+                        upload(&mut self.renderer, Some(&image), "cursor")
+                            .ok()
+                            .flatten()
+                            .map(|buffer| (buffer, size, hotspot))
+                    });
+                    self.named_cursors.insert(name, art);
+                }
+                match self.named_cursors.get(name) {
+                    Some(Some((buffer, size, hotspot))) => vec![Skin::Texture(element(
+                        buffer,
+                        Rect::new(self.pointer - *hotspot, *size),
+                        1.0,
+                    ))],
+                    _ => arrow(),
+                }
+            }
+            CursorImageStatus::Surface(surface) => {
+                if !surface.is_alive() {
+                    self.cursor_status = CursorImageStatus::default_named();
+                    return arrow();
+                }
+                let hotspot = smithay::wayland::compositor::with_states(&surface, |states| {
+                    states
+                        .data_map
+                        .get::<CursorImageSurfaceData>()
+                        .map(|data| data.lock().unwrap().hotspot)
+                        .unwrap_or_default()
+                });
+                let at = self.pointer - Vec2::new(f64::from(hotspot.x), f64::from(hotspot.y));
+                let anchor = smithay::utils::Point::<i32, smithay::utils::Physical>::from((
+                    at.x.round() as i32,
+                    at.y.round() as i32,
+                ));
+                render_elements_from_surface_tree::<_, WaylandSurfaceRenderElement<GlesRenderer>>(
+                    &mut self.renderer,
+                    &surface,
+                    anchor,
+                    1.0,
+                    1.0,
+                    Kind::Cursor,
+                )
+                .into_iter()
+                .map(|piece| Skin::Client(RescaleRenderElement::from_element(piece, anchor, 1.0)))
+                .collect()
+            }
+        }
+    }
+
+    pub fn set_cursor(&mut self, status: smithay::input::pointer::CursorImageStatus) {
+        self.cursor_status = status;
+    }
+
+    fn layer_elements(
+        &mut self,
+        kinds: &[smithay::wayland::shell::wlr_layer::Layer],
+        elements: &mut Vec<Skin>,
+    ) {
+        let placed: Vec<(
+            smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+            Vec2,
+        )> = {
+            let map = smithay::desktop::layer_map_for_output(&self.output);
+            kinds
+                .iter()
+                .flat_map(|kind| map.layers_on(*kind).rev().collect::<Vec<_>>())
+                .filter_map(|layer| {
+                    let place = map.layer_geometry(layer)?;
+                    let at = Vec2::new(f64::from(place.loc.x), f64::from(place.loc.y));
+                    Some((layer.wl_surface().clone(), at))
+                })
+                .collect()
+        };
+        for (surface, at) in placed {
+            let mut surfaces = Vec::new();
+            for (popup, place) in smithay::desktop::PopupManager::popups_for_surface(&surface) {
+                let geometry = popup.geometry();
+                let origin = at
+                    + Vec2::new(
+                        f64::from(place.x - geometry.loc.x),
+                        f64::from(place.y - geometry.loc.y),
+                    );
+                surfaces.push((popup.wl_surface().clone(), origin));
+            }
+            surfaces.push((surface, at));
+            for (surface, origin) in surfaces {
+                let anchor = smithay::utils::Point::<i32, smithay::utils::Physical>::from((
+                    origin.x.round() as i32,
+                    origin.y.round() as i32,
+                ));
+                let bare: Vec<WaylandSurfaceRenderElement<GlesRenderer>> =
+                    render_elements_from_surface_tree(
+                        &mut self.renderer,
+                        &surface,
+                        anchor,
+                        1.0,
+                        1.0,
+                        Kind::Unspecified,
+                    );
+                elements.extend(bare.into_iter().map(|piece| {
+                    Skin::Client(RescaleRenderElement::from_element(piece, anchor, 1.0))
+                }));
+            }
+        }
+    }
+
+    fn focus_layer(
+        &mut self,
+        surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+    ) {
+        use smithay::desktop::WindowSurfaceType;
+        use smithay::utils::SERIAL_COUNTER;
+
+        if self.lock.is_some() {
+            return;
+        }
+        let wants = smithay::desktop::layer_map_for_output(&self.output)
+            .layer_for_surface(surface, WindowSurfaceType::ALL)
+            .map(|layer| {
+                (
+                    layer.can_receive_keyboard_focus(),
+                    layer.wl_surface().clone(),
+                )
+            });
+        let Some((true, root)) = wants else {
+            return;
+        };
+        self.layer_focus = Some(root.clone());
+        let keyboard = self.wayland.keyboard.clone();
+        keyboard.set_focus(self, Some(root), SERIAL_COUNTER.next_serial());
+    }
+
+    pub fn layer_mapped(
+        &mut self,
+        surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+    ) {
+        use smithay::desktop::WindowSurfaceType;
+        use smithay::wayland::shell::wlr_layer::KeyboardInteractivity;
+
+        if self.layer_focus.as_ref() == Some(surface) {
+            return;
+        }
+        let exclusive = smithay::desktop::layer_map_for_output(&self.output)
+            .layer_for_surface(surface, WindowSurfaceType::TOPLEVEL)
+            .map(|layer| {
+                layer.cached_state().keyboard_interactivity == KeyboardInteractivity::Exclusive
+            })
+            .unwrap_or(false);
+        if exclusive {
+            self.focus_layer(surface);
+        }
+    }
+
+    pub fn layer_gone(
+        &mut self,
+        surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+    ) {
+        if self.layer_focus.as_ref() == Some(surface) {
+            self.layer_focus = None;
+            self.focus_next(None);
+        }
+        self.kick_now();
+    }
+
+    pub fn import_dmabuf(&mut self, dmabuf: &smithay::backend::allocator::dmabuf::Dmabuf) -> bool {
+        use smithay::backend::renderer::ImportDma;
+        self.renderer.import_dmabuf(dmabuf, None).is_ok()
+    }
+
+    pub fn activate(
+        &mut self,
+        surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+    ) {
+        if self.lock.is_some() {
+            return;
+        }
+        let Some(index) = self
+            .windows
+            .iter()
+            .position(|window| window.toplevel.wl_surface() == surface)
+        else {
+            return;
+        };
+        if self.windows[index].hidden {
+            self.windows[index].hidden = false;
+        }
+        self.focus_window(index);
+        self.kick_now();
+    }
+
+    pub fn window_geometry(
+        &self,
+        surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+    ) -> Option<smithay::utils::Rectangle<i32, smithay::utils::Logical>> {
+        let window = self
+            .windows
+            .iter()
+            .find(|window| window.toplevel.wl_surface() == surface)?;
+        Some(smithay::utils::Rectangle::new(
+            (window.inset.x as i32, window.inset.y as i32).into(),
+            (window.content.size.x as i32, window.content.size.y as i32).into(),
+        ))
+    }
+
     pub fn locked(&self) -> bool {
         self.lock.is_some()
     }
 
-    fn dress(&self, content: Rect, awake: bool, title: &str, fade: f32, elements: &mut Vec<Skin>) {
+    fn dress(
+        &self,
+        content: Rect,
+        (awake, maximized): (bool, bool),
+        title: &str,
+        fade: f32,
+        elements: &mut Vec<Skin>,
+    ) {
         let layout = self.chrome.layout(content);
         let show = |rect: Rect| self.on_screen(rect);
         let bar = self.chrome.title_bar(content);
@@ -688,7 +930,8 @@ impl State {
         let over = self
             .chrome
             .button_at(content, self.in_world(self.pointer), 3);
-        for (slot, name) in ["close", "minimize", "maximize"]
+        let grow = if maximized { "restore" } else { "maximize" };
+        for (slot, name) in ["close", "minimize", grow]
             .iter()
             .enumerate()
             .filter(|_| close_enough)
@@ -733,8 +976,15 @@ impl State {
             if rect.size.x <= 0.0 || rect.size.y <= 0.0 {
                 continue;
             }
-            if let Some((buffer, _)) = self.skin.get(&piece.file_name(awake)) {
-                elements.push(Skin::Texture(element(buffer, show(rect), fade)));
+            let Some((buffer, art)) = self.skin.get(&piece.file_name(awake)) else {
+                continue;
+            };
+            match tiles(piece) {
+                true => {
+                    let source = Rect::new(Vec2::ZERO, rect.size.min(*art));
+                    elements.push(Skin::Texture(faded(buffer, source, show(rect), fade)));
+                }
+                false => elements.push(Skin::Texture(element(buffer, show(rect), fade))),
             }
         }
     }
@@ -824,6 +1074,18 @@ impl State {
         window.inset = inset;
         let grew = window.content.size != size;
         window.content.size = size;
+        if let Grab::Resize {
+            id, grip, start, ..
+        } = self.grab
+            && id == window.id
+        {
+            if grip.moves_left() {
+                window.content.origin.x = start.max().x - size.x;
+            }
+            if grip.moves_up() {
+                window.content.origin.y = start.max().y - size.y;
+            }
+        }
         if !app.is_empty() {
             window.app = app;
         }
@@ -931,6 +1193,19 @@ impl State {
                 crate::shell::send_frame(popup.wl_surface(), now);
             }
         }
+        let layers: Vec<_> = smithay::desktop::layer_map_for_output(&self.output)
+            .layers()
+            .map(|layer| layer.wl_surface().clone())
+            .collect();
+        for root in layers {
+            crate::shell::send_frame(&root, now);
+            for (popup, _) in smithay::desktop::PopupManager::popups_for_surface(&root) {
+                crate::shell::send_frame(popup.wl_surface(), now);
+            }
+        }
+        if let smithay::input::pointer::CursorImageStatus::Surface(surface) = &self.cursor_status {
+            crate::shell::send_frame(surface, now);
+        }
         if let Some(display) = self.display.as_mut() {
             let _ = display.flush_clients();
         }
@@ -980,7 +1255,7 @@ impl State {
             Slot::Pinned(index) => {
                 let name = self.pinned[index].0.clone();
                 if let Some(exec) = crate::apps::find(&name).and_then(|entry| entry.exec) {
-                    crate::apps::launch(&exec, &self.socket);
+                    crate::apps::start(&exec, &[], &self.socket);
                 }
             }
             Slot::Settings => self.open_settings(),
@@ -1199,7 +1474,7 @@ impl State {
         }
 
         if let Some(band) = self.tray_band()
-            && let Some(slot) = self.tray.icon_at(band, self.pointer, self.icons.len())
+            && let Some(slot) = self.tray.icon_at(band, self.pointer, self.tray_room(band))
         {
             let rect = self.tray.icon_rect(band, slot);
             let text = self.icons[slot].1.clone();
@@ -1229,7 +1504,7 @@ impl State {
 
     fn open_context(&mut self) -> bool {
         if let Some(band) = self.tray_band()
-            && let Some(slot) = self.tray.icon_at(band, self.pointer, self.icons.len())
+            && let Some(slot) = self.tray.icon_at(band, self.pointer, self.tray_room(band))
         {
             let service = self.icons[slot].0.clone();
             if let Some(bus) = self.tray_bus.as_ref() {
@@ -1520,21 +1795,71 @@ impl State {
         };
         let text = match std::fs::read_to_string(&self.config_path) {
             Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
             Err(error) => {
                 eprintln!("drifter: cannot read the config: {error}");
                 return;
             }
         };
-        match settings::write_back(&text, &sheet.fields) {
-            Ok(out) => {
-                if let Err(error) = std::fs::write(&self.config_path, out) {
-                    eprintln!("drifter: cannot save the config: {error}");
-                } else {
-                    println!("drifter: settings saved to {}", self.config_path.display());
-                }
+        let out = match settings::write_back(&text, &sheet.fields) {
+            Ok(out) => out,
+            Err(error) => {
+                eprintln!("drifter: {error}");
+                return;
             }
-            Err(error) => eprintln!("drifter: {error}"),
+        };
+        if let Some(folder) = self.config_path.parent()
+            && let Err(error) = std::fs::create_dir_all(folder)
+        {
+            eprintln!("drifter: cannot make {}: {error}", folder.display());
+            return;
         }
+        if let Err(error) = std::fs::write(&self.config_path, out) {
+            eprintln!("drifter: cannot save the config: {error}");
+            return;
+        }
+        println!("drifter: settings saved to {}", self.config_path.display());
+        match Config::load_from(&self.config_path) {
+            Ok(config) => self.apply(&config),
+            Err(error) => eprintln!("drifter: the saved config does not load: {error}"),
+        }
+    }
+
+    fn apply(&mut self, config: &Config) {
+        self.world = config.world_size(self.screen);
+        let least = Camera::fit_zoom(self.screen, self.world);
+        self.camera.zoom = self.camera.zoom.clamp(least, 4.0);
+        self.camera.clamp_to_world(self.world, self.screen);
+        self.flight = None;
+        self.mode = config.workspace.wallpaper_mode;
+        self.holds = config.input.modifier;
+        self.modifier = false;
+
+        let heights = [config.drawers.top, config.drawers.bottom];
+        for edge in Edge::ALL {
+            let shape = &mut self.shapes[edge.index()];
+            if shape.height == heights[edge.index()] {
+                continue;
+            }
+            shape.height = heights[edge.index()];
+            let image = drawer::paint(edge, self.screen.x as u32, shape, PANEL_COLOR, PANEL_ALPHA);
+            match upload(&mut self.renderer, Some(&image), "drawer") {
+                Ok(Some(buffer)) => self.panels[edge.index()] = buffer,
+                Ok(None) => {}
+                Err(error) => eprintln!("drifter: {error}"),
+            }
+        }
+
+        if self.tray.size != config.tray.size {
+            self.tray.size = config.tray.size;
+            match Font::find(config.font_path(), config.tray.size) {
+                Ok(font) => self.font = Some(font),
+                Err(error) => eprintln!("drifter: no clock: {error}"),
+            }
+            self.clock = None;
+            self.titles.clear();
+        }
+        self.format = config.tray.format.clone();
     }
 
     fn press_tray(&mut self, code: u32, had_menu: bool) -> bool {
@@ -1549,7 +1874,7 @@ impl State {
             }
             return true;
         }
-        let Some(slot) = self.tray.icon_at(band, self.pointer, self.icons.len()) else {
+        let Some(slot) = self.tray.icon_at(band, self.pointer, self.tray_room(band)) else {
             return false;
         };
         let click = match code {
@@ -1562,6 +1887,26 @@ impl State {
             bus.click(service, click, self.pointer.x as i32, self.pointer.y as i32);
         }
         true
+    }
+
+    fn over_own_parts(&self) -> bool {
+        self.over_drawer()
+            || self
+                .popover
+                .as_ref()
+                .is_some_and(|open| open.rect.contains(self.pointer))
+            || self
+                .sheet
+                .as_ref()
+                .is_some_and(|sheet| sheet.rect.contains(self.pointer))
+    }
+
+    fn tray_room(&self, band: Rect) -> usize {
+        let stop = match self.clock.as_ref() {
+            Some((_, _, rect)) => rect.origin.x,
+            None => self.tray.power_rect(band).origin.x,
+        };
+        self.icons.len().min(self.tray.room(band, stop))
     }
 
     fn over_drawer(&self) -> bool {
@@ -1825,7 +2170,47 @@ impl State {
             .map(|(index, window)| (index, world - window.content.origin))
     }
 
+    fn layer_hit(&self, kinds: &[smithay::wayland::shell::wlr_layer::Layer]) -> Option<Hit> {
+        use smithay::desktop::WindowSurfaceType;
+
+        let map = smithay::desktop::layer_map_for_output(&self.output);
+        let world = self.in_world(self.pointer);
+        for kind in kinds {
+            let Some(layer) = map.layer_under(*kind, (self.pointer.x, self.pointer.y)) else {
+                continue;
+            };
+            let Some(place) = map.layer_geometry(layer) else {
+                continue;
+            };
+            let at = Vec2::new(f64::from(place.loc.x), f64::from(place.loc.y));
+            let local = self.pointer - at;
+            if let Some((surface, inside)) =
+                layer.surface_under((local.x, local.y), WindowSurfaceType::ALL)
+            {
+                let origin = at + Vec2::new(f64::from(inside.x), f64::from(inside.y));
+                return Some(Hit {
+                    index: None,
+                    layer: true,
+                    surface,
+                    origin: world - (self.pointer - origin),
+                    popup: false,
+                });
+            }
+        }
+        None
+    }
+
     fn surface_under(&self) -> Option<Hit> {
+        use smithay::wayland::shell::wlr_layer::Layer;
+
+        if let Some(hit) = self.layer_hit(&[Layer::Overlay, Layer::Top]) {
+            return Some(hit);
+        }
+        self.window_hit()
+            .or_else(|| self.layer_hit(&[Layer::Bottom, Layer::Background]))
+    }
+
+    fn window_hit(&self) -> Option<Hit> {
         let world = self.in_world(self.pointer);
         for (index, window) in self.windows.iter().enumerate().rev() {
             if !window.placed || window.hidden {
@@ -1835,7 +2220,8 @@ impl State {
             for (origin, area, surface) in Self::popup_places(root, window.content) {
                 if area.contains(world) {
                     return Some(Hit {
-                        index,
+                        index: Some(index),
+                        layer: false,
                         surface,
                         origin,
                         popup: true,
@@ -1844,7 +2230,8 @@ impl State {
             }
             if window.content.contains(world) {
                 return Some(Hit {
-                    index,
+                    index: Some(index),
+                    layer: false,
                     surface: root.clone(),
                     origin: window.content.origin - window.inset,
                     popup: false,
@@ -1858,12 +2245,10 @@ impl State {
         use smithay::input::pointer::MotionEvent;
         use smithay::utils::SERIAL_COUNTER;
 
-        let focus = self.surface_under().map(|hit| {
-            (
-                hit.surface,
-                smithay::utils::Point::from((hit.origin.x, hit.origin.y)),
-            )
-        });
+        let focus = self.pointer_focus();
+        if focus.is_none() || self.grip_under().is_some() {
+            self.cursor_status = smithay::input::pointer::CursorImageStatus::default_named();
+        }
         let pointer = self.wayland.pointer.clone();
         let world = self.in_world(self.pointer);
         let at = smithay::utils::Point::from((world.x, world.y));
@@ -1877,6 +2262,75 @@ impl State {
             },
         );
         pointer.frame(self);
+        if let Some(surface) = pointer.current_focus() {
+            smithay::wayland::pointer_constraints::with_pointer_constraint(
+                &surface,
+                &pointer,
+                |constraint| {
+                    if let Some(constraint) = constraint
+                        && !constraint.is_active()
+                    {
+                        constraint.activate();
+                    }
+                },
+            );
+        }
+    }
+
+    fn pointer_focus(
+        &self,
+    ) -> Option<(
+        smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+        smithay::utils::Point<f64, smithay::utils::Logical>,
+    )> {
+        if self.over_own_parts() {
+            return None;
+        }
+        self.surface_under().map(|hit| {
+            (
+                hit.surface,
+                smithay::utils::Point::from((hit.origin.x, hit.origin.y)),
+            )
+        })
+    }
+
+    fn tell_relative(&mut self, delta: Vec2, bare: Vec2, utime: u64) {
+        use smithay::input::pointer::RelativeMotionEvent;
+
+        let focus = self.pointer_focus();
+        let pointer = self.wayland.pointer.clone();
+        pointer.relative_motion(
+            self,
+            focus,
+            &RelativeMotionEvent {
+                delta: (delta.x, delta.y).into(),
+                delta_unaccel: (bare.x, bare.y).into(),
+                utime,
+            },
+        );
+        pointer.frame(self);
+    }
+
+    fn held_pointer(&self) -> Option<Option<Rect>> {
+        use smithay::wayland::pointer_constraints::{PointerConstraint, with_pointer_constraint};
+
+        if self.modifier {
+            return None;
+        }
+        let pointer = self.wayland.pointer.clone();
+        let surface = pointer.current_focus()?;
+        let locked = with_pointer_constraint(&surface, &pointer, |constraint| {
+            let constraint = constraint.filter(|constraint| constraint.is_active())?;
+            Some(matches!(&*constraint, PointerConstraint::Locked(_)))
+        })?;
+        if locked {
+            return Some(None);
+        }
+        let window = self
+            .windows
+            .iter()
+            .find(|window| window.toplevel.wl_surface() == &surface)?;
+        Some(Some(self.on_screen(window.content)))
     }
 
     fn raise(&mut self, index: usize) -> usize {
@@ -1891,6 +2345,7 @@ impl State {
         use smithay::utils::SERIAL_COUNTER;
 
         let index = self.raise(index);
+        self.layer_focus = None;
         if self.lock.is_none() {
             let surface = self.windows[index].toplevel.wl_surface().clone();
             let keyboard = self.wayland.keyboard.clone();
@@ -2064,8 +2519,11 @@ impl State {
         use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel::ResizeEdge as Side;
 
         let grip = match edges {
-            Side::Left | Side::TopLeft => Grip::Left,
-            Side::Right | Side::TopRight => Grip::Right,
+            Side::Left => Grip::Left,
+            Side::Right => Grip::Right,
+            Side::Top => Grip::Top,
+            Side::TopLeft => Grip::TopLeft,
+            Side::TopRight => Grip::TopRight,
             Side::Bottom => Grip::Bottom,
             Side::BottomLeft => Grip::BottomLeft,
             Side::BottomRight => Grip::BottomRight,
@@ -2128,8 +2586,14 @@ impl State {
             }
             _ => {
                 let chrome = self.chrome;
-                let view = self.camera.visible_rect(self.screen);
-                let room = view.size.min(self.screen);
+                let zone =
+                    smithay::desktop::layer_map_for_output(&self.output).non_exclusive_zone();
+                let zone = Rect::new(
+                    Vec2::new(f64::from(zone.loc.x), f64::from(zone.loc.y)),
+                    Vec2::new(f64::from(zone.size.w), f64::from(zone.size.h)),
+                );
+                let view = Rect::new(self.in_world(zone.origin), zone.size / self.camera.zoom);
+                let room = view.size.min(zone.size);
                 let full = Rect::new(view.center() - room / 2.0, room);
                 let window = &mut self.windows[index];
                 let want = match window.restore.take() {
@@ -2213,7 +2677,6 @@ impl State {
                 let least = Vec2::new(160.0, 80.0);
                 let wanted = chrome.resize(start, grip, moved, least);
                 if let Some(window) = self.windows.iter_mut().find(|window| window.id == id) {
-                    window.content.origin = wanted.origin.round();
                     window.touched = true;
                     window.toplevel.with_pending_state(|state| {
                         state.size = Some((wanted.size.x as i32, wanted.size.y as i32).into());
@@ -2252,10 +2715,20 @@ impl State {
                 self.kick();
                 return;
             }
-            if let Some(hit) = self.surface_under()
-                && !hit.popup
-            {
-                self.focus_window(hit.index);
+            match self.surface_under() {
+                Some(Hit {
+                    index: Some(index),
+                    popup: false,
+                    ..
+                }) => {
+                    self.focus_window(index);
+                }
+                Some(Hit {
+                    layer: true,
+                    surface,
+                    ..
+                }) => self.focus_layer(&surface),
+                _ => {}
             }
         }
 
@@ -2349,17 +2822,31 @@ impl State {
         match event {
             InputEvent::PointerMotion { event } => {
                 let delta = Vec2::new(event.delta_x(), event.delta_y());
-                self.pointer_to(self.pointer + delta);
-                self.drag();
-                self.drag_sheet();
-                self.hover();
-                self.tell_pointer(event.time_msec());
+                let bare = Vec2::new(event.delta_x_unaccel(), event.delta_y_unaccel());
+                match self.held_pointer() {
+                    Some(None) => {}
+                    Some(Some(area)) => {
+                        let far = area.max() - Vec2::splat(1.0);
+                        self.pointer =
+                            (self.pointer + delta).clamp(area.origin, far.max(area.origin));
+                        self.tell_pointer(event.time_msec());
+                    }
+                    None => {
+                        self.pointer_to(self.pointer + delta);
+                        self.drag();
+                        self.drag_sheet();
+                        self.hover();
+                        self.tell_pointer(event.time_msec());
+                    }
+                }
+                self.tell_relative(delta, bare, event.time());
             }
             InputEvent::PointerMotionAbsolute { event } => {
                 let x = event.x_transformed(self.screen.x as i32);
                 let y = event.y_transformed(self.screen.y as i32);
                 self.pointer_to(Vec2::new(x, y));
                 self.drag();
+                self.drag_sheet();
                 self.hover();
                 self.tell_pointer(event.time_msec());
             }
@@ -2507,7 +2994,7 @@ pub fn open(
     seat_events: LibSeatSessionNotifier,
     config: &Config,
     path: &Path,
-    want: (u32, u32),
+    virtual_size: (u32, u32),
     background: [f32; 4],
     wallpaper: Option<&Image>,
 ) -> Result<Screen, String> {
@@ -2530,6 +3017,13 @@ pub fn open(
         .map_err(|e| format!("cannot open {}: {e}", path.display()))?;
 
     let drm_fd = DrmDeviceFd::new(DeviceFd::from(fd));
+    let render_node = smithay::backend::drm::DrmNode::from_file(drm_fd.clone())
+        .ok()
+        .map(|node| {
+            node.node_with_type(smithay::backend::drm::NodeType::Render)
+                .and_then(Result::ok)
+                .unwrap_or(node)
+        });
     let gbm = GbmDevice::new(drm_fd.clone()).map_err(|e| format!("gbm device: {e}"))?;
     let (drm, drm_events) =
         DrmDevice::new(drm_fd, true).map_err(|e| format!("cannot open drm device: {e}"))?;
@@ -2563,7 +3057,8 @@ pub fn open(
         })
         .collect();
 
-    let picked = mode::select(&modes, Some(want))
+    let want = (conn.interface() == connector::Interface::Virtual).then_some(virtual_size);
+    let picked = mode::select(&modes, want)
         .ok_or_else(|| format!("connector {name} offered no usable mode"))?;
 
     let drm_mode = *conn
@@ -2608,7 +3103,7 @@ pub fn open(
         surface,
         None,
         allocator,
-        GbmFramebufferExporter::new(gbm.clone(), None),
+        GbmFramebufferExporter::new(gbm.clone(), render_node),
         [DrmFourcc::Xrgb8888, DrmFourcc::Argb8888],
         renderer_formats,
         (64, 64).into(),
@@ -2646,10 +3141,17 @@ pub fn open(
     ];
 
     let texture = upload(&mut renderer, wallpaper, "wallpaper")?;
-    let rect = wallpaper
-        .zip(texture.as_ref())
-        .map(|(image, _)| Rect::fill_centered(image.size(), screen));
-    let wallpaper_element = texture.zip(rect);
+    let wallpaper_element = texture.zip(wallpaper.map(|image| image.size()));
+    let rect = wallpaper.map(|image| {
+        drifter_core::wallpaper::place(
+            config.workspace.wallpaper_mode,
+            image.size(),
+            screen,
+            world,
+            &remembered,
+        )
+        .target
+    });
 
     let supplied = config
         .cursor_path()
@@ -2685,6 +3187,7 @@ pub fn open(
             let path = dir.join(&name);
             match drifter_core::image::load(&path) {
                 Ok(image) => {
+                    let image = tile_skin(&name, image);
                     let size = image.size();
                     match upload(&mut renderer, Some(&image), &name) {
                         Ok(Some(buffer)) => {
@@ -2734,7 +3237,27 @@ pub fn open(
     };
     let display: Display<State> =
         Display::new().map_err(|e| format!("cannot start the wayland display: {e}"))?;
-    let wayland = crate::shell::start(&display)?;
+    let mut wayland = crate::shell::start(&display)?;
+    {
+        use smithay::backend::renderer::ImportDma;
+        use smithay::wayland::dmabuf::DmabufFeedbackBuilder;
+
+        let formats: Vec<_> = renderer.dmabuf_formats().into_iter().collect();
+        let feedback = render_node.and_then(|node| {
+            DmabufFeedbackBuilder::new(node.dev_id(), formats.clone())
+                .build()
+                .ok()
+        });
+        let handle = display.handle();
+        let dmabuf = &mut wayland.extras.dmabuf;
+        let global = match feedback {
+            Some(feedback) => {
+                dmabuf.create_global_with_default_feedback::<State>(&handle, &feedback)
+            }
+            None => dmabuf.create_global::<State>(&handle, formats),
+        };
+        wayland.extras.dmabuf_global = Some(global);
+    }
     let output = smithay::output::Output::new(
         "drifter".to_string(),
         smithay::output::PhysicalProperties {
@@ -2877,6 +3400,9 @@ pub fn open(
         next_window: 0,
         eaten: Vec::new(),
         frame_timer: false,
+        cursor_status: smithay::input::pointer::CursorImageStatus::default_named(),
+        named_cursors: std::collections::HashMap::new(),
+        layer_focus: None,
         skin,
         started: Instant::now(),
         socket: String::new(),
@@ -3038,6 +3564,7 @@ pub fn open(
 
     let mut state = state;
     state.socket = socket_name.clone();
+    crate::apps::start_x11(&socket_name);
     let poll = state_poll_fd(&mut state);
     handle
         .insert_source(poll, |_, _, state: &mut State| {
@@ -3377,6 +3904,61 @@ fn element(
         buffer,
         Some(alpha),
         None,
+        Some((size.x as i32, size.y as i32).into()),
+        Kind::Unspecified,
+    )
+}
+
+const TILE_SPAN: u32 = 8192;
+
+fn tile_skin(name: &str, image: Image) -> Image {
+    let piece = ChromePiece::ALL.into_iter().find(|piece| {
+        tiles(*piece) && (piece.file_name(true) == name || piece.file_name(false) == name)
+    });
+    match piece {
+        Some(ChromePiece::TitleMid | ChromePiece::EdgeBottom) => {
+            image.tiled(TILE_SPAN, image.height)
+        }
+        Some(_) => image.tiled(image.width, TILE_SPAN),
+        None => image,
+    }
+}
+
+fn tiles(piece: ChromePiece) -> bool {
+    matches!(
+        piece,
+        ChromePiece::TitleMid
+            | ChromePiece::EdgeLeft
+            | ChromePiece::EdgeRight
+            | ChromePiece::EdgeBottom
+    )
+}
+
+fn cropped(
+    buffer: &TextureBuffer<GlesTexture>,
+    source: Rect,
+    target: Rect,
+) -> TextureRenderElement<GlesTexture> {
+    faded(buffer, source, target, 1.0)
+}
+
+fn faded(
+    buffer: &TextureBuffer<GlesTexture>,
+    source: Rect,
+    target: Rect,
+    alpha: f32,
+) -> TextureRenderElement<GlesTexture> {
+    let origin = target.origin.round();
+    let far = (target.origin + target.size).round();
+    let size = far - origin;
+    TextureRenderElement::from_texture_buffer(
+        (origin.x, origin.y),
+        buffer,
+        Some(alpha),
+        Some(smithay::utils::Rectangle::new(
+            (source.origin.x, source.origin.y).into(),
+            (source.size.x, source.size.y).into(),
+        )),
         Some((size.x as i32, size.y as i32).into()),
         Kind::Unspecified,
     )

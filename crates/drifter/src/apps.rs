@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 pub struct Entry {
     pub icon: Option<PathBuf>,
@@ -21,7 +21,7 @@ pub fn find(app_id: &str) -> Option<Entry> {
         if let Some(rest) = line.strip_prefix("Exec=")
             && exec.is_none()
         {
-            exec = Some(clean_exec(rest));
+            exec = Some(rest.to_string());
         }
     }
 
@@ -54,47 +54,79 @@ fn desktop_file(app_id: &str) -> Option<PathBuf> {
 }
 
 pub fn icon_file(name: &str) -> Option<PathBuf> {
-    if name.is_empty() {
-        return None;
-    }
-    let direct = Path::new(name);
-    if direct.is_absolute() && direct.is_file() {
-        return Some(direct.to_path_buf());
-    }
-
-    let mut roots = Vec::new();
-    for size in ["64x64", "48x48", "128x128", "32x32", "256x256"] {
-        roots.push(
-            PathBuf::from("/usr/share/icons/hicolor")
-                .join(size)
-                .join("apps"),
-        );
-    }
-    roots.push(PathBuf::from("/usr/share/pixmaps"));
-
-    roots
-        .into_iter()
-        .map(|root| root.join(format!("{name}.png")))
-        .find(|candidate| candidate.is_file())
+    drifter_core::icon::find(name, None, 64)
 }
 
-fn clean_exec(line: &str) -> String {
-    line.split_whitespace()
-        .filter(|word| !word.starts_with('%'))
-        .collect::<Vec<_>>()
-        .join(" ")
+pub fn start(exec: &str, files: &[&str], socket: &str) {
+    match drifter_core::exec::command(exec, files) {
+        Some(argv) => launch(&argv, socket),
+        None => eprintln!("drifter: cannot read the command line {exec:?}"),
+    }
 }
 
-pub fn launch(command: &str, socket: &str) {
-    let mut words = command.split_whitespace();
-    let Some(program) = words.next() else {
+static X11: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+fn on_path(program: &str) -> Option<PathBuf> {
+    std::env::var_os("PATH")?
+        .to_str()?
+        .split(':')
+        .map(|dir| PathBuf::from(dir).join(program))
+        .find(|path| path.is_file())
+}
+
+fn free_display() -> Option<u32> {
+    (0..64).find(|number| {
+        !PathBuf::from(format!("/tmp/.X11-unix/X{number}")).exists()
+            && !PathBuf::from(format!("/tmp/.X{number}-lock")).exists()
+    })
+}
+
+pub fn start_x11(socket: &str) {
+    let Some(program) = on_path("xwayland-satellite") else {
+        eprintln!("drifter: xwayland-satellite is not installed, so X11 apps cannot run");
         return;
     };
-    let result = std::process::Command::new(program)
-        .args(words)
+    let Some(number) = free_display() else {
+        eprintln!("drifter: no free X display number, so X11 apps cannot run");
+        return;
+    };
+    let display = format!(":{number}");
+    let result = std::process::Command::new(&program)
+        .arg(&display)
+        .env("WAYLAND_DISPLAY", socket)
+        .env_remove("DISPLAY")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+    match result {
+        Ok(mut child) => {
+            println!("x11         {display} through {}", program.display());
+            let _ = X11.set(display);
+            std::thread::spawn(move || {
+                let _ = child.wait();
+                eprintln!("drifter: xwayland-satellite stopped");
+            });
+        }
+        Err(error) => eprintln!("drifter: cannot start xwayland-satellite: {error}"),
+    }
+}
+
+pub fn launch(argv: &[String], socket: &str) {
+    let Some((program, rest)) = argv.split_first() else {
+        return;
+    };
+    let mut command = std::process::Command::new(program);
+    match X11.get() {
+        Some(display) => command.env("DISPLAY", display),
+        None => command.env_remove("DISPLAY"),
+    };
+    let result = command
+        .args(rest)
         .env("WAYLAND_DISPLAY", socket)
         .env("GTK_CSD", "0")
         .env("QT_WAYLAND_DISABLE_WINDOWDECORATION", "1")
+        .env("XDG_SESSION_TYPE", "wayland")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -158,11 +190,11 @@ pub fn open_folder(path: &str, socket: &str) {
     if let Some(files) = file_manager()
         && let Some(exec) = find(&files).and_then(|entry| entry.exec)
     {
-        launch(&format!("{exec} {path}"), socket);
+        start(&exec, &[path], socket);
         return;
     }
     if PathBuf::from("/usr/bin/xdg-open").is_file() || PathBuf::from("/bin/xdg-open").is_file() {
-        launch(&format!("xdg-open {path}"), socket);
+        launch(&["xdg-open".to_string(), path.to_string()], socket);
         return;
     }
     eprintln!("drifter: no file manager is installed, so {path} cannot be opened");
