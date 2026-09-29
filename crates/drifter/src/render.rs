@@ -60,6 +60,7 @@ const PANEL_COLOR: [u8; 3] = [16, 18, 26];
 const PANEL_ALPHA: u8 = 235;
 const TICK: Duration = Duration::from_millis(8);
 const CONFIG_WATCH: Duration = Duration::from_millis(400);
+const HUD_TIME: Duration = Duration::from_millis(1500);
 const SETTINGS_APP: &str = "drifter-settings";
 const SECOND_TICK: Duration = Duration::from_millis(250);
 const SETTLING: Duration = Duration::from_secs(2);
@@ -133,6 +134,8 @@ struct Switch {
 enum Shortcut {
     Switch { back: bool },
     Close,
+    Media(crate::media::Key),
+    Swallow,
 }
 
 struct Popover {
@@ -259,6 +262,8 @@ pub struct State {
     titles: std::collections::HashMap<String, (TextureBuffer<GlesTexture>, Vec2)>,
     hover_since: Option<(Vec2, Instant)>,
     tray_bus: Option<crate::tray::Tray>,
+    media: Option<crate::media::Media>,
+    hud: Option<(TextureBuffer<GlesTexture>, Rect, Instant)>,
     drawers: [Drawer; 2],
     tunables: Tunables,
     screen: Vec2,
@@ -375,6 +380,9 @@ impl State {
         if self.lock.is_some() {
             return Some(SECOND_TICK);
         }
+        if let Some((_, _, until)) = self.hud.as_ref() {
+            return Some(until.saturating_duration_since(Instant::now()).max(TICK));
+        }
         if self.dwell.is_some()
             || self.leave.is_some()
             || self.animating()
@@ -400,6 +408,9 @@ impl State {
             return self.lock_elements();
         }
         let mut elements: Vec<Skin> = self.cursor_elements();
+        if let Some((art, rect, _)) = self.hud.as_ref() {
+            elements.push(Skin::Texture(element(art, *rect, 1.0)));
+        }
         self.switch_elements(&mut elements);
         self.layer_elements(
             &[smithay::wayland::shell::wlr_layer::Layer::Overlay],
@@ -1237,6 +1248,9 @@ impl State {
         self.steer();
         self.step_windows(dt);
 
+        if self.hud.as_ref().is_some_and(|(_, _, until)| now >= *until) {
+            self.hud = None;
+        }
         self.wind_the_clock();
         self.wind_the_stats();
         self.wind_titles();
@@ -2789,16 +2803,31 @@ impl State {
             event.state(),
             SERIAL_COUNTER.next_serial(),
             time,
-            |_, held, _| match (pressed && held.alt, code) {
-                (true, KEY_TAB) => FilterResult::Intercept(Shortcut::Switch { back: held.shift }),
-                (true, KEY_F4) => FilterResult::Intercept(Shortcut::Close),
-                _ => FilterResult::Forward,
+            |_, held, _| {
+                if let Some(key) = crate::media::key(code) {
+                    return FilterResult::Intercept(match pressed {
+                        true => Shortcut::Media(key),
+                        false => Shortcut::Swallow,
+                    });
+                }
+                match (pressed && held.alt, code) {
+                    (true, KEY_TAB) => {
+                        FilterResult::Intercept(Shortcut::Switch { back: held.shift })
+                    }
+                    (true, KEY_F4) => FilterResult::Intercept(Shortcut::Close),
+                    _ => FilterResult::Forward,
+                }
             },
         );
         match shortcut {
             Some(Shortcut::Switch { back }) => self.switch_step(back),
             Some(Shortcut::Close) => self.close_focused(),
-            None => {}
+            Some(Shortcut::Media(key)) => {
+                if let Some(media) = self.media.as_ref() {
+                    media.press(key);
+                }
+            }
+            Some(Shortcut::Swallow) | None => {}
         }
         if self.switch.is_some() && !keyboard.modifier_state().alt {
             self.switch_commit();
@@ -2887,6 +2916,20 @@ impl State {
         if let Some(open) = self.switch.as_mut() {
             open.at = at;
             open.art = art;
+        }
+        self.kick_now();
+    }
+
+    /// Shows the volume or brightness for a moment.
+    fn show_hud(&mut self, reading: drifter_core::hud::Reading) {
+        let look = drifter_core::hud::Look::default();
+        let image = look.paint(reading, self.font.as_ref());
+        match upload(&mut self.renderer, Some(&image), "hud") {
+            Ok(Some(art)) => {
+                self.hud = Some((art, look.rect(self.screen), Instant::now() + HUD_TIME));
+            }
+            Ok(None) => {}
+            Err(error) => eprintln!("drifter: {error}"),
         }
         self.kick_now();
     }
@@ -3414,6 +3457,13 @@ pub fn open(
             (None, None)
         }
     };
+    let (media, media_readings) = match crate::media::start() {
+        Ok((media, readings)) => (Some(media), Some(readings)),
+        Err(error) => {
+            eprintln!("drifter: no media keys: {error}");
+            (None, None)
+        }
+    };
     let font = match Font::find(config.font_path(), tray.size) {
         Ok(font) => Some(font),
         Err(error) => {
@@ -3583,6 +3633,8 @@ pub fn open(
         titles: std::collections::HashMap::new(),
         hover_since: None,
         tray_bus,
+        media,
+        hud: None,
         drawers: [Drawer::new(Edge::Top), Drawer::new(Edge::Bottom)],
         tunables,
         screen,
@@ -3671,6 +3723,16 @@ pub fn open(
                 }
             })
             .map_err(|e| format!("cannot watch the tray: {e}"))?;
+    }
+
+    if let Some(readings) = media_readings {
+        handle
+            .insert_source(readings, |event, _, state: &mut State| {
+                if let ChannelEvent::Msg(reading) = event {
+                    state.show_hud(reading);
+                }
+            })
+            .map_err(|e| format!("cannot watch the media keys: {e}"))?;
     }
 
     handle

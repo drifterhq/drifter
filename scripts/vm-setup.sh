@@ -43,6 +43,7 @@ sudo apt-get install -y \
     polkitd
 
 sudo systemctl enable --now seatd
+systemctl --user enable --now pipewire.socket pipewire-pulse.socket wireplumber.service
 sudo usermod -aG video,render,input "$USER"
 
 sudo timedatectl set-timezone America/Chicago

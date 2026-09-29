@@ -71,7 +71,7 @@ pub fn start() -> Result<(Tray, Channel<Update>), String> {
     Ok((Tray { jobs: job_tx }, icon_rx))
 }
 
-fn bus_address() -> Result<String, String> {
+pub fn bus_address() -> Result<String, String> {
     if let Some(set) = std::env::var_os("DBUS_SESSION_BUS_ADDRESS")
         && !set.is_empty()
     {
