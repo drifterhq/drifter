@@ -88,7 +88,10 @@ pub fn wrap(font: &Font, text: &str, width: f64, lines: usize) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for paragraph in text.lines() {
         let mut line = String::new();
-        for word in paragraph.split_whitespace() {
+        for word in paragraph
+            .split_whitespace()
+            .flat_map(|word| pieces(font, word, width))
+        {
             let tried = match line.is_empty() {
                 true => word.to_string(),
                 false => format!("{line} {word}"),
@@ -113,6 +116,23 @@ pub fn wrap(font: &Font, text: &str, width: f64, lines: usize) -> Vec<String> {
     out.into_iter()
         .map(|line| cut(font, &line, width))
         .collect()
+}
+
+fn pieces(font: &Font, word: &str, width: f64) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut piece = String::new();
+    for glyph in word.chars() {
+        piece.push(glyph);
+        if font.width_of(&piece) > width && piece.chars().count() > 1 {
+            piece.pop();
+            out.push(std::mem::take(&mut piece));
+            piece.push(glyph);
+        }
+    }
+    if !piece.is_empty() {
+        out.push(piece);
+    }
+    out
 }
 
 fn cut(font: &Font, text: &str, width: f64) -> String {
@@ -298,6 +318,19 @@ mod tests {
         assert!(lines.iter().all(|line| font.width_of(line) <= 200.0));
         assert!(lines[2].ends_with('…'));
         assert_eq!(wrap(&font, "short", 200.0, 3), ["short"]);
+    }
+
+    #[test]
+    fn a_word_too_long_for_a_line_breaks_by_letter() {
+        let font = font();
+        let path = "/home/someone/Pictures/Screenshots/Screenshot-2026-09-29-16.22.57.png";
+        let lines = wrap(&font, path, 180.0, 3);
+        assert!(lines.len() > 1);
+        assert_eq!(
+            lines.concat().replace('…', ""),
+            path[..lines.concat().replace('…', "").len()]
+        );
+        assert!(lines.iter().all(|line| font.width_of(line) <= 180.0));
     }
 
     #[test]

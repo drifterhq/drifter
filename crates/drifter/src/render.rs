@@ -4230,6 +4230,7 @@ pub fn open(
     let mut state = state;
     state.socket = socket_name.clone();
     crate::apps::start_x11(&socket_name);
+    crate::portal::announce(&socket_name);
     let poll = state_poll_fd(&mut state);
     handle
         .insert_source(poll, |_, _, state: &mut State| {

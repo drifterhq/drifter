@@ -83,6 +83,10 @@ pub fn start(exec: &str, files: &[&str], socket: &str) {
 
 static X11: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
+pub fn x11_display() -> Option<String> {
+    X11.get().cloned()
+}
+
 fn on_path(program: &str) -> Option<PathBuf> {
     std::env::var_os("PATH")?
         .to_str()?

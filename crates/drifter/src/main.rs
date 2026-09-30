@@ -14,6 +14,8 @@ mod media;
 #[cfg(target_os = "linux")]
 mod notes;
 #[cfg(target_os = "linux")]
+mod portal;
+#[cfg(target_os = "linux")]
 mod power;
 #[cfg(target_os = "linux")]
 mod protocols;

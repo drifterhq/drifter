@@ -40,6 +40,8 @@ sudo apt-get install -y \
     polkitd libnotify-bin firefox-esr
 
 sudo systemctl enable --now seatd
+sudo install -Dm644 "$(dirname "$0")/../conf/drifter-portals.conf" /usr/share/xdg-desktop-portal/drifter-portals.conf
+sudo install -Dm644 "$(dirname "$0")/../conf/xdpw.conf" /etc/xdg/xdg-desktop-portal-wlr/config
 systemctl --user enable --now pipewire.socket pipewire-pulse.socket wireplumber.service
 sudo usermod -aG video,render,input "$USER"
 
