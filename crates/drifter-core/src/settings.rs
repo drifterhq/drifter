@@ -100,6 +100,7 @@ pub struct Model {
     pub lock_after: u64,
     pub login: Vec<Launch>,
     pub dock: Vec<Launch>,
+    pub shows: [bool; 5],
     pub wallpaper: Option<PathBuf>,
     pub folder: Option<PathBuf>,
     pub rotate: u64,
@@ -193,6 +194,13 @@ impl Model {
             lock_after: config.lock.after,
             login: config.login.start.clone(),
             dock: config.dock.pinned.clone(),
+            shows: [
+                config.dock.files,
+                config.dock.terminal,
+                config.dock.browser,
+                config.dock.settings,
+                config.dock.trash,
+            ],
             wallpaper: config.wallpaper_path().map(clean),
             folder: config.wallpaper_folder().map(clean),
             rotate: every / UNITS[unit],
@@ -362,6 +370,12 @@ impl Model {
                     )
                     .faint(),
                 );
+                for (at, (label, detail)) in SHOWS.iter().enumerate() {
+                    rows.push(
+                        Row::new(Id::DockShow(at), label, Control::Switch(self.shows[at]))
+                            .detail(detail),
+                    );
+                }
                 vec![
                     Group {
                         header: None,
@@ -383,7 +397,7 @@ impl Model {
                         header: Some("Dock items"),
                         rows,
                         footer: Some(
-                            "With no items, the dock shows your browser, files and terminal."
+                            "The file manager, terminal and browser are your system defaults."
                                 .into(),
                         ),
                         thumbs: None,
@@ -657,6 +671,7 @@ impl Model {
                 }
             }
             (Id::Title, Value::Switch(on)) => self.title = on,
+            (Id::DockShow(at), Value::Switch(on)) if at < 5 => self.shows[at] = on,
             (Id::WallpaperMode, Value::Choice(n)) => {
                 self.wallpaper_mode = match n {
                     0 => WallpaperMode::Fixed,
@@ -855,6 +870,19 @@ impl Model {
         if self.dock != before.dock {
             put(&mut doc, "dock", "pinned", launches(&self.dock));
         }
+        for (at, key) in ["files", "terminal", "browser", "settings", "trash"]
+            .iter()
+            .enumerate()
+        {
+            if self.shows[at] != before.shows[at] {
+                put(
+                    &mut doc,
+                    "dock",
+                    key,
+                    toml_edit::Value::from(self.shows[at]),
+                );
+            }
+        }
         Ok(doc.to_string())
     }
 }
@@ -952,7 +980,16 @@ pub enum Id {
     LoginAdd,
     Dock(usize),
     DockAdd,
+    DockShow(usize),
 }
+
+const SHOWS: [(&str, &str); 5] = [
+    ("File manager", "Your default app for folders"),
+    ("Terminal", "Your default terminal"),
+    ("Web browser", "Your default browser"),
+    ("Settings", "This window"),
+    ("Trash", "Opens the trash folder"),
+];
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Value {
@@ -2089,6 +2126,30 @@ mod tests {
         let mut plain = after.clone();
         plain.set_icon(0, None);
         assert_eq!(plain.dock[0], Launch::App("foot".into()));
+    }
+
+    #[test]
+    fn the_dock_switches_write_their_own_keys() {
+        let before = model(&Config::default());
+        assert_eq!(before.shows, [true; 5]);
+        let mut after = before.clone();
+        after.set(Id::DockShow(1), Value::Switch(false));
+        after.set(Id::DockShow(4), Value::Switch(false));
+        let out = after.write(&before, "").unwrap();
+        let back = Config::parse(&out).unwrap();
+        assert!(!back.dock.terminal && !back.dock.trash);
+        assert!(back.dock.files && back.dock.browser && back.dock.settings);
+        assert!(!out.contains("files"), "{out}");
+        let look = Look::default();
+        let groups = after.groups(Section::Dock);
+        let rows = look.place(SIZE, Section::Dock, &groups, 0.0)[1]
+            .rows
+            .clone();
+        let terminal = rows[rows.len() - 4];
+        assert_eq!(
+            look.hit(SIZE, Section::Dock, &after, 0.0, terminal.center()),
+            Some(Hit::Change(Id::DockShow(1), Value::Switch(true)))
+        );
     }
 
     #[test]

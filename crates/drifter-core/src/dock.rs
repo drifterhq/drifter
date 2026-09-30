@@ -16,6 +16,8 @@ pub struct Dock {
     pub margin: f64,
     pub divider: f64,
     pub rule: [u8; 3],
+    pub settings: bool,
+    pub trash: bool,
 }
 
 impl Default for Dock {
@@ -26,6 +28,8 @@ impl Default for Dock {
             margin: 16.0,
             divider: 18.0,
             rule: [120, 126, 140],
+            settings: true,
+            trash: true,
         }
     }
 }
@@ -39,16 +43,20 @@ impl Dock {
         ]
     }
 
+    fn tail(&self) -> usize {
+        usize::from(self.settings) + usize::from(self.trash)
+    }
+
     fn splits(&self, pinned: usize, minimized: usize) -> usize {
-        let groups = [pinned, minimized, 2];
+        let groups = [pinned, minimized, self.tail()];
         let filled: Vec<usize> = groups.into_iter().filter(|count| *count > 0).collect();
         filled.len().saturating_sub(1)
     }
 
     pub fn width(&self, pinned: usize, minimized: usize) -> f64 {
-        let count = pinned + minimized + 2;
+        let count = pinned + minimized + self.tail();
         let icons = self.icon * count as f64;
-        let gaps = self.gap * (count - 1) as f64;
+        let gaps = self.gap * count.saturating_sub(1) as f64;
         icons + gaps + self.divider * self.splits(pinned, minimized) as f64
     }
 
@@ -67,7 +75,7 @@ impl Dock {
             Slot::Pinned(index) => step * index as f64,
             Slot::Minimized(index) => step * (pinned + index) as f64 + before_minimized,
             Slot::Settings => step * (pinned + minimized) as f64 + tail,
-            Slot::Trash => step * (pinned + minimized + 1) as f64 + tail,
+            Slot::Trash => step * (pinned + minimized + usize::from(self.settings)) as f64 + tail,
         };
         let x = self.start(band, pinned, minimized) + place;
         Rect::new(Vec2::new(x, y).round(), Vec2::splat(self.icon))
@@ -101,10 +109,15 @@ impl Dock {
             }
             _ => None,
         };
-        if let Some(last) = last {
+        let first_tail = match (self.settings, self.trash) {
+            (true, _) => Some(Slot::Settings),
+            (false, true) => Some(Slot::Trash),
+            _ => None,
+        };
+        if let (Some(last), Some(first)) = (last, first_tail) {
             between(
                 last,
-                self.slot_rect(band, pinned, minimized, Slot::Settings),
+                self.slot_rect(band, pinned, minimized, first),
                 &mut rules,
             );
         }
@@ -128,11 +141,58 @@ impl Dock {
         let slots = (0..pinned)
             .map(Slot::Pinned)
             .chain((0..minimized).map(Slot::Minimized))
-            .chain([Slot::Settings, Slot::Trash]);
+            .chain(self.settings.then_some(Slot::Settings))
+            .chain(self.trash.then_some(Slot::Trash));
         slots.into_iter().find(|slot| {
             self.slot_rect(band, pinned, minimized, *slot)
                 .contains(pointer)
         })
+    }
+}
+
+#[cfg(test)]
+mod tail_tests {
+    use super::*;
+
+    fn band() -> Rect {
+        Rect::new(Vec2::new(0.0, 1016.0), Vec2::new(1920.0, 64.0))
+    }
+
+    #[test]
+    fn a_hidden_settings_cog_moves_the_trash_into_its_place() {
+        let both = Dock::default();
+        let trash_only = Dock {
+            settings: false,
+            ..Dock::default()
+        };
+        assert_eq!(
+            trash_only.at(
+                band(),
+                both.slot_rect(band(), 2, 0, Slot::Settings).center(),
+                2,
+                0
+            ),
+            None
+        );
+        let trash = trash_only.slot_rect(band(), 2, 0, Slot::Trash);
+        assert_eq!(
+            trash_only.at(band(), trash.center(), 2, 0),
+            Some(Slot::Trash)
+        );
+        assert!(trash_only.width(2, 0) < both.width(2, 0));
+    }
+
+    #[test]
+    fn with_no_tail_there_is_no_divider_after_the_apps() {
+        let bare = Dock {
+            settings: false,
+            trash: false,
+            ..Dock::default()
+        };
+        assert!(bare.dividers(band(), 3, 0).is_empty());
+        assert_eq!(bare.width(0, 0), 0.0);
+        let one = bare.slot_rect(band(), 3, 0, Slot::Pinned(2));
+        assert_eq!(bare.at(band(), one.center(), 3, 0), Some(Slot::Pinned(2)));
     }
 }
 

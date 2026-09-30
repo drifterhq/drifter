@@ -258,7 +258,7 @@ pub struct State {
     tray: Tray,
     dock: Dock,
     pinned: Pinned,
-    pinned_from: Vec<drifter_core::Launch>,
+    pinned_from: drifter_core::DockConfig,
     dock_spare: Option<drifter_core::Image>,
     trash: Option<TextureBuffer<GlesTexture>>,
     cog: Option<TextureBuffer<GlesTexture>>,
@@ -534,13 +534,13 @@ impl State {
                     }
                 }
             }
-            if let Some(buffer) = self.cog.as_ref() {
+            if let (true, Some(buffer)) = (self.dock.settings, self.cog.as_ref()) {
                 let rect = self
                     .dock
                     .slot_rect(band, pinned, hidden.len(), Slot::Settings);
                 elements.push(Skin::Texture(element(buffer, rect, 1.0)));
             }
-            if let Some(buffer) = self.trash.as_ref() {
+            if let (true, Some(buffer)) = (self.dock.trash, self.trash.as_ref()) {
                 let rect = self.dock.slot_rect(band, pinned, hidden.len(), Slot::Trash);
                 elements.push(Skin::Texture(element(buffer, rect, 1.0)));
             }
@@ -1941,17 +1941,19 @@ impl State {
         self.paper.folder = paper.folder;
         self.paper.every = paper.every;
         self.paper.order = paper.order;
-        if self.pinned_from != config.dock.pinned {
+        self.dock.settings = config.dock.settings;
+        self.dock.trash = config.dock.trash;
+        if self.pinned_from != config.dock {
             let side = self.dock.icon as u32;
             match dock_items(
                 &mut self.renderer,
-                &config.dock.pinned,
+                &config.dock,
                 side,
                 self.dock_spare.as_ref(),
             ) {
                 Ok(pinned) => {
                     self.pinned = pinned;
-                    self.pinned_from = config.dock.pinned.clone();
+                    self.pinned_from = config.dock.clone();
                 }
                 Err(error) => eprintln!("drifter: {error}"),
             }
@@ -3780,7 +3782,7 @@ pub fn open(
         smithay::reexports::calloop::channel::channel::<(u64, crate::auth::Verdict)>();
     let spare = from_art("app");
 
-    let pinned = dock_items(&mut renderer, &config.dock.pinned, side, spare.as_ref())?;
+    let pinned = dock_items(&mut renderer, &config.dock, side, spare.as_ref())?;
 
     let dot_image = drifter_core::dock::paint_dot(
         (trash_look.icon / 9.0).max(3.0) as u32,
@@ -3856,9 +3858,13 @@ pub fn open(
         arrow_hotspot,
         font,
         tray,
-        dock: Dock::default(),
+        dock: Dock {
+            settings: config.dock.settings,
+            trash: config.dock.trash,
+            ..Dock::default()
+        },
         pinned,
-        pinned_from: config.dock.pinned.clone(),
+        pinned_from: config.dock.clone(),
         dock_spare: spare,
         trash,
         cog,
@@ -4400,17 +4406,22 @@ type Pinned = Vec<(drifter_core::Launch, Option<TextureBuffer<GlesTexture>>)>;
 
 fn dock_items(
     renderer: &mut GlesRenderer,
-    wanted: &[drifter_core::Launch],
+    dock: &drifter_core::DockConfig,
     side: u32,
     spare: Option<&drifter_core::Image>,
 ) -> Result<Pinned, String> {
-    let wanted: Vec<drifter_core::Launch> = match wanted.is_empty() {
-        true => crate::apps::defaults()
+    let mut wanted: Vec<drifter_core::Launch> =
+        crate::apps::defaults(dock.files, dock.terminal, dock.browser)
             .into_iter()
+            .filter(|id| {
+                !dock
+                    .pinned
+                    .iter()
+                    .any(|item| item.app() == Some(id.as_str()))
+            })
             .map(drifter_core::Launch::App)
-            .collect(),
-        false => wanted.to_vec(),
-    };
+            .collect();
+    wanted.extend(dock.pinned.iter().cloned());
     let mut pinned = Vec::new();
     for item in wanted {
         let path = item

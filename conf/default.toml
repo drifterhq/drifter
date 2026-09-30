@@ -40,8 +40,15 @@ bottom = 64
 # A table can hold a command line instead, and either can have its own icon:
 #   pinned = ["foot", { app = "firefox", icon = "/home/me/fox.png" },
 #             { command = "foot -e htop" }]
-# Empty means Drifter reads your XDG defaults for browser, files and terminal.
 pinned = []
+
+# Built-in dock entries. The file manager, terminal and browser are the
+# ones your system names as defaults. Each is true to show it, false to hide.
+files = true
+terminal = true
+browser = true
+settings = true
+trash = true
 
 [window]
 # Which end of the title bar holds the buttons: left or right.

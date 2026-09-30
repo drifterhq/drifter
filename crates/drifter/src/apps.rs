@@ -217,17 +217,24 @@ pub fn open_folder(path: &str, socket: &str) {
     eprintln!("drifter: no file manager is installed, so {path} cannot be opened");
 }
 
-pub fn defaults() -> Vec<String> {
+pub fn browser() -> Option<String> {
+    handler("x-scheme-handler/http").or_else(|| serving("x-scheme-handler/http"))
+}
+
+pub fn defaults(files: bool, terminal_on: bool, browser_on: bool) -> Vec<String> {
     let mut chosen = Vec::new();
-    for mime in ["x-scheme-handler/http", "inode/directory"] {
-        if let Some(id) = handler(mime).or_else(|| serving(mime)) {
+    let wanted = [
+        (files, file_manager()),
+        (terminal_on, terminal()),
+        (browser_on, browser()),
+    ];
+    for (on, id) in wanted {
+        if let (true, Some(id)) = (on, id)
+            && !chosen.contains(&id)
+        {
             chosen.push(id);
         }
     }
-    if let Some(id) = terminal() {
-        chosen.push(id);
-    }
-    chosen.dedup();
     chosen
 }
 

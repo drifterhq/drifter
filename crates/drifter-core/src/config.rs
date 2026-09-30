@@ -214,11 +214,34 @@ pub struct Assets {
     pub dock: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DockConfig {
     #[serde(default)]
     pub pinned: Vec<Launch>,
+    #[serde(default = "yes")]
+    pub files: bool,
+    #[serde(default = "yes")]
+    pub terminal: bool,
+    #[serde(default = "yes")]
+    pub browser: bool,
+    #[serde(default = "yes")]
+    pub settings: bool,
+    #[serde(default = "yes")]
+    pub trash: bool,
+}
+
+impl Default for DockConfig {
+    fn default() -> Self {
+        DockConfig {
+            pinned: Vec::new(),
+            files: true,
+            terminal: true,
+            browser: true,
+            settings: true,
+            trash: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]

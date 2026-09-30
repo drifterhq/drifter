@@ -75,7 +75,7 @@ A sidebar picks the page: Desktop, Wallpaper, Windows, Dock, Top Bar, Keyboard &
 - Desktop: world size, one slider from 2 to 10 screens a side, over a grid that shows the one screen seen at zoom 1.
 - Wallpaper: behavior, a folder chosen with a folder browser, a grid of thumbnails from it to click, and rotation every so many seconds, minutes or hours, at random or by name.
 - Windows: buttons left or right, their order, and whether the title shows, over a live title bar preview.
-- Dock: size, and the dock items. Add one from the installed apps or as a typed command line. Move it up or down, remove it, or give it a PNG or JPEG icon of its own.
+- Dock: size, and the dock items. Add one from the installed apps or as a typed command line. Move it up or down, remove it, or give it a PNG or JPEG icon of its own. Below them, five switches show or hide the file manager, terminal and browser the system names as defaults, the settings cog and the trash.
 - Top Bar: bar height, text size, the clock and the system info.
 - Lock Screen: minutes with no input before the screen locks, or never.
 - Login Items: apps and command lines that start each time Drifter starts, added the same way as dock items.
