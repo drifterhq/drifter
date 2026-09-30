@@ -38,6 +38,22 @@ impl Canvas {
         self.shape(rect, color, alpha, |p| radius - (p - center).length());
     }
 
+    pub fn triangle(&mut self, corners: [Vec2; 3], color: [u8; 3], alpha: f64) {
+        let [a, b, c] = corners;
+        let low = a.min(b).min(c);
+        let high = a.max(b).max(c);
+        let turn = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+        let sign = if turn < 0.0 { -1.0 } else { 1.0 };
+        let edge = |p: Vec2, from: Vec2, to: Vec2| {
+            let along = to - from;
+            let length = along.length().max(1e-9);
+            sign * (along.x * (p.y - from.y) - along.y * (p.x - from.x)) / length
+        };
+        self.shape(Rect::new(low, high - low), color, alpha, |p| {
+            edge(p, a, b).min(edge(p, b, c)).min(edge(p, c, a))
+        });
+    }
+
     pub fn shadow(&mut self, rect: Rect, radius: f64, blur: f64, alpha: f64) {
         let grown = Rect::new(
             rect.origin - Vec2::splat(blur),
@@ -164,6 +180,22 @@ mod tests {
         canvas.round_rect(all, 0.0, [200, 200, 200], 0.5);
         assert_eq!(alpha(&canvas, 2, 2), 255);
         assert_eq!(canvas.image.rgba[((2 * 4 + 2) * 4) as usize], 100);
+    }
+
+    #[test]
+    fn a_triangle_fills_inside_and_leaves_outside() {
+        let mut canvas = Canvas::new(20, 20);
+        let up = [
+            Vec2::new(10.0, 2.0),
+            Vec2::new(18.0, 18.0),
+            Vec2::new(2.0, 18.0),
+        ];
+        canvas.triangle(up, [255, 255, 255], 1.0);
+        assert_eq!(alpha(&canvas, 10, 14), 255);
+        assert_eq!(alpha(&canvas, 2, 3), 0);
+        let mut flipped = Canvas::new(20, 20);
+        flipped.triangle([up[0], up[2], up[1]], [255, 255, 255], 1.0);
+        assert_eq!(flipped.image.rgba, canvas.image.rgba);
     }
 
     #[test]

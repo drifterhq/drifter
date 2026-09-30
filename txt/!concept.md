@@ -66,6 +66,24 @@ Paths in the config are relative to the config file. `../img/cursor.png` works o
 
 The font is Work Sans, under the SIL Open Font License, kept at `fonts/` with its license.
 
+## Settings
+
+The settings window is `drifter-settings`, a small Wayland program built from Drifter's own drawing code, with no toolkit. Drifter frames it like any window. The dock cog, a right click on empty desktop and the power menu open it, and a second open brings the running one back.
+
+A sidebar picks the page: Desktop, Wallpaper, Windows, Dock, Top Bar, Keyboard & Mouse, Lock Screen and Login Items. Each page is grouped rounded cards with switches, sliders, segmented buttons and small row buttons.
+
+- Desktop: world size, one slider from 2 to 10 screens a side, over a grid that shows the one screen seen at zoom 1.
+- Wallpaper: behavior, a folder chosen with a folder browser, a grid of thumbnails from it to click, and rotation every so many seconds, minutes or hours, at random or by name.
+- Windows: buttons left or right, their order, and whether the title shows, over a live title bar preview.
+- Dock: size, and the dock items. Add one from the installed apps or as a typed command line. Move it up or down, remove it, or give it a PNG or JPEG icon of its own.
+- Top Bar: bar height, text size, the clock and the system info.
+- Lock Screen: minutes with no input before the screen locks, or never.
+- Login Items: apps and command lines that start each time Drifter starts, added the same way as dock items.
+
+Every change is written to `conf/drifter.toml` the moment it is made, sliders included while they move, and Drifter applies it within half a second. There is no save button and no restart.
+
+`cargo run -p drifter-core --example settings -- <folder>` draws every page and both dialogs to PNG files, so the design can be checked on any machine.
+
 ## Wallpaper modes
 
 One key, `wallpaper_mode`. Three names for the user. One factor in the code.
@@ -149,7 +167,6 @@ The MVP list is finished: config, the compositor, both drawers, the hot corner, 
 
 What is left:
 - Lock on lid close and on a logind Lock signal.
-- The settings pages for Window, Lock, Login, the dock builder and the wallpaper folder. The config keys already work.
 - Notifications, screenshots and screen sharing, and a password prompt for polkit.
 - A `/etc/pam.d/drifter` stack of its own, so the lock does not depend on `login`.
 - Multi-monitor. One world, one camera per monitor.

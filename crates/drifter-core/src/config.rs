@@ -804,10 +804,10 @@ mod tests {
     }
 
     #[test]
-    fn the_config_in_the_repo_parses() {
-        let text = include_str!("../../../conf/drifter.toml");
-        let config = Config::parse(text).expect("conf/drifter.toml does not parse");
-        config.validate().expect("conf/drifter.toml is not valid");
+    fn the_defaults_in_the_repo_parse() {
+        let text = include_str!("../../../conf/default.toml");
+        let config = Config::parse(text).expect("conf/default.toml does not parse");
+        config.validate().expect("conf/default.toml is not valid");
     }
 
     #[test]

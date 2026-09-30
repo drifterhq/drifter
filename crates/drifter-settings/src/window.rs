@@ -1,11 +1,22 @@
-use std::path::PathBuf;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{Arc, Mutex};
 
-use drifter_core::settings::{Fonts, Hit, Id, Look, Model, Section, Value};
+use drifter_core::desktop::App;
+use drifter_core::settings::{Art, Ask, Fonts, Hit, Id, Look, Model, Section, Value};
+use drifter_core::sheet::{For, Pick, Sheet};
 use drifter_core::stats::{self, Mount};
-use drifter_core::{Config, Font, Image, Vec2};
+use drifter_core::{Config, Font, Image, Launch, Vec2};
 use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState};
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
+use smithay_client_toolkit::reexports::calloop::EventLoop;
+use smithay_client_toolkit::reexports::calloop::channel::{
+    Event as ChannelEvent, Sender as LoopSender, channel as loop_channel,
+};
+use smithay_client_toolkit::reexports::calloop_wayland_source::WaylandSource;
 use smithay_client_toolkit::registry::{ProvidesRegistryState, RegistryState};
+use smithay_client_toolkit::seat::keyboard::{KeyEvent, KeyboardHandler, Keysym, Modifiers};
 use smithay_client_toolkit::seat::pointer::{
     BTN_LEFT, PointerEvent, PointerEventKind, PointerHandler,
 };
@@ -18,15 +29,17 @@ use smithay_client_toolkit::shell::xdg::window::{
 use smithay_client_toolkit::shm::slot::SlotPool;
 use smithay_client_toolkit::shm::{Shm, ShmHandler};
 use smithay_client_toolkit::{
-    delegate_compositor, delegate_output, delegate_pointer, delegate_registry, delegate_seat,
-    delegate_shm, delegate_xdg_shell, delegate_xdg_window, registry_handlers,
+    delegate_compositor, delegate_keyboard, delegate_output, delegate_pointer, delegate_registry,
+    delegate_seat, delegate_shm, delegate_xdg_shell, delegate_xdg_window, registry_handlers,
 };
 use wayland_client::globals::registry_queue_init;
-use wayland_client::protocol::{wl_output, wl_pointer, wl_seat, wl_shm, wl_surface};
+use wayland_client::protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_shm, wl_surface};
 use wayland_client::{Connection, QueueHandle};
 
 const APP: &str = "drifter-settings";
-const START: (u32, u32) = (860, 620);
+const START: (u32, u32) = (860, 640);
+const ICON: u32 = 22;
+const LOADERS: usize = 3;
 
 struct Settings {
     registry: RegistryState,
@@ -36,8 +49,8 @@ struct Settings {
     pool: SlotPool,
     window: Window,
     pointer: Option<wl_pointer::WlPointer>,
+    keyboard: Option<wl_keyboard::WlKeyboard>,
     size: (u32, u32),
-    configured: bool,
     exit: bool,
 
     look: Look,
@@ -50,6 +63,12 @@ struct Settings {
     scroll: f64,
     at: Vec2,
     holding: Option<Id>,
+    sheet: Option<Sheet>,
+    apps: Vec<App>,
+    icons: HashMap<String, Image>,
+    thumbs: HashMap<PathBuf, Image>,
+    asked: HashSet<PathBuf>,
+    loads: Sender<PathBuf>,
 }
 
 pub fn run() -> Result<(), String> {
@@ -61,16 +80,16 @@ pub fn run() -> Result<(), String> {
     let wallpaper = config
         .wallpaper_path()
         .and_then(|path| drifter_core::image::load(&path).ok())
-        .map(|art| {
-            let width = art.width.min(720);
-            let height =
-                (f64::from(art.height) * f64::from(width) / f64::from(art.width.max(1))) as u32;
-            art.scaled(width, height.max(1))
-        });
-    let model = read_model(&config);
+        .map(small);
+    let apps = drifter_core::desktop::installed();
+    let mut model = read_model(&config);
+    model.names = apps
+        .iter()
+        .map(|app| (app.id.clone(), app.name.clone()))
+        .collect();
 
     let connection = Connection::connect_to_env().map_err(|e| format!("no wayland: {e}"))?;
-    let (globals, mut queue) =
+    let (globals, queue) =
         registry_queue_init(&connection).map_err(|e| format!("no wayland registry: {e}"))?;
     let qh = queue.handle();
     let compositor =
@@ -90,6 +109,27 @@ pub fn run() -> Result<(), String> {
     let pool = SlotPool::new((START.0 * START.1 * 4) as usize, &shm)
         .map_err(|e| format!("no shared memory: {e}"))?;
 
+    let mut events: EventLoop<Settings> =
+        EventLoop::try_new().map_err(|e| format!("no event loop: {e}"))?;
+    WaylandSource::new(connection, queue)
+        .insert(events.handle())
+        .map_err(|e| format!("cannot watch wayland: {e}"))?;
+    let (done_tx, done_rx) = loop_channel::<(PathBuf, Option<Image>)>();
+    events
+        .handle()
+        .insert_source(done_rx, |event, _, settings: &mut Settings| {
+            if let ChannelEvent::Msg((path, image)) = event {
+                if let Some(image) = image {
+                    settings.thumbs.insert(path, image);
+                }
+                if settings.section == Section::Wallpaper && settings.sheet.is_none() {
+                    settings.draw();
+                }
+            }
+        })
+        .map_err(|e| format!("cannot watch the thumbnails: {e}"))?;
+    let loads = loaders(done_tx);
+
     let mut settings = Settings {
         registry: RegistryState::new(&globals),
         seats: SeatState::new(&globals, &qh),
@@ -98,8 +138,8 @@ pub fn run() -> Result<(), String> {
         pool,
         window,
         pointer: None,
+        keyboard: None,
         size: START,
-        configured: false,
         exit: false,
         look,
         fonts,
@@ -111,14 +151,59 @@ pub fn run() -> Result<(), String> {
         scroll: 0.0,
         at: Vec2::ZERO,
         holding: None,
+        sheet: None,
+        apps,
+        icons: HashMap::new(),
+        thumbs: HashMap::new(),
+        asked: HashSet::new(),
+        loads,
     };
+    settings.load_row_icons();
 
     while !settings.exit {
-        queue
-            .blocking_dispatch(&mut settings)
-            .map_err(|e| format!("wayland: {e}"))?;
+        events
+            .dispatch(None, &mut settings)
+            .map_err(|e| format!("event loop: {e}"))?;
     }
     Ok(())
+}
+
+fn loaders(done: LoopSender<(PathBuf, Option<Image>)>) -> Sender<PathBuf> {
+    let (tx, rx) = std::sync::mpsc::channel::<PathBuf>();
+    let rx: Arc<Mutex<Receiver<PathBuf>>> = Arc::new(Mutex::new(rx));
+    let look = Look::default();
+    for _ in 0..LOADERS {
+        let rx = rx.clone();
+        let done = done.clone();
+        let _ = std::thread::Builder::new()
+            .name("settings-thumbs".to_string())
+            .spawn(move || {
+                loop {
+                    let next = rx.lock().ok().and_then(|held| held.recv().ok());
+                    let Some(path) = next else {
+                        return;
+                    };
+                    let image = drifter_core::image::load(&path).ok().map(|image| {
+                        drifter_core::settings::cover(
+                            &image,
+                            look.thumb.x as u32,
+                            look.thumb.y as u32,
+                        )
+                    });
+                    if done.send((path, image)).is_err() {
+                        return;
+                    }
+                }
+            });
+    }
+    tx
+}
+
+fn small(image: Image) -> Image {
+    let width = image.width.min(720);
+    let height =
+        (f64::from(image.height) * f64::from(width) / f64::from(image.width.max(1))) as u32;
+    image.scaled(width, height.max(1))
 }
 
 fn read_model(config: &Config) -> Model {
@@ -133,9 +218,73 @@ fn kernel(mount: &Mount) -> Option<String> {
     Some(link.file_name()?.to_string_lossy().into_owned())
 }
 
+fn home() -> PathBuf {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/"))
+}
+
+fn icon_file(name: &str) -> Option<PathBuf> {
+    match name.starts_with('/') {
+        true => Some(PathBuf::from(name)),
+        false => drifter_core::icon::find(name, None, 32),
+    }
+}
+
+fn icon_image(path: &Path) -> Option<Image> {
+    drifter_core::image::load(path)
+        .ok()
+        .map(|image| image.scaled(ICON, ICON))
+}
+
 impl Settings {
     fn view(&self) -> Vec2 {
         Vec2::new(f64::from(self.size.0), f64::from(self.size.1))
+    }
+
+    fn icon_for(&self, key: &str) -> Option<Image> {
+        let path = if let Some(id) = key.strip_prefix("app:") {
+            let app = self.apps.iter().find(|app| app.id == id)?;
+            icon_file(app.icon.as_deref()?)?
+        } else if let Some(file) = key.strip_prefix("file:") {
+            PathBuf::from(file)
+        } else {
+            icon_file(key.strip_prefix("cmd:")?)?
+        };
+        icon_image(&path)
+    }
+
+    fn want_icon(&mut self, key: String) {
+        if self.icons.contains_key(&key) {
+            return;
+        }
+        if let Some(image) = self.icon_for(&key) {
+            self.icons.insert(key, image);
+        }
+    }
+
+    fn load_row_icons(&mut self) {
+        let keys: Vec<String> = self
+            .model
+            .login
+            .iter()
+            .chain(&self.model.dock)
+            .map(Model::icon_key)
+            .collect();
+        for key in keys {
+            self.want_icon(key);
+        }
+    }
+
+    fn want_thumbs(&mut self) {
+        if self.section != Section::Wallpaper {
+            return;
+        }
+        for path in self.model.pictures.clone() {
+            if self.asked.insert(path.clone()) {
+                let _ = self.loads.send(path);
+            }
+        }
     }
 
     fn draw(&mut self) {
@@ -145,13 +294,19 @@ impl Settings {
             small: &self.fonts.1,
             title: &self.fonts.2,
         };
+        let art = Art {
+            wallpaper: self.wallpaper.as_ref(),
+            icons: &self.icons,
+            thumbs: &self.thumbs,
+            sheet: self.sheet.as_ref(),
+        };
         let image = self.look.paint(
             self.view(),
             self.section,
             &self.model,
             self.scroll,
             &fonts,
-            self.wallpaper.as_ref(),
+            &art,
         );
         let stride = width as i32 * 4;
         let (buffer, canvas) = match self.pool.create_buffer(
@@ -189,6 +344,17 @@ impl Settings {
     }
 
     fn press(&mut self) {
+        if self.sheet.is_some() {
+            let pick = self
+                .sheet
+                .as_ref()
+                .and_then(|sheet| sheet.hit(self.view(), self.at));
+            if let Some(pick) = pick {
+                self.take(pick);
+            }
+            self.draw();
+            return;
+        }
         let hit = self
             .look
             .hit(self.view(), self.section, &self.model, self.scroll, self.at);
@@ -196,17 +362,127 @@ impl Settings {
             Some(Hit::Section(section)) => {
                 self.section = section;
                 self.scroll = 0.0;
+                self.want_thumbs();
             }
             Some(Hit::Change(id, value)) => {
                 self.model.set(id, value);
-                match value {
-                    Value::Number(_) => self.holding = Some(id),
-                    _ => self.save(),
+                if let Value::Number(_) = value {
+                    self.holding = Some(id);
                 }
+                self.save();
+            }
+            Some(Hit::Press(id, index)) => match self.model.press(id, index) {
+                Some(Ask::Pick(purpose)) => self.open_picker(purpose),
+                Some(Ask::Files(purpose)) => self.open_files(purpose),
+                None => self.save(),
+            },
+            Some(Hit::Picture(at)) => {
+                self.model.choose_picture(at);
+                self.save();
+                self.reload_wallpaper();
             }
             None => return,
         }
         self.draw();
+    }
+
+    fn open_picker(&mut self, purpose: For) {
+        let keys: Vec<String> = self
+            .apps
+            .iter()
+            .map(|app| format!("app:{}", app.id))
+            .collect();
+        for key in keys {
+            self.want_icon(key);
+        }
+        self.sheet = Some(Sheet::picker(purpose, self.apps.clone()));
+    }
+
+    fn open_files(&mut self, purpose: For) {
+        let pictures = home().join("Pictures");
+        let start = match purpose {
+            For::Folder => self
+                .model
+                .folder
+                .clone()
+                .filter(|folder| folder.is_dir())
+                .unwrap_or(if pictures.is_dir() { pictures } else { home() }),
+            _ => home(),
+        };
+        self.sheet = Some(Sheet::files(purpose, start));
+    }
+
+    fn take(&mut self, pick: Pick) {
+        let Some(purpose) = self.sheet.as_ref().map(Sheet::purpose) else {
+            return;
+        };
+        match pick {
+            Pick::Cancel => self.sheet = None,
+            Pick::Tab(tab) => {
+                if let Some(Sheet::Picker { tab: held, .. }) = self.sheet.as_mut() {
+                    *held = tab;
+                }
+            }
+            Pick::App(at) => {
+                let id = match self.sheet.as_ref() {
+                    Some(Sheet::Picker { apps, .. }) => apps.get(at).map(|app| app.id.clone()),
+                    _ => None,
+                };
+                if let Some(id) = id {
+                    self.finish_add(purpose, Launch::App(id));
+                }
+            }
+            Pick::Command(text) if !text.is_empty() => {
+                self.finish_add(
+                    purpose,
+                    Launch::Full {
+                        app: None,
+                        command: Some(text),
+                        icon: None,
+                    },
+                );
+            }
+            Pick::Command(_) => {}
+            Pick::Into(folder) => self.sheet = Some(Sheet::files(purpose, folder)),
+            Pick::Folder(folder) => {
+                self.model.choose_folder(folder);
+                self.sheet = None;
+                self.save();
+                self.want_thumbs();
+            }
+            Pick::File(file) => {
+                if let For::DockIcon(at) = purpose {
+                    self.model.set_icon(at, Some(file));
+                    self.load_row_icons();
+                    self.save();
+                }
+                self.sheet = None;
+            }
+            Pick::Default => {
+                if let For::DockIcon(at) = purpose {
+                    self.model.set_icon(at, None);
+                    self.load_row_icons();
+                    self.save();
+                }
+                self.sheet = None;
+            }
+        }
+    }
+
+    fn finish_add(&mut self, purpose: For, item: Launch) {
+        self.model.add(purpose, item);
+        self.sheet = None;
+        self.load_row_icons();
+        self.save();
+    }
+
+    fn reload_wallpaper(&mut self) {
+        self.wallpaper = self
+            .model
+            .wallpaper
+            .as_ref()
+            .and_then(|path| drifter_core::image::load(path).ok())
+            .map(small);
     }
 
     fn drag(&mut self) {
@@ -225,15 +501,49 @@ impl Settings {
             let before = self.model.clone();
             self.model.set(id, value);
             if self.model != before {
+                self.save();
                 self.draw();
             }
         }
     }
 
-    fn release(&mut self) {
-        if self.holding.take().is_some() {
-            self.save();
+    fn scroll_by(&mut self, by: f64) {
+        let size = self.view();
+        if let Some(sheet) = self.sheet.as_mut() {
+            sheet.scroll_by(size, by);
+            self.draw();
+            return;
         }
+        if self.at.x <= self.look.sidebar {
+            return;
+        }
+        let before = self.scroll;
+        self.scroll += by;
+        self.clamp_scroll();
+        if self.scroll != before {
+            self.draw();
+        }
+    }
+
+    fn key(&mut self, event: &KeyEvent) {
+        let Some(sheet) = self.sheet.as_mut() else {
+            return;
+        };
+        match event.keysym {
+            Keysym::Escape => self.sheet = None,
+            Keysym::BackSpace => sheet.backspace(),
+            Keysym::Return | Keysym::KP_Enter => {
+                if let Some(pick) = sheet.enter() {
+                    self.take(pick);
+                }
+            }
+            _ => {
+                if let Some(text) = event.utf8.as_deref() {
+                    sheet.type_text(text);
+                }
+            }
+        }
+        self.draw();
     }
 
     fn save(&mut self) {
@@ -341,7 +651,6 @@ impl WindowHandler for Settings {
         let width = configure.new_size.0.map(|v| v.get()).unwrap_or(self.size.0);
         let height = configure.new_size.1.map(|v| v.get()).unwrap_or(self.size.1);
         self.size = (width.max(least.x as u32), height.max(least.y as u32));
-        self.configured = true;
         self.clamp_scroll();
         self.draw();
     }
@@ -367,6 +676,12 @@ impl SeatHandler for Settings {
                 Err(error) => eprintln!("drifter-settings: no pointer: {error}"),
             }
         }
+        if capability == Capability::Keyboard && self.keyboard.is_none() {
+            match self.seats.get_keyboard(qh, &seat, None) {
+                Ok(keyboard) => self.keyboard = Some(keyboard),
+                Err(error) => eprintln!("drifter-settings: no keyboard: {error}"),
+            }
+        }
     }
 
     fn remove_capability(
@@ -381,9 +696,70 @@ impl SeatHandler for Settings {
         {
             pointer.release();
         }
+        if capability == Capability::Keyboard
+            && let Some(keyboard) = self.keyboard.take()
+        {
+            keyboard.release();
+        }
     }
 
     fn remove_seat(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_seat::WlSeat) {}
+}
+
+impl KeyboardHandler for Settings {
+    fn enter(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: &wl_surface::WlSurface,
+        _: u32,
+        _: &[u32],
+        _: &[Keysym],
+    ) {
+    }
+
+    fn leave(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: &wl_surface::WlSurface,
+        _: u32,
+    ) {
+    }
+
+    fn press_key(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: u32,
+        event: KeyEvent,
+    ) {
+        self.key(&event);
+    }
+
+    fn release_key(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: u32,
+        _: KeyEvent,
+    ) {
+    }
+
+    fn update_modifiers(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &wl_keyboard::WlKeyboard,
+        _: u32,
+        _: Modifiers,
+        _: u32,
+    ) {
+    }
 }
 
 impl PointerHandler for Settings {
@@ -402,16 +778,11 @@ impl PointerHandler for Settings {
             match event.kind {
                 PointerEventKind::Motion { .. } => self.drag(),
                 PointerEventKind::Press { button, .. } if button == BTN_LEFT => self.press(),
-                PointerEventKind::Release { button, .. } if button == BTN_LEFT => self.release(),
-                PointerEventKind::Axis { vertical, .. } if self.at.x > self.look.sidebar => {
-                    let before = self.scroll;
-                    self.scroll += vertical.absolute;
-                    self.clamp_scroll();
-                    if self.scroll != before {
-                        self.draw();
-                    }
+                PointerEventKind::Release { button, .. } if button == BTN_LEFT => {
+                    self.holding = None;
                 }
-                PointerEventKind::Leave { .. } => self.release(),
+                PointerEventKind::Axis { vertical, .. } => self.scroll_by(vertical.absolute),
+                PointerEventKind::Leave { .. } => self.holding = None,
                 _ => {}
             }
         }
@@ -437,6 +808,7 @@ delegate_output!(Settings);
 delegate_shm!(Settings);
 delegate_seat!(Settings);
 delegate_pointer!(Settings);
+delegate_keyboard!(Settings);
 delegate_xdg_shell!(Settings);
 delegate_xdg_window!(Settings);
 delegate_registry!(Settings);

@@ -1,38 +1,52 @@
-use crate::config::{Config, Modifier, WallpaperMode};
+use std::collections::HashMap;
+use std::path::PathBuf;
+
+use crate::config::{ButtonName, Config, Launch, Modifier, Side, WallpaperMode, WallpaperOrder};
 use crate::geom::{Rect, Vec2};
 use crate::image::Image;
 use crate::paint::Canvas;
+use crate::sheet::{For, Sheet};
 use crate::stats::{self, Metric, Mount};
 use crate::text::Font;
 
 pub const WORLD_LEAST: u32 = 2;
 pub const WORLD_MOST: u32 = 10;
+pub const UNITS: [u64; 3] = [1, 60, 3600];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Section {
     Desktop,
     Wallpaper,
+    Window,
     Dock,
     TopBar,
     Input,
+    Lock,
+    Login,
 }
 
 impl Section {
-    pub const ALL: [Section; 5] = [
+    pub const ALL: [Section; 8] = [
         Section::Desktop,
         Section::Wallpaper,
+        Section::Window,
         Section::Dock,
         Section::TopBar,
         Section::Input,
+        Section::Lock,
+        Section::Login,
     ];
 
     pub fn name(self) -> &'static str {
         match self {
             Section::Desktop => "Desktop",
             Section::Wallpaper => "Wallpaper",
+            Section::Window => "Windows",
             Section::Dock => "Dock",
             Section::TopBar => "Top Bar",
             Section::Input => "Keyboard & Mouse",
+            Section::Lock => "Lock Screen",
+            Section::Login => "Login Items",
         }
     }
 
@@ -40,11 +54,20 @@ impl Section {
         match self {
             Section::Desktop => [52, 168, 140],
             Section::Wallpaper => [40, 170, 210],
+            Section::Window => [88, 110, 230],
             Section::Dock => [120, 128, 146],
             Section::TopBar => [240, 140, 50],
             Section::Input => [150, 110, 220],
+            Section::Lock => [96, 102, 120],
+            Section::Login => [220, 80, 90],
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ask {
+    Pick(For),
+    Files(For),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,6 +94,19 @@ pub struct Model {
     pub ram: bool,
     pub disks: Vec<Disk>,
     pub kept: Vec<String>,
+    pub side: Side,
+    pub order: [ButtonName; 3],
+    pub title: bool,
+    pub lock_after: u64,
+    pub login: Vec<Launch>,
+    pub dock: Vec<Launch>,
+    pub wallpaper: Option<PathBuf>,
+    pub folder: Option<PathBuf>,
+    pub rotate: u64,
+    pub unit: usize,
+    pub rotation: WallpaperOrder,
+    pub pictures: Vec<PathBuf>,
+    pub names: HashMap<String, String>,
 }
 
 impl Model {
@@ -116,6 +152,14 @@ impl Model {
             }
         }
 
+        let every = config.workspace.wallpaper_every;
+        let unit = match every {
+            0 => 1,
+            _ if every.is_multiple_of(3600) => 2,
+            _ if every.is_multiple_of(60) => 1,
+            _ => 0,
+        };
+
         Model {
             world: config
                 .workspace
@@ -136,6 +180,29 @@ impl Model {
             ram,
             disks: disks.into_iter().map(|(disk, _)| disk).collect(),
             kept,
+            side: config.window.buttons,
+            order: [0, 1, 2].map(|slot| {
+                config
+                    .window
+                    .order
+                    .get(slot)
+                    .copied()
+                    .unwrap_or(ButtonName::Close)
+            }),
+            title: config.window.title,
+            lock_after: config.lock.after,
+            login: config.login.start.clone(),
+            dock: config.dock.pinned.clone(),
+            wallpaper: config.wallpaper_path().map(clean),
+            folder: config.wallpaper_folder().map(clean),
+            rotate: every / UNITS[unit],
+            unit,
+            rotation: config.workspace.wallpaper_order,
+            pictures: config
+                .wallpaper_folder()
+                .map(|folder| crate::wallpaper::pictures(&clean(folder)))
+                .unwrap_or_default(),
+            names: HashMap::new(),
         }
     }
 
@@ -172,6 +239,42 @@ impl Model {
         out
     }
 
+    pub fn every(&self) -> u64 {
+        self.rotate * UNITS[self.unit.min(2)]
+    }
+
+    pub fn name_of(&self, item: &Launch) -> String {
+        match (item.app(), item.command()) {
+            (Some(app), _) => self
+                .names
+                .get(app)
+                .cloned()
+                .unwrap_or_else(|| app.to_string()),
+            (None, Some(command)) => command.to_string(),
+            _ => String::new(),
+        }
+    }
+
+    pub fn icon_key(item: &Launch) -> String {
+        match (item.icon(), item.app()) {
+            (Some(path), _) => format!("file:{}", path.display()),
+            (None, Some(app)) => format!("app:{app}"),
+            (None, None) => format!("cmd:{}", item.name()),
+        }
+    }
+
+    fn launch_row(&self, id: Id, item: &Launch, marks: Vec<Mark>) -> Row {
+        let detail = match (item.command(), item.icon()) {
+            (Some(_), Some(_)) => "Command line, own icon".to_string(),
+            (Some(_), None) => "Command line".to_string(),
+            (None, Some(_)) => format!("{}, own icon", item.name()),
+            (None, None) => "Application".to_string(),
+        };
+        let mut row = Row::new(id, &self.name_of(item), Control::Buttons(marks)).detail(&detail);
+        row.icon = Some(Model::icon_key(item));
+        row
+    }
+
     pub fn groups(&self, section: Section) -> Vec<Group> {
         match section {
             Section::Desktop => vec![Group {
@@ -185,6 +288,7 @@ impl Model {
                             most: f64::from(WORLD_MOST),
                             value: f64::from(self.world),
                             unit: "",
+                            zero: None,
                         },
                     )
                     .detail("Screens across and screens down"),
@@ -192,48 +296,100 @@ impl Model {
                 footer: Some(
                     "Hold the camera key and push an edge to pan, or scroll to zoom out.".into(),
                 ),
+                thumbs: None,
             }],
-            Section::Wallpaper => vec![Group {
-                header: None,
-                rows: vec![Row::new(
-                    Id::WallpaperMode,
-                    "Behaviour",
-                    Control::Segments {
-                        options: vec!["Fixed", "Pan", "Parallax"],
-                        chosen: match self.wallpaper_mode {
-                            WallpaperMode::Fixed => 0,
-                            WallpaperMode::Pan => 1,
-                            WallpaperMode::Parallax => 2,
-                        },
+            Section::Wallpaper => self.wallpaper_groups(),
+            Section::Window => vec![
+                Group {
+                    header: None,
+                    rows: vec![
+                        Row::new(
+                            Id::Side,
+                            "Buttons",
+                            Control::Segments {
+                                options: vec!["Left", "Right"],
+                                chosen: match self.side {
+                                    Side::Left => 0,
+                                    Side::Right => 1,
+                                },
+                            },
+                        ),
+                        Row::new(
+                            Id::Title,
+                            "Show the window title",
+                            Control::Switch(self.title),
+                        ),
+                    ],
+                    footer: None,
+                    thumbs: None,
+                },
+                Group {
+                    header: Some("Button order"),
+                    rows: self
+                        .order
+                        .iter()
+                        .enumerate()
+                        .map(|(slot, name)| {
+                            Row::new(
+                                Id::Order(slot),
+                                button_label(*name),
+                                Control::Buttons(vec![Mark::Up, Mark::Down]),
+                            )
+                        })
+                        .collect(),
+                    footer: Some("Left to right, as they sit in the title bar.".into()),
+                    thumbs: None,
+                },
+            ],
+            Section::Dock => {
+                let mut rows: Vec<Row> = self
+                    .dock
+                    .iter()
+                    .enumerate()
+                    .map(|(at, item)| {
+                        self.launch_row(
+                            Id::Dock(at),
+                            item,
+                            vec![Mark::Up, Mark::Down, Mark::Text("Icon"), Mark::Minus],
+                        )
+                    })
+                    .collect();
+                rows.push(
+                    Row::new(
+                        Id::DockAdd,
+                        "Add an app or a command",
+                        Control::Buttons(vec![Mark::Plus]),
+                    )
+                    .faint(),
+                );
+                vec![
+                    Group {
+                        header: None,
+                        rows: vec![Row::new(
+                            Id::Bottom,
+                            "Size",
+                            Control::Slider {
+                                least: 16.0,
+                                most: 160.0,
+                                value: self.bottom,
+                                unit: " px",
+                                zero: None,
+                            },
+                        )],
+                        footer: None,
+                        thumbs: None,
                     },
-                )],
-                footer: Some(
-                    match self.wallpaper_mode {
-                        WallpaperMode::Fixed => "The picture stays put while the camera moves.",
-                        WallpaperMode::Pan => {
-                            "The picture covers the whole world and moves with it."
-                        }
-                        WallpaperMode::Parallax => {
-                            "The picture moves slower than the world, for depth."
-                        }
-                    }
-                    .to_string(),
-                ),
-            }],
-            Section::Dock => vec![Group {
-                header: None,
-                rows: vec![Row::new(
-                    Id::Bottom,
-                    "Size",
-                    Control::Slider {
-                        least: 16.0,
-                        most: 160.0,
-                        value: self.bottom,
-                        unit: " px",
+                    Group {
+                        header: Some("Dock items"),
+                        rows,
+                        footer: Some(
+                            "With no items, the dock shows your browser, files and terminal."
+                                .into(),
+                        ),
+                        thumbs: None,
                     },
-                )],
-                footer: None,
-            }],
+                ]
+            }
             Section::TopBar => {
                 let mut info = vec![
                     Row::new(Id::Stats, "Show system info", Control::Switch(self.stats)),
@@ -263,6 +419,7 @@ impl Model {
                                     most: 96.0,
                                     value: self.top,
                                     unit: " px",
+                                    zero: None,
                                 },
                             ),
                             Row::new(
@@ -273,10 +430,12 @@ impl Model {
                                     most: 32.0,
                                     value: self.text_size,
                                     unit: " px",
+                                    zero: None,
                                 },
                             ),
                         ],
                         footer: None,
+                        thumbs: None,
                     },
                     Group {
                         header: Some("Clock"),
@@ -295,6 +454,7 @@ impl Model {
                             ),
                         ],
                         footer: None,
+                        thumbs: None,
                     },
                     Group {
                         header: Some("System info"),
@@ -302,6 +462,7 @@ impl Model {
                         footer: Some(
                             "Each one shows as a percentage, right of the tray icons.".into(),
                         ),
+                        thumbs: None,
                     },
                 ]
             }
@@ -322,8 +483,152 @@ impl Model {
                 footer: Some(
                     "Hold it to zoom with the scroll wheel, and to pan by pushing an edge.".into(),
                 ),
+                thumbs: None,
             }],
+            Section::Lock => vec![Group {
+                header: None,
+                rows: vec![
+                    Row::new(
+                        Id::LockAfter,
+                        "Lock the screen after",
+                        Control::Slider {
+                            least: 0.0,
+                            most: 60.0,
+                            value: self.lock_after as f64,
+                            unit: " min",
+                            zero: Some("Never"),
+                        },
+                    )
+                    .detail("Minutes with no key press or pointer move"),
+                ],
+                footer: Some("A video that is playing keeps the screen awake.".into()),
+                thumbs: None,
+            }],
+            Section::Login => {
+                let mut rows: Vec<Row> = self
+                    .login
+                    .iter()
+                    .enumerate()
+                    .map(|(at, item)| self.launch_row(Id::Login(at), item, vec![Mark::Minus]))
+                    .collect();
+                rows.push(
+                    Row::new(
+                        Id::LoginAdd,
+                        "Add an app or a command",
+                        Control::Buttons(vec![Mark::Plus]),
+                    )
+                    .faint(),
+                );
+                vec![Group {
+                    header: Some("Start when Drifter starts"),
+                    rows,
+                    footer: Some("They start in this order, and again after a crash.".into()),
+                    thumbs: None,
+                }]
+            }
         }
+    }
+
+    fn wallpaper_groups(&self) -> Vec<Group> {
+        let folder = self.folder.is_some();
+        let turning = folder && self.rotate > 0;
+        let folder_text = self
+            .folder
+            .as_ref()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "None chosen".to_string());
+        let mut groups = vec![
+            Group {
+                header: None,
+                rows: vec![Row::new(
+                    Id::WallpaperMode,
+                    "Behavior",
+                    Control::Segments {
+                        options: vec!["Fixed", "Pan", "Parallax"],
+                        chosen: match self.wallpaper_mode {
+                            WallpaperMode::Fixed => 0,
+                            WallpaperMode::Pan => 1,
+                            WallpaperMode::Parallax => 2,
+                        },
+                    },
+                )],
+                footer: Some(
+                    match self.wallpaper_mode {
+                        WallpaperMode::Fixed => "The picture stays put while the camera moves.",
+                        WallpaperMode::Pan => {
+                            "The picture covers the whole world and moves with it."
+                        }
+                        WallpaperMode::Parallax => {
+                            "The picture moves slower than the world, for depth."
+                        }
+                    }
+                    .to_string(),
+                ),
+                thumbs: None,
+            },
+            Group {
+                header: Some("Folder"),
+                rows: vec![
+                    Row::new(
+                        Id::Folder,
+                        "Pictures from",
+                        Control::Buttons(vec![Mark::Text("Choose")]),
+                    )
+                    .detail(&folder_text),
+                    Row::new(
+                        Id::Rotate,
+                        "Change the picture every",
+                        Control::Slider {
+                            least: 0.0,
+                            most: 60.0,
+                            value: self.rotate as f64,
+                            unit: ["s", "min", "h"][self.unit.min(2)],
+                            zero: Some("Never"),
+                        },
+                    )
+                    .enabled(folder),
+                    Row::new(
+                        Id::Unit,
+                        "Counted in",
+                        Control::Segments {
+                            options: vec!["Seconds", "Minutes", "Hours"],
+                            chosen: self.unit.min(2),
+                        },
+                    )
+                    .enabled(turning),
+                    Row::new(
+                        Id::Rotation,
+                        "Order",
+                        Control::Segments {
+                            options: vec!["Random", "By name"],
+                            chosen: match self.rotation {
+                                WallpaperOrder::Random => 0,
+                                WallpaperOrder::Ordered => 1,
+                            },
+                        },
+                    )
+                    .enabled(turning),
+                ],
+                footer: None,
+                thumbs: None,
+            },
+        ];
+        if !self.pictures.is_empty() {
+            let chosen = self
+                .wallpaper
+                .as_ref()
+                .and_then(|now| self.pictures.iter().position(|path| path == now));
+            groups.push(Group {
+                header: Some("Pictures"),
+                rows: Vec::new(),
+                footer: Some("Click a picture to use it now.".into()),
+                thumbs: Some(Thumbs {
+                    paths: self.pictures.clone(),
+                    chosen,
+                }),
+            });
+        }
+        groups
     }
 
     pub fn set(&mut self, id: Id, value: Value) {
@@ -334,6 +639,24 @@ impl Model {
             (Id::Top, Value::Number(n)) => self.top = n.round().clamp(16.0, 96.0),
             (Id::Bottom, Value::Number(n)) => self.bottom = n.round().clamp(16.0, 160.0),
             (Id::TextSize, Value::Number(n)) => self.text_size = n.round().clamp(8.0, 32.0),
+            (Id::LockAfter, Value::Number(n)) => {
+                self.lock_after = n.round().clamp(0.0, 60.0) as u64
+            }
+            (Id::Rotate, Value::Number(n)) => self.rotate = n.round().clamp(0.0, 60.0) as u64,
+            (Id::Unit, Value::Choice(n)) => self.unit = n.min(2),
+            (Id::Rotation, Value::Choice(n)) => {
+                self.rotation = match n {
+                    0 => WallpaperOrder::Random,
+                    _ => WallpaperOrder::Ordered,
+                }
+            }
+            (Id::Side, Value::Choice(n)) => {
+                self.side = match n {
+                    0 => Side::Left,
+                    _ => Side::Right,
+                }
+            }
+            (Id::Title, Value::Switch(on)) => self.title = on,
             (Id::WallpaperMode, Value::Choice(n)) => {
                 self.wallpaper_mode = match n {
                     0 => WallpaperMode::Fixed,
@@ -364,6 +687,60 @@ impl Model {
         }
     }
 
+    pub fn press(&mut self, id: Id, index: usize) -> Option<Ask> {
+        match (id, index) {
+            (Id::Order(slot), 0) if slot > 0 && slot < 3 => self.order.swap(slot, slot - 1),
+            (Id::Order(slot), 1) if slot < 2 => self.order.swap(slot, slot + 1),
+            (Id::Folder, _) => return Some(Ask::Files(For::Folder)),
+            (Id::Login(at), 0) if at < self.login.len() => {
+                self.login.remove(at);
+            }
+            (Id::LoginAdd, _) => return Some(Ask::Pick(For::Login)),
+            (Id::Dock(at), 0) if at > 0 && at < self.dock.len() => self.dock.swap(at, at - 1),
+            (Id::Dock(at), 1) if at + 1 < self.dock.len() => self.dock.swap(at, at + 1),
+            (Id::Dock(at), 2) if at < self.dock.len() => {
+                return Some(Ask::Files(For::DockIcon(at)));
+            }
+            (Id::Dock(at), 3) if at < self.dock.len() => {
+                self.dock.remove(at);
+            }
+            (Id::DockAdd, _) => return Some(Ask::Pick(For::Dock)),
+            _ => {}
+        }
+        None
+    }
+
+    pub fn add(&mut self, purpose: For, item: Launch) {
+        match purpose {
+            For::Login => self.login.push(item),
+            For::Dock => self.dock.push(item),
+            _ => {}
+        }
+    }
+
+    pub fn set_icon(&mut self, at: usize, icon: Option<PathBuf>) {
+        let Some(item) = self.dock.get_mut(at) else {
+            return;
+        };
+        let app = item.app().map(str::to_string);
+        let command = item.command().map(str::to_string);
+        *item = match (app, command, icon) {
+            (Some(app), None, None) => Launch::App(app),
+            (app, command, icon) => Launch::Full { app, command, icon },
+        };
+    }
+
+    pub fn choose_folder(&mut self, folder: PathBuf) {
+        self.pictures = crate::wallpaper::pictures(&folder);
+        self.folder = Some(folder);
+    }
+
+    pub fn choose_picture(&mut self, at: usize) {
+        if let Some(path) = self.pictures.get(at) {
+            self.wallpaper = Some(path.clone());
+        }
+    }
+
     pub fn write(&self, before: &Model, text: &str) -> Result<String, String> {
         let mut doc = text
             .parse::<toml_edit::DocumentMut>()
@@ -382,6 +759,41 @@ impl Model {
                 WallpaperMode::Parallax => "parallax",
             };
             put(&mut doc, "workspace", "wallpaper_mode", word(mode));
+        }
+        if self.wallpaper != before.wallpaper
+            && let Some(path) = &self.wallpaper
+        {
+            put(
+                &mut doc,
+                "workspace",
+                "wallpaper",
+                word(&path.to_string_lossy()),
+            );
+        }
+        if self.folder != before.folder
+            && let Some(path) = &self.folder
+        {
+            put(
+                &mut doc,
+                "workspace",
+                "wallpaper_folder",
+                word(&path.to_string_lossy()),
+            );
+        }
+        if self.every() != before.every() {
+            put(
+                &mut doc,
+                "workspace",
+                "wallpaper_every",
+                int(self.every() as f64),
+            );
+        }
+        if self.rotation != before.rotation {
+            let order = match self.rotation {
+                WallpaperOrder::Random => "random",
+                WallpaperOrder::Ordered => "ordered",
+            };
+            put(&mut doc, "workspace", "wallpaper_order", word(order));
         }
         if self.modifier != before.modifier {
             let key = match self.modifier {
@@ -415,8 +827,82 @@ impl Model {
             let list: toml_edit::Array = self.metrics().iter().map(String::as_str).collect();
             put(&mut doc, "tray", "metrics", toml_edit::Value::Array(list));
         }
+        if self.side != before.side {
+            let side = match self.side {
+                Side::Left => "left",
+                Side::Right => "right",
+            };
+            put(&mut doc, "window", "buttons", word(side));
+        }
+        if self.order != before.order {
+            let list: toml_edit::Array = self.order.iter().map(|name| button_word(*name)).collect();
+            put(&mut doc, "window", "order", toml_edit::Value::Array(list));
+        }
+        if self.title != before.title {
+            put(
+                &mut doc,
+                "window",
+                "title",
+                toml_edit::Value::from(self.title),
+            );
+        }
+        if self.lock_after != before.lock_after {
+            put(&mut doc, "lock", "after", int(self.lock_after as f64));
+        }
+        if self.login != before.login {
+            put(&mut doc, "login", "start", launches(&self.login));
+        }
+        if self.dock != before.dock {
+            put(&mut doc, "dock", "pinned", launches(&self.dock));
+        }
         Ok(doc.to_string())
     }
+}
+
+fn clean(path: PathBuf) -> PathBuf {
+    std::fs::canonicalize(&path).unwrap_or(path)
+}
+
+fn button_label(name: ButtonName) -> &'static str {
+    match name {
+        ButtonName::Close => "Close",
+        ButtonName::Minimize => "Minimize",
+        ButtonName::Maximize => "Maximize",
+    }
+}
+
+fn button_word(name: ButtonName) -> &'static str {
+    match name {
+        ButtonName::Close => "close",
+        ButtonName::Minimize => "minimize",
+        ButtonName::Maximize => "maximize",
+    }
+}
+
+fn launches(items: &[Launch]) -> toml_edit::Value {
+    let list: toml_edit::Array = items
+        .iter()
+        .map(|item| match item {
+            Launch::App(app) => toml_edit::Value::from(app.as_str()),
+            Launch::Full { app, command, icon } => {
+                let mut table = toml_edit::InlineTable::new();
+                if let Some(app) = app {
+                    table.insert("app", toml_edit::Value::from(app.as_str()));
+                }
+                if let Some(command) = command {
+                    table.insert("command", toml_edit::Value::from(command.as_str()));
+                }
+                if let Some(icon) = icon {
+                    table.insert(
+                        "icon",
+                        toml_edit::Value::from(icon.to_string_lossy().as_ref()),
+                    );
+                }
+                toml_edit::Value::InlineTable(table)
+            }
+        })
+        .collect();
+    toml_edit::Value::Array(list)
 }
 
 fn put(doc: &mut toml_edit::DocumentMut, table: &str, key: &str, fresh: toml_edit::Value) {
@@ -454,6 +940,18 @@ pub enum Id {
     Cpu,
     Ram,
     Disk(usize),
+    Side,
+    Title,
+    Order(usize),
+    LockAfter,
+    Folder,
+    Rotate,
+    Unit,
+    Rotation,
+    Login(usize),
+    LoginAdd,
+    Dock(usize),
+    DockAdd,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -461,6 +959,24 @@ pub enum Value {
     Switch(bool),
     Number(f64),
     Choice(usize),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Mark {
+    Up,
+    Down,
+    Plus,
+    Minus,
+    Text(&'static str),
+}
+
+impl Mark {
+    fn width(self) -> f64 {
+        match self {
+            Mark::Text(text) => 7.5 * text.chars().count() as f64 + 26.0,
+            _ => 30.0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -471,11 +987,13 @@ pub enum Control {
         most: f64,
         value: f64,
         unit: &'static str,
+        zero: Option<&'static str>,
     },
     Segments {
         options: Vec<&'static str>,
         chosen: usize,
     },
+    Buttons(Vec<Mark>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -485,6 +1003,8 @@ pub struct Row {
     pub detail: Option<String>,
     pub control: Control,
     pub enabled: bool,
+    pub icon: Option<String>,
+    pub faint: bool,
 }
 
 impl Row {
@@ -495,6 +1015,8 @@ impl Row {
             detail: None,
             control,
             enabled: true,
+            icon: None,
+            faint: false,
         }
     }
 
@@ -507,6 +1029,17 @@ impl Row {
         self.enabled = enabled;
         self
     }
+
+    fn faint(mut self) -> Row {
+        self.faint = true;
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Thumbs {
+    pub paths: Vec<PathBuf>,
+    pub chosen: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -514,18 +1047,28 @@ pub struct Group {
     pub header: Option<&'static str>,
     pub rows: Vec<Row>,
     pub footer: Option<String>,
+    pub thumbs: Option<Thumbs>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Hit {
     Section(Section),
     Change(Id, Value),
+    Press(Id, usize),
+    Picture(usize),
 }
 
 pub struct Fonts<'a> {
     pub body: &'a Font,
     pub small: &'a Font,
     pub title: &'a Font,
+}
+
+pub struct Art<'a> {
+    pub wallpaper: Option<&'a Image>,
+    pub icons: &'a HashMap<String, Image>,
+    pub thumbs: &'a HashMap<PathBuf, Image>,
+    pub sheet: Option<&'a Sheet>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -542,6 +1085,7 @@ pub struct Look {
     pub track: f64,
     pub reading: f64,
     pub segment: Vec2,
+    pub thumb: Vec2,
     pub back: [u8; 3],
     pub side: [u8; 3],
     pub card: [u8; 3],
@@ -568,6 +1112,7 @@ impl Default for Look {
             track: 190.0,
             reading: 56.0,
             segment: Vec2::new(84.0, 26.0),
+            thumb: Vec2::new(128.0, 72.0),
             back: [30, 32, 40],
             side: [37, 40, 50],
             card: [42, 45, 57],
@@ -586,12 +1131,16 @@ pub struct Placed {
     pub header: Option<Vec2>,
     pub card: Rect,
     pub rows: Vec<Rect>,
+    pub thumbs: Vec<Rect>,
     pub footer: Option<Rect>,
 }
 
+const THUMB_GAP: f64 = 10.0;
+const THUMB_PAD: f64 = 14.0;
+
 impl Look {
     pub fn least(&self) -> Vec2 {
-        Vec2::new(self.sidebar + 440.0, 420.0)
+        Vec2::new(self.sidebar + 440.0, 440.0)
     }
 
     pub fn item_rect(&self, index: usize) -> Rect {
@@ -616,6 +1165,12 @@ impl Look {
         Rect::new(Vec2::new(x, 72.0 - scroll), Vec2::new(width, self.picture))
     }
 
+    fn thumb_grid(&self, width: f64, count: usize) -> (usize, usize) {
+        let room = width - THUMB_PAD * 2.0 + THUMB_GAP;
+        let across = ((room / (self.thumb.x + THUMB_GAP)).floor() as usize).max(1);
+        (across, count.div_ceil(across))
+    }
+
     pub fn place(
         &self,
         size: Vec2,
@@ -635,11 +1190,7 @@ impl Look {
                 y += 24.0;
                 at
             });
-            let card = Rect::new(
-                Vec2::new(x, y),
-                Vec2::new(width, self.row * group.rows.len() as f64),
-            );
-            let rows = (0..group.rows.len())
+            let rows: Vec<Rect> = (0..group.rows.len())
                 .map(|index| {
                     Rect::new(
                         Vec2::new(x, y + self.row * index as f64),
@@ -647,6 +1198,25 @@ impl Look {
                     )
                 })
                 .collect();
+            let mut tall = self.row * group.rows.len() as f64;
+            let mut thumbs = Vec::new();
+            if let Some(set) = &group.thumbs {
+                let (across, down) = self.thumb_grid(width, set.paths.len());
+                let used = across as f64 * (self.thumb.x + THUMB_GAP) - THUMB_GAP;
+                let left = x + (width - used) / 2.0;
+                for index in 0..set.paths.len() {
+                    let (col, line) = (index % across, index / across);
+                    thumbs.push(Rect::new(
+                        Vec2::new(
+                            left + col as f64 * (self.thumb.x + THUMB_GAP),
+                            y + tall + THUMB_PAD + line as f64 * (self.thumb.y + THUMB_GAP),
+                        ),
+                        self.thumb,
+                    ));
+                }
+                tall += THUMB_PAD * 2.0 + down as f64 * (self.thumb.y + THUMB_GAP) - THUMB_GAP;
+            }
+            let card = Rect::new(Vec2::new(x, y), Vec2::new(width, tall));
             y = card.max().y;
             let footer = group.footer.as_ref().map(|_| {
                 let rect = Rect::new(Vec2::new(x + 4.0, y + 8.0), Vec2::new(width - 8.0, 20.0));
@@ -658,6 +1228,7 @@ impl Look {
                 header,
                 card,
                 rows,
+                thumbs,
                 footer,
             });
         }
@@ -711,6 +1282,26 @@ impl Look {
         )
     }
 
+    pub fn mark_rects(&self, row: Rect, marks: &[Mark]) -> Vec<Rect> {
+        let mut right = row.max().x - 14.0;
+        let mut out: Vec<Rect> = marks
+            .iter()
+            .rev()
+            .map(|mark| {
+                let width = mark.width();
+                right -= width;
+                let rect = Rect::new(
+                    Vec2::new(right, row.center().y - 13.0),
+                    Vec2::new(width, 26.0),
+                );
+                right -= 6.0;
+                rect
+            })
+            .collect();
+        out.reverse();
+        out
+    }
+
     fn slide(&self, row: Rect, least: f64, most: f64, x: f64) -> f64 {
         let track = self.track_rect(row);
         let along = ((x - track.origin.x) / track.size.x).clamp(0.0, 1.0);
@@ -735,6 +1326,9 @@ impl Look {
         let groups = model.groups(section);
         let placed = self.place(size, section, &groups, scroll);
         for (group, placed) in groups.iter().zip(&placed) {
+            if let Some(at) = placed.thumbs.iter().position(|rect| rect.contains(pointer)) {
+                return Some(Hit::Picture(at));
+            }
             for (row, rect) in group.rows.iter().zip(&placed.rows) {
                 if !rect.contains(pointer) || !row.enabled {
                     continue;
@@ -758,6 +1352,11 @@ impl Look {
                                 .contains(pointer)
                         })
                         .map(|slot| Hit::Change(row.id, Value::Choice(slot))),
+                    Control::Buttons(marks) => self
+                        .mark_rects(*rect, marks)
+                        .iter()
+                        .position(|mark| mark.contains(pointer))
+                        .map(|at| Hit::Press(row.id, at)),
                 };
             }
         }
@@ -795,7 +1394,7 @@ impl Look {
         model: &Model,
         scroll: f64,
         fonts: &Fonts,
-        wallpaper: Option<&Image>,
+        art: &Art,
     ) -> Image {
         let mut canvas = Canvas::new(size.x.round() as u32, size.y.round() as u32);
         let all = Rect::new(Vec2::ZERO, size);
@@ -810,7 +1409,8 @@ impl Look {
             canvas.round_rect(rect, self.radius, self.card, 1.0);
             match section {
                 Section::Desktop => self.paint_world(&mut canvas, rect, model.world, fonts),
-                _ => self.paint_wallpaper(&mut canvas, rect, wallpaper),
+                Section::Window => self.paint_title_bar(&mut canvas, rect, model, fonts),
+                _ => self.paint_wallpaper(&mut canvas, rect, art.wallpaper),
             }
         }
 
@@ -831,7 +1431,23 @@ impl Look {
                     );
                     canvas.round_rect(line, 0.0, self.rule, 1.0);
                 }
-                self.paint_row(&mut canvas, row, *rect, fonts);
+                self.paint_row(&mut canvas, row, *rect, fonts, art.icons);
+            }
+            if let Some(set) = &group.thumbs {
+                for (index, rect) in placed.thumbs.iter().enumerate() {
+                    if rect.max().y < 0.0 || rect.origin.y > size.y {
+                        continue;
+                    }
+                    if set.chosen == Some(index) {
+                        let ring =
+                            Rect::new(rect.origin - Vec2::splat(3.0), rect.size + Vec2::splat(6.0));
+                        canvas.round_rect(ring, 7.0, self.accent, 1.0);
+                    }
+                    match set.paths.get(index).and_then(|path| art.thumbs.get(path)) {
+                        Some(image) => canvas.stamp(image, rect.origin, 1.0),
+                        None => canvas.round_rect(*rect, 4.0, [22, 24, 31], 1.0),
+                    }
+                }
             }
             if let (Some(footer), Some(rect)) = (&group.footer, placed.footer) {
                 let text = fonts
@@ -866,16 +1482,47 @@ impl Look {
             canvas.stamp(&label, at, 1.0);
         }
 
+        if let Some(sheet) = art.sheet {
+            sheet.paint(&mut canvas, self, fonts, art.icons);
+        }
+
         canvas.image
     }
 
-    fn paint_row(&self, canvas: &mut Canvas, row: &Row, rect: Rect, fonts: &Fonts) {
+    fn paint_row(
+        &self,
+        canvas: &mut Canvas,
+        row: &Row,
+        rect: Rect,
+        fonts: &Fonts,
+        icons: &HashMap<String, Image>,
+    ) {
         let fade = if row.enabled { 1.0 } else { 0.4 };
-        let label = fonts.body.paint(&row.label, self.ink);
-        let x = rect.origin.x + 14.0;
+        let mut x = rect.origin.x + 14.0;
+        if let Some(key) = &row.icon {
+            let spot = Rect::new(Vec2::new(x, rect.center().y - 13.0), Vec2::splat(26.0));
+            match icons.get(key) {
+                Some(image) => canvas.stamp(image, spot.center() - image.size() / 2.0, fade),
+                None => crate::sheet::letter(canvas, self, fonts, spot, &row.label),
+            }
+            x = spot.max().x + 12.0;
+        }
+        let room = match &row.control {
+            Control::Buttons(marks) => {
+                self.mark_rects(rect, marks)
+                    .first()
+                    .map(|first| first.origin.x)
+                    .unwrap_or(rect.max().x)
+                    - x
+                    - 10.0
+            }
+            _ => rect.size.x * 0.55,
+        };
+        let ink = if row.faint { self.dim } else { self.ink };
+        let label = fonts.body.paint(&fit(fonts.body, &row.label, room), ink);
         match &row.detail {
             Some(detail) => {
-                let small = fonts.small.paint(detail, self.dim);
+                let small = fonts.small.paint(&fit(fonts.small, detail, room), self.dim);
                 let total = f64::from(label.height + small.height);
                 let top = rect.center().y - total / 2.0;
                 canvas.stamp(&label, Vec2::new(x, top), fade);
@@ -911,6 +1558,7 @@ impl Look {
                 most,
                 value,
                 unit,
+                zero,
             } => {
                 let track = self.track_rect(rect);
                 canvas.round_rect(track, 2.0, self.off, fade);
@@ -923,9 +1571,14 @@ impl Look {
                 canvas.round_rect(filled, 2.0, self.accent, fade);
                 canvas.circle(knob + Vec2::new(0.0, 1.0), 9.5, [0, 0, 0], 0.3 * fade);
                 canvas.circle(knob, 9.0, [255, 255, 255], fade);
-                let reading = fonts
-                    .body
-                    .paint(&format!("{}{unit}", value.round() as i64), self.ink);
+                let words = match (zero, value.round() <= *least) {
+                    (Some(zero), true) => zero.to_string(),
+                    _ if unit.starts_with(' ') || unit.is_empty() => {
+                        format!("{}{unit}", value.round() as i64)
+                    }
+                    _ => format!("{} {unit}", value.round() as i64),
+                };
+                let reading = fonts.body.paint(&words, self.ink);
                 let at = Vec2::new(
                     rect.max().x - 14.0 - f64::from(reading.width),
                     rect.center().y - f64::from(reading.height) / 2.0,
@@ -954,6 +1607,59 @@ impl Look {
                     let at = cell.center()
                         - Vec2::new(f64::from(text.width), f64::from(text.height)) / 2.0;
                     canvas.stamp(&text, at, fade);
+                }
+            }
+            Control::Buttons(marks) => {
+                for (mark, spot) in marks.iter().zip(self.mark_rects(rect, marks)) {
+                    canvas.round_rect(spot, 7.0, self.off, fade);
+                    let c = spot.center();
+                    let white = self.ink;
+                    match mark {
+                        Mark::Up => canvas.triangle(
+                            [
+                                c + Vec2::new(0.0, -5.0),
+                                c + Vec2::new(6.0, 4.0),
+                                c + Vec2::new(-6.0, 4.0),
+                            ],
+                            white,
+                            fade,
+                        ),
+                        Mark::Down => canvas.triangle(
+                            [
+                                c + Vec2::new(-6.0, -4.0),
+                                c + Vec2::new(6.0, -4.0),
+                                c + Vec2::new(0.0, 5.0),
+                            ],
+                            white,
+                            fade,
+                        ),
+                        Mark::Plus => {
+                            canvas.round_rect(
+                                Rect::from_center(c, Vec2::new(12.0, 2.0)),
+                                1.0,
+                                white,
+                                fade,
+                            );
+                            canvas.round_rect(
+                                Rect::from_center(c, Vec2::new(2.0, 12.0)),
+                                1.0,
+                                white,
+                                fade,
+                            );
+                        }
+                        Mark::Minus => {
+                            canvas.round_rect(
+                                Rect::from_center(c, Vec2::new(12.0, 2.0)),
+                                1.0,
+                                white,
+                                fade,
+                            );
+                        }
+                        Mark::Text(text) => {
+                            let painted = fonts.body.paint(text, white);
+                            canvas.stamp(&painted, c - painted.size() / 2.0, fade);
+                        }
+                    }
                 }
             }
         }
@@ -987,21 +1693,7 @@ impl Look {
         }
         let view = Rect::from_center(area.center(), cell);
         canvas.round_rect(view, 2.0, self.accent, 0.35);
-        let outline = 2.0;
-        for side in [
-            Rect::new(view.origin, Vec2::new(view.size.x, outline)),
-            Rect::new(
-                Vec2::new(view.origin.x, view.max().y - outline),
-                Vec2::new(view.size.x, outline),
-            ),
-            Rect::new(view.origin, Vec2::new(outline, view.size.y)),
-            Rect::new(
-                Vec2::new(view.max().x - outline, view.origin.y),
-                Vec2::new(outline, view.size.y),
-            ),
-        ] {
-            canvas.round_rect(side, 0.0, self.accent, 1.0);
-        }
+        outline(canvas, view, 2.0, self.accent);
         let caption = fonts.small.paint(
             &format!("{world} × {world} screens. The blue screen is what you see at zoom 1."),
             self.dim,
@@ -1011,6 +1703,39 @@ impl Look {
             area.max().y + 8.0,
         );
         canvas.stamp(&caption, at, 1.0);
+    }
+
+    fn paint_title_bar(&self, canvas: &mut Canvas, card: Rect, model: &Model, fonts: &Fonts) {
+        let window = Rect::from_center(card.center(), Vec2::new(card.size.x * 0.7, 120.0));
+        canvas.shadow(window, 10.0, 10.0, 0.4);
+        canvas.round_rect(window, 10.0, [30, 33, 42], 1.0);
+        let content = Rect::new(
+            window.origin + Vec2::new(4.0, 30.0),
+            window.size - Vec2::new(8.0, 34.0),
+        );
+        canvas.round_rect(content, 4.0, [22, 24, 31], 1.0);
+        let dots = 3.0 * 12.0 + 2.0 * 8.0;
+        let start = match model.side {
+            Side::Left => window.origin.x + 11.0,
+            Side::Right => window.max().x - 11.0 - dots,
+        };
+        for (slot, name) in model.order.iter().enumerate() {
+            let color = match name {
+                ButtonName::Close => [255, 95, 87],
+                ButtonName::Minimize => [254, 188, 46],
+                ButtonName::Maximize => [40, 200, 64],
+            };
+            let center = Vec2::new(start + 6.0 + slot as f64 * 20.0, window.origin.y + 15.0);
+            canvas.circle(center, 6.0, color, 1.0);
+        }
+        if model.title {
+            let text = fonts.small.paint("Window title", self.dim);
+            let at = Vec2::new(
+                window.center().x - f64::from(text.width) / 2.0,
+                window.origin.y + 15.0 - f64::from(text.height) / 2.0,
+            );
+            canvas.stamp(&text, at, 1.0);
+        }
     }
 
     fn paint_wallpaper(&self, canvas: &mut Canvas, card: Rect, wallpaper: Option<&Image>) {
@@ -1037,11 +1762,31 @@ impl Look {
     }
 }
 
-fn has_picture(section: Section) -> bool {
-    matches!(section, Section::Desktop | Section::Wallpaper)
+fn outline(canvas: &mut Canvas, rect: Rect, thick: f64, color: [u8; 3]) {
+    for side in [
+        Rect::new(rect.origin, Vec2::new(rect.size.x, thick)),
+        Rect::new(
+            Vec2::new(rect.origin.x, rect.max().y - thick),
+            Vec2::new(rect.size.x, thick),
+        ),
+        Rect::new(rect.origin, Vec2::new(thick, rect.size.y)),
+        Rect::new(
+            Vec2::new(rect.max().x - thick, rect.origin.y),
+            Vec2::new(thick, rect.size.y),
+        ),
+    ] {
+        canvas.round_rect(side, 0.0, color, 1.0);
+    }
 }
 
-fn cover(art: &Image, width: u32, height: u32) -> Image {
+fn has_picture(section: Section) -> bool {
+    matches!(
+        section,
+        Section::Desktop | Section::Wallpaper | Section::Window
+    )
+}
+
+pub fn cover(art: &Image, width: u32, height: u32) -> Image {
     let want = f64::from(width) / f64::from(height.max(1));
     let have = f64::from(art.width) / f64::from(art.height.max(1));
     let (cw, ch) = if have > want {
@@ -1049,6 +1794,10 @@ fn cover(art: &Image, width: u32, height: u32) -> Image {
     } else {
         (art.width, (f64::from(art.width) / want) as u32)
     };
+    let (cw, ch) = (
+        cw.clamp(1, art.width.max(1)),
+        ch.clamp(1, art.height.max(1)),
+    );
     let (left, top) = ((art.width - cw) / 2, (art.height - ch) / 2);
     let mut rgba = Vec::with_capacity((cw * ch * 4) as usize);
     for y in top..top + ch {
@@ -1089,8 +1838,19 @@ fn paint_glyph(canvas: &mut Canvas, section: Section, icon: Rect) {
         }
         Section::Wallpaper => {
             canvas.circle(o + Vec2::new(15.0, 7.0), 2.5, white, 1.0);
-            canvas.round_rect(r(4.0, 12.0, 14.0, 5.0), 1.5, white, 1.0);
-            canvas.round_rect(r(7.0, 9.0, 5.0, 4.0), 1.5, white, 1.0);
+            canvas.triangle(
+                [
+                    o + Vec2::new(4.0, 17.0),
+                    o + Vec2::new(10.0, 8.0),
+                    o + Vec2::new(16.0, 17.0),
+                ],
+                white,
+                1.0,
+            );
+        }
+        Section::Window => {
+            canvas.round_rect(r(4.0, 5.0, 14.0, 12.0), 2.0, white, 1.0);
+            canvas.round_rect(r(5.5, 9.0, 11.0, 6.5), 1.0, section.tint(), 1.0);
         }
         Section::Dock => {
             canvas.round_rect(r(4.0, 13.0, 14.0, 5.0), 2.0, white, 1.0);
@@ -1107,6 +1867,24 @@ fn paint_glyph(canvas: &mut Canvas, section: Section, icon: Rect) {
                 canvas.round_rect(r(x, 8.0, 2.5, 2.0), 0.5, key, 1.0);
             }
             canvas.round_rect(r(6.0, 12.0, 10.0, 2.0), 0.5, key, 1.0);
+        }
+        Section::Lock => {
+            canvas.circle(o + Vec2::new(11.0, 9.0), 4.5, white, 1.0);
+            canvas.circle(o + Vec2::new(11.0, 9.0), 2.5, section.tint(), 1.0);
+            canvas.round_rect(r(5.0, 10.0, 12.0, 8.0), 1.5, white, 1.0);
+        }
+        Section::Login => {
+            canvas.round_rect(r(12.0, 4.0, 6.0, 14.0), 1.5, white, 1.0);
+            canvas.round_rect(r(3.0, 10.0, 7.0, 2.0), 1.0, white, 1.0);
+            canvas.triangle(
+                [
+                    o + Vec2::new(9.0, 7.0),
+                    o + Vec2::new(13.0, 11.0),
+                    o + Vec2::new(9.0, 15.0),
+                ],
+                white,
+                1.0,
+            );
         }
     }
 }
@@ -1205,11 +1983,11 @@ mod tests {
             out.contains("width = 5") && out.contains("height = 5"),
             "{out}"
         );
-        assert!(
-            !out.contains("format"),
-            "an unchanged key was written: {out}"
-        );
-        assert!(!out.contains("metrics"), "{out}");
+        for untouched in [
+            "format", "metrics", "[window]", "[lock]", "[login]", "pinned",
+        ] {
+            assert!(!out.contains(untouched), "{untouched} was written: {out}");
+        }
         let back = Config::parse(&out).unwrap();
         assert_eq!(back.workspace.width, 5);
     }
@@ -1247,17 +2025,156 @@ mod tests {
         assert!(before.write(&before, "this = = broken").is_err());
     }
 
+    #[test]
+    fn the_button_order_moves_one_step_and_stops_at_the_ends() {
+        let mut model = model(&Config::default());
+        model.press(Id::Order(0), 0);
+        assert_eq!(model.order[0], ButtonName::Close);
+        model.press(Id::Order(0), 1);
+        assert_eq!(
+            model.order,
+            [
+                ButtonName::Minimize,
+                ButtonName::Close,
+                ButtonName::Maximize
+            ]
+        );
+        model.press(Id::Order(2), 1);
+        assert_eq!(model.order[2], ButtonName::Maximize);
+    }
+
+    #[test]
+    fn the_window_page_writes_side_order_and_title() {
+        let before = model(&Config::default());
+        let mut after = before.clone();
+        after.set(Id::Side, Value::Choice(1));
+        after.set(Id::Title, Value::Switch(false));
+        after.press(Id::Order(2), 0);
+        let back = Config::parse(&after.write(&before, "").unwrap()).unwrap();
+        assert_eq!(back.window.buttons, Side::Right);
+        assert!(!back.window.title);
+        assert_eq!(
+            back.window.order,
+            [
+                ButtonName::Close,
+                ButtonName::Maximize,
+                ButtonName::Minimize
+            ]
+        );
+        back.validate().unwrap();
+    }
+
+    #[test]
+    fn login_and_dock_items_round_trip_through_the_config() {
+        let before = model(&Config::default());
+        let mut after = before.clone();
+        after.add(For::Login, Launch::App("firefox".into()));
+        after.add(
+            For::Login,
+            Launch::Full {
+                app: None,
+                command: Some("foot -e htop".into()),
+                icon: None,
+            },
+        );
+        after.add(For::Dock, Launch::App("foot".into()));
+        after.set_icon(0, Some(PathBuf::from("/icons/foot.png")));
+        let back = Config::parse(&after.write(&before, "").unwrap()).unwrap();
+        assert_eq!(back.login.start, after.login);
+        assert_eq!(
+            back.dock.pinned[0].icon(),
+            Some(std::path::Path::new("/icons/foot.png"))
+        );
+        back.validate().unwrap();
+        let mut plain = after.clone();
+        plain.set_icon(0, None);
+        assert_eq!(plain.dock[0], Launch::App("foot".into()));
+    }
+
+    #[test]
+    fn the_add_rows_ask_for_the_picker_and_icon_asks_for_files() {
+        let mut model = model(&Config::default());
+        assert_eq!(model.press(Id::LoginAdd, 0), Some(Ask::Pick(For::Login)));
+        assert_eq!(model.press(Id::DockAdd, 0), Some(Ask::Pick(For::Dock)));
+        model.add(For::Dock, Launch::App("foot".into()));
+        assert_eq!(
+            model.press(Id::Dock(0), 2),
+            Some(Ask::Files(For::DockIcon(0)))
+        );
+        assert_eq!(model.press(Id::Folder, 0), Some(Ask::Files(For::Folder)));
+        assert_eq!(model.press(Id::Dock(0), 3), None);
+        assert!(model.dock.is_empty());
+    }
+
+    #[test]
+    fn the_rotation_splits_into_a_count_and_a_unit() {
+        let hours = model(&config("[workspace]\nwallpaper_every = 7200\n"));
+        assert_eq!((hours.rotate, hours.unit, hours.every()), (2, 2, 7200));
+        let seconds = model(&config("[workspace]\nwallpaper_every = 45\n"));
+        assert_eq!((seconds.rotate, seconds.unit), (45, 0));
+        let never = model(&Config::default());
+        assert_eq!((never.rotate, never.every()), (0, 0));
+        let mut changed = never.clone();
+        changed.set(Id::Rotate, Value::Number(10.0));
+        changed.set(Id::Unit, Value::Choice(1));
+        let back = Config::parse(&changed.write(&never, "").unwrap()).unwrap();
+        assert_eq!(back.workspace.wallpaper_every, 600);
+    }
+
+    #[test]
+    fn a_wallpaper_folder_offers_its_pictures_to_click() {
+        let folder = std::env::temp_dir().join(format!("drifter-pick-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        for name in ["one.jpg", "two.png"] {
+            std::fs::write(folder.join(name), b"x").unwrap();
+        }
+        let before = model(&Config::default());
+        let mut after = before.clone();
+        after.choose_folder(folder.clone());
+        let look = Look::default();
+        let groups = after.groups(Section::Wallpaper);
+        let placed = look.place(SIZE, Section::Wallpaper, &groups, 0.0);
+        let second = placed.last().unwrap().thumbs[1].center();
+        let hit = look.hit(SIZE, Section::Wallpaper, &after, 0.0, second);
+        assert_eq!(hit, Some(Hit::Picture(1)));
+        after.choose_picture(1);
+        let back = Config::parse(&after.write(&before, "").unwrap()).unwrap();
+        std::fs::remove_dir_all(&folder).unwrap();
+        assert_eq!(back.workspace.wallpaper_folder, Some(folder.clone()));
+        assert_eq!(back.workspace.wallpaper, Some(folder.join("two.png")));
+    }
+
+    #[test]
+    fn rotation_rows_wait_for_a_folder() {
+        let model = model(&Config::default());
+        let groups = model.groups(Section::Wallpaper);
+        let rows = &groups[1].rows;
+        assert!(rows[0].enabled);
+        assert!(!rows[1].enabled && !rows[2].enabled && !rows[3].enabled);
+    }
+
     const SIZE: Vec2 = Vec2::new(860.0, 620.0);
 
     #[test]
     fn clicking_a_sidebar_item_picks_its_section() {
         let look = Look::default();
         let model = model(&Config::default());
-        let item = look.item_rect(3).center();
+        let at = Section::ALL
+            .iter()
+            .position(|s| *s == Section::TopBar)
+            .unwrap();
+        let item = look.item_rect(at).center();
         assert_eq!(
             look.hit(SIZE, Section::Desktop, &model, 0.0, item),
             Some(Hit::Section(Section::TopBar))
         );
+    }
+
+    #[test]
+    fn every_section_fits_in_the_sidebar_of_the_smallest_window() {
+        let look = Look::default();
+        let last = look.item_rect(Section::ALL.len() - 1);
+        assert!(last.max().y < look.least().y);
     }
 
     #[test]
@@ -1282,6 +2199,27 @@ mod tests {
         let placed = look.place(SIZE, Section::TopBar, &groups, 0.0);
         let cpu = placed[2].rows[1].center();
         assert_eq!(look.hit(SIZE, Section::TopBar, &model, 0.0, cpu), None);
+    }
+
+    #[test]
+    fn a_row_button_is_found_by_its_place() {
+        let look = Look::default();
+        let mut model = model(&Config::default());
+        model.add(For::Dock, Launch::App("foot".into()));
+        let groups = model.groups(Section::Dock);
+        let row = look.place(SIZE, Section::Dock, &groups, 0.0)[1].rows[0];
+        let marks = [Mark::Up, Mark::Down, Mark::Text("Icon"), Mark::Minus];
+        let spots = look.mark_rects(row, &marks);
+        assert!(
+            spots
+                .windows(2)
+                .all(|pair| pair[0].max().x < pair[1].origin.x)
+        );
+        assert_eq!(spots[3].max().x, row.max().x - 14.0);
+        assert_eq!(
+            look.hit(SIZE, Section::Dock, &model, 0.0, spots[2].center()),
+            Some(Hit::Press(Id::Dock(0), 2))
+        );
     }
 
     #[test]
