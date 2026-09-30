@@ -1,36 +1,78 @@
 use std::collections::HashSet;
 use std::ffi::CString;
+use std::sync::{Arc, Mutex};
 
 use drifter_core::TrayConfig;
 use drifter_core::stats::{self, CpuTimes, Metric, Mount};
 
-#[derive(Default)]
 pub struct Sampler {
-    metrics: Vec<Metric>,
-    last: Option<CpuTimes>,
-    missing: HashSet<String>,
+    wanted: Arc<Mutex<Vec<Metric>>>,
+    latest: Arc<Mutex<Vec<(String, u8)>>>,
 }
 
 impl Sampler {
     pub fn new(config: &TrayConfig) -> Sampler {
-        let metrics = match config.stats {
-            true => config
-                .metrics
-                .iter()
-                .filter_map(|metric| Metric::parse(metric).ok())
-                .collect(),
-            false => Vec::new(),
-        };
-        Sampler {
-            metrics,
-            ..Sampler::default()
+        let wanted = Arc::new(Mutex::new(chosen(config)));
+        let latest = Arc::new(Mutex::new(Vec::new()));
+        let (asked, told) = (wanted.clone(), latest.clone());
+        let spawned = std::thread::Builder::new()
+            .name("drifter-stats".to_string())
+            .spawn(move || {
+                let mut reader = Reader::default();
+                loop {
+                    let metrics = asked.lock().map(|held| held.clone()).unwrap_or_default();
+                    let fields = reader.read(&metrics);
+                    if let Ok(mut held) = told.lock() {
+                        *held = fields;
+                    }
+                    std::thread::sleep(std::time::Duration::from_secs(1));
+                }
+            });
+        if let Err(error) = spawned {
+            eprintln!("drifter: no system info: {error}");
+        }
+        Sampler { wanted, latest }
+    }
+
+    pub fn follow(&self, config: &TrayConfig) {
+        if let Ok(mut held) = self.wanted.lock() {
+            *held = chosen(config);
+        }
+        if let Ok(mut held) = self.latest.lock() {
+            held.clear();
         }
     }
 
-    pub fn read(&mut self) -> Vec<(String, u8)> {
+    pub fn read(&self) -> Vec<(String, u8)> {
+        self.latest
+            .lock()
+            .map(|held| held.clone())
+            .unwrap_or_default()
+    }
+}
+
+fn chosen(config: &TrayConfig) -> Vec<Metric> {
+    match config.stats {
+        true => config
+            .metrics
+            .iter()
+            .filter_map(|metric| Metric::parse(metric).ok())
+            .collect(),
+        false => Vec::new(),
+    }
+}
+
+#[derive(Default)]
+struct Reader {
+    last: Option<CpuTimes>,
+    missing: HashSet<String>,
+}
+
+impl Reader {
+    fn read(&mut self, metrics: &[Metric]) -> Vec<(String, u8)> {
         let mut fields = Vec::new();
         let mut mounts: Option<Vec<Mount>> = None;
-        for metric in self.metrics.clone() {
+        for metric in metrics {
             let field = match &metric {
                 Metric::Cpu => self.cpu().map(|value| ("CPU".to_string(), value)),
                 Metric::Ram => ram().map(|value| ("RAM".to_string(), value)),

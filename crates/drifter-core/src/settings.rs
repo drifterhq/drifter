@@ -94,6 +94,7 @@ pub struct Model {
     pub date: bool,
     pub seconds: bool,
     pub hours24: bool,
+    pub custom: Option<String>,
     pub stats: bool,
     pub cpu: bool,
     pub ram: bool,
@@ -182,7 +183,8 @@ impl Model {
             day: has(&["%a", "%A"]),
             date: has(&["%d", "%e", "%b", "%B"]),
             seconds: has(&["%S"]),
-            hours24: has(&["%H", "%k"]) && !has(&["%I", "%l"]),
+            hours24: has(&["%H", "%k", "%R", "%T"]) && !has(&["%I", "%l"]),
+            custom: None,
             stats: config.tray.stats,
             cpu,
             ram,
@@ -221,6 +223,14 @@ impl Model {
                 .unwrap_or_default(),
             names: HashMap::new(),
         }
+        .mark_custom(&config.tray.format)
+    }
+
+    fn mark_custom(mut self, format: &str) -> Model {
+        if self.format() != format {
+            self.custom = Some(format.to_string());
+        }
+        self
     }
 
     pub fn format(&self) -> String {
@@ -484,20 +494,7 @@ impl Model {
                     },
                     Group {
                         header: Some("Clock"),
-                        rows: vec![
-                            Row::new(
-                                Id::Day,
-                                "Show the day of the week",
-                                Control::Switch(self.day),
-                            ),
-                            Row::new(Id::Date, "Show the date", Control::Switch(self.date)),
-                            Row::new(Id::Seconds, "Show seconds", Control::Switch(self.seconds)),
-                            Row::new(
-                                Id::Hours24,
-                                "Use a 24-hour clock",
-                                Control::Switch(self.hours24),
-                            ),
-                        ],
+                        rows: self.clock_rows(),
                         footer: None,
                         thumbs: None,
                     },
@@ -594,6 +591,38 @@ impl Model {
                 }]
             }
         }
+    }
+
+    fn clock_rows(&self) -> Vec<Row> {
+        let free = self.custom.is_none();
+        let mut rows = Vec::new();
+        if let Some(format) = &self.custom {
+            rows.push(
+                Row::new(
+                    Id::Custom,
+                    "Your own clock format",
+                    Control::Buttons(vec![Mark::Text("Use switches")]),
+                )
+                .detail(format),
+            );
+        }
+        rows.extend([
+            Row::new(
+                Id::Day,
+                "Show the day of the week",
+                Control::Switch(self.day),
+            )
+            .enabled(free),
+            Row::new(Id::Date, "Show the date", Control::Switch(self.date)).enabled(free),
+            Row::new(Id::Seconds, "Show seconds", Control::Switch(self.seconds)).enabled(free),
+            Row::new(
+                Id::Hours24,
+                "Use a 24-hour clock",
+                Control::Switch(self.hours24),
+            )
+            .enabled(free),
+        ]);
+        rows
     }
 
     fn wallpaper_groups(&self) -> Vec<Group> {
@@ -775,6 +804,7 @@ impl Model {
             (Id::DockAdd, _) => return Some(Ask::Pick(For::Dock)),
             (Id::Default(at), 0) if at < 3 => return Some(Ask::Pick(For::Default(Role::ALL[at]))),
             (Id::Default(at), 1) if at < 3 => self.defaults[at] = None,
+            (Id::Custom, _) => self.custom = None,
             _ => {}
         }
         None
@@ -887,7 +917,7 @@ impl Model {
         if self.text_size != before.text_size {
             put(&mut doc, "tray", "size", int(self.text_size));
         }
-        if self.format() != before.format() {
+        if self.custom.is_none() && (self.format() != before.format() || before.custom.is_some()) {
             put(&mut doc, "tray", "format", word(&self.format()));
         }
         if self.stats != before.stats {
@@ -1056,6 +1086,7 @@ pub enum Id {
     DockAdd,
     DockShow(usize),
     Default(usize),
+    Custom,
 }
 
 const SHOWS: [&str; 5] = [
@@ -2078,6 +2109,24 @@ mod tests {
         assert_eq!(model.format(), "%b %d %H:%M");
         model.set(Id::Date, Value::Switch(false));
         assert_eq!(model.format(), "%H:%M");
+    }
+
+    #[test]
+    fn a_hand_written_clock_format_is_kept_until_the_user_lets_go_of_it() {
+        let text = "[tray]\nformat = \"%Y-%m-%d %R\"\n";
+        let before = model(&config(text));
+        assert_eq!(before.custom.as_deref(), Some("%Y-%m-%d %R"));
+        assert!(before.hours24);
+        let rows = before.clock_rows();
+        assert!(rows[1..].iter().all(|row| !row.enabled));
+        let mut after = before.clone();
+        after.set(Id::Seconds, Value::Switch(true));
+        assert!(!after.write(&before, text).unwrap().contains("%b"));
+        after.press(Id::Custom, 0);
+        let out = after.write(&before, text).unwrap();
+        let back = Config::parse(&out).unwrap();
+        assert_eq!(back.tray.format, after.format());
+        assert!(model(&Config::default()).custom.is_none());
     }
 
     #[test]

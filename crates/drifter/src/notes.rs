@@ -13,6 +13,8 @@ use zbus::zvariant::{OwnedValue, Structure, Value};
 const NAME: &str = "org.freedesktop.Notifications";
 const PATH: &str = "/org/freedesktop/Notifications";
 const ICON: u32 = 40;
+const LONGEST_SUMMARY: usize = 200;
+const LONGEST_BODY: usize = 1000;
 
 pub enum Event {
     Show(Note),
@@ -131,8 +133,14 @@ impl Server {
     ) -> u32 {
         let id = match replaces_id {
             0 => self.next.fetch_add(1, Ordering::SeqCst),
-            held => held,
+            held => {
+                self.next
+                    .fetch_max(held.saturating_add(1), Ordering::SeqCst);
+                held
+            }
         };
+        let summary: String = summary.chars().take(LONGEST_SUMMARY).collect();
+        let body: String = body.chars().take(LONGEST_BODY).collect();
         let critical = hints
             .get("urgency")
             .and_then(|value| value.downcast_ref::<u8>().ok())

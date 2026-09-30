@@ -295,12 +295,13 @@ pub struct State {
     tip: Option<(TextureBuffer<GlesTexture>, Rect)>,
     tip_of: Option<String>,
     snap: Snap,
-    config_seen: Option<std::time::SystemTime>,
+    config_seen: Option<(std::time::SystemTime, u64, u64)>,
     last_input: Instant,
     lock_after: u64,
     login: Vec<drifter_core::Launch>,
     paper: Paper,
-    paper_tx: smithay::reexports::calloop::channel::Sender<(PathBuf, drifter_core::Image)>,
+    paper_tx: smithay::reexports::calloop::channel::Sender<(PathBuf, Option<drifter_core::Image>)>,
+    shot_tx: smithay::reexports::calloop::channel::Sender<Result<PathBuf, String>>,
     config_path: PathBuf,
     zone: Option<Zone>,
     plain: Option<TextureBuffer<GlesTexture>>,
@@ -1553,14 +1554,27 @@ impl State {
             .join("Pictures/Screenshots");
         let stamp = drifter_core::tray::now("%Y-%m-%d %H.%M.%S").unwrap_or_default();
         let path = folder.join(format!("Screenshot {stamp}.png"));
-        let saved = std::fs::create_dir_all(&folder)
-            .map_err(|e| e.to_string())
-            .and_then(|()| drifter_core::image::save_png(&image, &path));
+        let reply = self.shot_tx.clone();
+        let spawned = std::thread::Builder::new()
+            .name("drifter-screenshot".to_string())
+            .spawn(move || {
+                let saved = std::fs::create_dir_all(&folder)
+                    .map_err(|e| e.to_string())
+                    .and_then(|()| drifter_core::image::save_png(&image, &path))
+                    .map(|()| path);
+                let _ = reply.send(saved);
+            });
+        if let Err(error) = spawned {
+            self.shot_saved(Err(error.to_string()));
+        }
+    }
+
+    fn shot_saved(&mut self, saved: Result<PathBuf, String>) {
         let Some(id) = self.notes_bus.as_ref().map(|bus| bus.next_id()) else {
             return;
         };
         let (summary, body) = match saved {
-            Ok(()) => ("Screenshot saved".to_string(), path.display().to_string()),
+            Ok(path) => ("Screenshot saved".to_string(), path.display().to_string()),
             Err(error) => ("No screenshot".to_string(), error),
         };
         self.show_note(drifter_core::notify::Note {
@@ -2036,7 +2050,7 @@ impl State {
             self.last_input = Instant::now();
             return;
         }
-        if self.last_input.elapsed() >= Duration::from_secs(self.lock_after * 60) {
+        if self.last_input.elapsed() >= Duration::from_secs(self.lock_after.saturating_mul(60)) {
             self.lock_now();
         }
     }
@@ -2050,12 +2064,14 @@ impl State {
             return;
         }
         let now = Instant::now();
-        let every = Duration::from_secs(self.paper.every);
-        let due = *self.paper.next.get_or_insert(now + every);
+        let Some(later) = now.checked_add(Duration::from_secs(self.paper.every)) else {
+            return;
+        };
+        let due = *self.paper.next.get_or_insert(later);
         if now < due {
             return;
         }
-        self.paper.next = Some(now + every);
+        self.paper.next = Some(later);
         let seed = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|since| since.as_nanos() as u64)
@@ -2077,16 +2093,23 @@ impl State {
             .name("drifter-wallpaper".to_string())
             .spawn(move || match drifter_core::image::load(&path) {
                 Ok(image) => {
-                    let _ = reply.send((path, image));
+                    let _ = reply.send((path, Some(image)));
                 }
-                Err(error) => eprintln!("drifter: no wallpaper {}: {error}", path.display()),
+                Err(error) => {
+                    eprintln!("drifter: no wallpaper {}: {error}", path.display());
+                    let _ = reply.send((path, None));
+                }
             });
         if let Err(error) = spawned {
             eprintln!("drifter: cannot load the wallpaper: {error}");
         }
     }
 
-    fn take_wallpaper(&mut self, path: PathBuf, image: drifter_core::Image) {
+    fn take_wallpaper(&mut self, path: PathBuf, image: Option<drifter_core::Image>) {
+        let Some(image) = image else {
+            self.paper.shown = Some(path);
+            return;
+        };
         match upload(&mut self.renderer, Some(&image), "wallpaper") {
             Ok(Some(buffer)) => {
                 self.wallpaper = Some((buffer, image.size()));
@@ -2099,9 +2122,7 @@ impl State {
     }
 
     fn watch_config(&mut self) {
-        let seen = std::fs::metadata(&self.config_path)
-            .and_then(|meta| meta.modified())
-            .ok();
+        let seen = config_stamp(&self.config_path);
         if seen == self.config_seen {
             return;
         }
@@ -2185,7 +2206,7 @@ impl State {
                 Err(error) => eprintln!("drifter: {error}"),
             }
         }
-        self.sampler = crate::stats::Sampler::new(&config.tray);
+        self.sampler.follow(&config.tray);
         self.stats = None;
     }
 
@@ -3342,6 +3363,11 @@ impl State {
     }
 
     fn prompt_begin(&mut self, request: crate::polkit::Request) {
+        if self.font.is_none() {
+            eprintln!("drifter: no font, so no password prompt can be shown");
+            let _ = request.reply.try_send(false);
+            return;
+        }
         self.prompts.push(Pending {
             request,
             pad: Pad::new(),
@@ -3364,6 +3390,9 @@ impl State {
     }
 
     fn prompt_cancel(&mut self) {
+        if self.prompts.first().is_some_and(|pending| pending.busy) {
+            return;
+        }
         if let Some(cookie) = self.prompts.first().map(|p| p.request.cookie.clone()) {
             self.prompt_end(&cookie, false);
         }
@@ -3464,6 +3493,7 @@ impl State {
 
     fn show_note(&mut self, note: drifter_core::notify::Note) {
         let Some(font) = self.font.as_ref() else {
+            self.tell_closed(note.id, 3);
             return;
         };
         let look = drifter_core::notify::Look::default();
@@ -3471,9 +3501,13 @@ impl State {
         let image = look.paint(&note, font);
         let art = match upload(&mut self.renderer, Some(&image), "notification") {
             Ok(Some(art)) => art,
-            Ok(None) => return,
+            Ok(None) => {
+                self.tell_closed(note.id, 3);
+                return;
+            }
             Err(error) => {
                 eprintln!("drifter: {error}");
+                self.tell_closed(note.id, 3);
                 return;
             }
         };
@@ -3643,6 +3677,7 @@ impl State {
         if self.lock.is_none()
             && !self.prompts.is_empty()
             && let InputEvent::Keyboard { event } = &event
+            && event.state() == KeyState::Pressed
         {
             let key = self.read_key(event);
             self.prompt_key(key);
@@ -3739,7 +3774,7 @@ impl State {
             }
             InputEvent::GestureSwipeUpdate { event } => {
                 use smithay::backend::input::GestureSwipeUpdateEvent;
-                if self.fingers < 3 {
+                if self.fingers < 3 || self.held_by_fullscreen().is_some() {
                     return;
                 }
                 let moved = Vec2::new(event.delta_x(), event.delta_y());
@@ -3799,6 +3834,20 @@ impl Screen {
 
         for item in state.login.clone() {
             crate::apps::run(&item, &state.socket);
+        }
+        if let (Some(error), Some(id)) = (
+            crate::CONFIG_ERROR.get(),
+            state.notes_bus.as_ref().map(|bus| bus.next_id()),
+        ) {
+            state.show_note(drifter_core::notify::Note {
+                id,
+                app: "Drifter".to_string(),
+                summary: "The config has a mistake".to_string(),
+                body: format!("{error}. Drifter uses its defaults until it is fixed."),
+                actions: Vec::new(),
+                expire: None,
+                icon: None,
+            });
         }
         if std::env::var_os("DRIFTER_RECOVERED").is_some()
             && let Some(id) = state.notes_bus.as_ref().map(|bus| bus.next_id())
@@ -4161,7 +4210,9 @@ pub fn open(
     let (checked_tx, checked_rx) =
         smithay::reexports::calloop::channel::channel::<(String, crate::polkit::Outcome)>();
     let (paper_tx, paper_rx) =
-        smithay::reexports::calloop::channel::channel::<(PathBuf, drifter_core::Image)>();
+        smithay::reexports::calloop::channel::channel::<(PathBuf, Option<drifter_core::Image>)>();
+    let (shot_tx, shot_rx) =
+        smithay::reexports::calloop::channel::channel::<Result<PathBuf, String>>();
     let (verify_tx, verify_rx) =
         smithay::reexports::calloop::channel::channel::<(u64, crate::auth::Verdict)>();
     let spare = from_art("app");
@@ -4282,6 +4333,7 @@ pub fn open(
         login: config.login.start.clone(),
         paper: Paper::from(config),
         paper_tx,
+        shot_tx,
         config_path: Config::config_path(),
         zone: None,
         plain,
@@ -4438,6 +4490,14 @@ pub fn open(
     }
 
     handle
+        .insert_source(shot_rx, |event, _, state: &mut State| {
+            if let ChannelEvent::Msg(saved) = event {
+                state.shot_saved(saved);
+            }
+        })
+        .map_err(|e| format!("cannot watch screenshots: {e}"))?;
+
+    handle
         .insert_source(paper_rx, |event, _, state: &mut State| {
             if let ChannelEvent::Msg((path, image)) = event {
                 state.take_wallpaper(path, image);
@@ -4482,9 +4542,7 @@ pub fn open(
         })
         .map_err(|e| format!("cannot watch wayland clients: {e}"))?;
 
-    state.config_seen = std::fs::metadata(&state.config_path)
-        .and_then(|meta| meta.modified())
-        .ok();
+    state.config_seen = config_stamp(&state.config_path);
     handle
         .insert_source(
             Timer::from_duration(CONFIG_WATCH),
@@ -4820,6 +4878,12 @@ fn upload(
     }
 }
 
+fn config_stamp(path: &Path) -> Option<(std::time::SystemTime, u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    let meta = std::fs::metadata(path).ok()?;
+    Some((meta.modified().ok()?, meta.len(), meta.ino()))
+}
+
 type Pinned = Vec<(drifter_core::Launch, Option<TextureBuffer<GlesTexture>>)>;
 
 fn dock_items(
@@ -4843,7 +4907,7 @@ fn dock_items(
     for item in wanted {
         let path = item
             .icon()
-            .map(|path| path.to_path_buf())
+            .map(|path| config.beside(path))
             .or_else(|| item.app().and_then(crate::apps::find).and_then(|e| e.icon))
             .or_else(|| crate::apps::icon_file(&item.name()));
         let art = path

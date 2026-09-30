@@ -218,16 +218,45 @@ fn kernel(mount: &Mount) -> Option<String> {
     Some(link.file_name()?.to_string_lossy().into_owned())
 }
 
-fn tell_the_system(role: drifter_core::desktop::Role, id: &str) {
-    let path = home().join(".config/mimeapps.list");
-    let text = std::fs::read_to_string(&path).unwrap_or_default();
-    let out = drifter_core::desktop::set_default(&text, role, id);
-    if let Some(folder) = path.parent() {
-        let _ = std::fs::create_dir_all(folder);
+fn mimeapps() -> PathBuf {
+    std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .unwrap_or_else(|| home().join(".config"))
+        .join("mimeapps.list")
+}
+
+fn tell_the_system(change: impl Fn(&str) -> String) {
+    let path = mimeapps();
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => {
+            eprintln!(
+                "drifter-settings: {} is left alone because it cannot be read: {error}",
+                path.display()
+            );
+            return;
+        }
+    };
+    if let Err(error) = write_whole(&path, &change(&text)) {
+        eprintln!("drifter-settings: {error}");
     }
-    if let Err(error) = std::fs::write(&path, out) {
-        eprintln!("drifter-settings: cannot save {}: {error}", path.display());
-    }
+}
+
+fn write_whole(path: &Path, text: &str) -> Result<(), String> {
+    let folder = path.parent().unwrap_or(Path::new("."));
+    std::fs::create_dir_all(folder).map_err(|e| format!("{}: {e}", folder.display()))?;
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let spare = folder.join(format!(".{name}.{}.new", std::process::id()));
+    std::fs::write(&spare, text).map_err(|e| format!("{}: {e}", spare.display()))?;
+    std::fs::rename(&spare, path).map_err(|e| {
+        let _ = std::fs::remove_file(&spare);
+        format!("{}: {e}", path.display())
+    })
 }
 
 fn home() -> PathBuf {
@@ -386,6 +415,14 @@ impl Settings {
                 self.save();
             }
             Some(Hit::Press(id, index)) => match self.model.press(id, index) {
+                None if matches!(id, Id::Default(_)) && index == 1 => {
+                    if let Id::Default(at) = id {
+                        let role = drifter_core::desktop::Role::ALL[at.min(2)];
+                        tell_the_system(|text| drifter_core::desktop::clear_default(text, role));
+                        self.model.system[at.min(2)] = drifter_core::desktop::system_default(role);
+                    }
+                    self.save();
+                }
                 Some(Ask::Pick(purpose)) => self.open_picker(purpose),
                 Some(Ask::Files(purpose)) => self.open_files(purpose),
                 None => self.save(),
@@ -485,7 +522,7 @@ impl Settings {
 
     fn finish_add(&mut self, purpose: For, item: Launch) {
         if let (For::Default(role), Launch::App(id)) = (purpose, &item) {
-            tell_the_system(role, id);
+            tell_the_system(|text| drifter_core::desktop::set_default(text, role, id));
         }
         self.model.add(purpose, item);
         self.sheet = None;
@@ -586,15 +623,9 @@ impl Settings {
             self.saved = self.model.clone();
             return;
         }
-        if let Some(folder) = self.path.parent() {
-            let _ = std::fs::create_dir_all(folder);
-        }
-        match std::fs::write(&self.path, out) {
+        match write_whole(&self.path, &out) {
             Ok(()) => self.saved = self.model.clone(),
-            Err(error) => eprintln!(
-                "drifter-settings: cannot save {}: {error}",
-                self.path.display()
-            ),
+            Err(error) => eprintln!("drifter-settings: cannot save: {error}"),
         }
     }
 }

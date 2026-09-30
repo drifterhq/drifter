@@ -104,29 +104,41 @@ fn volume(target: &str, verb: &[&str], amount: &str) -> Option<Reading> {
 }
 
 fn backlight() -> Option<(String, u32, u32)> {
-    let folder = std::fs::read_dir("/sys/class/backlight")
+    let rank = |kind: &str| match kind.trim() {
+        "firmware" => 0,
+        "platform" => 1,
+        _ => 2,
+    };
+    let mut found: Vec<(u8, String, u32, u32)> = std::fs::read_dir("/sys/class/backlight")
         .ok()?
         .flatten()
-        .next()?;
-    let read = |file: &str| -> Option<u32> {
-        std::fs::read_to_string(folder.path().join(file))
-            .ok()?
-            .trim()
-            .parse()
-            .ok()
-    };
-    Some((
-        folder.file_name().to_string_lossy().into_owned(),
-        read("brightness")?,
-        read("max_brightness")?,
-    ))
+        .filter_map(|folder| {
+            let read = |file: &str| std::fs::read_to_string(folder.path().join(file)).ok();
+            let number = |file: &str| read(file)?.trim().parse::<u32>().ok();
+            Some((
+                rank(&read("type").unwrap_or_default()),
+                folder.file_name().to_string_lossy().into_owned(),
+                number("brightness")?,
+                number("max_brightness")?,
+            ))
+        })
+        .collect();
+    found.sort();
+    found
+        .into_iter()
+        .next()
+        .map(|(_, name, now, most)| (name, now, most))
 }
 
 fn brightness(step: f64) -> Option<Reading> {
     let (name, now, most) = backlight()?;
-    let most_f = f64::from(most.max(1));
-    let wanted = (f64::from(now) / most_f + step).clamp(0.01, 1.0);
-    let value = (wanted * most_f).round() as u32;
+    let most = most.max(1);
+    let stride = ((f64::from(most) * step.abs()).round() as u32).max(1);
+    let value = match step > 0.0 {
+        true => now.saturating_add(stride).min(most),
+        false => now.saturating_sub(stride).max(1),
+    };
+    let wanted = f64::from(value) / f64::from(most);
     let bus = zbus::blocking::Connection::system().ok()?;
     let sent = bus.call_method(
         Some("org.freedesktop.login1"),

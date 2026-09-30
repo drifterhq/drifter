@@ -167,11 +167,8 @@ pub fn file_manager() -> Option<String> {
 }
 
 pub fn open_folder(path: &str, chosen: Option<&drifter_core::Launch>, socket: &str) {
-    if let Some(command) = chosen.and_then(|item| item.command())
-        && let Some(mut argv) = drifter_core::exec::words(command).filter(|argv| !argv.is_empty())
-    {
-        argv.push(path.to_string());
-        launch(&argv, socket);
+    if let Some(command) = chosen.and_then(|item| item.command()) {
+        start(command, &[path], socket);
         return;
     }
     let app = chosen

@@ -404,6 +404,8 @@ impl Default for Tunables {
 }
 
 pub const DEFAULTS: &str = "default.toml";
+pub const LONGEST_LOCK: u64 = 7 * 24 * 60;
+pub const LONGEST_ROTATION: u64 = 366 * 24 * 3600;
 
 pub fn choose_config(
     candidates: Vec<PathBuf>,
@@ -513,7 +515,7 @@ impl Config {
     }
 
     pub fn state_dir() -> PathBuf {
-        xdg_dir("XDG_STATE_HOME", ".local/state").join("drifter")
+        xdg_dir("XDG_STATE_HOME", ".local/state")
     }
 
     pub fn wallpaper_folder(&self) -> Option<PathBuf> {
@@ -584,6 +586,16 @@ impl Config {
             return Err(ConfigError::Invalid(
                 "tray size is text height in pixels and must be at least 6".into(),
             ));
+        }
+        if self.lock.after > LONGEST_LOCK {
+            return Err(ConfigError::Invalid(format!(
+                "lock after is minutes and must be at most {LONGEST_LOCK}"
+            )));
+        }
+        if self.workspace.wallpaper_every > LONGEST_ROTATION {
+            return Err(ConfigError::Invalid(format!(
+                "wallpaper_every is seconds and must be at most {LONGEST_ROTATION}"
+            )));
         }
         let mut order = self.window.order.clone();
         order.sort_by_key(|name| *name as u8);
@@ -854,6 +866,33 @@ mod tests {
                 .validate()
                 .is_err()
         );
+    }
+
+    #[test]
+    fn the_state_folder_is_named_drifter_once() {
+        let dir = Config::state_dir();
+        assert_eq!(dir.file_name().unwrap(), "drifter");
+        assert_ne!(dir.parent().unwrap().file_name().unwrap(), "drifter");
+    }
+
+    #[test]
+    fn huge_times_are_refused_rather_than_overflowing() {
+        assert!(
+            Config::parse("[lock]\nafter = 99999999999\n")
+                .unwrap()
+                .validate()
+                .is_err()
+        );
+        assert!(
+            Config::parse("[workspace]\nwallpaper_every = 99999999999999\n")
+                .unwrap()
+                .validate()
+                .is_err()
+        );
+        Config::parse("[lock]\nafter = 60\n")
+            .unwrap()
+            .validate()
+            .unwrap();
     }
 
     #[test]

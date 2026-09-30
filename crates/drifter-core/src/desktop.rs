@@ -150,12 +150,18 @@ pub fn mime_lists() -> Vec<PathBuf> {
 }
 
 pub fn chosen_in(text: &str, mime: &str) -> Vec<String> {
+    let mut out = listed(text, mime, "[Default Applications]");
+    out.extend(listed(text, mime, "[Added Associations]"));
+    out
+}
+
+fn listed(text: &str, mime: &str, section: &str) -> Vec<String> {
     let mut inside = false;
     let mut out = Vec::new();
     for line in text.lines() {
         let line = line.trim();
         if line.starts_with('[') {
-            inside = line == "[Default Applications]" || line == "[Added Associations]";
+            inside = line == section;
             continue;
         }
         let Some((key, value)) = line.split_once('=').filter(|_| inside) else {
@@ -218,6 +224,27 @@ pub fn system_default_in(role: Role, lists: &[PathBuf], roots: &[PathBuf]) -> Op
 
 pub fn system_default(role: Role) -> Option<String> {
     system_default_in(role, &mime_lists(), &roots())
+}
+
+pub fn clear_default(text: &str, role: Role) -> String {
+    let mut inside = false;
+    let mut out: Vec<&str> = Vec::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            inside = trimmed == "[Default Applications]";
+        }
+        let key = trimmed.split_once('=').map(|(key, _)| key.trim());
+        if inside && key.is_some_and(|key| role.mimes().contains(&key)) {
+            continue;
+        }
+        out.push(line);
+    }
+    let mut text = out.join("\n");
+    if !text.is_empty() {
+        text.push('\n');
+    }
+    text
 }
 
 pub fn set_default(text: &str, role: Role, id: &str) -> String {
@@ -311,6 +338,27 @@ mod tests {
         assert!(!out.contains("old.desktop"), "{out}");
         assert_eq!(chosen_in(&out, "x-scheme-handler/https"), ["firefox-esr"]);
         assert_eq!(chosen_in(&out, "text/html"), ["firefox-esr"]);
+    }
+
+    #[test]
+    fn the_default_section_wins_over_added_associations_in_any_order() {
+        let text = "[Added Associations]\nx-scheme-handler/http=chromium.desktop;\n[Default Applications]\nx-scheme-handler/http=epiphany.desktop;\n";
+        assert_eq!(
+            chosen_in(text, "x-scheme-handler/http"),
+            ["epiphany", "chromium"]
+        );
+    }
+
+    #[test]
+    fn clearing_a_default_removes_only_its_own_lines() {
+        let set = set_default(
+            "[Default Applications]\nimage/png=eog.desktop;\n",
+            Role::Browser,
+            "firefox-esr",
+        );
+        let cleared = clear_default(&set, Role::Browser);
+        assert!(chosen_in(&cleared, "text/html").is_empty(), "{cleared}");
+        assert_eq!(chosen_in(&cleared, "image/png"), ["eog"]);
     }
 
     #[test]

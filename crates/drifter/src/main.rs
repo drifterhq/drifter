@@ -198,6 +198,8 @@ fn keep_crashes() {
     }));
 }
 
+pub static CONFIG_ERROR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
 fn main() -> ExitCode {
     keep_crashes();
     let path = Config::config_path();
@@ -209,8 +211,9 @@ fn main() -> ExitCode {
     let config = match Config::load_from(&path) {
         Ok(config) => config,
         Err(error) => {
-            eprintln!("drifter: {error}");
-            return ExitCode::FAILURE;
+            eprintln!("drifter: {error}, so drifter uses its defaults");
+            let _ = CONFIG_ERROR.set(error.to_string());
+            Config::default()
         }
     };
 

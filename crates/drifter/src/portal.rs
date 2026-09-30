@@ -62,7 +62,7 @@ fn tell(pairs: &HashMap<String, String>) -> Result<(), String> {
         )
     })?;
     for unit in UNITS {
-        systemd("TryRestartUnit", &|| {
+        if let Err(error) = systemd("TryRestartUnit", &|| {
             bus.call_method(
                 Some("org.freedesktop.systemd1"),
                 "/org/freedesktop/systemd1",
@@ -70,7 +70,9 @@ fn tell(pairs: &HashMap<String, String>) -> Result<(), String> {
                 "TryRestartUnit",
                 &(unit, "replace"),
             )
-        })?;
+        }) {
+            eprintln!("drifter: {unit}: {error}");
+        }
     }
     Ok(())
 }
