@@ -67,7 +67,7 @@ impl Look {
         let text = line * (3.0 + self.lines(ask, font).len() as f64);
         Vec2::new(
             self.width,
-            (self.pad * 2.0 + text + 18.0 + self.field + 16.0 + self.button.y).ceil(),
+            (self.pad * 2.0 + text + 18.0 + self.field + line + 24.0 + self.button.y).ceil(),
         )
     }
 
@@ -76,8 +76,8 @@ impl Look {
         Rect::new(((screen - size) / 2.0).round(), size)
     }
 
-    fn field_rect(&self, size: Vec2) -> Rect {
-        let top = size.y - self.pad - self.button.y - 16.0 - self.field;
+    fn field_rect(&self, size: Vec2, line: f64) -> Rect {
+        let top = size.y - self.pad - self.button.y - line - 24.0 - self.field;
         Rect::new(
             Vec2::new(self.pad, top),
             Vec2::new(size.x - self.pad * 2.0, self.field),
@@ -129,7 +129,7 @@ impl Look {
         let who = font.paint(&format!("Password for {}", ask.user), self.ink);
         canvas.stamp(&who, Vec2::new(self.pad, y), 1.0);
 
-        let field = self.field_rect(size);
+        let field = self.field_rect(size, line);
         canvas.round_rect(field, 8.0, self.rule, 1.0);
         canvas.round_rect(
             Rect::new(
@@ -152,11 +152,7 @@ impl Look {
         };
         if let Some((text, ink)) = note {
             let painted = font.paint(&text, ink);
-            let at = Vec2::new(
-                self.pad,
-                self.go_rect(size).center().y - f64::from(painted.height) / 2.0,
-            );
-            canvas.stamp(&painted, at, 1.0);
+            canvas.stamp(&painted, Vec2::new(self.pad, field.max().y + 8.0), 1.0);
         }
         for (rect, label, color) in [
             (self.cancel_rect(size), "Cancel", self.off),
@@ -259,7 +255,9 @@ mod tests {
         let rect = look.rect(Vec2::new(1920.0, 1080.0), &ask(), &font);
         assert_eq!(image.size(), rect.size);
         assert!((rect.center().x - 960.0).abs() <= 1.0);
-        let field = look.field_rect(rect.size);
-        assert!(field.max().y < look.go_rect(rect.size).origin.y);
+        let line = font.line_height().ceil();
+        let field = look.field_rect(rect.size, line);
+        assert!(field.max().y + line + 8.0 < look.go_rect(rect.size).origin.y);
+        assert!(look.cancel_rect(rect.size).origin.x > look.pad);
     }
 }
