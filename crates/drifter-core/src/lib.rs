@@ -17,6 +17,7 @@ pub mod motion;
 pub mod notify;
 pub mod paint;
 pub mod power;
+pub mod prompt;
 pub mod settings;
 pub mod sheet;
 pub mod snap;

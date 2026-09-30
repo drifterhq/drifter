@@ -60,10 +60,13 @@ pub enum Verdict {
 }
 
 pub fn user() -> Result<CString, String> {
+    user_of(unsafe { libc::getuid() })
+}
+
+pub fn user_of(uid: u32) -> Result<CString, String> {
     let mut entry: libc::passwd = unsafe { std::mem::zeroed() };
     let mut found: *mut libc::passwd = ptr::null_mut();
     let mut buffer = vec![0u8; 4096];
-    let uid = unsafe { libc::getuid() };
     let code = unsafe {
         libc::getpwuid_r(
             uid,

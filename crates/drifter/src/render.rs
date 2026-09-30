@@ -168,6 +168,13 @@ struct Card {
     until: Option<Instant>,
 }
 
+struct Pending {
+    request: crate::polkit::Request,
+    pad: Pad,
+    error: Option<String>,
+    busy: bool,
+}
+
 struct Popover {
     items: Vec<Item>,
     rect: Rect,
@@ -303,6 +310,9 @@ pub struct State {
     media: Option<crate::media::Media>,
     notes_bus: Option<crate::notes::Notes>,
     copies: Vec<crate::screencopy::Copy>,
+    prompts: Vec<Pending>,
+    prompt_art: Option<(TextureBuffer<GlesTexture>, Rect)>,
+    checked: smithay::reexports::calloop::channel::Sender<(String, crate::polkit::Outcome)>,
     copied: std::collections::HashSet<smithay::reexports::wayland_server::backend::ClientId>,
     cursor_count: usize,
     shot_wanted: bool,
@@ -456,6 +466,9 @@ impl State {
         }
         let mut elements: Vec<Skin> = self.cursor_elements();
         self.cursor_count = elements.len();
+        if let Some((art, rect)) = self.prompt_art.as_ref() {
+            elements.push(Skin::Texture(element(art, *rect, 1.0)));
+        }
         if let Some((art, rect, _)) = self.hud.as_ref() {
             elements.push(Skin::Texture(element(art, *rect, 1.0)));
         }
@@ -2204,9 +2217,11 @@ impl State {
     }
 
     fn over_own_parts(&self) -> bool {
-        self.card_rects()
-            .iter()
-            .any(|rect| rect.contains(self.pointer))
+        self.prompt_art.is_some()
+            || self
+                .card_rects()
+                .iter()
+                .any(|rect| rect.contains(self.pointer))
             || self.over_drawer()
             || self
                 .popover
@@ -3107,6 +3122,18 @@ impl State {
     }
 
     fn press_own(&mut self, code: u32) -> bool {
+        if let Some((_, rect)) = self.prompt_art.as_ref() {
+            let rect = *rect;
+            if code == BTN_LEFT {
+                let look = drifter_core::prompt::Look::default();
+                match look.hit(rect.size, self.pointer - rect.origin) {
+                    Some(drifter_core::prompt::Press::Go) => self.prompt_submit(),
+                    Some(drifter_core::prompt::Press::Cancel) => self.prompt_cancel(),
+                    None => {}
+                }
+            }
+            return true;
+        }
         if self.press_card(code) {
             return true;
         }
@@ -3314,6 +3341,127 @@ impl State {
         self.kick_now();
     }
 
+    fn prompt_begin(&mut self, request: crate::polkit::Request) {
+        self.prompts.push(Pending {
+            request,
+            pad: Pad::new(),
+            error: None,
+            busy: false,
+        });
+        self.paint_prompt();
+    }
+
+    fn prompt_end(&mut self, cookie: &str, granted: bool) {
+        if let Some(at) = self
+            .prompts
+            .iter()
+            .position(|pending| pending.request.cookie == cookie)
+        {
+            let pending = self.prompts.remove(at);
+            let _ = pending.request.reply.try_send(granted);
+        }
+        self.paint_prompt();
+    }
+
+    fn prompt_cancel(&mut self) {
+        if let Some(cookie) = self.prompts.first().map(|p| p.request.cookie.clone()) {
+            self.prompt_end(&cookie, false);
+        }
+    }
+
+    fn prompt_submit(&mut self) {
+        let Some(pending) = self.prompts.first_mut() else {
+            return;
+        };
+        if pending.busy || pending.pad.is_empty() {
+            return;
+        }
+        pending.busy = true;
+        pending.error = None;
+        let password = pending.pad.take();
+        let user = pending.request.user.clone();
+        let cookie = pending.request.cookie.clone();
+        let reply = self.checked.clone();
+        let spawned = std::thread::Builder::new()
+            .name("drifter-polkit-check".to_string())
+            .spawn(move || {
+                let outcome = crate::polkit::check(&user, &cookie, password);
+                let _ = reply.send((cookie, outcome));
+            });
+        if spawned.is_err() {
+            pending.busy = false;
+            pending.error = Some("The password cannot be checked right now.".into());
+        }
+        self.paint_prompt();
+    }
+
+    fn prompt_checked(&mut self, cookie: &str, outcome: crate::polkit::Outcome) {
+        match outcome {
+            crate::polkit::Outcome::Granted => self.prompt_end(cookie, true),
+            crate::polkit::Outcome::Refused(message) => {
+                if let Some(pending) = self
+                    .prompts
+                    .iter_mut()
+                    .find(|pending| pending.request.cookie == cookie)
+                {
+                    pending.busy = false;
+                    pending.error = Some(message);
+                    pending.pad.wipe();
+                }
+                self.paint_prompt();
+            }
+        }
+    }
+
+    fn prompt_key(&mut self, key: LockKey) {
+        let Some(pending) = self.prompts.first_mut() else {
+            return;
+        };
+        if pending.busy {
+            return;
+        }
+        match key {
+            LockKey::Letter(letter) => {
+                pending.pad.push(letter);
+            }
+            LockKey::Back => pending.pad.backspace(),
+            LockKey::Enter => {
+                self.prompt_submit();
+                return;
+            }
+            LockKey::Clear => {
+                self.prompt_cancel();
+                return;
+            }
+            LockKey::Other => return,
+        }
+        self.paint_prompt();
+    }
+
+    fn paint_prompt(&mut self) {
+        let (Some(pending), Some(font)) = (self.prompts.first(), self.font.as_ref()) else {
+            self.prompt_art = None;
+            self.kick_now();
+            return;
+        };
+        let ask = drifter_core::prompt::Ask {
+            message: pending.request.message.clone(),
+            user: pending.request.user.clone(),
+            typed: pending.pad.len(),
+            error: pending.error.clone(),
+            busy: pending.busy,
+        };
+        let look = drifter_core::prompt::Look::default();
+        let image = look.paint(&ask, font);
+        let rect = look.rect(self.screen, &ask, font);
+        match upload(&mut self.renderer, Some(&image), "password prompt") {
+            Ok(Some(art)) => self.prompt_art = Some((art, rect)),
+            Ok(None) => {}
+            Err(error) => eprintln!("drifter: {error}"),
+        }
+        self.kick_now();
+    }
+
     fn show_note(&mut self, note: drifter_core::notify::Note) {
         let Some(font) = self.font.as_ref() else {
             return;
@@ -3492,6 +3640,14 @@ impl State {
 
     fn input(&mut self, event: InputEvent<LibinputInputBackend>) {
         self.last_input = Instant::now();
+        if self.lock.is_none()
+            && !self.prompts.is_empty()
+            && let InputEvent::Keyboard { event } = &event
+        {
+            let key = self.read_key(event);
+            self.prompt_key(key);
+            return;
+        }
         if self.lock.is_some() && !matches!(event, InputEvent::DeviceAdded { .. }) {
             self.locked_input(event);
             return;
@@ -4002,6 +4158,8 @@ pub fn open(
     let power = upload(&mut renderer, Some(&power_image), "power")?;
     let lock_big = Font::find(config.font_path(), 56.0).ok();
     let lock_small = Font::find(config.font_path(), 15.0).ok();
+    let (checked_tx, checked_rx) =
+        smithay::reexports::calloop::channel::channel::<(String, crate::polkit::Outcome)>();
     let (paper_tx, paper_rx) =
         smithay::reexports::calloop::channel::channel::<(PathBuf, drifter_core::Image)>();
     let (verify_tx, verify_rx) =
@@ -4135,6 +4293,9 @@ pub fn open(
         notes_bus,
         cards: Vec::new(),
         copies: Vec::new(),
+        prompts: Vec::new(),
+        prompt_art: None,
+        checked: checked_tx,
         copied: std::collections::HashSet::new(),
         cursor_count: 0,
         shot_wanted: false,
@@ -4249,6 +4410,31 @@ pub fn open(
                 }
             })
             .map_err(|e| format!("cannot watch the media keys: {e}"))?;
+    }
+
+    handle
+        .insert_source(checked_rx, |event, _, state: &mut State| {
+            if let ChannelEvent::Msg((cookie, outcome)) = event {
+                state.prompt_checked(&cookie, outcome);
+            }
+        })
+        .map_err(|e| format!("cannot watch the password checks: {e}"))?;
+    match crate::polkit::start() {
+        Ok(requests) => {
+            handle
+                .insert_source(requests, |event, _, state: &mut State| {
+                    if let ChannelEvent::Msg(event) = event {
+                        match event {
+                            crate::polkit::Event::Begin(request) => state.prompt_begin(request),
+                            crate::polkit::Event::Cancel(cookie) => {
+                                state.prompt_end(&cookie, false)
+                            }
+                        }
+                    }
+                })
+                .map_err(|e| format!("cannot watch polkit: {e}"))?;
+        }
+        Err(error) => eprintln!("drifter: no password prompt: {error}"),
     }
 
     handle
