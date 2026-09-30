@@ -37,7 +37,8 @@ sudo apt-get install -y \
     xwayland libxcb1-dev libxcb-cursor-dev clang \
     grim slurp pipewire pipewire-pulse wireplumber \
     xdg-desktop-portal xdg-desktop-portal-wlr xdg-desktop-portal-gtk \
-    polkitd libnotify-bin firefox-esr
+    polkitd libnotify-bin firefox-esr \
+    gstreamer1.0-pipewire gstreamer1.0-plugins-good gstreamer1.0-tools
 
 sudo systemctl enable --now seatd
 sudo install -Dm644 "$(dirname "$0")/../conf/drifter-portals.conf" /usr/share/xdg-desktop-portal/drifter-portals.conf
