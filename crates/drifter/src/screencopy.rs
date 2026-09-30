@@ -28,7 +28,7 @@ pub struct Copy {
 }
 
 pub fn global(display: &DisplayHandle) -> GlobalId {
-    display.create_global::<State, ZwlrScreencopyManagerV1, ()>(2, ())
+    display.create_global::<State, ZwlrScreencopyManagerV1, ()>(3, ())
 }
 
 impl GlobalDispatch<ZwlrScreencopyManagerV1, ()> for State {
@@ -86,6 +86,14 @@ impl Dispatch<ZwlrScreencopyManagerV1, ()> for State {
         let (width, height) = (region.size.x as u32, region.size.y as u32);
         frame.buffer(wl_shm::Format::Xrgb8888, width, height, width * 4);
         if frame.version() >= 3 {
+            let whole = region == screen;
+            if whole {
+                frame.linux_dmabuf(
+                    smithay::reexports::drm::buffer::DrmFourcc::Xrgb8888 as u32,
+                    width,
+                    height,
+                );
+            }
             frame.buffer_done();
         }
     }

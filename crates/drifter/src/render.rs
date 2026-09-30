@@ -1411,6 +1411,41 @@ impl State {
         Ok((bytes, flipped))
     }
 
+    fn draw_into(
+        &mut self,
+        dmabuf: &mut smithay::backend::allocator::dmabuf::Dmabuf,
+        elements: &[Skin],
+        cursor: bool,
+    ) -> Result<(), String> {
+        use smithay::backend::allocator::Buffer;
+        use smithay::backend::renderer::Bind;
+        use smithay::backend::renderer::damage::OutputDamageTracker;
+        use smithay::utils::{Physical, Size};
+
+        let size = dmabuf.size();
+        if (f64::from(size.w), f64::from(size.h)) != (self.screen.x, self.screen.y) {
+            return Err("a screen copy buffer is not the size of the screen".to_string());
+        }
+        let size = Size::<i32, Physical>::from((size.w, size.h));
+        let shown = match cursor {
+            true => elements,
+            false => &elements[self.cursor_count.min(elements.len())..],
+        };
+        let clear = self.clear;
+        let mut target = self
+            .renderer
+            .bind(dmabuf)
+            .map_err(|e| format!("cannot draw into a screen copy buffer: {e}"))?;
+        let mut tracker = OutputDamageTracker::new(size, 1.0, Transform::Normal);
+        let result = tracker
+            .render_output(&mut self.renderer, &mut target, 0, shown, clear)
+            .map_err(|e| format!("cannot draw into a screen copy buffer: {e:?}"))?;
+        result
+            .sync
+            .wait()
+            .map_err(|_| "a screen copy was interrupted".to_string())
+    }
+
     fn serve_copies(&mut self, elements: &[Skin], changed: bool) {
         if self.copies.is_empty() {
             return;
@@ -1430,6 +1465,17 @@ impl State {
         }
         let mut shots: [Option<(Vec<u8>, bool)>; 2] = [None, None];
         for copy in ready {
+            if let Ok(dmabuf) = smithay::wayland::dmabuf::get_dmabuf(&copy.buffer) {
+                let mut dmabuf = dmabuf.clone();
+                match self.draw_into(&mut dmabuf, elements, copy.cursor) {
+                    Ok(()) => crate::screencopy::done(&copy),
+                    Err(error) => {
+                        eprintln!("drifter: {error}");
+                        copy.frame.failed();
+                    }
+                }
+                continue;
+            }
             let slot = usize::from(copy.cursor);
             if shots[slot].is_none() {
                 match self.capture(elements, copy.cursor) {
