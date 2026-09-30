@@ -218,6 +218,18 @@ fn kernel(mount: &Mount) -> Option<String> {
     Some(link.file_name()?.to_string_lossy().into_owned())
 }
 
+fn tell_the_system(role: drifter_core::desktop::Role, id: &str) {
+    let path = home().join(".config/mimeapps.list");
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    let out = drifter_core::desktop::set_default(&text, role, id);
+    if let Some(folder) = path.parent() {
+        let _ = std::fs::create_dir_all(folder);
+    }
+    if let Err(error) = std::fs::write(&path, out) {
+        eprintln!("drifter-settings: cannot save {}: {error}", path.display());
+    }
+}
+
 fn home() -> PathBuf {
     std::env::var_os("HOME")
         .map(PathBuf::from)
@@ -264,11 +276,13 @@ impl Settings {
     }
 
     fn load_row_icons(&mut self) {
+        let chosen: Vec<Launch> = (0..3).filter_map(|at| self.model.effective(at)).collect();
         let keys: Vec<String> = self
             .model
             .login
             .iter()
             .chain(&self.model.dock)
+            .chain(&chosen)
             .map(Model::icon_key)
             .collect();
         for key in keys {
@@ -470,6 +484,9 @@ impl Settings {
     }
 
     fn finish_add(&mut self, purpose: For, item: Launch) {
+        if let (For::Default(role), Launch::App(id)) = (purpose, &item) {
+            tell_the_system(role, id);
+        }
         self.model.add(purpose, item);
         self.sheet = None;
         self.load_row_icons();

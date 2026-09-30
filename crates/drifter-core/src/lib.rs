@@ -29,8 +29,8 @@ pub mod window;
 
 pub use camera::Camera;
 pub use config::{
-    Assets, ButtonName, Config, DockConfig, Launch, Modifier, Side, TrayConfig, Tunables,
-    WallpaperMode, WallpaperOrder,
+    AppsConfig, Assets, ButtonName, Config, DockConfig, Launch, Modifier, Side, TrayConfig,
+    Tunables, WallpaperMode, WallpaperOrder,
 };
 pub use cursor::Cursor;
 pub use drawer::{Drawer, Edge, Panel};

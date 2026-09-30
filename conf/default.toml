@@ -63,6 +63,12 @@ title = true
 # An app that keeps the screen awake, like a video player, holds it off.
 after = 0
 
+[apps]
+# Your file manager, terminal and web browser. Same forms as the dock:
+#   browser = "firefox-esr"   or   terminal = { command = "foot -e fish" }
+# A missing key uses the one the system names as default.
+# files = "pcmanfm"
+
 [login]
 # Started each time Drifter starts, in this order. Same forms as the dock.
 start = []

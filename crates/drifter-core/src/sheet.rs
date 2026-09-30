@@ -13,6 +13,7 @@ pub enum For {
     Dock,
     Folder,
     DockIcon(usize),
+    Default(crate::desktop::Role),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -205,6 +206,9 @@ impl Sheet {
             For::Dock => "Add to the dock",
             For::Folder => "Choose a wallpaper folder",
             For::DockIcon(_) => "Choose an icon",
+            For::Default(crate::desktop::Role::Files) => "Choose the file manager",
+            For::Default(crate::desktop::Role::Terminal) => "Choose the terminal",
+            For::Default(crate::desktop::Role::Browser) => "Choose the web browser",
         }
     }
 

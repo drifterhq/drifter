@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::config::{ButtonName, Config, Launch, Modifier, Side, WallpaperMode, WallpaperOrder};
+use crate::desktop::Role;
 use crate::geom::{Rect, Vec2};
 use crate::image::Image;
 use crate::paint::Canvas;
@@ -23,10 +24,11 @@ pub enum Section {
     Input,
     Lock,
     Login,
+    Apps,
 }
 
 impl Section {
-    pub const ALL: [Section; 8] = [
+    pub const ALL: [Section; 9] = [
         Section::Desktop,
         Section::Wallpaper,
         Section::Window,
@@ -35,6 +37,7 @@ impl Section {
         Section::Input,
         Section::Lock,
         Section::Login,
+        Section::Apps,
     ];
 
     pub fn name(self) -> &'static str {
@@ -47,6 +50,7 @@ impl Section {
             Section::Input => "Keyboard & Mouse",
             Section::Lock => "Lock Screen",
             Section::Login => "Login Items",
+            Section::Apps => "Default Apps",
         }
     }
 
@@ -60,6 +64,7 @@ impl Section {
             Section::Input => [150, 110, 220],
             Section::Lock => [96, 102, 120],
             Section::Login => [220, 80, 90],
+            Section::Apps => [214, 160, 40],
         }
     }
 }
@@ -101,6 +106,8 @@ pub struct Model {
     pub login: Vec<Launch>,
     pub dock: Vec<Launch>,
     pub shows: [bool; 5],
+    pub defaults: [Option<Launch>; 3],
+    pub system: [Option<String>; 3],
     pub wallpaper: Option<PathBuf>,
     pub folder: Option<PathBuf>,
     pub rotate: u64,
@@ -201,6 +208,8 @@ impl Model {
                 config.dock.settings,
                 config.dock.trash,
             ],
+            defaults: Role::ALL.map(|role| config.apps.get(role).cloned()),
+            system: Role::ALL.map(crate::desktop::system_default),
             wallpaper: config.wallpaper_path().map(clean),
             folder: config.wallpaper_folder().map(clean),
             rotate: every / UNITS[unit],
@@ -260,6 +269,20 @@ impl Model {
                 .unwrap_or_else(|| app.to_string()),
             (None, Some(command)) => command.to_string(),
             _ => String::new(),
+        }
+    }
+
+    pub fn effective(&self, at: usize) -> Option<Launch> {
+        self.defaults[at]
+            .clone()
+            .or_else(|| self.system[at].clone().map(Launch::App))
+    }
+
+    fn default_name(&self, at: usize) -> String {
+        match (&self.defaults[at], self.effective(at)) {
+            (Some(item), _) => self.name_of(item),
+            (None, Some(item)) => format!("{} (system default)", self.name_of(&item)),
+            (None, None) => "None found".to_string(),
         }
     }
 
@@ -370,10 +393,18 @@ impl Model {
                     )
                     .faint(),
                 );
-                for (at, (label, detail)) in SHOWS.iter().enumerate() {
+                for (at, label) in SHOWS.iter().enumerate() {
+                    let detail = match at {
+                        0..=2 => self
+                            .effective(at)
+                            .map(|item| self.name_of(&item))
+                            .unwrap_or_else(|| "None found".to_string()),
+                        3 => "This window".to_string(),
+                        _ => "Opens the trash folder".to_string(),
+                    };
                     rows.push(
                         Row::new(Id::DockShow(at), label, Control::Switch(self.shows[at]))
-                            .detail(detail),
+                            .detail(&detail),
                     );
                 }
                 vec![
@@ -516,6 +547,28 @@ impl Model {
                     .detail("Minutes with no key press or pointer move"),
                 ],
                 footer: Some("A video that is playing keeps the screen awake.".into()),
+                thumbs: None,
+            }],
+            Section::Apps => vec![Group {
+                header: None,
+                rows: Role::ALL
+                    .iter()
+                    .enumerate()
+                    .map(|(at, role)| {
+                        let marks = match self.defaults[at].is_some() {
+                            true => vec![Mark::Text("Choose"), Mark::Text("Reset")],
+                            false => vec![Mark::Text("Choose")],
+                        };
+                        let mut row = Row::new(Id::Default(at), role.label(), Control::Buttons(marks))
+                            .detail(&self.default_name(at));
+                        row.icon = self.effective(at).map(|item| Model::icon_key(&item));
+                        row
+                    })
+                    .collect(),
+                footer: Some(
+                    "The dock, the trash and other apps open these. Reset goes back to the system's choice."
+                        .into(),
+                ),
                 thumbs: None,
             }],
             Section::Login => {
@@ -720,6 +773,8 @@ impl Model {
                 self.dock.remove(at);
             }
             (Id::DockAdd, _) => return Some(Ask::Pick(For::Dock)),
+            (Id::Default(at), 0) if at < 3 => return Some(Ask::Pick(For::Default(Role::ALL[at]))),
+            (Id::Default(at), 1) if at < 3 => self.defaults[at] = None,
             _ => {}
         }
         None
@@ -729,6 +784,11 @@ impl Model {
         match purpose {
             For::Login => self.login.push(item),
             For::Dock => self.dock.push(item),
+            For::Default(role) => {
+                if let Some(at) = Role::ALL.iter().position(|each| *each == role) {
+                    self.defaults[at] = Some(item);
+                }
+            }
             _ => {}
         }
     }
@@ -870,6 +930,19 @@ impl Model {
         if self.dock != before.dock {
             put(&mut doc, "dock", "pinned", launches(&self.dock));
         }
+        for (at, key) in ["files", "terminal", "browser"].iter().enumerate() {
+            if self.defaults[at] != before.defaults[at] {
+                match &self.defaults[at] {
+                    Some(item) => put(&mut doc, "apps", key, launch(item)),
+                    None => {
+                        if let Some(table) = doc.get_mut("apps").and_then(|t| t.as_table_like_mut())
+                        {
+                            table.remove(key);
+                        }
+                    }
+                }
+            }
+        }
         for (at, key) in ["files", "terminal", "browser", "settings", "trash"]
             .iter()
             .enumerate()
@@ -908,29 +981,30 @@ fn button_word(name: ButtonName) -> &'static str {
 }
 
 fn launches(items: &[Launch]) -> toml_edit::Value {
-    let list: toml_edit::Array = items
-        .iter()
-        .map(|item| match item {
-            Launch::App(app) => toml_edit::Value::from(app.as_str()),
-            Launch::Full { app, command, icon } => {
-                let mut table = toml_edit::InlineTable::new();
-                if let Some(app) = app {
-                    table.insert("app", toml_edit::Value::from(app.as_str()));
-                }
-                if let Some(command) = command {
-                    table.insert("command", toml_edit::Value::from(command.as_str()));
-                }
-                if let Some(icon) = icon {
-                    table.insert(
-                        "icon",
-                        toml_edit::Value::from(icon.to_string_lossy().as_ref()),
-                    );
-                }
-                toml_edit::Value::InlineTable(table)
-            }
-        })
-        .collect();
+    let list: toml_edit::Array = items.iter().map(launch).collect();
     toml_edit::Value::Array(list)
+}
+
+fn launch(item: &Launch) -> toml_edit::Value {
+    match item {
+        Launch::App(app) => toml_edit::Value::from(app.as_str()),
+        Launch::Full { app, command, icon } => {
+            let mut table = toml_edit::InlineTable::new();
+            if let Some(app) = app {
+                table.insert("app", toml_edit::Value::from(app.as_str()));
+            }
+            if let Some(command) = command {
+                table.insert("command", toml_edit::Value::from(command.as_str()));
+            }
+            if let Some(icon) = icon {
+                table.insert(
+                    "icon",
+                    toml_edit::Value::from(icon.to_string_lossy().as_ref()),
+                );
+            }
+            toml_edit::Value::InlineTable(table)
+        }
+    }
 }
 
 fn put(doc: &mut toml_edit::DocumentMut, table: &str, key: &str, fresh: toml_edit::Value) {
@@ -981,14 +1055,15 @@ pub enum Id {
     Dock(usize),
     DockAdd,
     DockShow(usize),
+    Default(usize),
 }
 
-const SHOWS: [(&str, &str); 5] = [
-    ("File manager", "Your default app for folders"),
-    ("Terminal", "Your default terminal"),
-    ("Web browser", "Your default browser"),
-    ("Settings", "This window"),
-    ("Trash", "Opens the trash folder"),
+const SHOWS: [&str; 5] = [
+    "File manager",
+    "Terminal",
+    "Web browser",
+    "Settings",
+    "Trash",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1910,6 +1985,11 @@ fn paint_glyph(canvas: &mut Canvas, section: Section, icon: Rect) {
             canvas.circle(o + Vec2::new(11.0, 9.0), 2.5, section.tint(), 1.0);
             canvas.round_rect(r(5.0, 10.0, 12.0, 8.0), 1.5, white, 1.0);
         }
+        Section::Apps => {
+            for (x, y) in [(6.5, 6.5), (15.5, 6.5), (6.5, 15.5), (15.5, 15.5)] {
+                canvas.circle(o + Vec2::new(x, y), 3.0, white, 1.0);
+            }
+        }
         Section::Login => {
             canvas.round_rect(r(12.0, 4.0, 6.0, 14.0), 1.5, white, 1.0);
             canvas.round_rect(r(3.0, 10.0, 7.0, 2.0), 1.0, white, 1.0);
@@ -2150,6 +2230,43 @@ mod tests {
             look.hit(SIZE, Section::Dock, &after, 0.0, terminal.center()),
             Some(Hit::Change(Id::DockShow(1), Value::Switch(true)))
         );
+    }
+
+    #[test]
+    fn a_default_app_is_chosen_written_and_reset() {
+        let before = model(&Config::default());
+        let mut after = before.clone();
+        assert_eq!(
+            after.press(Id::Default(2), 0),
+            Some(Ask::Pick(For::Default(Role::Browser)))
+        );
+        after.add(
+            For::Default(Role::Browser),
+            Launch::App("firefox-esr".into()),
+        );
+        let out = after.write(&before, "").unwrap();
+        let back = Config::parse(&out).unwrap();
+        assert_eq!(back.apps.browser, Some(Launch::App("firefox-esr".into())));
+        assert_eq!(after.effective(2), Some(Launch::App("firefox-esr".into())));
+        let chosen = after.clone();
+        after.press(Id::Default(2), 1);
+        let reset = after.write(&chosen, &out).unwrap();
+        assert!(!reset.contains("firefox-esr"), "{reset}");
+        Config::parse(&reset).unwrap().validate().unwrap();
+    }
+
+    #[test]
+    fn the_dock_switches_name_the_app_they_show() {
+        let mut model = model(&Config::default());
+        model.system = [Some("pcmanfm".into()), None, None];
+        model
+            .names
+            .insert("pcmanfm".into(), "File Manager PCManFM".into());
+        let groups = model.groups(Section::Dock);
+        let rows = &groups[1].rows;
+        let files = &rows[rows.len() - 5];
+        assert_eq!(files.detail.as_deref(), Some("File Manager PCManFM"));
+        assert_eq!(rows[rows.len() - 4].detail.as_deref(), Some("None found"));
     }
 
     #[test]

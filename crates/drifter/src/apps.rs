@@ -163,54 +163,21 @@ pub fn launch(argv: &[String], socket: &str) {
 }
 
 pub fn file_manager() -> Option<String> {
-    handler("inode/directory").or_else(|| serving("inode/directory"))
+    drifter_core::desktop::system_default(drifter_core::desktop::Role::Files)
 }
 
-fn serving(mime: &str) -> Option<String> {
-    let mut roots = Vec::new();
-    if let Some(home) = std::env::var_os("HOME") {
-        roots.push(PathBuf::from(home).join(".local/share/applications"));
-    }
-    roots.push(PathBuf::from("/usr/share/applications"));
-
-    for root in roots {
-        let Ok(entries) = std::fs::read_dir(&root) else {
-            continue;
-        };
-        let mut found: Vec<String> = Vec::new();
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("desktop") {
-                continue;
-            }
-            let Ok(text) = std::fs::read_to_string(&path) else {
-                continue;
-            };
-            let serves = text
-                .lines()
-                .any(|line| line.starts_with("MimeType=") && line.contains(mime));
-            let hidden = text
-                .lines()
-                .any(|line| line.trim() == "NoDisplay=true" || line.trim() == "Hidden=true");
-            if serves
-                && !hidden
-                && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
-            {
-                found.push(stem.to_string());
-            }
-        }
-        found.sort();
-        if let Some(first) = found.into_iter().next() {
-            return Some(first);
-        }
-    }
-    None
-}
-
-pub fn open_folder(path: &str, socket: &str) {
-    if let Some(files) = file_manager()
-        && let Some(exec) = find(&files).and_then(|entry| entry.exec)
+pub fn open_folder(path: &str, chosen: Option<&drifter_core::Launch>, socket: &str) {
+    if let Some(command) = chosen.and_then(|item| item.command())
+        && let Some(mut argv) = drifter_core::exec::words(command).filter(|argv| !argv.is_empty())
     {
+        argv.push(path.to_string());
+        launch(&argv, socket);
+        return;
+    }
+    let app = chosen
+        .and_then(|item| item.app().map(str::to_string))
+        .or_else(file_manager);
+    if let Some(exec) = app.and_then(|id| find(&id)).and_then(|entry| entry.exec) {
         start(&exec, &[path], socket);
         return;
     }
@@ -221,112 +188,31 @@ pub fn open_folder(path: &str, socket: &str) {
     eprintln!("drifter: no file manager is installed, so {path} cannot be opened");
 }
 
-pub fn browser() -> Option<String> {
-    handler("x-scheme-handler/http").or_else(|| serving("x-scheme-handler/http"))
-}
+pub fn defaults(
+    dock: &drifter_core::DockConfig,
+    apps: &drifter_core::AppsConfig,
+) -> Vec<drifter_core::Launch> {
+    use drifter_core::desktop::Role;
 
-pub fn defaults(files: bool, terminal_on: bool, browser_on: bool) -> Vec<String> {
-    let mut chosen = Vec::new();
+    let mut chosen: Vec<drifter_core::Launch> = Vec::new();
     let wanted = [
-        (files, file_manager()),
-        (terminal_on, terminal()),
-        (browser_on, browser()),
+        (dock.files, Role::Files),
+        (dock.terminal, Role::Terminal),
+        (dock.browser, Role::Browser),
     ];
-    for (on, id) in wanted {
-        if let (true, Some(id)) = (on, id)
-            && !chosen.contains(&id)
+    for (on, role) in wanted {
+        if !on {
+            continue;
+        }
+        let item = apps
+            .get(role)
+            .cloned()
+            .or_else(|| drifter_core::desktop::system_default(role).map(drifter_core::Launch::App));
+        if let Some(item) = item
+            && !chosen.contains(&item)
         {
-            chosen.push(id);
+            chosen.push(item);
         }
     }
     chosen
-}
-
-fn handler(mime: &str) -> Option<String> {
-    for list in mime_lists() {
-        let Ok(text) = std::fs::read_to_string(&list) else {
-            continue;
-        };
-        let mut inside = false;
-        for line in text.lines() {
-            let line = line.trim();
-            if line.starts_with('[') {
-                inside = line == "[Default Applications]" || line == "[Added Associations]";
-                continue;
-            }
-            if !inside {
-                continue;
-            }
-            let Some((key, value)) = line.split_once('=') else {
-                continue;
-            };
-            if key.trim() != mime {
-                continue;
-            }
-            for entry in value.split(';').filter(|part| !part.trim().is_empty()) {
-                let id = entry.trim().trim_end_matches(".desktop").to_string();
-                if find(&id).is_some() {
-                    return Some(id);
-                }
-            }
-        }
-    }
-    None
-}
-
-fn mime_lists() -> Vec<PathBuf> {
-    let mut lists = Vec::new();
-    if let Some(home) = std::env::var_os("HOME") {
-        let home = PathBuf::from(home);
-        lists.push(home.join(".config/mimeapps.list"));
-        lists.push(home.join(".local/share/applications/mimeapps.list"));
-    }
-    lists.push(PathBuf::from("/usr/share/applications/mimeapps.list"));
-    lists.push(PathBuf::from("/usr/share/applications/defaults.list"));
-    lists
-}
-
-fn terminal() -> Option<String> {
-    if let Some(id) = handler("x-scheme-handler/terminal") {
-        return Some(id);
-    }
-
-    let mut roots = Vec::new();
-    if let Some(home) = std::env::var_os("HOME") {
-        roots.push(PathBuf::from(home).join(".local/share/applications"));
-    }
-    roots.push(PathBuf::from("/usr/share/applications"));
-
-    for root in roots {
-        let Ok(entries) = std::fs::read_dir(&root) else {
-            continue;
-        };
-        let mut found: Vec<String> = Vec::new();
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) != Some("desktop") {
-                continue;
-            }
-            let Ok(text) = std::fs::read_to_string(&path) else {
-                continue;
-            };
-            let terminal = text
-                .lines()
-                .any(|line| line.starts_with("Categories=") && line.contains("TerminalEmulator"));
-            let hidden = text
-                .lines()
-                .any(|line| line.trim() == "NoDisplay=true" || line.trim() == "Hidden=true");
-            if terminal
-                && !hidden
-                && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
-            {
-                found.push(stem.to_string());
-            }
-        }
-        found.sort();
-        if let Some(first) = found.into_iter().next() {
-            return Some(first);
-        }
-    }
-    None
 }

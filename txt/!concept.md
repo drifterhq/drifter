@@ -70,7 +70,7 @@ The font is Work Sans, under the SIL Open Font License, kept at `fonts/` with it
 
 The settings window is `drifter-settings`, a small Wayland program built from Drifter's own drawing code, with no toolkit. Drifter frames it like any window. The dock cog, a right click on empty desktop and the power menu open it, and a second open brings the running one back.
 
-A sidebar picks the page: Desktop, Wallpaper, Windows, Dock, Top Bar, Keyboard & Mouse, Lock Screen and Login Items. Each page is grouped rounded cards with switches, sliders, segmented buttons and small row buttons.
+A sidebar picks the page: Desktop, Wallpaper, Windows, Dock, Top Bar, Keyboard & Mouse, Lock Screen, Login Items and Default Apps. Each page is grouped rounded cards with switches, sliders, segmented buttons and small row buttons.
 
 - Desktop: world size, one slider from 2 to 10 screens a side, over a grid that shows the one screen seen at zoom 1.
 - Wallpaper: behavior, a folder chosen with a folder browser, a grid of thumbnails from it to click, and rotation every so many seconds, minutes or hours, at random or by name.
@@ -79,6 +79,7 @@ A sidebar picks the page: Desktop, Wallpaper, Windows, Dock, Top Bar, Keyboard &
 - Top Bar: bar height, text size, the clock and the system info.
 - Lock Screen: minutes with no input before the screen locks, or never.
 - Login Items: apps and command lines that start each time Drifter starts, added the same way as dock items.
+- Default Apps: the file manager, terminal and web browser, each chosen with the same picker or reset to the system's choice. Choosing an installed app also writes it to `~/.config/mimeapps.list`, so other apps agree. The dock switches name the app each one shows.
 
 Every change is written to `conf/drifter.toml` the moment it is made, sliders included while they move, and Drifter applies it within half a second. There is no save button and no restart.
 

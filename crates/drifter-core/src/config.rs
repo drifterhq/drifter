@@ -178,6 +178,27 @@ pub struct LockConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
+pub struct AppsConfig {
+    #[serde(default)]
+    pub files: Option<Launch>,
+    #[serde(default)]
+    pub terminal: Option<Launch>,
+    #[serde(default)]
+    pub browser: Option<Launch>,
+}
+
+impl AppsConfig {
+    pub fn get(&self, role: crate::desktop::Role) -> Option<&Launch> {
+        match role {
+            crate::desktop::Role::Files => self.files.as_ref(),
+            crate::desktop::Role::Terminal => self.terminal.as_ref(),
+            crate::desktop::Role::Browser => self.browser.as_ref(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct LoginConfig {
     #[serde(default)]
     pub start: Vec<Launch>,
@@ -345,6 +366,8 @@ pub struct Config {
     pub lock: LockConfig,
     #[serde(default)]
     pub login: LoginConfig,
+    #[serde(default)]
+    pub apps: AppsConfig,
     #[serde(default)]
     pub assets: Assets,
     #[serde(skip)]
@@ -570,7 +593,14 @@ impl Config {
                 "window order names close, minimize and maximize, each once".into(),
             ));
         }
-        for item in self.dock.pinned.iter().chain(&self.login.start) {
+        let chosen = [&self.apps.files, &self.apps.terminal, &self.apps.browser];
+        for item in self
+            .dock
+            .pinned
+            .iter()
+            .chain(&self.login.start)
+            .chain(chosen.into_iter().flatten())
+        {
             item.check().map_err(ConfigError::Invalid)?;
         }
         for metric in &self.tray.metrics {
