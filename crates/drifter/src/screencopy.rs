@@ -28,7 +28,7 @@ pub struct Copy {
 }
 
 pub fn global(display: &DisplayHandle) -> GlobalId {
-    display.create_global::<State, ZwlrScreencopyManagerV1, ()>(3, ())
+    display.create_global::<State, ZwlrScreencopyManagerV1, ()>(2, ())
 }
 
 impl GlobalDispatch<ZwlrScreencopyManagerV1, ()> for State {
