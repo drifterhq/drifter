@@ -302,6 +302,7 @@ pub struct State {
     media: Option<crate::media::Media>,
     notes_bus: Option<crate::notes::Notes>,
     copies: Vec<crate::screencopy::Copy>,
+    copied: std::collections::HashSet<smithay::reexports::wayland_server::backend::ClientId>,
     cursor_count: usize,
     shot_wanted: bool,
     cards: Vec<Card>,
@@ -1361,7 +1362,16 @@ impl State {
         self.screen
     }
 
-    pub fn queue_copy(&mut self, copy: crate::screencopy::Copy) {
+    pub fn queue_copy(&mut self, mut copy: crate::screencopy::Copy) {
+        use smithay::reexports::wayland_server::Resource;
+
+        let first = copy
+            .frame
+            .client()
+            .is_some_and(|client| self.copied.insert(client.id()));
+        if first {
+            copy.damage = false;
+        }
         let damage = copy.damage;
         self.copies.push(copy);
         if !damage {
@@ -4126,6 +4136,7 @@ pub fn open(
         notes_bus,
         cards: Vec::new(),
         copies: Vec::new(),
+        copied: std::collections::HashSet::new(),
         cursor_count: 0,
         shot_wanted: false,
         drawers: [Drawer::new(Edge::Top), Drawer::new(Edge::Bottom)],
