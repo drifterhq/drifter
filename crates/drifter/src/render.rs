@@ -159,6 +159,13 @@ impl Paper {
     }
 }
 
+struct Card {
+    note: drifter_core::notify::Note,
+    art: TextureBuffer<GlesTexture>,
+    tall: f64,
+    until: Option<Instant>,
+}
+
 struct Popover {
     items: Vec<Item>,
     rect: Rect,
@@ -291,6 +298,8 @@ pub struct State {
     hover_since: Option<(Vec2, Instant)>,
     tray_bus: Option<crate::tray::Tray>,
     media: Option<crate::media::Media>,
+    notes_bus: Option<crate::notes::Notes>,
+    cards: Vec<Card>,
     hud: Option<(TextureBuffer<GlesTexture>, Rect, Instant)>,
     drawers: [Drawer; 2],
     tunables: Tunables,
@@ -411,6 +420,9 @@ impl State {
         if let Some((_, _, until)) = self.hud.as_ref() {
             return Some(until.saturating_duration_since(Instant::now()).max(TICK));
         }
+        if !self.cards.is_empty() {
+            return Some(SECOND_TICK);
+        }
         if self.dwell.is_some()
             || self.leave.is_some()
             || self.animating()
@@ -438,6 +450,9 @@ impl State {
         let mut elements: Vec<Skin> = self.cursor_elements();
         if let Some((art, rect, _)) = self.hud.as_ref() {
             elements.push(Skin::Texture(element(art, *rect, 1.0)));
+        }
+        for (card, rect) in self.cards.iter().zip(self.card_rects()) {
+            elements.push(Skin::Texture(element(&card.art, rect, 1.0)));
         }
         self.switch_elements(&mut elements);
         self.layer_elements(
@@ -1287,6 +1302,7 @@ impl State {
         if self.hud.as_ref().is_some_and(|(_, _, until)| now >= *until) {
             self.hud = None;
         }
+        self.expire_cards(now);
         self.wind_the_clock();
         self.wind_the_stats();
         self.wind_titles();
@@ -1972,7 +1988,10 @@ impl State {
     }
 
     fn over_own_parts(&self) -> bool {
-        self.over_drawer()
+        self.card_rects()
+            .iter()
+            .any(|rect| rect.contains(self.pointer))
+            || self.over_drawer()
             || self
                 .popover
                 .as_ref()
@@ -2872,6 +2891,9 @@ impl State {
     }
 
     fn press_own(&mut self, code: u32) -> bool {
+        if self.press_card(code) {
+            return true;
+        }
         if self.press_overview() {
             return true;
         }
@@ -3062,6 +3084,107 @@ impl State {
             Err(error) => eprintln!("drifter: {error}"),
         }
         self.kick_now();
+    }
+
+    fn show_note(&mut self, note: drifter_core::notify::Note) {
+        let Some(font) = self.font.as_ref() else {
+            return;
+        };
+        let look = drifter_core::notify::Look::default();
+        let tall = look.height(&note, font);
+        let image = look.paint(&note, font);
+        let art = match upload(&mut self.renderer, Some(&image), "notification") {
+            Ok(Some(art)) => art,
+            Ok(None) => return,
+            Err(error) => {
+                eprintln!("drifter: {error}");
+                return;
+            }
+        };
+        let until = note
+            .expire
+            .map(|ms| Instant::now() + Duration::from_millis(u64::from(ms)));
+        let card = Card {
+            note,
+            art,
+            tall,
+            until,
+        };
+        match self
+            .cards
+            .iter()
+            .position(|held| held.note.id == card.note.id)
+        {
+            Some(at) => self.cards[at] = card,
+            None => self.cards.insert(0, card),
+        }
+        while self.cards.len() > drifter_core::notify::MOST {
+            if let Some(old) = self.cards.pop() {
+                self.tell_closed(old.note.id, 1);
+            }
+        }
+        self.kick_now();
+    }
+
+    fn close_note(&mut self, id: u32, reason: u32) {
+        let before = self.cards.len();
+        self.cards.retain(|card| card.note.id != id);
+        if self.cards.len() != before {
+            self.tell_closed(id, reason);
+            self.kick_now();
+        }
+    }
+
+    fn tell_closed(&self, id: u32, reason: u32) {
+        if let Some(bus) = self.notes_bus.as_ref() {
+            bus.closed(id, reason);
+        }
+    }
+
+    fn card_rects(&self) -> Vec<Rect> {
+        let heights: Vec<f64> = self.cards.iter().map(|card| card.tall).collect();
+        drifter_core::notify::Look::default().stack(self.screen, &heights)
+    }
+
+    fn expire_cards(&mut self, now: Instant) {
+        let rects = self.card_rects();
+        let over = rects.iter().position(|rect| rect.contains(self.pointer));
+        let mut gone = Vec::new();
+        for (at, card) in self.cards.iter_mut().enumerate() {
+            if Some(at) == over {
+                if let Some(until) = card.until.as_mut() {
+                    *until = (*until).max(now + Duration::from_secs(2));
+                }
+                continue;
+            }
+            if card.until.is_some_and(|until| now >= until) {
+                gone.push(card.note.id);
+            }
+        }
+        for id in gone {
+            self.close_note(id, 1);
+        }
+    }
+
+    fn press_card(&mut self, code: u32) -> bool {
+        let Some(at) = self
+            .card_rects()
+            .iter()
+            .position(|rect| rect.contains(self.pointer))
+        else {
+            return false;
+        };
+        let id = self.cards[at].note.id;
+        if code == BTN_LEFT
+            && let (Some(key), Some(bus)) = (
+                self.cards[at].note.default_action(),
+                self.notes_bus.as_ref(),
+            )
+        {
+            bus.action(id, key);
+        }
+        self.close_note(id, 2);
+        true
     }
 
     fn switch_commit(&mut self) {
@@ -3292,6 +3415,20 @@ impl Screen {
 
         for item in state.login.clone() {
             crate::apps::run(&item, &state.socket);
+        }
+        if std::env::var_os("DRIFTER_RECOVERED").is_some()
+            && let Some(id) = state.notes_bus.as_ref().map(|bus| bus.next_id())
+        {
+            let log = Config::state_dir().join("crash.log");
+            state.show_note(drifter_core::notify::Note {
+                id,
+                app: "Drifter".to_string(),
+                summary: "Drifter restarted after a crash".to_string(),
+                body: format!("What happened is in {}", log.display()),
+                actions: Vec::new(),
+                expire: Some(10_000),
+                icon: None,
+            });
         }
 
         events
@@ -3591,6 +3728,13 @@ pub fn open(
             (None, None)
         }
     };
+    let (notes_bus, note_events) = match crate::notes::start() {
+        Ok((bus, events)) => (Some(bus), Some(events)),
+        Err(error) => {
+            eprintln!("drifter: no notifications: {error}");
+            (None, None)
+        }
+    };
     let (media, media_readings) = match crate::media::start() {
         Ok((media, readings)) => (Some(media), Some(readings)),
         Err(error) => {
@@ -3755,6 +3899,8 @@ pub fn open(
         tray_bus,
         media,
         hud: None,
+        notes_bus,
+        cards: Vec::new(),
         drawers: [Drawer::new(Edge::Top), Drawer::new(Edge::Bottom)],
         tunables,
         screen,
@@ -3843,6 +3989,19 @@ pub fn open(
                 }
             })
             .map_err(|e| format!("cannot watch the tray: {e}"))?;
+    }
+
+    if let Some(events) = note_events {
+        handle
+            .insert_source(events, |event, _, state: &mut State| {
+                if let ChannelEvent::Msg(event) = event {
+                    match event {
+                        crate::notes::Event::Show(note) => state.show_note(note),
+                        crate::notes::Event::Close(id) => state.close_note(id, 3),
+                    }
+                }
+            })
+            .map_err(|e| format!("cannot watch the notifications: {e}"))?;
     }
 
     if let Some(readings) = media_readings {

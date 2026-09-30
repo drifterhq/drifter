@@ -12,6 +12,8 @@ mod cursors;
 #[cfg(target_os = "linux")]
 mod media;
 #[cfg(target_os = "linux")]
+mod notes;
+#[cfg(target_os = "linux")]
 mod power;
 #[cfg(target_os = "linux")]
 mod protocols;

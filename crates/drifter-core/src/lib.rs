@@ -14,6 +14,7 @@ pub mod lock;
 pub mod menu;
 pub mod mode;
 pub mod motion;
+pub mod notify;
 pub mod paint;
 pub mod power;
 pub mod settings;
