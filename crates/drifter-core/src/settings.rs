@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::config::{ButtonName, Config, Launch, Modifier, Side, WallpaperMode, WallpaperOrder};
+use crate::config::{
+    ButtonName, Config, FASTEST, Launch, Modifier, Side, ThreeTap, Touchpad, WallpaperMode,
+    WallpaperOrder,
+};
 use crate::desktop::Role;
 use crate::geom::{Rect, Vec2};
 use crate::image::Image;
@@ -22,19 +25,21 @@ pub enum Section {
     Dock,
     TopBar,
     Input,
+    Touchpad,
     Lock,
     Login,
     Apps,
 }
 
 impl Section {
-    pub const ALL: [Section; 9] = [
+    pub const ALL: [Section; 10] = [
         Section::Desktop,
         Section::Wallpaper,
         Section::Window,
         Section::Dock,
         Section::TopBar,
         Section::Input,
+        Section::Touchpad,
         Section::Lock,
         Section::Login,
         Section::Apps,
@@ -48,6 +53,7 @@ impl Section {
             Section::Dock => "Dock",
             Section::TopBar => "Top Bar",
             Section::Input => "Keyboard & Mouse",
+            Section::Touchpad => "Touchpad",
             Section::Lock => "Lock Screen",
             Section::Login => "Login Items",
             Section::Apps => "Default Apps",
@@ -62,6 +68,7 @@ impl Section {
             Section::Dock => [120, 128, 146],
             Section::TopBar => [240, 140, 50],
             Section::Input => [150, 110, 220],
+            Section::Touchpad => [60, 150, 110],
             Section::Lock => [96, 102, 120],
             Section::Login => [220, 80, 90],
             Section::Apps => [214, 160, 40],
@@ -87,6 +94,7 @@ pub struct Model {
     pub world: u32,
     pub wallpaper_mode: WallpaperMode,
     pub modifier: Modifier,
+    pub touchpad: Touchpad,
     pub top: f64,
     pub bottom: f64,
     pub text_size: f64,
@@ -177,6 +185,7 @@ impl Model {
                 .clamp(WORLD_LEAST, WORLD_MOST),
             wallpaper_mode: config.workspace.wallpaper_mode,
             modifier: config.input.modifier,
+            touchpad: config.touchpad,
             top: config.drawers.top,
             bottom: config.drawers.bottom,
             text_size: config.tray.size,
@@ -527,6 +536,7 @@ impl Model {
                 ),
                 thumbs: None,
             }],
+            Section::Touchpad => self.touchpad_groups(),
             Section::Lock => vec![Group {
                 header: None,
                 rows: vec![
@@ -591,6 +601,68 @@ impl Model {
                 }]
             }
         }
+    }
+
+    fn touchpad_groups(&self) -> Vec<Group> {
+        let pad = &self.touchpad;
+        vec![
+            Group {
+                header: None,
+                rows: vec![
+                    Row::new(
+                        Id::Speed,
+                        "Pointer speed",
+                        Control::Slider {
+                            least: 0.0,
+                            most: f64::from(FASTEST),
+                            value: f64::from(pad.speed),
+                            unit: "",
+                            zero: None,
+                        },
+                    ),
+                    Row::new(Id::Accel, "Acceleration", Control::Switch(pad.accel))
+                        .detail("A fast finger moves the pointer farther"),
+                    Row::new(
+                        Id::Natural,
+                        "Natural scrolling",
+                        Control::Switch(pad.natural),
+                    )
+                    .detail("The page follows your fingers"),
+                    Row::new(
+                        Id::Typing,
+                        "Ignore while typing",
+                        Control::Switch(pad.ignore_while_typing),
+                    ),
+                ],
+                footer: None,
+                thumbs: None,
+            },
+            Group {
+                header: Some("Taps and swipes"),
+                rows: vec![
+                    Row::new(Id::Tap, "Tap to click", Control::Switch(pad.tap))
+                        .detail("One finger is left, two is right"),
+                    Row::new(
+                        Id::ThreeTap,
+                        "Three finger tap",
+                        Control::Segments {
+                            options: vec!["Overview", "Middle"],
+                            chosen: match pad.three_tap {
+                                ThreeTap::Overview => 0,
+                                ThreeTap::Middle => 1,
+                            },
+                        },
+                    )
+                    .enabled(pad.tap),
+                    Row::new(Id::Swipe, "Three finger swipe", Control::Switch(pad.swipe))
+                        .detail("Pans the camera"),
+                ],
+                footer: Some(
+                    "Overview zooms out like the hot corner. Tap again to fly back in.".into(),
+                ),
+                thumbs: None,
+            },
+        ]
     }
 
     fn clock_rows(&self) -> Vec<Row> {
@@ -768,6 +840,20 @@ impl Model {
                     _ => Modifier::Ctrl,
                 }
             }
+            (Id::Speed, Value::Number(n)) => {
+                self.touchpad.speed = n.round().clamp(0.0, f64::from(FASTEST)) as u32
+            }
+            (Id::Accel, Value::Switch(on)) => self.touchpad.accel = on,
+            (Id::Natural, Value::Switch(on)) => self.touchpad.natural = on,
+            (Id::Typing, Value::Switch(on)) => self.touchpad.ignore_while_typing = on,
+            (Id::Tap, Value::Switch(on)) => self.touchpad.tap = on,
+            (Id::ThreeTap, Value::Choice(n)) => {
+                self.touchpad.three_tap = match n {
+                    0 => ThreeTap::Overview,
+                    _ => ThreeTap::Middle,
+                }
+            }
+            (Id::Swipe, Value::Switch(on)) => self.touchpad.swipe = on,
             (Id::Day, Value::Switch(on)) => self.day = on,
             (Id::Date, Value::Switch(on)) => self.date = on,
             (Id::Seconds, Value::Switch(on)) => self.seconds = on,
@@ -907,6 +993,33 @@ impl Model {
                 Modifier::Ctrl => "ctrl",
             };
             put(&mut doc, "input", "modifier", word(key));
+        }
+        let (pad, was) = (&self.touchpad, &before.touchpad);
+        let switches = [
+            ("tap", pad.tap, was.tap),
+            ("swipe", pad.swipe, was.swipe),
+            ("natural", pad.natural, was.natural),
+            ("accel", pad.accel, was.accel),
+            (
+                "ignore_while_typing",
+                pad.ignore_while_typing,
+                was.ignore_while_typing,
+            ),
+        ];
+        for (key, now, then) in switches {
+            if now != then {
+                put(&mut doc, "touchpad", key, toml_edit::Value::from(now));
+            }
+        }
+        if pad.three_tap != was.three_tap {
+            let tap = match pad.three_tap {
+                ThreeTap::Overview => "overview",
+                ThreeTap::Middle => "middle",
+            };
+            put(&mut doc, "touchpad", "three_tap", word(tap));
+        }
+        if pad.speed != was.speed {
+            put(&mut doc, "touchpad", "speed", int(f64::from(pad.speed)));
         }
         if self.top != before.top {
             put(&mut doc, "drawers", "top", int(self.top));
@@ -1087,6 +1200,13 @@ pub enum Id {
     DockShow(usize),
     Default(usize),
     Custom,
+    Speed,
+    Accel,
+    Natural,
+    Typing,
+    Tap,
+    ThreeTap,
+    Swipe,
 }
 
 const SHOWS: [&str; 5] = [
@@ -2011,6 +2131,13 @@ fn paint_glyph(canvas: &mut Canvas, section: Section, icon: Rect) {
             }
             canvas.round_rect(r(6.0, 12.0, 10.0, 2.0), 0.5, key, 1.0);
         }
+        Section::Touchpad => {
+            canvas.round_rect(r(3.0, 4.0, 16.0, 14.0), 2.5, white, 1.0);
+            let dot = section.tint();
+            for x in [7.0, 11.0, 15.0] {
+                canvas.circle(o + Vec2::new(x, 11.0), 1.5, dot, 1.0);
+            }
+        }
         Section::Lock => {
             canvas.circle(o + Vec2::new(11.0, 9.0), 4.5, white, 1.0);
             canvas.circle(o + Vec2::new(11.0, 9.0), 2.5, section.tint(), 1.0);
@@ -2183,6 +2310,26 @@ mod tests {
         let back = Config::parse(&after.write(&before, text).unwrap()).unwrap();
         assert_eq!(back.input.modifier, Modifier::Super);
         assert_eq!(back.workspace.wallpaper_mode, WallpaperMode::Parallax);
+    }
+
+    #[test]
+    fn touchpad_changes_write_the_touchpad_table() {
+        let text = "[input]\nmodifier = \"ctrl\"\n";
+        let before = model(&config(text));
+        let mut after = before.clone();
+        after.set(Id::ThreeTap, Value::Choice(1));
+        after.set(Id::Natural, Value::Switch(true));
+        after.set(Id::Speed, Value::Number(7.4));
+        after.set(Id::Tap, Value::Switch(false));
+        let out = after.write(&before, text).unwrap();
+        let back = Config::parse(&out).unwrap();
+        assert_eq!(back.touchpad.three_tap, ThreeTap::Middle);
+        assert!(back.touchpad.natural);
+        assert!(!back.touchpad.tap);
+        assert_eq!(back.touchpad.speed, 7);
+        assert!(back.touchpad.swipe && back.touchpad.accel);
+        assert!(!out.contains("swipe"));
+        back.validate().unwrap();
     }
 
     #[test]

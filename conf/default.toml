@@ -29,6 +29,23 @@ wallpaper_order = "random"
 # Choices: super, alt, ctrl.
 modifier = "ctrl"
 
+[touchpad]
+# Tap the pad to click. One finger is left, two is right.
+tap = true
+# A three finger tap: "overview" zooms out like the hot corner, and
+# again flies back in. "middle" is a middle click.
+three_tap = "overview"
+# Swipe with three fingers to pan the camera.
+swipe = true
+# The page follows your fingers, as on a phone.
+natural = false
+# Pointer speed, 0 to 10. 5 is the middle.
+speed = 5
+# A fast finger moves the pointer farther.
+accel = true
+# The pad does nothing while you type.
+ignore_while_typing = true
+
 [drawers]
 # Bar heights in pixels. Minimum 16.
 # Top holds the tray. Bottom holds the dock.

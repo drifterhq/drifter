@@ -240,6 +240,8 @@ pub struct State {
     grab: Grab,
     modifier: bool,
     fingers: u32,
+    touch: drifter_core::Touchpad,
+    touchpads: Vec<smithay::reexports::input::Device>,
     holds: drifter_core::Modifier,
     last_title: Option<(Vec2, Instant)>,
     held: Option<usize>,
@@ -1985,17 +1987,30 @@ impl State {
             Some(since) => {
                 if Instant::now().duration_since(since) >= self.tunables.hot_corner_dwell {
                     self.corner_since = None;
-                    let framed: Vec<Rect> = self
-                        .windows
-                        .iter()
-                        .filter(|window| window.placed && !window.hidden)
-                        .map(|window| self.chrome.layout(window.content).frame)
-                        .collect();
-                    let target =
-                        Camera::showing(&framed, self.screen, self.chrome.title * 2.0, self.world);
-                    self.fly_to(target);
+                    self.fly_out();
                 }
             }
+        }
+    }
+
+    fn fly_out(&mut self) {
+        let framed: Vec<Rect> = self
+            .windows
+            .iter()
+            .filter(|window| window.placed && !window.hidden)
+            .map(|window| self.chrome.layout(window.content).frame)
+            .collect();
+        let target = Camera::showing(&framed, self.screen, self.chrome.title * 2.0, self.world);
+        self.fly_to(target);
+    }
+
+    fn three_tap(&mut self) {
+        if self.flight.is_some() {
+            return;
+        }
+        self.corner_since = None;
+        if !self.press_overview() {
+            self.fly_out();
         }
     }
 
@@ -2148,6 +2163,12 @@ impl State {
         self.mode = config.workspace.wallpaper_mode;
         self.holds = config.input.modifier;
         self.modifier = false;
+        if self.touch != config.touchpad {
+            self.touch = config.touchpad;
+            for pad in &mut self.touchpads {
+                set_up_touchpad(pad, &self.touch);
+            }
+        }
 
         let heights = [config.drawers.top, config.drawers.bottom];
         for edge in Edge::ALL {
@@ -3683,7 +3704,12 @@ impl State {
             self.prompt_key(key);
             return;
         }
-        if self.lock.is_some() && !matches!(event, InputEvent::DeviceAdded { .. }) {
+        if self.lock.is_some()
+            && !matches!(
+                event,
+                InputEvent::DeviceAdded { .. } | InputEvent::DeviceRemoved { .. }
+            )
+        {
             self.locked_input(event);
             return;
         }
@@ -3717,7 +3743,19 @@ impl State {
                 self.tell_pointer(event.time_msec());
             }
             InputEvent::PointerButton { event } => {
-                self.tell_button(event.button_code(), event.state(), event.time_msec());
+                use smithay::backend::input::Event;
+                let code = event.button_code();
+                if code == BTN_MIDDLE
+                    && self.touch.three_tap == drifter_core::ThreeTap::Overview
+                    && self.held_by_fullscreen().is_none()
+                    && is_touchpad(&event.device())
+                {
+                    if event.state() == ButtonState::Pressed {
+                        self.three_tap();
+                    }
+                    return;
+                }
+                self.tell_button(code, event.state(), event.time_msec());
             }
             InputEvent::Keyboard { event }
                 if event.state() == KeyState::Pressed
@@ -3751,22 +3789,17 @@ impl State {
             }
             InputEvent::DeviceAdded { mut device } => {
                 use smithay::reexports::input::AccelProfile;
-                if device.config_accel_is_available() {
+                if is_touchpad(&device) {
+                    set_up_touchpad(&mut device, &self.touch);
+                    self.touchpads.push(device.clone());
+                } else if device.config_accel_is_available() {
                     let _ = device.config_accel_set_profile(AccelProfile::Flat);
                     let _ = device.config_accel_set_speed(0.0);
                 }
-                if device.config_tap_finger_count() > 0 {
-                    let _ = device.config_tap_set_enabled(true);
-                }
-                if device
-                    .config_scroll_methods()
-                    .contains(&smithay::reexports::input::ScrollMethod::TwoFinger)
-                {
-                    let _ = device.config_scroll_set_method(
-                        smithay::reexports::input::ScrollMethod::TwoFinger,
-                    );
-                }
                 println!("drifter: input {}", device.name());
+            }
+            InputEvent::DeviceRemoved { device } => {
+                self.touchpads.retain(|pad| *pad != device);
             }
             InputEvent::GestureSwipeBegin { event } => {
                 use smithay::backend::input::GestureBeginEvent;
@@ -3774,7 +3807,7 @@ impl State {
             }
             InputEvent::GestureSwipeUpdate { event } => {
                 use smithay::backend::input::GestureSwipeUpdateEvent;
-                if self.fingers < 3 || self.held_by_fullscreen().is_some() {
+                if self.fingers < 3 || !self.touch.swipe || self.held_by_fullscreen().is_some() {
                     return;
                 }
                 let moved = Vec2::new(event.delta_x(), event.delta_y());
@@ -4268,6 +4301,8 @@ pub fn open(
         grab: Grab::None,
         modifier: false,
         fingers: 0,
+        touch: config.touchpad,
+        touchpads: Vec::new(),
         holds: config.input.modifier,
         last_title: None,
         held: None,
@@ -4952,6 +4987,36 @@ fn element(
 }
 
 const TILE_SPAN: u32 = 8192;
+
+fn is_touchpad(device: &smithay::reexports::input::Device) -> bool {
+    device.config_tap_finger_count() > 0
+}
+
+fn set_up_touchpad(device: &mut smithay::reexports::input::Device, pad: &drifter_core::Touchpad) {
+    use smithay::reexports::input::{AccelProfile, ScrollMethod, TapButtonMap};
+    let _ = device.config_tap_set_enabled(pad.tap);
+    let _ = device.config_tap_set_button_map(TapButtonMap::LeftRightMiddle);
+    if device
+        .config_scroll_methods()
+        .contains(&ScrollMethod::TwoFinger)
+    {
+        let _ = device.config_scroll_set_method(ScrollMethod::TwoFinger);
+    }
+    if device.config_scroll_has_natural_scroll() {
+        let _ = device.config_scroll_set_natural_scroll_enabled(pad.natural);
+    }
+    if device.config_dwt_is_available() {
+        let _ = device.config_dwt_set_enabled(pad.ignore_while_typing);
+    }
+    if device.config_accel_is_available() {
+        let profile = match pad.accel {
+            true => AccelProfile::Adaptive,
+            false => AccelProfile::Flat,
+        };
+        let _ = device.config_accel_set_profile(profile);
+        let _ = device.config_accel_set_speed(pad.libinput_speed());
+    }
+}
 
 fn tile_skin(name: &str, image: Image) -> Image {
     let piece = ChromePiece::ALL.into_iter().find(|piece| {

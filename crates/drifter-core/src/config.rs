@@ -347,6 +347,60 @@ pub struct Input {
     pub modifier: Modifier,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ThreeTap {
+    #[default]
+    Overview,
+    Middle,
+}
+
+pub const FASTEST: u32 = 10;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Touchpad {
+    #[serde(default = "yes")]
+    pub tap: bool,
+    #[serde(default)]
+    pub three_tap: ThreeTap,
+    #[serde(default = "yes")]
+    pub swipe: bool,
+    #[serde(default)]
+    pub natural: bool,
+    #[serde(default = "middle_speed")]
+    pub speed: u32,
+    #[serde(default = "yes")]
+    pub accel: bool,
+    #[serde(default = "yes")]
+    pub ignore_while_typing: bool,
+}
+
+fn middle_speed() -> u32 {
+    FASTEST / 2
+}
+
+impl Touchpad {
+    pub fn libinput_speed(&self) -> f64 {
+        let half = f64::from(FASTEST) / 2.0;
+        ((f64::from(self.speed.min(FASTEST)) - half) / half).clamp(-1.0, 1.0)
+    }
+}
+
+impl Default for Touchpad {
+    fn default() -> Self {
+        Touchpad {
+            tap: true,
+            three_tap: ThreeTap::default(),
+            swipe: true,
+            natural: false,
+            speed: middle_speed(),
+            accel: true,
+            ignore_while_typing: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -354,6 +408,8 @@ pub struct Config {
     pub workspace: Workspace,
     #[serde(default)]
     pub input: Input,
+    #[serde(default)]
+    pub touchpad: Touchpad,
     #[serde(default)]
     pub drawers: Drawers,
     #[serde(default)]
@@ -586,6 +642,11 @@ impl Config {
             return Err(ConfigError::Invalid(
                 "tray size is text height in pixels and must be at least 6".into(),
             ));
+        }
+        if self.touchpad.speed > FASTEST {
+            return Err(ConfigError::Invalid(format!(
+                "touchpad speed runs from 0 to {FASTEST}"
+            )));
         }
         if self.lock.after > LONGEST_LOCK {
             return Err(ConfigError::Invalid(format!(
@@ -939,6 +1000,25 @@ mod tests {
         assert_eq!(config.workspace.height, 3);
         assert_eq!(config.workspace.wallpaper_mode, WallpaperMode::Pan);
         assert_eq!(config.input.modifier, Modifier::Super);
+    }
+
+    #[test]
+    fn touchpad_speed_maps_onto_the_libinput_range() {
+        let at = |speed| {
+            Touchpad {
+                speed,
+                ..Touchpad::default()
+            }
+            .libinput_speed()
+        };
+        assert_eq!(at(0), -1.0);
+        assert_eq!(at(FASTEST / 2), 0.0);
+        assert_eq!(at(FASTEST), 1.0);
+        let fast = Config::parse("[touchpad]\nspeed = 11\n").unwrap();
+        assert!(fast.validate().is_err());
+        let word = Config::parse("[touchpad]\nthree_tap = \"middle\"\n").unwrap();
+        assert_eq!(word.touchpad.three_tap, ThreeTap::Middle);
+        assert!(word.touchpad.tap);
     }
 
     #[test]
