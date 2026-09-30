@@ -37,7 +37,7 @@ sudo apt-get install -y \
     xwayland libxcb1-dev libxcb-cursor-dev clang \
     grim slurp pipewire pipewire-pulse wireplumber \
     xdg-desktop-portal xdg-desktop-portal-wlr xdg-desktop-portal-gtk \
-    polkitd libnotify-bin
+    polkitd libnotify-bin firefox-esr
 
 sudo systemctl enable --now seatd
 systemctl --user enable --now pipewire.socket pipewire-pulse.socket wireplumber.service
