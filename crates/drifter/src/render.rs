@@ -52,6 +52,7 @@ const ESCAPE: u32 = 9;
 const KEY_L: u32 = 46;
 const KEY_TAB: u32 = 23;
 const KEY_F4: u32 = 70;
+const KEY_PRINT: u32 = 107;
 const LOCK_PATIENCE: Duration = Duration::from_secs(30);
 const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
@@ -134,6 +135,7 @@ enum Shortcut {
     Switch { back: bool },
     Close,
     Media(crate::media::Key),
+    Shot,
     Swallow,
 }
 
@@ -299,6 +301,9 @@ pub struct State {
     tray_bus: Option<crate::tray::Tray>,
     media: Option<crate::media::Media>,
     notes_bus: Option<crate::notes::Notes>,
+    copies: Vec<crate::screencopy::Copy>,
+    cursor_count: usize,
+    shot_wanted: bool,
     cards: Vec<Card>,
     hud: Option<(TextureBuffer<GlesTexture>, Rect, Instant)>,
     drawers: [Drawer; 2],
@@ -448,6 +453,7 @@ impl State {
             return self.lock_elements();
         }
         let mut elements: Vec<Skin> = self.cursor_elements();
+        self.cursor_count = elements.len();
         if let Some((art, rect, _)) = self.hud.as_ref() {
             elements.push(Skin::Texture(element(art, *rect, 1.0)));
         }
@@ -1316,7 +1322,7 @@ impl State {
             renderer,
             ..
         } = self;
-        let result = compositor
+        let empty = compositor
             .render_frame(renderer, &elements, clear, FrameFlags::DEFAULT)
             .map_err(|e| {
                 if frames == 0 {
@@ -1328,9 +1334,16 @@ impl State {
                 } else {
                     format!("render failed after {frames} frames: {e}")
                 }
-            })?;
+            })?
+            .is_empty;
 
-        if result.is_empty {
+        self.serve_copies(&elements, !empty);
+        if self.shot_wanted {
+            self.shot_wanted = false;
+            self.screenshot(&elements);
+        }
+
+        if empty {
             self.frames_later();
             return Ok(false);
         }
@@ -1342,6 +1355,153 @@ impl State {
         self.awaiting = true;
         self.tell_clients();
         Ok(true)
+    }
+
+    pub fn screen_size(&self) -> Vec2 {
+        self.screen
+    }
+
+    pub fn queue_copy(&mut self, copy: crate::screencopy::Copy) {
+        let damage = copy.damage;
+        self.copies.push(copy);
+        if !damage {
+            self.kick_now();
+        }
+    }
+
+    fn capture(&mut self, elements: &[Skin], cursor: bool) -> Result<(Vec<u8>, bool), String> {
+        use smithay::backend::renderer::damage::OutputDamageTracker;
+        use smithay::backend::renderer::{Bind, ExportMem, Offscreen};
+        use smithay::utils::{Buffer as BufferCoord, Physical, Rectangle, Size};
+
+        let size = Size::<i32, Physical>::from((self.screen.x as i32, self.screen.y as i32));
+        let buffer_size = Size::<i32, BufferCoord>::from((size.w, size.h));
+        let mut texture: GlesTexture = Offscreen::<GlesTexture>::create_buffer(
+            &mut self.renderer,
+            DrmFourcc::Abgr8888,
+            buffer_size,
+        )
+        .map_err(|e| format!("no offscreen buffer: {e}"))?;
+        let mut target = self
+            .renderer
+            .bind(&mut texture)
+            .map_err(|e| format!("cannot draw offscreen: {e}"))?;
+        let shown = match cursor {
+            true => elements,
+            false => &elements[self.cursor_count.min(elements.len())..],
+        };
+        let mut tracker = OutputDamageTracker::new(size, 1.0, Transform::Normal);
+        tracker
+            .render_output(&mut self.renderer, &mut target, 0, shown, self.clear)
+            .map_err(|e| format!("cannot draw offscreen: {e:?}"))?;
+        let mapping = self
+            .renderer
+            .copy_framebuffer(
+                &target,
+                Rectangle::from_size(buffer_size),
+                DrmFourcc::Abgr8888,
+            )
+            .map_err(|e| format!("cannot read the screen back: {e}"))?;
+        let flipped = smithay::backend::renderer::TextureMapping::flipped(&mapping);
+        let bytes = self
+            .renderer
+            .map_texture(&mapping)
+            .map_err(|e| format!("cannot read the screen back: {e}"))?
+            .to_vec();
+        Ok((bytes, flipped))
+    }
+
+    fn serve_copies(&mut self, elements: &[Skin], changed: bool) {
+        if self.copies.is_empty() {
+            return;
+        }
+        let (ready, waiting): (Vec<_>, Vec<_>) = std::mem::take(&mut self.copies)
+            .into_iter()
+            .partition(|copy| !copy.damage || changed);
+        self.copies = waiting;
+        if ready.is_empty() {
+            return;
+        }
+        if self.lock.is_some() {
+            for copy in ready {
+                copy.frame.failed();
+            }
+            return;
+        }
+        let mut shots: [Option<(Vec<u8>, bool)>; 2] = [None, None];
+        for copy in ready {
+            let slot = usize::from(copy.cursor);
+            if shots[slot].is_none() {
+                match self.capture(elements, copy.cursor) {
+                    Ok(shot) => shots[slot] = Some(shot),
+                    Err(error) => eprintln!("drifter: {error}"),
+                }
+            }
+            let written = shots[slot].as_ref().map(|(bytes, flipped)| {
+                crate::screencopy::fill(&copy, self.screen, bytes, *flipped)
+            });
+            match written {
+                Some(Ok(())) => crate::screencopy::done(&copy),
+                Some(Err(error)) => {
+                    eprintln!("drifter: {error}");
+                    copy.frame.failed();
+                }
+                None => copy.frame.failed(),
+            }
+        }
+    }
+
+    fn screenshot(&mut self, elements: &[Skin]) {
+        let (bytes, flipped) = match self.capture(elements, false) {
+            Ok(shot) => shot,
+            Err(error) => {
+                eprintln!("drifter: no screenshot: {error}");
+                return;
+            }
+        };
+        let (width, height) = (self.screen.x as u32, self.screen.y as u32);
+        let mut rgba = Vec::with_capacity(bytes.len());
+        for row in 0..height as usize {
+            let source = if flipped {
+                height as usize - 1 - row
+            } else {
+                row
+            };
+            let line = &bytes[source * width as usize * 4..(source + 1) * width as usize * 4];
+            for pixel in line.as_chunks::<4>().0 {
+                rgba.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 255]);
+            }
+        }
+        let image = drifter_core::Image {
+            width,
+            height,
+            rgba,
+        };
+        let folder = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_default()
+            .join("Pictures/Screenshots");
+        let stamp = drifter_core::tray::now("%Y-%m-%d %H.%M.%S").unwrap_or_default();
+        let path = folder.join(format!("Screenshot {stamp}.png"));
+        let saved = std::fs::create_dir_all(&folder)
+            .map_err(|e| e.to_string())
+            .and_then(|()| drifter_core::image::save_png(&image, &path));
+        let Some(id) = self.notes_bus.as_ref().map(|bus| bus.next_id()) else {
+            return;
+        };
+        let (summary, body) = match saved {
+            Ok(()) => ("Screenshot saved".to_string(), path.display().to_string()),
+            Err(error) => ("No screenshot".to_string(), error),
+        };
+        self.show_note(drifter_core::notify::Note {
+            id,
+            app: "Drifter".to_string(),
+            summary,
+            body,
+            actions: Vec::new(),
+            expire: Some(drifter_core::notify::DEFAULT_MS),
+            icon: None,
+        });
     }
 
     fn frames_later(&mut self) {
@@ -2965,6 +3125,12 @@ impl State {
                         false => Shortcut::Swallow,
                     });
                 }
+                if code == KEY_PRINT {
+                    return FilterResult::Intercept(match pressed {
+                        true => Shortcut::Shot,
+                        false => Shortcut::Swallow,
+                    });
+                }
                 match (pressed && held.alt, code) {
                     (true, KEY_TAB) => {
                         FilterResult::Intercept(Shortcut::Switch { back: held.shift })
@@ -2980,6 +3146,12 @@ impl State {
             Some(Shortcut::Media(key)) => {
                 if let Some(media) = self.media.as_ref() {
                     media.press(key);
+                }
+            }
+            Some(Shortcut::Shot) => {
+                if self.lock.is_none() {
+                    self.shot_wanted = true;
+                    self.kick_now();
                 }
             }
             Some(Shortcut::Swallow) | None => {}
@@ -3907,6 +4079,9 @@ pub fn open(
         hud: None,
         notes_bus,
         cards: Vec::new(),
+        copies: Vec::new(),
+        cursor_count: 0,
+        shot_wanted: false,
         drawers: [Drawer::new(Edge::Top), Drawer::new(Edge::Bottom)],
         tunables,
         screen,

@@ -20,6 +20,8 @@ mod protocols;
 #[cfg(target_os = "linux")]
 mod render;
 #[cfg(target_os = "linux")]
+mod screencopy;
+#[cfg(target_os = "linux")]
 mod session;
 #[cfg(target_os = "linux")]
 mod shell;

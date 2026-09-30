@@ -70,6 +70,7 @@ pub struct Extras {
     _ime: InputMethodManagerState,
     _cursor_shape: CursorShapeManagerState,
     kde_decoration: KdeDecorationState,
+    _screencopy: smithay::reexports::wayland_server::backend::GlobalId,
 }
 
 pub fn start(handle: &DisplayHandle) -> Extras {
@@ -90,6 +91,7 @@ pub fn start(handle: &DisplayHandle) -> Extras {
         _ime: InputMethodManagerState::new::<State, _>(handle, |_| true),
         _cursor_shape: CursorShapeManagerState::new::<State>(handle),
         kde_decoration: KdeDecorationState::new::<State>(handle, KdeDefault::Server),
+        _screencopy: crate::screencopy::global(handle),
     }
 }
 

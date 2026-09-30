@@ -97,6 +97,19 @@ impl Image {
     }
 }
 
+pub fn save_png(image: &Image, path: &Path) -> Result<(), String> {
+    let file = std::fs::File::create(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut straight = image.clone();
+    straight.straighten();
+    let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), image.width, image.height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder
+        .write_header()
+        .and_then(|mut writer| writer.write_image_data(&straight.rgba))
+        .map_err(|e| format!("{}: {e}", path.display()))
+}
+
 pub fn load(path: &Path) -> Result<Image, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
@@ -622,6 +635,20 @@ mod tests {
         let big = image.scaled(4, 4);
         assert_eq!(big.rgba[0], 1);
         assert_eq!(big.rgba[(3 * 4 + 3) * 4], 4);
+    }
+
+    #[test]
+    fn a_saved_png_loads_back_the_same() {
+        let path = std::env::temp_dir().join(format!("drifter-save-{}.png", std::process::id()));
+        let image = Image {
+            width: 2,
+            height: 1,
+            rgba: vec![10, 20, 30, 255, 0, 0, 0, 0],
+        };
+        save_png(&image, &path).unwrap();
+        let back = load(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(back.rgba, image.rgba);
     }
 
     #[test]
