@@ -1402,7 +1402,7 @@ impl State {
                 DrmFourcc::Abgr8888,
             )
             .map_err(|e| format!("cannot read the screen back: {e}"))?;
-        let flipped = smithay::backend::renderer::TextureMapping::flipped(&mapping);
+        let flipped = !smithay::backend::renderer::TextureMapping::flipped(&mapping);
         let bytes = self
             .renderer
             .map_texture(&mapping)
