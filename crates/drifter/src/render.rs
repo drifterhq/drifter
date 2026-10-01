@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use crate::paint::{Painter, Tex};
+use crate::paint::{Painter, Scanout, Tex};
 
 use drifter_core::camera::{Camera, Flight};
 use drifter_core::cursor::{self, Cursor};
@@ -19,7 +19,7 @@ use drifter_core::tray::Tray;
 use drifter_core::window::{Button as ChromeButton, Chrome, Piece as ChromePiece};
 use drifter_core::{Config, Rect, Tunables, Vec2};
 use smithay::backend::allocator::gbm::{GbmAllocator, GbmBufferFlags, GbmDevice};
-use smithay::backend::drm::compositor::{DrmCompositor, FrameFlags};
+use smithay::backend::drm::compositor::DrmCompositor;
 use smithay::backend::drm::exporter::gbm::GbmFramebufferExporter;
 use smithay::backend::drm::{DrmDevice, DrmDeviceFd, DrmEvent};
 use smithay::backend::egl::{EGLContext, EGLDisplay};
@@ -97,9 +97,6 @@ type Showing = (
     smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
 );
 
-type Compositor =
-    DrmCompositor<GbmAllocator<DrmDeviceFd>, GbmFramebufferExporter<DrmDeviceFd>, (), DrmDeviceFd>;
-
 pub struct Found {
     pub device: PathBuf,
     pub connector: String,
@@ -118,7 +115,7 @@ struct Head {
     name: String,
     connector: connector::Handle,
     crtc: crtc::Handle,
-    compositor: Compositor,
+    compositor: Scanout,
     output: smithay::output::Output,
     global: smithay::reexports::wayland_server::backend::GlobalId,
     mode: smithay::output::Mode,
@@ -281,7 +278,7 @@ pub struct State {
     started: Instant,
     socket: String,
     drm: DrmDevice,
-    gbm: GbmDevice<DrmDeviceFd>,
+    gbm: Option<GbmDevice<DrmDeviceFd>>,
     render_node: Option<smithay::backend::drm::DrmNode>,
     render_formats: smithay::backend::allocator::format::FormatSet,
     virtual_size: (u32, u32),
@@ -1425,7 +1422,7 @@ impl State {
         let head = &mut heads[at];
         let empty = head
             .compositor
-            .render_frame(renderer, &shown, clear, FrameFlags::DEFAULT)
+            .render_frame(renderer, &shown, clear)
             .map_err(|e| {
                 if frames == 0 {
                     format!(
@@ -1437,8 +1434,7 @@ impl State {
                 } else {
                     format!("render on {} failed after {frames} frames: {e}", head.name)
                 }
-            })?
-            .is_empty;
+            })?;
 
         self.serve_copies(&shown, !empty);
         if self.shot_wanted && at == self.hand {
@@ -1451,7 +1447,7 @@ impl State {
         }
 
         let head = &mut self.heads[at];
-        head.compositor.queue_frame(()).map_err(|e| {
+        head.compositor.queue_frame().map_err(|e| {
             format!(
                 "page flip on {} failed after {frames} frames: {e}",
                 head.name
@@ -4061,11 +4057,13 @@ pub fn open(
                 .and_then(Result::ok)
                 .unwrap_or(node)
         });
-    let gbm = GbmDevice::new(drm_fd.clone()).map_err(|e| format!("gbm device: {e}"))?;
+    let gbm = GbmDevice::new(drm_fd.clone())
+        .inspect_err(|e| eprintln!("drifter: no gbm device: {e}"))
+        .ok();
     let (drm, drm_events) =
         DrmDevice::new(drm_fd, true).map_err(|e| format!("cannot open drm device: {e}"))?;
 
-    let (mut renderer, renderer_formats, gl) = pick_painter(&gbm)?;
+    let (mut renderer, renderer_formats, gl) = pick_painter(gbm.as_ref())?;
     let screen = Vec2::new(f64::from(virtual_size.0), f64::from(virtual_size.1));
     let world = config.world_size(screen);
     let start = Camera::at_work_zoom(world / 2.0);
@@ -5119,7 +5117,7 @@ fn faded(
 }
 
 fn pick_painter(
-    gbm: &GbmDevice<DrmDeviceFd>,
+    gbm: Option<&GbmDevice<DrmDeviceFd>>,
 ) -> Result<
     (
         Painter,
@@ -5128,7 +5126,8 @@ fn pick_painter(
     ),
     String,
 > {
-    match gles(gbm) {
+    let gles = gbm.ok_or_else(|| "no gbm".to_string()).and_then(gles);
+    match gles {
         Ok((mut renderer, formats)) => {
             let name = describe(&mut renderer);
             if !is_software(&name) {
@@ -5409,25 +5408,44 @@ impl State {
         let pixels = Vec2::new(f64::from(width), f64::from(height));
         let wanted = drifter_core::screens::Head::new(&name, pixels, &self.monitors);
         let transform = turn(wanted.rotate);
-        let allocator = GbmAllocator::new(
-            self.gbm.clone(),
-            GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT,
-        );
-        let compositor: Compositor = DrmCompositor::new(
-            OutputModeSource::Static {
-                size: (i32::from(width), i32::from(height)).into(),
-                scale: Scale::from(1.0),
-                transform,
-            },
-            surface,
-            None,
-            allocator,
-            GbmFramebufferExporter::new(self.gbm.clone(), self.render_node),
-            [DrmFourcc::Xrgb8888, DrmFourcc::Argb8888],
-            self.render_formats.clone(),
-            (64, 64).into(),
-            Some(self.gbm.clone()),
-        )
+        let source = OutputModeSource::Static {
+            size: (i32::from(width), i32::from(height)).into(),
+            scale: Scale::from(1.0),
+            transform,
+        };
+        let colors = [DrmFourcc::Xrgb8888, DrmFourcc::Argb8888];
+        let compositor = match (&self.gbm, self.renderer.is_pixman()) {
+            (Some(gbm), false) => DrmCompositor::new(
+                source,
+                surface,
+                None,
+                GbmAllocator::new(
+                    gbm.clone(),
+                    GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT,
+                ),
+                GbmFramebufferExporter::new(gbm.clone(), self.render_node),
+                colors,
+                self.render_formats.clone(),
+                (64, 64).into(),
+                Some(gbm.clone()),
+            )
+            .map(Scanout::Gbm),
+            _ => {
+                let fd = self.drm.device_fd().clone();
+                DrmCompositor::new(
+                    source,
+                    surface,
+                    None,
+                    smithay::backend::allocator::dumb::DumbAllocator::new(fd.clone()),
+                    fd,
+                    colors,
+                    self.render_formats.clone(),
+                    (64, 64).into(),
+                    None::<GbmDevice<DrmDeviceFd>>,
+                )
+                .map(Scanout::Dumb)
+            }
+        }
         .map_err(|e| format!("drm compositor for {name}: {e}"))?;
 
         let (mm_w, mm_h) = info.size().unwrap_or((0, 0));
