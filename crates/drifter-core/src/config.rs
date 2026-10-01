@@ -426,6 +426,8 @@ pub struct Config {
     pub apps: AppsConfig,
     #[serde(default)]
     pub assets: Assets,
+    #[serde(default)]
+    pub monitor: Vec<crate::screens::MonitorConfig>,
     #[serde(skip)]
     base: PathBuf,
 }
@@ -678,6 +680,18 @@ impl Config {
         }
         for metric in &self.tray.metrics {
             crate::stats::Metric::parse(metric).map_err(ConfigError::Invalid)?;
+        }
+        for (index, monitor) in self.monitor.iter().enumerate() {
+            monitor.check().map_err(ConfigError::Invalid)?;
+            if self.monitor[..index]
+                .iter()
+                .any(|before| before.name == monitor.name)
+            {
+                return Err(ConfigError::Invalid(format!(
+                    "monitor {} is listed twice",
+                    monitor.name
+                )));
+            }
         }
         Ok(())
     }

@@ -59,6 +59,10 @@ fn main() {
             icon: None,
         },
     );
+    model.see_monitors(&[
+        ("eDP-1".into(), Vec2::new(2880.0, 1800.0)),
+        ("HDMI-A-1".into(), Vec2::new(1920.0, 1080.0)),
+    ]);
     model.add(For::Dock, Launch::App("foot".into()));
     model.add(For::Dock, Launch::App("firefox".into()));
     if let Some(folder) = config

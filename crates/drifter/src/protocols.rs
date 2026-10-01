@@ -163,8 +163,9 @@ impl XdgActivationHandler for State {
 
 impl FractionalScaleHandler for State {
     fn new_fractional_scale(&mut self, surface: WlSurface) {
+        let scale = self.top_scale();
         with_states(&surface, |states| {
-            with_fractional_scale(states, |scale| scale.set_preferred_scale(1.0));
+            with_fractional_scale(states, |fractional| fractional.set_preferred_scale(scale));
         });
     }
 }
@@ -260,7 +261,10 @@ impl WlrLayerShellHandler for State {
     }
 
     fn layer_destroyed(&mut self, surface: smithay::wayland::shell::wlr_layer::LayerSurface) {
-        let mut map = layer_map_for_output(&self.output);
+        let output = self
+            .layer_output(surface.wl_surface())
+            .unwrap_or_else(|| self.output.clone());
+        let mut map = layer_map_for_output(&output);
         let gone = map
             .layers()
             .find(|layer| layer.layer_surface() == &surface)

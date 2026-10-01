@@ -91,7 +91,10 @@ impl CompositorHandler for State {
         on_commit_buffer_handler::<Self>(surface);
 
         self.popups.commit(surface);
-        if crate::protocols::settle_layer(&self.output, surface).is_some() {
+        if let Some(output) = self.layer_output(surface)
+            && crate::protocols::settle_layer(&output, surface).is_some()
+        {
+            self.tell_scale(surface);
             self.layer_mapped(surface);
             self.kick_now();
             return;

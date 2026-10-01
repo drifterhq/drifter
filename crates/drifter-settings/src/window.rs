@@ -63,12 +63,20 @@ struct Settings {
     scroll: f64,
     at: Vec2,
     holding: Option<Id>,
+    moving: Option<Moving>,
     sheet: Option<Sheet>,
     apps: Vec<App>,
     icons: HashMap<String, Image>,
     thumbs: HashMap<PathBuf, Image>,
     asked: HashSet<PathBuf>,
     loads: Sender<PathBuf>,
+}
+
+struct Moving {
+    at: usize,
+    zoom: f64,
+    offset: Vec2,
+    grab: Vec2,
 }
 
 pub fn run() -> Result<(), String> {
@@ -151,6 +159,7 @@ pub fn run() -> Result<(), String> {
         scroll: 0.0,
         at: Vec2::ZERO,
         holding: None,
+        moving: None,
         sheet: None,
         apps,
         icons: HashMap::new(),
@@ -427,6 +436,18 @@ impl Settings {
                 Some(Ask::Files(purpose)) => self.open_files(purpose),
                 None => self.save(),
             },
+            Some(Hit::Monitor(at)) => {
+                self.model.pick_monitor(at);
+                let (zoom, offset) = self.look.monitor_map(self.view(), self.scroll, &self.model);
+                if let Some(monitor) = self.model.monitors.get(at) {
+                    self.moving = Some(Moving {
+                        at,
+                        zoom,
+                        offset,
+                        grab: (self.at - offset) / zoom - monitor.place,
+                    });
+                }
+            }
             Some(Hit::Picture(at)) => {
                 self.model.choose_picture(at);
                 self.save();
@@ -539,7 +560,53 @@ impl Settings {
             .map(small);
     }
 
+    fn read_monitors(&mut self, gone: Option<&wl_output::WlOutput>) {
+        let found: Vec<(String, Vec2)> = self
+            .outputs
+            .outputs()
+            .filter(|output| Some(output) != gone)
+            .filter_map(|output| {
+                let info = self.outputs.info(&output)?;
+                let mode = info
+                    .modes
+                    .iter()
+                    .find(|mode| mode.current)
+                    .or_else(|| info.modes.first())?;
+                let (w, h) = mode.dimensions;
+                Some((info.name?, Vec2::new(f64::from(w), f64::from(h))))
+            })
+            .collect();
+        self.model.see_monitors(&found);
+        self.saved.see_monitors(&found);
+        if self.section == drifter_core::settings::Section::Displays && self.sheet.is_none() {
+            self.draw();
+        }
+    }
+
+    fn move_monitor(&mut self) {
+        let Some(moving) = self.moving.as_ref() else {
+            return;
+        };
+        let wanted = (self.at - moving.offset) / moving.zoom - moving.grab;
+        let before = self.model.monitors.clone();
+        self.model.move_monitor(moving.at, wanted);
+        if self.model.monitors != before {
+            self.draw();
+        }
+    }
+
+    fn drop_monitor(&mut self) {
+        if self.moving.take().is_some() {
+            self.save();
+            self.draw();
+        }
+    }
+
     fn drag(&mut self) {
+        if self.moving.is_some() {
+            self.move_monitor();
+            return;
+        }
         let Some(id) = self.holding else {
             return;
         };
@@ -675,11 +742,22 @@ impl OutputHandler for Settings {
         &mut self.outputs
     }
 
-    fn new_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {}
+    fn new_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {
+        self.read_monitors(None);
+    }
 
-    fn update_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {}
+    fn update_output(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {
+        self.read_monitors(None);
+    }
 
-    fn output_destroyed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: wl_output::WlOutput) {}
+    fn output_destroyed(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        output: wl_output::WlOutput,
+    ) {
+        self.read_monitors(Some(&output));
+    }
 }
 
 impl WindowHandler for Settings {
@@ -828,9 +906,13 @@ impl PointerHandler for Settings {
                 PointerEventKind::Press { button, .. } if button == BTN_LEFT => self.press(),
                 PointerEventKind::Release { button, .. } if button == BTN_LEFT => {
                     self.holding = None;
+                    self.drop_monitor();
                 }
                 PointerEventKind::Axis { vertical, .. } => self.scroll_by(vertical.absolute),
-                PointerEventKind::Leave { .. } => self.holding = None,
+                PointerEventKind::Leave { .. } => {
+                    self.holding = None;
+                    self.drop_monitor();
+                }
                 _ => {}
             }
         }

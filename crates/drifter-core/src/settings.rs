@@ -9,6 +9,7 @@ use crate::desktop::Role;
 use crate::geom::{Rect, Vec2};
 use crate::image::Image;
 use crate::paint::Canvas;
+use crate::screens::{self, Head, MonitorConfig};
 use crate::sheet::{For, Sheet};
 use crate::stats::{self, Metric, Mount};
 use crate::text::Font;
@@ -20,6 +21,7 @@ pub const UNITS: [u64; 3] = [1, 60, 3600];
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Section {
     Desktop,
+    Displays,
     Wallpaper,
     Window,
     Dock,
@@ -32,8 +34,9 @@ pub enum Section {
 }
 
 impl Section {
-    pub const ALL: [Section; 10] = [
+    pub const ALL: [Section; 11] = [
         Section::Desktop,
+        Section::Displays,
         Section::Wallpaper,
         Section::Window,
         Section::Dock,
@@ -48,6 +51,7 @@ impl Section {
     pub fn name(self) -> &'static str {
         match self {
             Section::Desktop => "Desktop",
+            Section::Displays => "Displays",
             Section::Wallpaper => "Wallpaper",
             Section::Window => "Windows",
             Section::Dock => "Dock",
@@ -63,6 +67,7 @@ impl Section {
     fn tint(self) -> [u8; 3] {
         match self {
             Section::Desktop => [52, 168, 140],
+            Section::Displays => [70, 120, 210],
             Section::Wallpaper => [40, 170, 210],
             Section::Window => [88, 110, 230],
             Section::Dock => [120, 128, 146],
@@ -87,6 +92,26 @@ pub struct Disk {
     pub label: String,
     pub point: String,
     pub on: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Monitor {
+    pub name: String,
+    pub pixels: Vec2,
+    pub scale: f64,
+    pub rotate: u32,
+    pub place: Vec2,
+}
+
+impl Monitor {
+    fn head(&self) -> Head {
+        Head {
+            name: self.name.clone(),
+            pixels: self.pixels,
+            scale: self.scale,
+            rotate: self.rotate,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -124,6 +149,9 @@ pub struct Model {
     pub rotation: WallpaperOrder,
     pub pictures: Vec<PathBuf>,
     pub names: HashMap<String, String>,
+    pub monitors: Vec<Monitor>,
+    pub picked: usize,
+    pub monitor_config: Vec<MonitorConfig>,
 }
 
 impl Model {
@@ -231,6 +259,9 @@ impl Model {
                 .map(|folder| crate::wallpaper::pictures(&clean(folder)))
                 .unwrap_or_default(),
             names: HashMap::new(),
+            monitors: Vec::new(),
+            picked: 0,
+            monitor_config: config.monitor.clone(),
         }
         .mark_custom(&config.tray.format)
     }
@@ -240,6 +271,144 @@ impl Model {
             self.custom = Some(format.to_string());
         }
         self
+    }
+
+    pub fn see_monitors(&mut self, found: &[(String, Vec2)]) {
+        let config = self.monitor_entries();
+        let heads: Vec<Head> = found
+            .iter()
+            .map(|(name, pixels)| Head::new(name, *pixels, &config))
+            .collect();
+        let rects = screens::arrange(&heads, &config);
+        self.monitors = heads
+            .into_iter()
+            .zip(rects)
+            .map(|(head, rect)| Monitor {
+                name: head.name,
+                pixels: head.pixels,
+                scale: head.scale,
+                rotate: head.rotate,
+                place: rect.origin,
+            })
+            .collect();
+        self.picked = self.picked.min(self.monitors.len().saturating_sub(1));
+    }
+
+    pub fn monitor_rects(&self) -> Vec<Rect> {
+        self.monitors
+            .iter()
+            .map(|monitor| Rect::new(monitor.place, monitor.head().size()))
+            .collect()
+    }
+
+    pub fn monitor_entries(&self) -> Vec<MonitorConfig> {
+        let mut rects = self.monitor_rects();
+        screens::normalize(&mut rects);
+        let mut out: Vec<MonitorConfig> = self
+            .monitors
+            .iter()
+            .zip(rects)
+            .map(|(monitor, rect)| MonitorConfig {
+                name: monitor.name.clone(),
+                scale: monitor.scale,
+                rotate: monitor.rotate,
+                x: Some(rect.origin.x as i64),
+                y: Some(rect.origin.y as i64),
+            })
+            .collect();
+        for kept in &self.monitor_config {
+            if !out.iter().any(|each| each.name == kept.name) {
+                out.push(kept.clone());
+            }
+        }
+        out
+    }
+
+    pub fn pick_monitor(&mut self, at: usize) {
+        if at < self.monitors.len() {
+            self.picked = at;
+        }
+    }
+
+    pub fn move_monitor(&mut self, at: usize, wanted: Vec2) {
+        if at >= self.monitors.len() {
+            return;
+        }
+        let rects = self.monitor_rects();
+        self.monitors[at].place = screens::snap(&rects, at, wanted.round());
+    }
+
+    fn tidy_monitor(&mut self) {
+        let at = self.picked;
+        if at < self.monitors.len() {
+            let here = self.monitors[at].place;
+            self.move_monitor(at, here);
+        }
+    }
+
+    fn step_scale(&mut self, up: bool) {
+        let Some(monitor) = self.monitors.get_mut(self.picked) else {
+            return;
+        };
+        let now = monitor.scale;
+        let next = match up {
+            true => screens::SCALES.iter().copied().find(|s| *s > now + 1e-6),
+            false => screens::SCALES
+                .iter()
+                .rev()
+                .copied()
+                .find(|s| *s < now - 1e-6),
+        };
+        if let Some(next) = next {
+            monitor.scale = next;
+            self.tidy_monitor();
+        }
+    }
+
+    fn display_groups(&self) -> Vec<Group> {
+        let Some(monitor) = self.monitors.get(self.picked) else {
+            return vec![Group {
+                header: None,
+                rows: Vec::new(),
+                footer: Some("Drifter has not shown any monitors yet.".into()),
+                thumbs: None,
+            }];
+        };
+        let size = monitor.head().size();
+        let detail = format!(
+            "{} × {} pixels, seen as {} × {}",
+            monitor.pixels.x, monitor.pixels.y, size.x, size.y
+        );
+        let marks = vec![Mark::Minus, Mark::Plus];
+        vec![Group {
+            header: None,
+            rows: vec![
+                Row::new(Id::MonitorName, &monitor.name, Control::Buttons(Vec::new()))
+                    .detail(&detail),
+                Row::new(Id::Scale, "Scale", Control::Buttons(marks)).detail(&format!(
+                    "{}. Larger makes text and windows bigger",
+                    screens::scale_word(monitor.scale)
+                )),
+                Row::new(
+                    Id::Turn,
+                    "Rotation",
+                    Control::Segments {
+                        options: vec!["None", "90°", "180°", "270°"],
+                        chosen: screens::TURNS
+                            .iter()
+                            .position(|turn| *turn == monitor.rotate)
+                            .unwrap_or(0),
+                    },
+                ),
+            ],
+            footer: Some(match self.monitors.len() {
+                1 => "Plug in another monitor to arrange them side by side.".into(),
+                _ => {
+                    "Click a monitor to choose it. Drag it to move it. Edges snap together.".into()
+                }
+            }),
+            thumbs: None,
+        }]
     }
 
     pub fn format(&self) -> String {
@@ -537,6 +706,7 @@ impl Model {
                 thumbs: None,
             }],
             Section::Touchpad => self.touchpad_groups(),
+            Section::Displays => self.display_groups(),
             Section::Lock => vec![Group {
                 header: None,
                 rows: vec![
@@ -854,6 +1024,12 @@ impl Model {
                 }
             }
             (Id::Swipe, Value::Switch(on)) => self.touchpad.swipe = on,
+            (Id::Turn, Value::Choice(n)) => {
+                if let Some(monitor) = self.monitors.get_mut(self.picked) {
+                    monitor.rotate = screens::TURNS[n.min(3)];
+                    self.tidy_monitor();
+                }
+            }
             (Id::Day, Value::Switch(on)) => self.day = on,
             (Id::Date, Value::Switch(on)) => self.date = on,
             (Id::Seconds, Value::Switch(on)) => self.seconds = on,
@@ -891,6 +1067,8 @@ impl Model {
             (Id::Default(at), 0) if at < 3 => return Some(Ask::Pick(For::Default(Role::ALL[at]))),
             (Id::Default(at), 1) if at < 3 => self.defaults[at] = None,
             (Id::Custom, _) => self.custom = None,
+            (Id::Scale, 0) => self.step_scale(false),
+            (Id::Scale, 1) => self.step_scale(true),
             _ => {}
         }
         None
@@ -1086,6 +1264,25 @@ impl Model {
                 }
             }
         }
+        let monitors = self.monitor_entries();
+        if monitors != before.monitor_entries() {
+            let mut list = toml_edit::ArrayOfTables::new();
+            for monitor in &monitors {
+                let mut table = toml_edit::Table::new();
+                table.insert("name", toml_edit::value(monitor.name.as_str()));
+                table.insert("scale", toml_edit::value(monitor.scale));
+                table.insert("rotate", toml_edit::value(i64::from(monitor.rotate)));
+                if let (Some(x), Some(y)) = (monitor.x, monitor.y) {
+                    table.insert("x", toml_edit::value(x));
+                    table.insert("y", toml_edit::value(y));
+                }
+                list.push(table);
+            }
+            doc.remove("monitor");
+            if !list.is_empty() {
+                doc.insert("monitor", toml_edit::Item::ArrayOfTables(list));
+            }
+        }
         for (at, key) in ["files", "terminal", "browser", "settings", "trash"]
             .iter()
             .enumerate()
@@ -1207,6 +1404,9 @@ pub enum Id {
     Tap,
     ThreeTap,
     Swipe,
+    MonitorName,
+    Scale,
+    Turn,
 }
 
 const SHOWS: [&str; 5] = [
@@ -1319,6 +1519,7 @@ pub enum Hit {
     Change(Id, Value),
     Press(Id, usize),
     Picture(usize),
+    Monitor(usize),
 }
 
 pub struct Fonts<'a> {
@@ -1571,6 +1772,34 @@ impl Look {
         (least + (most - least) * along).round()
     }
 
+    pub fn monitor_map(&self, size: Vec2, scroll: f64, model: &Model) -> (f64, Vec2) {
+        let card = self.picture_rect(size, scroll);
+        let area = Rect::new(
+            card.origin + Vec2::new(24.0, 20.0),
+            card.size - Vec2::new(48.0, 40.0),
+        );
+        let rects = model.monitor_rects();
+        let whole = screens::bounds(&rects);
+        let fit = (area.size.x / whole.size.x.max(1.0))
+            .min(area.size.y / whole.size.y.max(1.0))
+            .max(1e-3);
+        let offset = area.center() - (whole.origin + whole.size / 2.0) * fit;
+        (fit, offset)
+    }
+
+    pub fn monitor_under(
+        &self,
+        size: Vec2,
+        scroll: f64,
+        model: &Model,
+        pointer: Vec2,
+    ) -> Option<usize> {
+        let (fit, offset) = self.monitor_map(size, scroll, model);
+        model.monitor_rects().iter().position(|rect| {
+            Rect::new(offset + rect.origin * fit, rect.size * fit).contains(pointer)
+        })
+    }
+
     pub fn hit(
         &self,
         size: Vec2,
@@ -1585,6 +1814,11 @@ impl Look {
                 .enumerate()
                 .find(|(index, _)| self.item_rect(*index).contains(pointer))
                 .map(|(_, section)| Hit::Section(*section));
+        }
+        if section == Section::Displays
+            && let Some(at) = self.monitor_under(size, scroll, model, pointer)
+        {
+            return Some(Hit::Monitor(at));
         }
         let groups = model.groups(section);
         let placed = self.place(size, section, &groups, scroll);
@@ -1673,6 +1907,7 @@ impl Look {
             match section {
                 Section::Desktop => self.paint_world(&mut canvas, rect, model.world, fonts),
                 Section::Window => self.paint_title_bar(&mut canvas, rect, model, fonts),
+                Section::Displays => self.paint_monitors(&mut canvas, size, scroll, model, fonts),
                 _ => self.paint_wallpaper(&mut canvas, rect, art.wallpaper),
             }
         }
@@ -1928,6 +2163,60 @@ impl Look {
         }
     }
 
+    fn paint_monitors(
+        &self,
+        canvas: &mut Canvas,
+        size: Vec2,
+        scroll: f64,
+        model: &Model,
+        fonts: &Fonts,
+    ) {
+        let (zoom, offset) = self.monitor_map(size, scroll, model);
+        for (index, (monitor, rect)) in model.monitors.iter().zip(model.monitor_rects()).enumerate()
+        {
+            let shown = Rect::new(offset + rect.origin * zoom, rect.size * zoom);
+            let inner = Rect::new(
+                shown.origin + Vec2::splat(1.5),
+                shown.size - Vec2::splat(3.0),
+            );
+            let picked = index == model.picked;
+            canvas.round_rect(inner, 4.0, [22, 24, 31], 1.0);
+            let bar = Rect::new(
+                inner.origin,
+                Vec2::new(inner.size.x, 4.0_f64.min(inner.size.y)),
+            );
+            canvas.round_rect(bar, 2.0, self.rule, 1.0);
+            outline(
+                canvas,
+                inner,
+                2.0,
+                if picked { self.accent } else { self.rule },
+            );
+            let name = fonts.small.paint(
+                &fit(fonts.small, &monitor.name, inner.size.x - 8.0),
+                self.ink,
+            );
+            let scale = fonts
+                .small
+                .paint(&screens::scale_word(monitor.scale), self.dim);
+            let tall = f64::from(name.height + scale.height);
+            let top = inner.center().y - tall / 2.0;
+            canvas.stamp(
+                &name,
+                Vec2::new(inner.center().x - f64::from(name.width) / 2.0, top),
+                1.0,
+            );
+            canvas.stamp(
+                &scale,
+                Vec2::new(
+                    inner.center().x - f64::from(scale.width) / 2.0,
+                    top + f64::from(name.height),
+                ),
+                1.0,
+            );
+        }
+    }
+
     fn paint_world(&self, canvas: &mut Canvas, card: Rect, world: u32, fonts: &Fonts) {
         let tall = card.size.y - 48.0;
         let size = Vec2::new(tall * 16.0 / 9.0, tall);
@@ -2045,7 +2334,7 @@ fn outline(canvas: &mut Canvas, rect: Rect, thick: f64, color: [u8; 3]) {
 fn has_picture(section: Section) -> bool {
     matches!(
         section,
-        Section::Desktop | Section::Wallpaper | Section::Window
+        Section::Desktop | Section::Displays | Section::Wallpaper | Section::Window
     )
 }
 
@@ -2130,6 +2419,12 @@ fn paint_glyph(canvas: &mut Canvas, section: Section, icon: Rect) {
                 canvas.round_rect(r(x, 8.0, 2.5, 2.0), 0.5, key, 1.0);
             }
             canvas.round_rect(r(6.0, 12.0, 10.0, 2.0), 0.5, key, 1.0);
+        }
+        Section::Displays => {
+            canvas.round_rect(r(3.0, 4.0, 16.0, 11.0), 2.0, white, 1.0);
+            canvas.round_rect(r(5.0, 6.0, 12.0, 7.0), 1.0, section.tint(), 1.0);
+            canvas.round_rect(r(9.0, 15.0, 4.0, 2.5), 0.5, white, 1.0);
+            canvas.round_rect(r(7.0, 17.0, 8.0, 1.5), 0.5, white, 1.0);
         }
         Section::Touchpad => {
             canvas.round_rect(r(3.0, 4.0, 16.0, 14.0), 2.5, white, 1.0);
@@ -2330,6 +2625,38 @@ mod tests {
         assert!(back.touchpad.swipe && back.touchpad.accel);
         assert!(!out.contains("swipe"));
         back.validate().unwrap();
+    }
+
+    #[test]
+    fn the_displays_page_writes_scale_rotation_and_place() {
+        let text = "[input]\nmodifier = \"ctrl\"\n\n[[monitor]]\nname = \"DP-9\"\nscale = 2.0\n";
+        let mut before = model(&config(text));
+        let found = [
+            ("eDP-1".to_string(), Vec2::new(2880.0, 1800.0)),
+            ("HDMI-A-1".to_string(), Vec2::new(1920.0, 1080.0)),
+        ];
+        before.see_monitors(&found);
+        assert_eq!(before.write(&before, text).unwrap(), text);
+        let mut after = before.clone();
+        after.press(Id::Scale, 1);
+        after.press(Id::Scale, 1);
+        assert_eq!(after.monitors[0].scale, 1.5);
+        after.pick_monitor(1);
+        after.set(Id::Turn, Value::Choice(1));
+        after.move_monitor(1, Vec2::new(-1100.0, 30.0));
+        let out = after.write(&before, text).unwrap();
+        let back = Config::parse(&out).unwrap();
+        back.validate().unwrap();
+        assert_eq!(back.monitor.len(), 3);
+        let laptop = &back.monitor[0];
+        assert_eq!((laptop.name.as_str(), laptop.scale), ("eDP-1", 1.5));
+        let side = &back.monitor[1];
+        assert_eq!((side.name.as_str(), side.rotate), ("HDMI-A-1", 90));
+        assert_eq!((side.x, side.y), (Some(0), Some(30)));
+        assert_eq!((laptop.x, laptop.y), (Some(1080), Some(0)));
+        assert_eq!(back.monitor[2].name, "DP-9");
+        assert_eq!(back.monitor[2].scale, 2.0);
+        assert!(out.contains("modifier = \"ctrl\""));
     }
 
     #[test]

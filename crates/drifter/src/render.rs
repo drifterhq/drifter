@@ -81,6 +81,8 @@ render_elements! {
 
 type Skin = Piece<GlesRenderer>;
 
+type Shown = RescaleRenderElement<Skin>;
+
 type ThemeCursor = (TextureBuffer<GlesTexture>, Vec2, Vec2);
 
 type Showing = (
@@ -109,6 +111,28 @@ pub struct Found {
     pub camera: drifter_core::camera::Camera,
     pub drawer: Rect,
     pub corner: f64,
+}
+
+struct Head {
+    name: String,
+    connector: connector::Handle,
+    crtc: crtc::Handle,
+    compositor: Compositor,
+    output: smithay::output::Output,
+    global: smithay::reexports::wayland_server::backend::GlobalId,
+    mode: smithay::output::Mode,
+    pixels: Vec2,
+    scale: f64,
+    rotate: u32,
+    place: Vec2,
+    camera: Camera,
+    flight: Option<(Flight, Instant)>,
+    drawers: [Drawer; 2],
+    screen: Vec2,
+    panels: [TextureBuffer<GlesTexture>; 2],
+    awaiting: bool,
+    frames: u32,
+    last: Instant,
 }
 
 pub struct Screen {
@@ -256,8 +280,16 @@ pub struct State {
     started: Instant,
     socket: String,
     drm: DrmDevice,
+    gbm: GbmDevice<DrmDeviceFd>,
+    render_node: Option<smithay::backend::drm::DrmNode>,
+    render_formats: smithay::backend::allocator::format::FormatSet,
+    virtual_size: (u32, u32),
+    monitors: Vec<drifter_core::screens::MonitorConfig>,
+    screens_wide: (u32, u32),
+    heads: Vec<Head>,
+    at: usize,
+    hand: usize,
     libinput: Libinput,
-    compositor: Compositor,
     renderer: GlesRenderer,
     wallpaper: Option<(TextureBuffer<GlesTexture>, Vec2)>,
     panels: [TextureBuffer<GlesTexture>; 2],
@@ -330,12 +362,10 @@ pub struct State {
     last: Instant,
     clear: Color32F,
     active: bool,
-    awaiting: bool,
     ticking: bool,
     handle: LoopHandle<'static, State>,
     signal: LoopSignal,
     failure: Option<String>,
-    frames: u32,
 }
 
 impl State {
@@ -379,6 +409,10 @@ impl State {
         self.drawers.iter().any(|drawer| !drawer.settled())
             || self.flight.is_some()
             || self.windows.iter().any(|window| window.motion.is_some())
+            || self.heads.iter().enumerate().any(|(index, head)| {
+                index != self.at
+                    && (head.flight.is_some() || head.drawers.iter().any(|d| !d.settled()))
+            })
     }
 
     pub fn opening_motion(&self) -> Motion {
@@ -464,27 +498,34 @@ impl State {
     }
 
     fn elements(&mut self) -> Vec<Skin> {
+        let live = self.at == self.hand;
         if self.lock.is_some() {
+            self.cursor_count = 0;
             return self.lock_elements();
         }
-        let mut elements: Vec<Skin> = self.cursor_elements();
+        let mut elements: Vec<Skin> = match live {
+            true => self.cursor_elements(),
+            false => Vec::new(),
+        };
         self.cursor_count = elements.len();
-        if let Some((art, rect)) = self.prompt_art.as_ref() {
-            elements.push(Skin::Texture(element(art, *rect, 1.0)));
+        if live {
+            if let Some((art, rect)) = self.prompt_art.as_ref() {
+                elements.push(Skin::Texture(element(art, *rect, 1.0)));
+            }
+            if let Some((art, rect, _)) = self.hud.as_ref() {
+                elements.push(Skin::Texture(element(art, *rect, 1.0)));
+            }
+            for (card, rect) in self.cards.iter().zip(self.card_rects()) {
+                elements.push(Skin::Texture(element(&card.art, rect, 1.0)));
+            }
+            self.switch_elements(&mut elements);
         }
-        if let Some((art, rect, _)) = self.hud.as_ref() {
-            elements.push(Skin::Texture(element(art, *rect, 1.0)));
-        }
-        for (card, rect) in self.cards.iter().zip(self.card_rects()) {
-            elements.push(Skin::Texture(element(&card.art, rect, 1.0)));
-        }
-        self.switch_elements(&mut elements);
         self.layer_elements(
             &[smithay::wayland::shell::wlr_layer::Layer::Overlay],
             &mut elements,
         );
 
-        if let Some(buffer) = self.glow.as_ref() {
+        if let Some(buffer) = self.glow.as_ref().filter(|_| live) {
             let reach = drifter_core::corner::REACH;
             let warmth = drifter_core::corner::heat(self.pointer, reach);
             if warmth > 0.0 && !self.modifier && self.held_by_fullscreen().is_none() {
@@ -493,7 +534,7 @@ impl State {
             }
         }
 
-        if let Some(zone) = self.zone
+        if let Some(zone) = self.zone.filter(|_| live)
             && let Some(buffer) = self.plain.as_ref()
         {
             let view = self.camera.visible_rect(self.screen);
@@ -517,10 +558,10 @@ impl State {
             elements.push(Skin::Texture(element(buffer, target, 0.12)));
         }
 
-        if let Some(open) = self.popover.as_ref() {
+        if let Some(open) = self.popover.as_ref().filter(|_| live) {
             elements.push(Skin::Texture(element(&open.art, open.rect, 1.0)));
         }
-        if let Some((art, rect)) = self.tip.as_ref() {
+        if let Some((art, rect)) = self.tip.as_ref().filter(|_| live) {
             elements.push(Skin::Texture(element(art, *rect, 1.0)));
         }
 
@@ -575,7 +616,7 @@ impl State {
             }
         }
 
-        if let Some((_, buffer, rect)) = self.clock.as_ref() {
+        if let (Some(_), Some((_, buffer, rect))) = (self.tray_band(), self.clock.as_ref()) {
             elements.push(Skin::Texture(element(buffer, *rect, 1.0)));
         }
         if let (Some(band), Some(buffer)) = (self.tray_band(), self.power.as_ref()) {
@@ -920,7 +961,10 @@ impl State {
         if self.lock.is_some() {
             return;
         }
-        let wants = smithay::desktop::layer_map_for_output(&self.output)
+        let Some(output) = self.layer_output(surface) else {
+            return;
+        };
+        let wants = smithay::desktop::layer_map_for_output(&output)
             .layer_for_surface(surface, WindowSurfaceType::ALL)
             .map(|layer| {
                 (
@@ -946,7 +990,10 @@ impl State {
         if self.layer_focus.as_ref() == Some(surface) {
             return;
         }
-        let exclusive = smithay::desktop::layer_map_for_output(&self.output)
+        let Some(output) = self.layer_output(surface) else {
+            return;
+        };
+        let exclusive = smithay::desktop::layer_map_for_output(&output)
             .layer_for_surface(surface, WindowSurfaceType::TOPLEVEL)
             .map(|layer| {
                 layer.cached_state().keyboard_interactivity == KeyboardInteractivity::Exclusive
@@ -1160,7 +1207,8 @@ impl State {
             .map(|window| !window.placed)
             .unwrap_or(false);
         if fresh {
-            self.output.enter(surface);
+            self.enter_heads(surface);
+            self.tell_scale(surface);
         }
 
         let view = self.camera.visible_rect(self.screen);
@@ -1317,66 +1365,118 @@ impl State {
         let now = Instant::now();
         let dt = now.duration_since(self.last);
         self.last = now;
-        for drawer in &mut self.drawers {
-            drawer.advance(dt, self.tunables.drawer_anim);
-        }
-        self.steer();
         self.step_windows(dt);
 
         if self.hud.as_ref().is_some_and(|(_, _, until)| now >= *until) {
             self.hud = None;
         }
         self.expire_cards(now);
+        self.wind_titles();
+        self.paint_lock();
+
+        let mut drew = false;
+        for index in 0..self.heads.len() {
+            if self.heads[index].awaiting {
+                continue;
+            }
+            match self.with_head(index, |state| state.draw_head(now)) {
+                Ok(shown) => drew |= shown,
+                Err(error) if self.heads.len() == 1 || self.heads[index].frames == 0 => {
+                    if self.heads.iter().all(|head| head.frames == 0) {
+                        return Err(error);
+                    }
+                    eprintln!("drifter: {error}");
+                }
+                Err(error) => eprintln!("drifter: {error}"),
+            }
+        }
+
+        if drew {
+            self.tell_clients();
+        } else {
+            self.frames_later();
+        }
+        Ok(drew)
+    }
+
+    fn draw_head(&mut self, now: Instant) -> Result<bool, String> {
+        let at = self.at;
+        let dt = now.duration_since(self.heads[at].last);
+        self.heads[at].last = now;
+        for drawer in &mut self.drawers {
+            drawer.advance(dt, self.tunables.drawer_anim);
+        }
+        self.steer();
         self.wind_the_clock();
         self.wind_the_stats();
-        self.wind_titles();
 
-        self.paint_lock();
-        let elements = self.elements();
+        let scale = self.heads[at].scale;
+        let shown: Vec<Shown> = self
+            .elements()
+            .into_iter()
+            .map(|piece| RescaleRenderElement::from_element(piece, (0, 0).into(), scale))
+            .collect();
         let clear = self.clear;
-        let frames = self.frames;
+        let frames = self.heads[at].frames;
         let State {
-            compositor,
-            renderer,
-            ..
+            heads, renderer, ..
         } = self;
-        let empty = compositor
-            .render_frame(renderer, &elements, clear, FrameFlags::DEFAULT)
+        let head = &mut heads[at];
+        let empty = head
+            .compositor
+            .render_frame(renderer, &shown, clear, FrameFlags::DEFAULT)
             .map_err(|e| {
                 if frames == 0 {
                     format!(
-                        "first render failed: {e}\n\
+                        "first render on {} failed: {e}\n\
                          drifter needs drm master, which needs a real tty.\n\
-                         run it from tty1, not over ssh. smithay only warns when master is denied."
+                         run it from tty1, not over ssh. smithay only warns when master is denied.",
+                        head.name
                     )
                 } else {
-                    format!("render failed after {frames} frames: {e}")
+                    format!("render on {} failed after {frames} frames: {e}", head.name)
                 }
             })?
             .is_empty;
 
-        self.serve_copies(&elements, !empty);
-        if self.shot_wanted {
+        self.serve_copies(&shown, !empty);
+        if self.shot_wanted && at == self.hand {
             self.shot_wanted = false;
-            self.screenshot(&elements);
+            self.screenshot(&shown);
         }
 
         if empty {
-            self.frames_later();
             return Ok(false);
         }
 
-        self.compositor
-            .queue_frame(())
-            .map_err(|e| format!("page flip failed after {} frames: {e}", self.frames))?;
-        self.frames += 1;
-        self.awaiting = true;
-        self.tell_clients();
+        let head = &mut self.heads[at];
+        head.compositor.queue_frame(()).map_err(|e| {
+            format!(
+                "page flip on {} failed after {frames} frames: {e}",
+                head.name
+            )
+        })?;
+        head.frames += 1;
+        head.awaiting = true;
         Ok(true)
     }
 
-    pub fn screen_size(&self) -> Vec2 {
-        self.screen
+    fn physical(&self) -> Vec2 {
+        let scale = self
+            .heads
+            .get(self.at)
+            .map(|head| head.scale)
+            .unwrap_or(1.0);
+        (self.screen * scale).round()
+    }
+
+    pub fn copy_target(
+        &self,
+        output: &smithay::reexports::wayland_server::protocol::wl_output::WlOutput,
+    ) -> Option<(String, Vec2, f64)> {
+        let output = smithay::output::Output::from_resource(output)?;
+        let head = self.heads.iter().find(|head| head.output == output)?;
+        Some((head.name.clone(), head.screen, head.scale))
     }
 
     pub fn queue_copy(&mut self, mut copy: crate::screencopy::Copy) {
@@ -1396,12 +1496,13 @@ impl State {
         }
     }
 
-    fn capture(&mut self, elements: &[Skin], cursor: bool) -> Result<(Vec<u8>, bool), String> {
+    fn capture(&mut self, elements: &[Shown], cursor: bool) -> Result<(Vec<u8>, bool), String> {
         use smithay::backend::renderer::damage::OutputDamageTracker;
         use smithay::backend::renderer::{Bind, ExportMem, Offscreen};
         use smithay::utils::{Buffer as BufferCoord, Physical, Rectangle, Size};
 
-        let size = Size::<i32, Physical>::from((self.screen.x as i32, self.screen.y as i32));
+        let whole = self.physical();
+        let size = Size::<i32, Physical>::from((whole.x as i32, whole.y as i32));
         let buffer_size = Size::<i32, BufferCoord>::from((size.w, size.h));
         let mut texture: GlesTexture = Offscreen::<GlesTexture>::create_buffer(
             &mut self.renderer,
@@ -1441,7 +1542,7 @@ impl State {
     fn draw_into(
         &mut self,
         dmabuf: &mut smithay::backend::allocator::dmabuf::Dmabuf,
-        elements: &[Skin],
+        elements: &[Shown],
         cursor: bool,
     ) -> Result<(), String> {
         use smithay::backend::allocator::Buffer;
@@ -1450,7 +1551,8 @@ impl State {
         use smithay::utils::{Physical, Size};
 
         let size = dmabuf.size();
-        if (f64::from(size.w), f64::from(size.h)) != (self.screen.x, self.screen.y) {
+        let whole = self.physical();
+        if (f64::from(size.w), f64::from(size.h)) != (whole.x, whole.y) {
             return Err("a screen copy buffer is not the size of the screen".to_string());
         }
         let size = Size::<i32, Physical>::from((size.w, size.h));
@@ -1473,13 +1575,14 @@ impl State {
             .map_err(|_| "a screen copy was interrupted".to_string())
     }
 
-    fn serve_copies(&mut self, elements: &[Skin], changed: bool) {
+    fn serve_copies(&mut self, elements: &[Shown], changed: bool) {
         if self.copies.is_empty() {
             return;
         }
+        let name = self.heads[self.at].name.clone();
         let (ready, waiting): (Vec<_>, Vec<_>) = std::mem::take(&mut self.copies)
             .into_iter()
-            .partition(|copy| !copy.damage || changed);
+            .partition(|copy| copy.head == name && (!copy.damage || changed));
         self.copies = waiting;
         if ready.is_empty() {
             return;
@@ -1511,7 +1614,7 @@ impl State {
                 }
             }
             let written = shots[slot].as_ref().map(|(bytes, flipped)| {
-                crate::screencopy::fill(&copy, self.screen, bytes, *flipped)
+                crate::screencopy::fill(&copy, self.physical(), bytes, *flipped)
             });
             match written {
                 Some(Ok(())) => crate::screencopy::done(&copy),
@@ -1524,7 +1627,7 @@ impl State {
         }
     }
 
-    fn screenshot(&mut self, elements: &[Skin]) {
+    fn screenshot(&mut self, elements: &[Shown]) {
         let (bytes, flipped) = match self.capture(elements, false) {
             Ok(shot) => shot,
             Err(error) => {
@@ -1532,7 +1635,8 @@ impl State {
                 return;
             }
         };
-        let (width, height) = (self.screen.x as u32, self.screen.y as u32);
+        let whole = self.physical();
+        let (width, height) = (whole.x as u32, whole.y as u32);
         let mut rgba = Vec::with_capacity(bytes.len());
         for row in 0..height as usize {
             let source = if flipped {
@@ -1614,9 +1718,15 @@ impl State {
                 crate::shell::send_frame(popup.wl_surface(), now);
             }
         }
-        let layers: Vec<_> = smithay::desktop::layer_map_for_output(&self.output)
-            .layers()
-            .map(|layer| layer.wl_surface().clone())
+        let layers: Vec<_> = self
+            .heads
+            .iter()
+            .flat_map(|head| {
+                smithay::desktop::layer_map_for_output(&head.output)
+                    .layers()
+                    .map(|layer| layer.wl_surface().clone())
+                    .collect::<Vec<_>>()
+            })
             .collect();
         for root in layers {
             crate::shell::send_frame(&root, now);
@@ -2155,11 +2265,8 @@ impl State {
     }
 
     fn apply(&mut self, config: &Config) {
-        self.world = config.world_size(self.screen);
-        let least = Camera::fit_zoom(self.screen, self.world);
-        self.camera.zoom = self.camera.zoom.clamp(least, 4.0);
-        self.camera.clamp_to_world(self.world, self.screen);
-        self.flight = None;
+        self.screens_wide = (config.workspace.width, config.workspace.height);
+        self.monitors = config.monitor.clone();
         self.mode = config.workspace.wallpaper_mode;
         self.holds = config.input.modifier;
         self.modifier = false;
@@ -2171,19 +2278,15 @@ impl State {
         }
 
         let heights = [config.drawers.top, config.drawers.bottom];
+        let mut repaint = false;
         for edge in Edge::ALL {
             let shape = &mut self.shapes[edge.index()];
-            if shape.height == heights[edge.index()] {
-                continue;
-            }
-            shape.height = heights[edge.index()];
-            let image = drawer::paint(edge, self.screen.x as u32, shape, PANEL_COLOR, PANEL_ALPHA);
-            match upload(&mut self.renderer, Some(&image), "drawer") {
-                Ok(Some(buffer)) => self.panels[edge.index()] = buffer,
-                Ok(None) => {}
-                Err(error) => eprintln!("drifter: {error}"),
+            if shape.height != heights[edge.index()] {
+                shape.height = heights[edge.index()];
+                repaint = true;
             }
         }
+        self.relayout(repaint);
 
         if self.tray.size != config.tray.size {
             self.tray.size = config.tray.size;
@@ -2337,7 +2440,6 @@ impl State {
     fn wind_the_clock(&mut self) {
         let drawer = self.drawers[Edge::Top.index()];
         if !drawer.visible() || self.font.is_none() {
-            self.clock = None;
             return;
         }
 
@@ -2375,7 +2477,6 @@ impl State {
 
     fn wind_the_stats(&mut self) {
         if !self.drawers[Edge::Top.index()].visible() || self.font.is_none() {
-            self.stats = None;
             return;
         }
         if self.stats.is_some()
@@ -2409,7 +2510,7 @@ impl State {
     }
 
     fn kick(&mut self) {
-        if !self.awaiting
+        if self.heads.iter().any(|head| !head.awaiting)
             && let Err(error) = self.draw()
         {
             self.stop(error);
@@ -2477,7 +2578,7 @@ impl State {
         }
         self.settle_tip();
         self.watch_corner();
-        if !self.awaiting
+        if self.heads.iter().any(|head| !head.awaiting)
             && let Err(error) = self.draw()
         {
             self.stop(error);
@@ -2522,6 +2623,14 @@ impl State {
     fn pointer_to(&mut self, position: Vec2) {
         let edge = self.screen - Vec2::splat(1.0);
         let inside = position.clamp(Vec2::ZERO, edge);
+        if !self.modifier
+            && inside != position
+            && let Some(there) = self.cross(position)
+        {
+            let edge = self.screen - Vec2::splat(1.0);
+            self.pointer = there.clamp(Vec2::ZERO, edge);
+            return self.pointer_to(self.pointer);
+        }
         let was = self.pointer;
 
         if self.modifier {
@@ -3735,9 +3844,19 @@ impl State {
                 self.tell_relative(delta, bare, event.time());
             }
             InputEvent::PointerMotionAbsolute { event } => {
-                let x = event.x_transformed(self.screen.x as i32);
-                let y = event.y_transformed(self.screen.y as i32);
-                self.pointer_to(Vec2::new(x, y));
+                let rects = self.head_rects();
+                let whole = drifter_core::screens::bounds(&rects);
+                let global = whole.origin
+                    + Vec2::new(
+                        event.x_transformed(whole.size.x as i32),
+                        event.y_transformed(whole.size.y as i32),
+                    );
+                if let Some(index) = drifter_core::screens::find(&rects, global) {
+                    self.switch_head(index);
+                }
+                let local = global - self.heads[self.hand].place;
+                let edge = self.screen - Vec2::splat(1.0);
+                self.pointer_to(local.clamp(Vec2::ZERO, edge));
                 self.drag();
                 self.hover();
                 self.tell_pointer(event.time_msec());
@@ -3946,57 +4065,6 @@ pub fn open(
     let gbm = GbmDevice::new(drm_fd.clone()).map_err(|e| format!("gbm device: {e}"))?;
     let (drm, drm_events) =
         DrmDevice::new(drm_fd, true).map_err(|e| format!("cannot open drm device: {e}"))?;
-    let mut drm = drm;
-
-    let resources = drm
-        .resource_handles()
-        .map_err(|e| format!("cannot read drm resources: {e}"))?;
-
-    let (conn_handle, conn) = resources
-        .connectors()
-        .iter()
-        .filter_map(|handle| drm.get_connector(*handle, false).ok().map(|c| (*handle, c)))
-        .find(|(_, c)| c.state() == connector::State::Connected && !c.modes().is_empty())
-        .ok_or_else(|| "no connected connector with modes".to_string())?;
-
-    let name = format!("{}-{}", conn.interface().as_str(), conn.interface_id());
-
-    let modes: Vec<Mode> = conn
-        .modes()
-        .iter()
-        .map(|m| {
-            let (w, h) = m.size();
-            Mode::new(
-                u32::from(w),
-                u32::from(h),
-                m.vrefresh() * 1000,
-                m.mode_type()
-                    .contains(smithay::reexports::drm::control::ModeTypeFlags::PREFERRED),
-            )
-        })
-        .collect();
-
-    let want = (conn.interface() == connector::Interface::Virtual).then_some(virtual_size);
-    let picked = mode::select(&modes, want)
-        .ok_or_else(|| format!("connector {name} offered no usable mode"))?;
-
-    let drm_mode = *conn
-        .modes()
-        .iter()
-        .find(|m| {
-            let (w, h) = m.size();
-            u32::from(w) == picked.width
-                && u32::from(h) == picked.height
-                && m.vrefresh() * 1000 == picked.refresh_mhz
-        })
-        .ok_or_else(|| "selected mode vanished from the connector".to_string())?;
-
-    let crtc = pick_crtc(&drm, &resources, &conn)
-        .ok_or_else(|| format!("connector {name} has no usable crtc"))?;
-
-    let surface = drm
-        .create_surface(crtc, drm_mode, &[conn_handle])
-        .map_err(|e| format!("cannot create drm surface: {e}"))?;
 
     let egl_display =
         unsafe { EGLDisplay::new(gbm.clone()) }.map_err(|e| format!("egl display: {e}"))?;
@@ -4005,39 +4073,10 @@ pub fn open(
     let mut renderer =
         unsafe { GlesRenderer::new(context) }.map_err(|e| format!("gles renderer: {e}"))?;
 
-    let allocator = GbmAllocator::new(
-        gbm.clone(),
-        GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT,
-    );
-
-    let (width, height) = drm_mode.size();
-    let mode_source = OutputModeSource::Static {
-        size: (i32::from(width), i32::from(height)).into(),
-        scale: Scale::from(1.0),
-        transform: Transform::Normal,
-    };
-
-    let compositor: Compositor = DrmCompositor::new(
-        mode_source,
-        surface,
-        None,
-        allocator,
-        GbmFramebufferExporter::new(gbm.clone(), render_node),
-        [DrmFourcc::Xrgb8888, DrmFourcc::Argb8888],
-        renderer_formats,
-        (64, 64).into(),
-        Some(gbm.clone()),
-    )
-    .map_err(|e| format!("drm compositor: {e}"))?;
-
     let gl = describe(&mut renderer);
-    let screen = Vec2::new(f64::from(width), f64::from(height));
+    let screen = Vec2::new(f64::from(virtual_size.0), f64::from(virtual_size.1));
     let world = config.world_size(screen);
     let start = Camera::at_work_zoom(world / 2.0);
-    let screen_mode = smithay::output::Mode {
-        size: (i32::from(width), i32::from(height)).into(),
-        refresh: (drm_mode.vrefresh() * 1000) as i32,
-    };
     let tunables = Tunables::default();
     let shapes = [
         Panel {
@@ -4052,17 +4091,6 @@ pub fn open(
 
     let texture = upload(&mut renderer, wallpaper, "wallpaper")?;
     let wallpaper_element = texture.zip(wallpaper.map(|image| image.size()));
-    let rect = wallpaper.map(|image| {
-        drifter_core::wallpaper::place(
-            config.workspace.wallpaper_mode,
-            image.size(),
-            screen,
-            world,
-            &start,
-        )
-        .target
-    });
-
     let supplied = config
         .cursor_path()
         .and_then(|path| match drifter_core::image::load(&path) {
@@ -4121,26 +4149,7 @@ pub fn open(
     };
     chrome.follow(&config.window);
 
-    let mut built = Vec::new();
-    for edge in Edge::ALL {
-        let what = match edge {
-            Edge::Top => "top drawer",
-            Edge::Bottom => "bottom drawer",
-        };
-        let image = drawer::paint(
-            edge,
-            u32::from(width),
-            &shapes[edge.index()],
-            PANEL_COLOR,
-            PANEL_ALPHA,
-        );
-        let buffer = upload(&mut renderer, Some(&image), what)?
-            .ok_or_else(|| format!("cannot build the {what}"))?;
-        built.push(buffer);
-    }
-    let panels: [TextureBuffer<GlesTexture>; 2] = built
-        .try_into()
-        .map_err(|_| "the drawer textures went missing".to_string())?;
+    let panels = paint_panels(&mut renderer, screen.x, &shapes)?;
 
     let tray = Tray {
         size: config.tray.size,
@@ -4170,7 +4179,7 @@ pub fn open(
         wayland.extras.dmabuf_global = Some(global);
     }
     let output = smithay::output::Output::new(
-        "drifter".to_string(),
+        "none".to_string(),
         smithay::output::PhysicalProperties {
             size: (0, 0).into(),
             subpixel: smithay::output::Subpixel::Unknown,
@@ -4178,14 +4187,6 @@ pub fn open(
             model: "Drifter".to_string(),
         },
     );
-    output.create_global::<State>(&wayland.handle);
-    output.change_current_state(
-        Some(screen_mode),
-        Some(Transform::Normal),
-        Some(smithay::output::Scale::Integer(1)),
-        Some((0, 0).into()),
-    );
-    output.set_preferred(screen_mode);
 
     let (tray_bus, tray_icons) = match crate::tray::start() {
         Ok((bus, icons)) => (Some(bus), Some(icons)),
@@ -4285,6 +4286,7 @@ pub fn open(
     libinput
         .udev_assign_seat(&seat_name)
         .map_err(|_| format!("cannot take input on seat {seat_name}"))?;
+    let plugs = smithay::backend::udev::UdevBackend::new(&seat_name);
 
     let state = State {
         output,
@@ -4317,8 +4319,16 @@ pub fn open(
         started: Instant::now(),
         socket: String::new(),
         drm,
+        gbm,
+        render_node,
+        render_formats: renderer_formats,
+        virtual_size,
+        monitors: config.monitor.clone(),
+        screens_wide: (config.workspace.width, config.workspace.height),
+        heads: Vec::new(),
+        at: 0,
+        hand: 0,
         libinput: libinput.clone(),
-        compositor,
         renderer,
         wallpaper: wallpaper_element,
         panels,
@@ -4395,23 +4405,54 @@ pub fn open(
         last: Instant::now(),
         clear: Color32F::from(background),
         active: true,
-        awaiting: false,
         ticking: false,
         handle: events.handle(),
         signal: events.get_signal(),
         failure: None,
-        frames: 0,
     };
+
+    let mut state = state;
+    state.scan_heads();
+    if state.heads.is_empty() {
+        return Err("no connected monitor with modes".to_string());
+    }
+    for head in &mut state.heads {
+        head.camera = Camera::at_work_zoom(state.world / 2.0);
+    }
+    state.load(state.hand);
+    state.pointer = state.screen / 2.0;
+    let first = &state.heads[0];
+    let found_name = state
+        .heads
+        .iter()
+        .map(|head| head.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let found_size = (first.pixels.x as u16, first.pixels.y as u16);
+    let found_refresh = (first.mode.refresh / 1000) as u32;
+    let rect = wallpaper.map(|image| {
+        drifter_core::wallpaper::place(
+            config.workspace.wallpaper_mode,
+            image.size(),
+            state.screen,
+            state.world,
+            &state.camera,
+        )
+        .target
+    });
+    let start = state.camera;
 
     let handle = events.handle();
 
     handle
         .insert_source(drm_events, |event, _, state: &mut State| match event {
-            DrmEvent::VBlank(_) => {
-                state.awaiting = false;
-                if let Err(error) = state.compositor.frame_submitted() {
-                    state.stop(format!("frame submit failed: {error}"));
+            DrmEvent::VBlank(crtc) => {
+                let Some(head) = state.heads.iter_mut().find(|head| head.crtc == crtc) else {
                     return;
+                };
+                head.awaiting = false;
+                if let Err(error) = head.compositor.frame_submitted() {
+                    eprintln!("drifter: frame submit on {} failed: {error}", head.name);
                 }
                 if let Err(error) = state.draw() {
                     state.stop(error);
@@ -4420,6 +4461,24 @@ pub fn open(
             DrmEvent::Error(error) => eprintln!("drifter: drm event: {error}"),
         })
         .map_err(|e| format!("cannot watch drm events: {e}"))?;
+
+    let card = state.drm.device_id();
+    match plugs {
+        Ok(plugs) => {
+            handle
+                .insert_source(plugs, move |event, _, state: &mut State| {
+                    if let smithay::backend::udev::UdevEvent::Changed { device_id } = event
+                        && device_id == card
+                        && state.active
+                    {
+                        state.scan_heads();
+                        state.kick_now();
+                    }
+                })
+                .map_err(|e| format!("cannot watch for monitors: {e}"))?;
+        }
+        Err(error) => eprintln!("drifter: monitors plugged in later are not seen: {error}"),
+    }
 
     handle
         .insert_source(seat_events, |event, _, state: &mut State| match event {
@@ -4431,7 +4490,6 @@ pub fn open(
             }
             SessionEvent::ActivateSession => {
                 state.active = true;
-                state.awaiting = false;
                 if state.libinput.resume().is_err() {
                     eprintln!("drifter: cannot take the input devices back");
                 }
@@ -4439,10 +4497,14 @@ pub fn open(
                 if let Err(error) = state.drm.activate(true) {
                     eprintln!("drifter: cannot take the screen back: {error}");
                 }
-                if let Err(error) = state.compositor.reset_state() {
-                    eprintln!("drifter: cannot reset the compositor: {error}");
+                for head in &mut state.heads {
+                    head.awaiting = false;
+                    if let Err(error) = head.compositor.reset_state() {
+                        eprintln!("drifter: cannot reset {}: {error}", head.name);
+                    }
+                    head.compositor.reset_buffers();
                 }
-                state.compositor.reset_buffers();
+                state.scan_heads();
                 state.last = Instant::now();
                 state.kick();
             }
@@ -4564,7 +4626,6 @@ pub fn open(
         })
         .map_err(|e| format!("cannot watch the wayland socket: {e}"))?;
 
-    let mut state = state;
     state.socket = socket_name.clone();
     crate::apps::start_x11(&socket_name);
     crate::portal::announce(&socket_name);
@@ -4608,10 +4669,10 @@ pub fn open(
     Ok(Screen {
         found: Found {
             device: path.to_path_buf(),
-            connector: name,
-            width,
-            height,
-            refresh: drm_mode.vrefresh(),
+            connector: found_name,
+            width: found_size.0,
+            height: found_size.1,
+            refresh: found_refresh,
             renderer: gl,
             socket: socket_name.clone(),
             wallpaper: rect,
@@ -4629,8 +4690,9 @@ impl State {
         let Some(lock) = self.lock.as_ref() else {
             return Vec::new();
         };
+        let rect = drifter_core::lock::Look::default().rect(self.screen);
         match lock.art.as_ref() {
-            Some(art) => vec![Skin::Texture(element(art, lock.rect, 1.0))],
+            Some(art) => vec![Skin::Texture(element(art, rect, 1.0))],
             None => Vec::new(),
         }
     }
@@ -5091,19 +5153,450 @@ fn pick_crtc(
     device: &DrmDevice,
     resources: &smithay::reexports::drm::control::ResourceHandles,
     conn: &connector::Info,
+    used: &[crtc::Handle],
 ) -> Option<crtc::Handle> {
     if let Some(encoder) = conn.current_encoder()
         && let Ok(info) = device.get_encoder(encoder)
         && let Some(crtc) = info.crtc()
+        && !used.contains(&crtc)
     {
         return Some(crtc);
     }
     for encoder in conn.encoders() {
         if let Ok(info) = device.get_encoder(*encoder)
-            && let Some(crtc) = resources.filter_crtcs(info.possible_crtcs()).first()
+            && let Some(crtc) = resources
+                .filter_crtcs(info.possible_crtcs())
+                .into_iter()
+                .find(|crtc| !used.contains(crtc))
         {
-            return Some(*crtc);
+            return Some(crtc);
         }
     }
     None
+}
+
+impl State {
+    fn head_rects(&self) -> Vec<Rect> {
+        self.heads
+            .iter()
+            .map(|head| Rect::new(head.place, head.screen))
+            .collect()
+    }
+
+    fn stash(&mut self) {
+        let Some(head) = self.heads.get_mut(self.at) else {
+            return;
+        };
+        head.camera = self.camera;
+        head.flight = self.flight;
+        head.drawers = self.drawers;
+    }
+
+    fn load(&mut self, index: usize) {
+        let Some(head) = self.heads.get(index) else {
+            return;
+        };
+        self.at = index;
+        self.camera = head.camera;
+        self.flight = head.flight;
+        self.drawers = head.drawers;
+        self.screen = head.screen;
+        self.panels = head.panels.clone();
+        self.output = head.output.clone();
+    }
+
+    fn with_head<R>(&mut self, index: usize, work: impl FnOnce(&mut State) -> R) -> R {
+        if index != self.at {
+            self.stash();
+            self.load(index);
+        }
+        let out = work(self);
+        if self.at != self.hand {
+            self.stash();
+            self.load(self.hand);
+        }
+        out
+    }
+
+    fn switch_head(&mut self, index: usize) {
+        if index == self.hand || index >= self.heads.len() {
+            return;
+        }
+        self.stash();
+        for drawer in &mut self.heads[self.at].drawers {
+            drawer.open = false;
+        }
+        self.popover = None;
+        self.tip = None;
+        self.tip_of = None;
+        self.dwell = None;
+        self.leave = None;
+        self.corner_since = None;
+        self.hover_since = None;
+        self.zone = None;
+        self.hand = index;
+        self.load(index);
+    }
+
+    fn cross(&mut self, local: Vec2) -> Option<Vec2> {
+        if self.heads.len() < 2 {
+            return None;
+        }
+        let global = self.heads[self.hand].place + local;
+        let next = drifter_core::screens::find(&self.head_rects(), global)?;
+        if next == self.hand {
+            return None;
+        }
+        self.switch_head(next);
+        Some(global - self.heads[next].place)
+    }
+
+    fn top_scale(&self) -> f64 {
+        self.heads.iter().map(|head| head.scale).fold(1.0, f64::max)
+    }
+
+    pub fn tell_scale(
+        &self,
+        surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+    ) {
+        let scale = self.top_scale();
+        smithay::wayland::compositor::with_states(surface, |states| {
+            smithay::wayland::fractional_scale::with_fractional_scale(states, |fractional| {
+                fractional.set_preferred_scale(scale);
+            });
+            smithay::wayland::compositor::send_surface_state(
+                surface,
+                states,
+                scale.ceil() as i32,
+                Transform::Normal,
+            );
+        });
+    }
+
+    fn tell_scales(&self) {
+        for window in &self.windows {
+            self.tell_scale(window.toplevel.wl_surface());
+        }
+        for head in &self.heads {
+            let layers: Vec<_> = smithay::desktop::layer_map_for_output(&head.output)
+                .layers()
+                .map(|layer| layer.wl_surface().clone())
+                .collect();
+            for layer in layers {
+                self.tell_scale(&layer);
+            }
+        }
+    }
+
+    pub fn enter_heads(
+        &self,
+        surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+    ) {
+        for head in &self.heads {
+            head.output.enter(surface);
+        }
+    }
+
+    pub fn layer_output(
+        &self,
+        surface: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+    ) -> Option<smithay::output::Output> {
+        use smithay::desktop::WindowSurfaceType;
+        self.heads
+            .iter()
+            .find(|head| {
+                smithay::desktop::layer_map_for_output(&head.output)
+                    .layer_for_surface(surface, WindowSurfaceType::ALL)
+                    .is_some()
+            })
+            .map(|head| head.output.clone())
+    }
+
+    fn add_head(
+        &mut self,
+        handle: connector::Handle,
+        info: &connector::Info,
+    ) -> Result<(), String> {
+        let name = format!("{}-{}", info.interface().as_str(), info.interface_id());
+        let modes: Vec<Mode> = info
+            .modes()
+            .iter()
+            .map(|m| {
+                let (w, h) = m.size();
+                Mode::new(
+                    u32::from(w),
+                    u32::from(h),
+                    m.vrefresh() * 1000,
+                    m.mode_type()
+                        .contains(smithay::reexports::drm::control::ModeTypeFlags::PREFERRED),
+                )
+            })
+            .collect();
+        let want = (info.interface() == connector::Interface::Virtual).then_some(self.virtual_size);
+        let picked = mode::select(&modes, want)
+            .ok_or_else(|| format!("connector {name} offered no usable mode"))?;
+        let drm_mode = *info
+            .modes()
+            .iter()
+            .find(|m| {
+                let (w, h) = m.size();
+                u32::from(w) == picked.width
+                    && u32::from(h) == picked.height
+                    && m.vrefresh() * 1000 == picked.refresh_mhz
+            })
+            .ok_or_else(|| "selected mode vanished from the connector".to_string())?;
+
+        let resources = self
+            .drm
+            .resource_handles()
+            .map_err(|e| format!("cannot read drm resources: {e}"))?;
+        let used: Vec<crtc::Handle> = self.heads.iter().map(|head| head.crtc).collect();
+        let crtc = pick_crtc(&self.drm, &resources, info, &used)
+            .ok_or_else(|| format!("connector {name} has no free crtc"))?;
+        let surface = self
+            .drm
+            .create_surface(crtc, drm_mode, &[handle])
+            .map_err(|e| format!("cannot create a drm surface for {name}: {e}"))?;
+
+        let (width, height) = drm_mode.size();
+        let pixels = Vec2::new(f64::from(width), f64::from(height));
+        let wanted = drifter_core::screens::Head::new(&name, pixels, &self.monitors);
+        let transform = turn(wanted.rotate);
+        let allocator = GbmAllocator::new(
+            self.gbm.clone(),
+            GbmBufferFlags::RENDERING | GbmBufferFlags::SCANOUT,
+        );
+        let compositor: Compositor = DrmCompositor::new(
+            OutputModeSource::Static {
+                size: (i32::from(width), i32::from(height)).into(),
+                scale: Scale::from(1.0),
+                transform,
+            },
+            surface,
+            None,
+            allocator,
+            GbmFramebufferExporter::new(self.gbm.clone(), self.render_node),
+            [DrmFourcc::Xrgb8888, DrmFourcc::Argb8888],
+            self.render_formats.clone(),
+            (64, 64).into(),
+            Some(self.gbm.clone()),
+        )
+        .map_err(|e| format!("drm compositor for {name}: {e}"))?;
+
+        let (mm_w, mm_h) = info.size().unwrap_or((0, 0));
+        let output = smithay::output::Output::new(
+            name.clone(),
+            smithay::output::PhysicalProperties {
+                size: (mm_w as i32, mm_h as i32).into(),
+                subpixel: smithay::output::Subpixel::Unknown,
+                make: "Drifter".to_string(),
+                model: name.clone(),
+            },
+        );
+        let global = output.create_global::<State>(&self.wayland.handle);
+        let mode = smithay::output::Mode {
+            size: (i32::from(width), i32::from(height)).into(),
+            refresh: (drm_mode.vrefresh() * 1000) as i32,
+        };
+        output.set_preferred(mode);
+        let screen = wanted.size();
+        let panels = paint_panels(&mut self.renderer, screen.x, &self.shapes)?;
+        for window in &self.windows {
+            output.enter(window.toplevel.wl_surface());
+        }
+        println!(
+            "screen      {name} {width} x {height} @ {}, scale {}, rotate {}",
+            drm_mode.vrefresh(),
+            wanted.scale,
+            wanted.rotate
+        );
+        self.heads.push(Head {
+            name,
+            connector: handle,
+            crtc,
+            compositor,
+            output,
+            global,
+            mode,
+            pixels,
+            scale: wanted.scale,
+            rotate: wanted.rotate,
+            place: Vec2::ZERO,
+            camera: Camera::at_work_zoom(self.world / 2.0),
+            flight: None,
+            drawers: [Drawer::new(Edge::Top), Drawer::new(Edge::Bottom)],
+            screen,
+            panels,
+            awaiting: false,
+            frames: 0,
+            last: Instant::now(),
+        });
+        Ok(())
+    }
+
+    fn scan_heads(&mut self) {
+        let Ok(resources) = self.drm.resource_handles() else {
+            eprintln!("drifter: cannot read drm resources");
+            return;
+        };
+        let connected: Vec<(connector::Handle, connector::Info)> = resources
+            .connectors()
+            .iter()
+            .filter_map(|handle| {
+                self.drm
+                    .get_connector(*handle, true)
+                    .ok()
+                    .map(|info| (*handle, info))
+            })
+            .filter(|(_, info)| {
+                info.state() == connector::State::Connected && !info.modes().is_empty()
+            })
+            .collect();
+
+        self.stash();
+        let hand = self.heads.get(self.hand).map(|head| head.name.clone());
+        if !connected.is_empty() {
+            let mut index = self.heads.len();
+            while index > 0 {
+                index -= 1;
+                let alive = connected
+                    .iter()
+                    .any(|(handle, _)| *handle == self.heads[index].connector);
+                if alive {
+                    continue;
+                }
+                let head = self.heads.remove(index);
+                println!("screen      {} unplugged", head.name);
+                let layers: Vec<_> = smithay::desktop::layer_map_for_output(&head.output)
+                    .layers()
+                    .cloned()
+                    .collect();
+                for layer in layers {
+                    layer.layer_surface().send_close();
+                }
+                self.wayland
+                    .handle
+                    .remove_global::<State>(head.global.clone());
+            }
+        }
+        for (handle, info) in &connected {
+            if self.heads.iter().any(|head| head.connector == *handle) {
+                continue;
+            }
+            if let Err(error) = self.add_head(*handle, info) {
+                eprintln!("drifter: {error}");
+            }
+        }
+        if self.heads.is_empty() {
+            return;
+        }
+        let found = hand.and_then(|name| self.heads.iter().position(|head| head.name == name));
+        self.hand = found.unwrap_or(0);
+        self.at = self.hand;
+        self.load(self.hand);
+        if found.is_none() {
+            self.pointer = self.screen / 2.0;
+            self.popover = None;
+            self.tip = None;
+        }
+        self.relayout(false);
+    }
+
+    fn relayout(&mut self, repaint: bool) {
+        if self.heads.is_empty() {
+            return;
+        }
+        self.stash();
+        let wanted: Vec<drifter_core::screens::Head> = self
+            .heads
+            .iter()
+            .map(|head| drifter_core::screens::Head::new(&head.name, head.pixels, &self.monitors))
+            .collect();
+        let rects = drifter_core::screens::arrange(&wanted, &self.monitors);
+        for (index, (want, rect)) in wanted.iter().zip(&rects).enumerate() {
+            let transform = turn(want.rotate);
+            let head = &mut self.heads[index];
+            let resized = head.screen != rect.size;
+            if head.rotate != want.rotate {
+                head.compositor
+                    .set_output_mode_source(OutputModeSource::Static {
+                        size: head.mode.size,
+                        scale: Scale::from(1.0),
+                        transform,
+                    });
+                head.compositor.reset_buffers();
+            }
+            head.scale = want.scale;
+            head.rotate = want.rotate;
+            head.place = rect.origin;
+            head.screen = rect.size;
+            head.output.change_current_state(
+                Some(head.mode),
+                Some(transform),
+                Some(smithay::output::Scale::Fractional(want.scale)),
+                Some((rect.origin.x as i32, rect.origin.y as i32).into()),
+            );
+            if resized || repaint {
+                match paint_panels(&mut self.renderer, rect.size.x, &self.shapes) {
+                    Ok(panels) => self.heads[index].panels = panels,
+                    Err(error) => eprintln!("drifter: {error}"),
+                }
+            }
+            let output = self.heads[index].output.clone();
+            smithay::desktop::layer_map_for_output(&output).arrange();
+        }
+
+        let base = self.heads[0].screen;
+        self.world = Vec2::new(
+            base.x * f64::from(self.screens_wide.0),
+            base.y * f64::from(self.screens_wide.1),
+        );
+        let world = self.world;
+        for head in &mut self.heads {
+            let least = Camera::fit_zoom(head.screen, world);
+            head.camera.zoom = head.camera.zoom.clamp(least, 4.0);
+            head.camera.clamp_to_world(world, head.screen);
+            head.flight = None;
+        }
+        self.load(self.hand);
+        let edge = (self.screen - Vec2::splat(1.0)).max(Vec2::ZERO);
+        self.pointer = self.pointer.clamp(Vec2::ZERO, edge);
+        self.tell_scales();
+    }
+}
+
+fn turn(rotate: u32) -> Transform {
+    match rotate {
+        90 => Transform::_90,
+        180 => Transform::_180,
+        270 => Transform::_270,
+        _ => Transform::Normal,
+    }
+}
+
+fn paint_panels(
+    renderer: &mut GlesRenderer,
+    width: f64,
+    shapes: &[Panel; 2],
+) -> Result<[TextureBuffer<GlesTexture>; 2], String> {
+    let mut built = Vec::new();
+    for edge in Edge::ALL {
+        let what = match edge {
+            Edge::Top => "top drawer",
+            Edge::Bottom => "bottom drawer",
+        };
+        let image = drawer::paint(
+            edge,
+            width.max(1.0) as u32,
+            &shapes[edge.index()],
+            PANEL_COLOR,
+            PANEL_ALPHA,
+        );
+        let buffer = upload(renderer, Some(&image), what)?
+            .ok_or_else(|| format!("cannot build the {what}"))?;
+        built.push(buffer);
+    }
+    built
+        .try_into()
+        .map_err(|_| "the drawer textures went missing".to_string())
 }

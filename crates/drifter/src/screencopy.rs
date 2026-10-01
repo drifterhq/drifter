@@ -15,6 +15,7 @@ use smithay::reexports::wayland_server::{
 use crate::render::State;
 
 pub struct Asked {
+    pub head: String,
     pub region: Rect,
     pub cursor: bool,
 }
@@ -22,6 +23,7 @@ pub struct Asked {
 pub struct Copy {
     pub frame: ZwlrScreencopyFrameV1,
     pub buffer: WlBuffer,
+    pub head: String,
     pub region: Rect,
     pub cursor: bool,
     pub damage: bool,
@@ -54,32 +56,45 @@ impl Dispatch<ZwlrScreencopyManagerV1, ()> for State {
         _handle: &DisplayHandle,
         data_init: &mut DataInit<'_, Self>,
     ) {
-        let screen = Rect::new(Vec2::ZERO, state.screen_size());
-        let (frame, cursor, region) = match request {
+        let (frame, cursor, output, asked) = match request {
             zwlr_screencopy_manager_v1::Request::CaptureOutput {
                 frame,
                 overlay_cursor,
-                ..
-            } => (frame, overlay_cursor != 0, screen),
+                output,
+            } => (frame, overlay_cursor != 0, output, None),
             zwlr_screencopy_manager_v1::Request::CaptureOutputRegion {
                 frame,
                 overlay_cursor,
+                output,
                 x,
                 y,
                 width,
                 height,
-                ..
             } => {
                 let asked = Rect::new(
                     Vec2::new(f64::from(x), f64::from(y)),
                     Vec2::new(f64::from(width), f64::from(height)),
                 );
-                (frame, overlay_cursor != 0, clip(asked, screen))
+                (frame, overlay_cursor != 0, output, Some(asked))
             }
             _ => return,
         };
-        let frame = data_init.init(frame, Asked { region, cursor });
-        if state.locked() || region.size.x < 1.0 || region.size.y < 1.0 {
+        let target = state.copy_target(&output);
+        let (head, logical, scale) = target.clone().unwrap_or((String::new(), Vec2::ZERO, 1.0));
+        let screen = Rect::new(Vec2::ZERO, (logical * scale).round());
+        let region = match asked {
+            None => screen,
+            Some(asked) => clip(Rect::new(asked.origin * scale, asked.size * scale), screen),
+        };
+        let frame = data_init.init(
+            frame,
+            Asked {
+                head,
+                region,
+                cursor,
+            },
+        );
+        if target.is_none() || state.locked() || region.size.x < 1.0 || region.size.y < 1.0 {
             frame.failed();
             return;
         }
@@ -117,6 +132,7 @@ impl Dispatch<ZwlrScreencopyFrameV1, Asked> for State {
         state.queue_copy(Copy {
             frame: frame.clone(),
             buffer,
+            head: data.head.clone(),
             region: data.region,
             cursor: data.cursor,
             damage,

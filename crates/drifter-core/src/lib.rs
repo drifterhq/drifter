@@ -18,6 +18,7 @@ pub mod notify;
 pub mod paint;
 pub mod power;
 pub mod prompt;
+pub mod screens;
 pub mod settings;
 pub mod sheet;
 pub mod snap;
