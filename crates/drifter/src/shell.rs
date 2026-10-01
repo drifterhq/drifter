@@ -368,16 +368,34 @@ delegate_output!(State);
 delegate_xdg_shell!(State);
 delegate_xdg_decoration!(State);
 
-pub fn start(display: &Display<State>) -> Result<Wayland, String> {
+pub fn xkb(keys: &drifter_core::Keyboard) -> smithay::input::keyboard::XkbConfig<'_> {
+    smithay::input::keyboard::XkbConfig {
+        layout: &keys.layout,
+        variant: &keys.variant,
+        options: (!keys.options.is_empty()).then(|| keys.options.clone()),
+        ..Default::default()
+    }
+}
+
+pub fn start(display: &Display<State>, keys: &drifter_core::Keyboard) -> Result<Wayland, String> {
     let handle = display.handle();
     let compositor = CompositorState::new::<State>(&handle);
     let xdg = XdgShellState::new::<State>(&handle);
     let shm = ShmState::new::<State>(&handle, Vec::new());
     let mut seats = SeatState::new();
     let mut seat = seats.new_wl_seat(&handle, "drifter");
-    let keyboard = seat
-        .add_keyboard(Default::default(), 200, 25)
-        .map_err(|e| format!("cannot make a keyboard: {e}"))?;
+    let (delay, rate) = (keys.repeat_delay as i32, keys.repeat_rate as i32);
+    let keyboard = match seat.add_keyboard(xkb(keys), delay, rate) {
+        Ok(keyboard) => keyboard,
+        Err(error) => {
+            eprintln!(
+                "drifter: keyboard layout {:?} did not load ({error}), so the system default is used",
+                keys.layout
+            );
+            seat.add_keyboard(Default::default(), delay, rate)
+                .map_err(|e| format!("cannot make a keyboard: {e}"))?
+        }
+    };
     let pointer = seat.add_pointer();
     let data_device = DataDeviceState::new::<State>(&handle);
     smithay::wayland::shell::xdg::decoration::XdgDecorationState::new::<State>(&handle);

@@ -329,6 +329,7 @@ pub struct State {
     snap: Snap,
     config_seen: Option<(std::time::SystemTime, u64, u64)>,
     last_input: Instant,
+    keys: drifter_core::Keyboard,
     lock_after: u64,
     screen_off: u64,
     dark: bool,
@@ -2158,6 +2159,23 @@ impl State {
         crate::apps::launch(&[program.to_string_lossy().into_owned()], &self.socket);
     }
 
+    fn set_keys(&mut self, keys: &drifter_core::Keyboard) {
+        let keyboard = self.wayland.keyboard.clone();
+        if keys.layout != self.keys.layout
+            || keys.variant != self.keys.variant
+            || keys.options != self.keys.options
+        {
+            if let Err(error) = keyboard.set_xkb_config(self, crate::shell::xkb(keys)) {
+                eprintln!(
+                    "drifter: keyboard layout {:?} did not load: {error:?}",
+                    keys.layout
+                );
+            }
+        }
+        keyboard.change_repeat_info(keys.repeat_rate as i32, keys.repeat_delay as i32);
+        self.keys = keys.clone();
+    }
+
     fn watch_idle(&mut self) {
         if !self.wayland.extras.inhibitors.is_empty() {
             self.last_input = Instant::now();
@@ -2292,6 +2310,9 @@ impl State {
         self.mode = config.workspace.wallpaper_mode;
         self.holds = config.input.modifier;
         self.modifier = false;
+        if self.keys != config.keyboard {
+            self.set_keys(&config.keyboard);
+        }
         if self.touch != config.touchpad {
             self.touch = config.touchpad;
             for pad in &mut self.touchpads {
@@ -4182,7 +4203,7 @@ pub fn open(
     };
     let display: Display<State> =
         Display::new().map_err(|e| format!("cannot start the wayland display: {e}"))?;
-    let mut wayland = crate::shell::start(&display)?;
+    let mut wayland = crate::shell::start(&display, &config.keyboard)?;
     {
         use smithay::backend::renderer::ImportDma;
         use smithay::wayland::dmabuf::DmabufFeedbackBuilder;
@@ -4399,6 +4420,7 @@ pub fn open(
         snap: Snap::default(),
         config_seen: None,
         last_input: Instant::now(),
+        keys: config.keyboard.clone(),
         lock_after: config.lock.after,
         screen_off: config.lock.screen_off,
         dark: false,

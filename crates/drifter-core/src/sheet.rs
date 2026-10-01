@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use crate::desktop::App;
 use crate::geom::{Rect, Vec2};
 use crate::image::Image;
+use crate::keyboard::{self, Layout};
 use crate::paint::Canvas;
 use crate::settings::{Fonts, Look};
 
@@ -14,6 +15,7 @@ pub enum For {
     Folder,
     DockIcon(usize),
     Default(crate::desktop::Role),
+    Layout,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,6 +46,11 @@ pub enum Sheet {
         entries: Vec<Entry>,
         scroll: f64,
     },
+    Layouts {
+        layouts: Vec<Layout>,
+        scroll: f64,
+        text: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -56,6 +63,7 @@ pub enum Pick {
     Folder(PathBuf),
     File(PathBuf),
     Default,
+    Layout(String),
 }
 
 const ROW: f64 = 36.0;
@@ -102,9 +110,18 @@ impl Sheet {
         }
     }
 
+    pub fn layouts(layouts: Vec<Layout>) -> Sheet {
+        Sheet::Layouts {
+            layouts,
+            scroll: 0.0,
+            text: String::new(),
+        }
+    }
+
     pub fn purpose(&self) -> For {
         match self {
             Sheet::Picker { purpose, .. } | Sheet::Files { purpose, .. } => *purpose,
+            Sheet::Layouts { .. } => For::Layout,
         }
     }
 
@@ -114,28 +131,33 @@ impl Sheet {
             Sheet::Picker {
                 tab: Tab::Command,
                 ..
-            }
+            } | Sheet::Layouts { .. }
         )
     }
 
+    fn text_mut(&mut self) -> Option<&mut String> {
+        match self {
+            Sheet::Picker {
+                tab: Tab::Command,
+                text,
+                ..
+            } => Some(text),
+            Sheet::Layouts { text, scroll, .. } => {
+                *scroll = 0.0;
+                Some(text)
+            }
+            _ => None,
+        }
+    }
+
     pub fn type_text(&mut self, typed: &str) {
-        if let Sheet::Picker {
-            tab: Tab::Command,
-            text,
-            ..
-        } = self
-        {
+        if let Some(text) = self.text_mut() {
             text.extend(typed.chars().filter(|c| !c.is_control()));
         }
     }
 
     pub fn backspace(&mut self) {
-        if let Sheet::Picker {
-            tab: Tab::Command,
-            text,
-            ..
-        } = self
-        {
+        if let Some(text) = self.text_mut() {
             text.pop();
         }
     }
@@ -147,6 +169,9 @@ impl Sheet {
                 text,
                 ..
             } if !text.trim().is_empty() => Some(Pick::Command(text.trim().to_string())),
+            Sheet::Layouts { layouts, text, .. } => keyboard::matching(layouts, text)
+                .first()
+                .map(|layout| Pick::Layout(layout.code.clone())),
             _ => None,
         }
     }
@@ -160,12 +185,15 @@ impl Sheet {
             } => apps.len(),
             Sheet::Picker { .. } => 0,
             Sheet::Files { entries, .. } => entries.len(),
+            Sheet::Layouts { layouts, text, .. } => keyboard::matching(layouts, text).len(),
         }
     }
 
     fn scroll(&self) -> f64 {
         match self {
-            Sheet::Picker { scroll, .. } | Sheet::Files { scroll, .. } => *scroll,
+            Sheet::Picker { scroll, .. }
+            | Sheet::Files { scroll, .. }
+            | Sheet::Layouts { scroll, .. } => *scroll,
         }
     }
 
@@ -173,7 +201,9 @@ impl Sheet {
         let list = frame(size, self).list;
         let most = (self.count() as f64 * ROW - list.size.y).max(0.0);
         match self {
-            Sheet::Picker { scroll, .. } | Sheet::Files { scroll, .. } => {
+            Sheet::Picker { scroll, .. }
+            | Sheet::Files { scroll, .. }
+            | Sheet::Layouts { scroll, .. } => {
                 *scroll = (*scroll + by).clamp(0.0, most);
             }
         }
@@ -196,7 +226,7 @@ impl Sheet {
                 purpose: For::DockIcon(_),
                 ..
             } => Some(("Use the app's icon", Pick::Default)),
-            Sheet::Files { .. } => None,
+            Sheet::Files { .. } | Sheet::Layouts { .. } => None,
         }
     }
 
@@ -209,6 +239,7 @@ impl Sheet {
             For::Default(crate::desktop::Role::Files) => "Choose the file manager",
             For::Default(crate::desktop::Role::Terminal) => "Choose the terminal",
             For::Default(crate::desktop::Role::Browser) => "Choose the web browser",
+            For::Layout => "Choose a keyboard layout",
         }
     }
 
@@ -255,6 +286,9 @@ impl Sheet {
                 true => Pick::Into(entry.path.clone()),
                 false => Pick::File(entry.path.clone()),
             }),
+            Sheet::Layouts { layouts, text, .. } => keyboard::matching(layouts, text)
+                .get(index)
+                .map(|layout| Pick::Layout(layout.code.clone())),
             _ => None,
         }
     }
@@ -360,6 +394,10 @@ impl Sheet {
                     1.0,
                 );
             }
+            Sheet::Layouts { text, .. } => {
+                search(canvas, look, fonts, frame.field, text);
+                self.paint_list(canvas, look, fonts, icons, frame.list);
+            }
             _ => self.paint_list(canvas, look, fonts, icons, frame.list),
         }
 
@@ -389,6 +427,10 @@ impl Sheet {
             Sheet::Files { entries, .. } => entries
                 .iter()
                 .map(|entry| (entry.name.clone(), None, entry.folder))
+                .collect(),
+            Sheet::Layouts { layouts, text, .. } => keyboard::matching(layouts, text)
+                .into_iter()
+                .map(|layout| (layout.name.clone(), None, false))
                 .collect(),
         };
         if rows.is_empty() {
@@ -436,6 +478,39 @@ pub fn letter(canvas: &mut Canvas, look: &Look, fonts: &Fonts, spot: Rect, name:
     let first: String = name.chars().take(1).collect::<String>().to_uppercase();
     let text = fonts.small.paint(&first, look.ink);
     canvas.stamp(&text, spot.center() - text.size() / 2.0, 1.0);
+}
+
+fn search(canvas: &mut Canvas, look: &Look, fonts: &Fonts, field: Rect, text: &str) {
+    canvas.round_rect(field, 7.0, look.rule, 1.0);
+    canvas.round_rect(
+        Rect::new(
+            field.origin + Vec2::splat(1.0),
+            field.size - Vec2::splat(2.0),
+        ),
+        6.0,
+        look.back,
+        1.0,
+    );
+    let (shown, ink) = match text.is_empty() {
+        true => ("Type to search", look.dim),
+        false => (text, look.ink),
+    };
+    let room = field.size.x - 24.0;
+    let painted = fonts.body.paint(&fit_left(fonts.body, shown, room), ink);
+    let at = Vec2::new(
+        field.origin.x + 12.0,
+        field.center().y - f64::from(painted.height) / 2.0,
+    );
+    canvas.stamp(&painted, at, 1.0);
+    let caret_x = match text.is_empty() {
+        true => at.x,
+        false => at.x + f64::from(painted.width) + 1.0,
+    };
+    let caret = Rect::new(
+        Vec2::new(caret_x, field.center().y - 8.0),
+        Vec2::new(1.5, 16.0),
+    );
+    canvas.round_rect(caret, 0.0, look.accent, 1.0);
 }
 
 fn button(canvas: &mut Canvas, look: &Look, fonts: &Fonts, rect: Rect, label: &str, main: bool) {
@@ -497,7 +572,13 @@ fn frame(size: Vec2, sheet: &Sheet) -> Frame {
         Vec2::new(inner_x, top),
         Vec2::new(inner_w, bar - 12.0 - top),
     );
-    let field = Rect::new(Vec2::new(inner_x, top + 10.0), Vec2::new(inner_w, 36.0));
+    let field = match sheet {
+        Sheet::Layouts { .. } => Rect::new(
+            Vec2::new(inner_x, card.origin.y + 48.0),
+            Vec2::new(inner_w, 30.0),
+        ),
+        _ => Rect::new(Vec2::new(inner_x, top + 10.0), Vec2::new(inner_w, 36.0)),
+    };
     let cancel = Rect::new(Vec2::new(inner_x, bar), Vec2::new(90.0, 30.0));
     let primary_w = 170.0;
     let primary = Rect::new(
@@ -612,6 +693,26 @@ mod tests {
         let choose = frame_now.primary.center();
         assert_eq!(sheet.hit(SIZE, choose), Some(Pick::Folder(base.clone())));
         std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    fn layouts() -> Vec<Layout> {
+        keyboard::parse("! layout\n  us  English (US)\n  de  German\n  gb  English (UK)\n")
+    }
+
+    #[test]
+    fn typing_filters_the_layouts_and_enter_takes_the_first() {
+        let mut sheet = Sheet::layouts(layouts());
+        assert!(sheet.typing());
+        let list = frame(SIZE, &sheet).list;
+        let first = Vec2::new(list.center().x, list.origin.y + ROW * 0.5);
+        assert_eq!(sheet.hit(SIZE, first), Some(Pick::Layout("gb".into())));
+        sheet.type_text("germ");
+        assert_eq!(sheet.hit(SIZE, first), Some(Pick::Layout("de".into())));
+        assert_eq!(sheet.enter(), Some(Pick::Layout("de".into())));
+        sheet.type_text("x");
+        assert_eq!(sheet.enter(), None);
+        sheet.backspace();
+        assert_eq!(sheet.purpose(), For::Layout);
     }
 
     #[test]

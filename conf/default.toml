@@ -60,6 +60,18 @@ ignore_while_typing = true
 # x = 0
 # y = 0
 
+[keyboard]
+# The layout, like "us", "de" or "gb". Empty uses the system default.
+layout = ""
+# A variant of the layout, like "dvorak" for "us". Empty is the plain one.
+variant = ""
+# xkb options, comma separated, like "caps:escape,compose:ralt".
+options = ""
+# Milliseconds a key is held before it repeats. 100 to 1000.
+repeat_delay = 200
+# Repeats a second while it is held. 5 to 60.
+repeat_rate = 25
+
 [drawers]
 # Bar heights in pixels. Minimum 16.
 # Top holds the tray. Bottom holds the dock.

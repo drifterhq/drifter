@@ -372,6 +372,44 @@ pub enum ThreeTap {
 
 pub const FASTEST: u32 = 10;
 
+pub const REPEAT_DELAY: (u32, u32) = (100, 1000);
+pub const REPEAT_RATE: (u32, u32) = (5, 60);
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Keyboard {
+    #[serde(default)]
+    pub layout: String,
+    #[serde(default)]
+    pub variant: String,
+    #[serde(default)]
+    pub options: String,
+    #[serde(default = "repeat_delay")]
+    pub repeat_delay: u32,
+    #[serde(default = "repeat_rate")]
+    pub repeat_rate: u32,
+}
+
+fn repeat_delay() -> u32 {
+    200
+}
+
+fn repeat_rate() -> u32 {
+    25
+}
+
+impl Default for Keyboard {
+    fn default() -> Self {
+        Keyboard {
+            layout: String::new(),
+            variant: String::new(),
+            options: String::new(),
+            repeat_delay: repeat_delay(),
+            repeat_rate: repeat_rate(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Touchpad {
@@ -425,6 +463,8 @@ pub struct Config {
     pub input: Input,
     #[serde(default)]
     pub touchpad: Touchpad,
+    #[serde(default)]
+    pub keyboard: Keyboard,
     #[serde(default)]
     pub drawers: Drawers,
     #[serde(default)]
@@ -659,6 +699,18 @@ impl Config {
             return Err(ConfigError::Invalid(
                 "tray size is text height in pixels and must be at least 6".into(),
             ));
+        }
+        let (least, most) = REPEAT_DELAY;
+        if !(least..=most).contains(&self.keyboard.repeat_delay) {
+            return Err(ConfigError::Invalid(format!(
+                "keyboard repeat_delay is milliseconds from {least} to {most}"
+            )));
+        }
+        let (least, most) = REPEAT_RATE;
+        if !(least..=most).contains(&self.keyboard.repeat_rate) {
+            return Err(ConfigError::Invalid(format!(
+                "keyboard repeat_rate is keys a second from {least} to {most}"
+            )));
         }
         if self.touchpad.speed > FASTEST {
             return Err(ConfigError::Invalid(format!(
@@ -1034,6 +1086,27 @@ mod tests {
         assert_eq!(config.workspace.height, 3);
         assert_eq!(config.workspace.wallpaper_mode, WallpaperMode::Pan);
         assert_eq!(config.input.modifier, Modifier::Super);
+    }
+
+    #[test]
+    fn the_keyboard_table_is_optional_and_checked() {
+        let none = Config::default();
+        assert_eq!(none.keyboard.layout, "");
+        assert_eq!(
+            (none.keyboard.repeat_delay, none.keyboard.repeat_rate),
+            (200, 25)
+        );
+        let set = Config::parse(
+            "[keyboard]\nlayout = \"de\"\nvariant = \"nodeadkeys\"\noptions = \"caps:escape\"\nrepeat_delay = 300\n",
+        )
+        .unwrap();
+        set.validate().unwrap();
+        assert_eq!(set.keyboard.layout, "de");
+        assert_eq!(set.keyboard.repeat_rate, 25);
+        let slow = Config::parse("[keyboard]\nrepeat_delay = 5000\n").unwrap();
+        assert!(slow.validate().is_err());
+        let fast = Config::parse("[keyboard]\nrepeat_rate = 0\n").unwrap();
+        assert!(fast.validate().is_err());
     }
 
     #[test]

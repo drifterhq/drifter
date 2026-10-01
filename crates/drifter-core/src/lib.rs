@@ -10,6 +10,7 @@ pub mod geom;
 pub mod hud;
 pub mod icon;
 pub mod image;
+pub mod keyboard;
 pub mod lock;
 pub mod menu;
 pub mod mode;
@@ -31,8 +32,8 @@ pub mod window;
 
 pub use camera::Camera;
 pub use config::{
-    AppsConfig, Assets, ButtonName, Config, DockConfig, Launch, Modifier, Side, ThreeTap, Touchpad,
-    TrayConfig, Tunables, WallpaperMode, WallpaperOrder,
+    AppsConfig, Assets, ButtonName, Config, DockConfig, Keyboard, Launch, Modifier, Side, ThreeTap,
+    Touchpad, TrayConfig, Tunables, WallpaperMode, WallpaperOrder,
 };
 pub use cursor::Cursor;
 pub use drawer::{Drawer, Edge, Panel};

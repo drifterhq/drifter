@@ -2,12 +2,13 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::config::{
-    ButtonName, Config, FASTEST, Launch, Modifier, Side, ThreeTap, Touchpad, WallpaperMode,
-    WallpaperOrder,
+    ButtonName, Config, FASTEST, Keyboard, Launch, Modifier, REPEAT_DELAY, REPEAT_RATE, Side,
+    ThreeTap, Touchpad, WallpaperMode, WallpaperOrder,
 };
 use crate::desktop::Role;
 use crate::geom::{Rect, Vec2};
 use crate::image::Image;
+use crate::keyboard::Layout;
 use crate::paint::Canvas;
 use crate::screens::{self, Head, MonitorConfig};
 use crate::sheet::{For, Sheet};
@@ -85,6 +86,7 @@ impl Section {
 pub enum Ask {
     Pick(For),
     Files(For),
+    Layouts,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -120,6 +122,8 @@ pub struct Model {
     pub wallpaper_mode: WallpaperMode,
     pub modifier: Modifier,
     pub touchpad: Touchpad,
+    pub keyboard: Keyboard,
+    pub layouts: Vec<Layout>,
     pub top: f64,
     pub bottom: f64,
     pub text_size: f64,
@@ -215,6 +219,8 @@ impl Model {
             wallpaper_mode: config.workspace.wallpaper_mode,
             modifier: config.input.modifier,
             touchpad: config.touchpad,
+            keyboard: config.keyboard.clone(),
+            layouts: crate::keyboard::installed(),
             top: config.drawers.top,
             bottom: config.drawers.bottom,
             text_size: config.tray.size,
@@ -688,25 +694,29 @@ impl Model {
                     },
                 ]
             }
-            Section::Input => vec![Group {
-                header: None,
-                rows: vec![Row::new(
-                    Id::Modifier,
-                    "Camera key",
-                    Control::Segments {
-                        options: vec!["Super", "Alt", "Ctrl"],
-                        chosen: match self.modifier {
-                            Modifier::Super => 0,
-                            Modifier::Alt => 1,
-                            Modifier::Ctrl => 2,
+            Section::Input => vec![
+                Group {
+                    header: None,
+                    rows: vec![Row::new(
+                        Id::Modifier,
+                        "Camera key",
+                        Control::Segments {
+                            options: vec!["Super", "Alt", "Ctrl"],
+                            chosen: match self.modifier {
+                                Modifier::Super => 0,
+                                Modifier::Alt => 1,
+                                Modifier::Ctrl => 2,
+                            },
                         },
-                    },
-                )],
-                footer: Some(
-                    "Hold it to zoom with the scroll wheel, and to pan by pushing an edge.".into(),
-                ),
-                thumbs: None,
-            }],
+                    )],
+                    footer: Some(
+                        "Hold it to zoom with the scroll wheel, and to pan by pushing an edge."
+                            .into(),
+                    ),
+                    thumbs: None,
+                },
+                self.keyboard_group(),
+            ],
             Section::Touchpad => self.touchpad_groups(),
             Section::Displays => self.display_groups(),
             Section::Lock => vec![Group {
@@ -785,6 +795,59 @@ impl Model {
                 }]
             }
         }
+    }
+
+    fn keyboard_group(&self) -> Group {
+        let keys = &self.keyboard;
+        let mut layout = crate::keyboard::name_of(&self.layouts, &keys.layout);
+        if !keys.variant.is_empty() {
+            layout = format!("{layout}, {}", keys.variant);
+        }
+        let (delay_least, delay_most) = REPEAT_DELAY;
+        let (rate_least, rate_most) = REPEAT_RATE;
+        Group {
+            header: Some("Keyboard"),
+            rows: vec![
+                Row::new(
+                    Id::Layout,
+                    "Layout",
+                    Control::Buttons(vec![Mark::Text("Choose")]),
+                )
+                .detail(&layout),
+                Row::new(
+                    Id::RepeatDelay,
+                    "Repeat after",
+                    Control::Slider {
+                        least: f64::from(delay_least),
+                        most: f64::from(delay_most),
+                        value: f64::from(keys.repeat_delay),
+                        unit: " ms",
+                        zero: None,
+                    },
+                )
+                .detail("How long a key is held before it repeats"),
+                Row::new(
+                    Id::RepeatRate,
+                    "Repeat speed",
+                    Control::Slider {
+                        least: f64::from(rate_least),
+                        most: f64::from(rate_most),
+                        value: f64::from(keys.repeat_rate),
+                        unit: " a second",
+                        zero: None,
+                    },
+                ),
+            ],
+            footer: Some("Variants and xkb options are set in the config file.".into()),
+            thumbs: None,
+        }
+    }
+
+    pub fn choose_layout(&mut self, code: String) {
+        if code != self.keyboard.layout {
+            self.keyboard.variant.clear();
+        }
+        self.keyboard.layout = code;
     }
 
     fn touchpad_groups(&self) -> Vec<Group> {
@@ -997,6 +1060,16 @@ impl Model {
             (Id::ScreenOff, Value::Number(n)) => {
                 self.screen_off = n.round().clamp(0.0, 60.0) as u64
             }
+            (Id::RepeatDelay, Value::Number(n)) => {
+                let (least, most) = REPEAT_DELAY;
+                self.keyboard.repeat_delay =
+                    n.round().clamp(f64::from(least), f64::from(most)) as u32
+            }
+            (Id::RepeatRate, Value::Number(n)) => {
+                let (least, most) = REPEAT_RATE;
+                self.keyboard.repeat_rate =
+                    n.round().clamp(f64::from(least), f64::from(most)) as u32
+            }
             (Id::Rotate, Value::Number(n)) => self.rotate = n.round().clamp(0.0, 60.0) as u64,
             (Id::Unit, Value::Choice(n)) => self.unit = n.min(2),
             (Id::Rotation, Value::Choice(n)) => {
@@ -1068,6 +1141,7 @@ impl Model {
             (Id::Order(slot), 0) if slot > 0 && slot < 3 => self.order.swap(slot, slot - 1),
             (Id::Order(slot), 1) if slot < 2 => self.order.swap(slot, slot + 1),
             (Id::Folder, _) => return Some(Ask::Files(For::Folder)),
+            (Id::Layout, _) => return Some(Ask::Layouts),
             (Id::Login(at), 0) if at < self.login.len() => {
                 self.login.remove(at);
             }
@@ -1215,6 +1289,29 @@ impl Model {
         }
         if pad.speed != was.speed {
             put(&mut doc, "touchpad", "speed", int(f64::from(pad.speed)));
+        }
+        let (keys, was) = (&self.keyboard, &before.keyboard);
+        if keys.layout != was.layout {
+            put(&mut doc, "keyboard", "layout", word(&keys.layout));
+        }
+        if keys.variant != was.variant {
+            put(&mut doc, "keyboard", "variant", word(&keys.variant));
+        }
+        if keys.repeat_delay != was.repeat_delay {
+            put(
+                &mut doc,
+                "keyboard",
+                "repeat_delay",
+                int(f64::from(keys.repeat_delay)),
+            );
+        }
+        if keys.repeat_rate != was.repeat_rate {
+            put(
+                &mut doc,
+                "keyboard",
+                "repeat_rate",
+                int(f64::from(keys.repeat_rate)),
+            );
         }
         if self.top != before.top {
             put(&mut doc, "drawers", "top", int(self.top));
@@ -1407,6 +1504,9 @@ pub enum Id {
     Order(usize),
     LockAfter,
     ScreenOff,
+    Layout,
+    RepeatDelay,
+    RepeatRate,
     Folder,
     Rotate,
     Unit,
@@ -2626,6 +2726,24 @@ mod tests {
         let back = Config::parse(&after.write(&before, text).unwrap()).unwrap();
         assert_eq!(back.input.modifier, Modifier::Super);
         assert_eq!(back.workspace.wallpaper_mode, WallpaperMode::Parallax);
+    }
+
+    #[test]
+    fn keyboard_changes_write_the_keyboard_table() {
+        let text = "[keyboard]\nlayout = \"us\"\nvariant = \"dvorak\"\n";
+        let before = model(&config(text));
+        assert_eq!(before.clone().press(Id::Layout, 0), Some(Ask::Layouts));
+        let mut after = before.clone();
+        after.choose_layout("de".into());
+        after.set(Id::RepeatDelay, Value::Number(5000.0));
+        after.set(Id::RepeatRate, Value::Number(33.4));
+        let out = after.write(&before, text).unwrap();
+        let back = Config::parse(&out).unwrap();
+        assert_eq!(back.keyboard.layout, "de");
+        assert_eq!(back.keyboard.variant, "");
+        assert_eq!(back.keyboard.repeat_delay, REPEAT_DELAY.1);
+        assert_eq!(back.keyboard.repeat_rate, 33);
+        back.validate().unwrap();
     }
 
     #[test]

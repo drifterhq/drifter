@@ -434,6 +434,9 @@ impl Settings {
                 }
                 Some(Ask::Pick(purpose)) => self.open_picker(purpose),
                 Some(Ask::Files(purpose)) => self.open_files(purpose),
+                Some(Ask::Layouts) => {
+                    self.sheet = Some(Sheet::layouts(self.model.layouts.clone()));
+                }
                 None => self.save(),
             },
             Some(Hit::Monitor(at)) => {
@@ -529,6 +532,11 @@ impl Settings {
                     self.save();
                 }
                 self.sheet = None;
+            }
+            Pick::Layout(code) => {
+                self.model.choose_layout(code);
+                self.sheet = None;
+                self.save();
             }
             Pick::Default => {
                 if let For::DockIcon(at) = purpose {
