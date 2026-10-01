@@ -330,6 +330,8 @@ pub struct State {
     config_seen: Option<(std::time::SystemTime, u64, u64)>,
     last_input: Instant,
     lock_after: u64,
+    screen_off: u64,
+    dark: bool,
     login: Vec<drifter_core::Launch>,
     paper: Paper,
     paper_tx: smithay::reexports::calloop::channel::Sender<(PathBuf, Option<drifter_core::Image>)>,
@@ -466,6 +468,9 @@ impl State {
     }
 
     fn pending(&self) -> Option<Duration> {
+        if self.dark {
+            return None;
+        }
         if self.lock.is_some() {
             return Some(SECOND_TICK);
         }
@@ -1356,7 +1361,7 @@ impl State {
     }
 
     fn draw(&mut self) -> Result<bool, String> {
-        if !self.active {
+        if !self.active || self.dark {
             return Ok(false);
         }
 
@@ -2154,16 +2159,47 @@ impl State {
     }
 
     fn watch_idle(&mut self) {
-        if self.lock_after == 0 || self.lock.is_some() {
-            return;
-        }
         if !self.wayland.extras.inhibitors.is_empty() {
             self.last_input = Instant::now();
             return;
         }
-        if self.last_input.elapsed() >= Duration::from_secs(self.lock_after.saturating_mul(60)) {
+        let idle = self.last_input.elapsed();
+        if self.lock_after > 0
+            && self.lock.is_none()
+            && idle >= Duration::from_secs(self.lock_after.saturating_mul(60))
+        {
             self.lock_now();
         }
+        if self.screen_off > 0
+            && !self.dark
+            && idle >= Duration::from_secs(self.screen_off.saturating_mul(60))
+        {
+            self.go_dark();
+        }
+    }
+
+    fn go_dark(&mut self) {
+        self.dark = true;
+        for head in &mut self.heads {
+            head.awaiting = false;
+            if let Err(error) = head.compositor.clear() {
+                eprintln!("drifter: cannot turn {} off: {error}", head.name);
+            }
+        }
+    }
+
+    fn wake(&mut self) {
+        if !self.dark {
+            return;
+        }
+        self.dark = false;
+        for head in &mut self.heads {
+            head.awaiting = false;
+            if let Err(error) = head.compositor.reset_state() {
+                eprintln!("drifter: cannot turn {} on: {error}", head.name);
+            }
+        }
+        self.kick_now();
     }
 
     fn watch_wallpaper(&mut self) {
@@ -2287,6 +2323,7 @@ impl State {
         self.format = config.tray.format.clone();
         self.chrome.follow(&config.window);
         self.lock_after = config.lock.after;
+        self.screen_off = config.lock.screen_off;
         self.login = config.login.start.clone();
         let paper = Paper::from(config);
         if paper.set != self.paper.set {
@@ -3790,6 +3827,7 @@ impl State {
 
     fn input(&mut self, event: InputEvent<LibinputInputBackend>) {
         self.last_input = Instant::now();
+        self.wake();
         if self.lock.is_none()
             && !self.prompts.is_empty()
             && let InputEvent::Keyboard { event } = &event
@@ -4356,6 +4394,8 @@ pub fn open(
         config_seen: None,
         last_input: Instant::now(),
         lock_after: config.lock.after,
+        screen_off: config.lock.screen_off,
+        dark: false,
         login: config.login.start.clone(),
         paper: Paper::from(config),
         paper_tx,
@@ -4472,6 +4512,8 @@ pub fn open(
             }
             SessionEvent::ActivateSession => {
                 state.active = true;
+                state.dark = false;
+                state.last_input = Instant::now();
                 if state.libinput.resume().is_err() {
                     eprintln!("drifter: cannot take the input devices back");
                 }

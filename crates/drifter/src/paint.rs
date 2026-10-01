@@ -76,6 +76,10 @@ impl Scanout {
         each!(self, compositor => compositor.reset_state().map_err(|e| e.to_string()))
     }
 
+    pub fn clear(&mut self) -> Result<(), String> {
+        each!(self, compositor => compositor.clear().map_err(|e| e.to_string()))
+    }
+
     pub fn reset_buffers(&mut self) {
         each!(self, compositor => compositor.reset_buffers())
     }

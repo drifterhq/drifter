@@ -137,6 +137,7 @@ pub struct Model {
     pub order: [ButtonName; 3],
     pub title: bool,
     pub lock_after: u64,
+    pub screen_off: u64,
     pub login: Vec<Launch>,
     pub dock: Vec<Launch>,
     pub shows: [bool; 5],
@@ -238,6 +239,7 @@ impl Model {
             }),
             title: config.window.title,
             lock_after: config.lock.after,
+            screen_off: config.lock.screen_off,
             login: config.login.start.clone(),
             dock: config.dock.pinned.clone(),
             shows: [
@@ -722,6 +724,18 @@ impl Model {
                         },
                     )
                     .detail("Minutes with no key press or pointer move"),
+                    Row::new(
+                        Id::ScreenOff,
+                        "Turn the screen off after",
+                        Control::Slider {
+                            least: 0.0,
+                            most: 60.0,
+                            value: self.screen_off as f64,
+                            unit: " min",
+                            zero: Some("Never"),
+                        },
+                    )
+                    .detail("Any key or pointer move turns it back on"),
                 ],
                 footer: Some("A video that is playing keeps the screen awake.".into()),
                 thumbs: None,
@@ -979,6 +993,9 @@ impl Model {
             (Id::TextSize, Value::Number(n)) => self.text_size = n.round().clamp(8.0, 32.0),
             (Id::LockAfter, Value::Number(n)) => {
                 self.lock_after = n.round().clamp(0.0, 60.0) as u64
+            }
+            (Id::ScreenOff, Value::Number(n)) => {
+                self.screen_off = n.round().clamp(0.0, 60.0) as u64
             }
             (Id::Rotate, Value::Number(n)) => self.rotate = n.round().clamp(0.0, 60.0) as u64,
             (Id::Unit, Value::Choice(n)) => self.unit = n.min(2),
@@ -1245,6 +1262,9 @@ impl Model {
         if self.lock_after != before.lock_after {
             put(&mut doc, "lock", "after", int(self.lock_after as f64));
         }
+        if self.screen_off != before.screen_off {
+            put(&mut doc, "lock", "screen_off", int(self.screen_off as f64));
+        }
         if self.login != before.login {
             put(&mut doc, "login", "start", launches(&self.login));
         }
@@ -1386,6 +1406,7 @@ pub enum Id {
     Title,
     Order(usize),
     LockAfter,
+    ScreenOff,
     Folder,
     Rotate,
     Unit,
@@ -2605,6 +2626,19 @@ mod tests {
         let back = Config::parse(&after.write(&before, text).unwrap()).unwrap();
         assert_eq!(back.input.modifier, Modifier::Super);
         assert_eq!(back.workspace.wallpaper_mode, WallpaperMode::Parallax);
+    }
+
+    #[test]
+    fn screen_off_writes_the_lock_table() {
+        let text = "[lock]\nafter = 5\n";
+        let before = model(&config(text));
+        assert_eq!(before.screen_off, 10);
+        let mut after = before.clone();
+        after.set(Id::ScreenOff, Value::Number(0.2));
+        let out = after.write(&before, text).unwrap();
+        let back = Config::parse(&out).unwrap();
+        assert_eq!(back.lock.screen_off, 0);
+        assert_eq!(back.lock.after, 5);
     }
 
     #[test]

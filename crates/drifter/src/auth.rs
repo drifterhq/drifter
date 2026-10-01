@@ -14,7 +14,10 @@ fn service() -> Result<&'static CStr, String> {
         .iter()
         .find(|(_, path)| std::path::Path::new(path).is_file())
         .map(|(name, _)| *name)
-        .ok_or_else(|| "neither /etc/pam.d/drifter nor /etc/pam.d/login exists, so no password can be checked".to_string())
+        .ok_or_else(|| {
+            "neither /etc/pam.d/drifter nor /etc/pam.d/login exists, so no password can be checked"
+                .to_string()
+        })
 }
 
 const PAM_SUCCESS: c_int = 0;

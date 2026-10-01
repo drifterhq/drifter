@@ -169,11 +169,26 @@ impl Default for WindowConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LockConfig {
     #[serde(default)]
     pub after: u64,
+    #[serde(default = "ten_minutes")]
+    pub screen_off: u64,
+}
+
+fn ten_minutes() -> u64 {
+    10
+}
+
+impl Default for LockConfig {
+    fn default() -> Self {
+        LockConfig {
+            after: 0,
+            screen_off: ten_minutes(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
@@ -650,6 +665,11 @@ impl Config {
                 "touchpad speed runs from 0 to {FASTEST}"
             )));
         }
+        if self.lock.screen_off > LONGEST_LOCK {
+            return Err(ConfigError::Invalid(format!(
+                "lock screen_off is minutes and must be at most {LONGEST_LOCK}"
+            )));
+        }
         if self.lock.after > LONGEST_LOCK {
             return Err(ConfigError::Invalid(format!(
                 "lock after is minutes and must be at most {LONGEST_LOCK}"
@@ -1014,6 +1034,17 @@ mod tests {
         assert_eq!(config.workspace.height, 3);
         assert_eq!(config.workspace.wallpaper_mode, WallpaperMode::Pan);
         assert_eq!(config.input.modifier, Modifier::Super);
+    }
+
+    #[test]
+    fn the_screen_turns_off_after_ten_minutes_unless_told_otherwise() {
+        assert_eq!(Config::default().lock.screen_off, 10);
+        let other = Config::parse("[lock]\nafter = 5\n").unwrap();
+        assert_eq!(other.lock.screen_off, 10);
+        let never = Config::parse("[lock]\nscreen_off = 0\n").unwrap();
+        assert_eq!(never.lock.screen_off, 0);
+        let long = Config::parse(&format!("[lock]\nscreen_off = {}\n", LONGEST_LOCK + 1)).unwrap();
+        assert!(long.validate().is_err());
     }
 
     #[test]
