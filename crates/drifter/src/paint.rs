@@ -1,6 +1,12 @@
 use smithay::backend::allocator::Fourcc;
 use smithay::backend::allocator::dmabuf::Dmabuf;
+use smithay::backend::allocator::dumb::DumbAllocator;
 use smithay::backend::allocator::format::FormatSet;
+use smithay::backend::allocator::gbm::GbmAllocator;
+use smithay::backend::drm::DrmDeviceFd;
+use smithay::backend::drm::compositor::{DrmCompositor, FrameFlags};
+use smithay::backend::drm::exporter::gbm::GbmFramebufferExporter;
+use smithay::backend::renderer::element::RenderElement;
 use smithay::backend::renderer::gles::{
     GlesError, GlesFrame, GlesMapping, GlesRenderer, GlesTarget, GlesTexture,
 };
@@ -12,6 +18,7 @@ use smithay::backend::renderer::{
     Bind, Color32F, ContextId, DebugFlags, ExportMem, Frame, ImportDma, ImportDmaWl, ImportMem,
     ImportMemWl, Offscreen, Renderer, RendererSuper, Texture, TextureFilter, TextureMapping,
 };
+use smithay::output::OutputModeSource;
 use smithay::reexports::pixman::Image;
 use smithay::reexports::wayland_server::protocol::wl_buffer::WlBuffer;
 use smithay::utils::{Buffer as BufferCoord, Physical, Point, Rectangle, Scale, Size, Transform};
@@ -23,6 +30,64 @@ use smithay::wayland::compositor::SurfaceData;
 pub enum Painter {
     Gles(GlesRenderer),
     Pixman(PixmanRenderer),
+}
+
+// A GPU renders into GBM buffers. Pixman needs linear memory it can map,
+// and dumb buffers are always linear and need no GPU driver at all.
+pub enum Scanout {
+    Gbm(
+        DrmCompositor<
+            GbmAllocator<DrmDeviceFd>,
+            GbmFramebufferExporter<DrmDeviceFd>,
+            (),
+            DrmDeviceFd,
+        >,
+    ),
+    Dumb(DrmCompositor<DumbAllocator, DrmDeviceFd, (), DrmDeviceFd>),
+}
+
+macro_rules! each {
+    ($scanout:expr, $compositor:ident => $body:expr) => {
+        match $scanout {
+            Scanout::Gbm($compositor) => $body,
+            Scanout::Dumb($compositor) => $body,
+        }
+    };
+}
+
+impl Scanout {
+    // Ok(true) when nothing changed and no flip is needed.
+    pub fn render_frame<E: RenderElement<Painter>>(
+        &mut self,
+        renderer: &mut Painter,
+        elements: &[E],
+        clear: Color32F,
+    ) -> Result<bool, String> {
+        each!(self, compositor => compositor
+            .render_frame(renderer, elements, clear, FrameFlags::DEFAULT)
+            .map(|result| result.is_empty)
+            .map_err(|e| e.to_string()))
+    }
+
+    pub fn queue_frame(&mut self) -> Result<(), String> {
+        each!(self, compositor => compositor.queue_frame(()).map_err(|e| e.to_string()))
+    }
+
+    pub fn frame_submitted(&mut self) -> Result<(), String> {
+        each!(self, compositor => compositor.frame_submitted().map(|_| ()).map_err(|e| e.to_string()))
+    }
+
+    pub fn reset_state(&mut self) -> Result<(), String> {
+        each!(self, compositor => compositor.reset_state().map_err(|e| e.to_string()))
+    }
+
+    pub fn reset_buffers(&mut self) {
+        each!(self, compositor => compositor.reset_buffers())
+    }
+
+    pub fn set_output_mode_source(&mut self, source: OutputModeSource) {
+        each!(self, compositor => compositor.set_output_mode_source(source))
+    }
 }
 
 #[derive(Debug, Clone)]
