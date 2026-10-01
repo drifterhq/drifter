@@ -270,7 +270,17 @@ The wallpaper path comes from the config and nowhere else. A missing file is rep
 
 ## Screen mode
 
-On a real panel Drifter uses the largest mode the panel offers, which is its native mode. On a virtual screen, such as virtio-gpu in the VM, it asks for 1920 x 1080, because a virtual screen offers modes up to 5120 x 2160 and llvmpipe cannot keep up with them.
+On a real panel Drifter uses the largest mode the panel offers, which is its native mode. On a virtual screen, such as virtio-gpu in the VM, it asks for 1920 x 1080, because a virtual screen offers modes up to 5120 x 2160 and drawing on the CPU cannot keep up with them.
+
+## Renderer
+
+Drifter draws with GLES when there is a real GPU. When the only GL is a software one (llvmpipe, softpipe or swrast), or there is no GL at all, it draws with pixman. The startup log says which, on the `gl` line.
+
+The reason is cost. llvmpipe runs every damaged pixel through a JIT shader. Pixman copies and blends with plain SIMD loops. Measured in the VM on 2026-10-01, a 200 x 55 foot redrawing at 60 fps cost Drifter 80% of one core on llvmpipe and 6% on pixman. Idle cost and camera flights were the same on both.
+
+Pixman draws into dumb buffers, not GBM buffers. Pixman can only draw into linear memory it maps, and a dumb buffer is always linear. GBM can hand out a buffer with an unknown layout, and pixman refuses it.
+
+`paint.rs` holds `Painter`, one renderer type over both, and `Scanout`, one DRM compositor type over both buffer kinds. The rest of Drifter only sees those two.
 
 ## Protocols
 
