@@ -3962,7 +3962,8 @@ impl State {
             }
             InputEvent::GestureSwipeEnd { .. } => self.fingers = 0,
             InputEvent::SwitchToggle { event }
-                if event.switch() == Some(HardSwitch::Lid) && event.state() == SwitchState::On =>
+                if SwitchToggleEvent::switch(&event) == Some(HardSwitch::Lid)
+                    && SwitchToggleEvent::state(&event) == SwitchState::On =>
             {
                 self.lock_now();
             }
