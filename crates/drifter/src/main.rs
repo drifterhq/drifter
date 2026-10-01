@@ -10,6 +10,8 @@ mod auth;
 #[cfg(target_os = "linux")]
 mod cursors;
 #[cfg(target_os = "linux")]
+mod logind;
+#[cfg(target_os = "linux")]
 mod media;
 #[cfg(target_os = "linux")]
 mod notes;

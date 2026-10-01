@@ -25,7 +25,7 @@ use smithay::backend::drm::{DrmDevice, DrmDeviceFd, DrmEvent};
 use smithay::backend::egl::{EGLContext, EGLDisplay};
 use smithay::backend::input::{
     AbsolutePositionEvent, ButtonState, Event as InputMeta, InputEvent, KeyState, KeyboardKeyEvent,
-    PointerButtonEvent, PointerMotionEvent,
+    PointerButtonEvent, PointerMotionEvent, Switch, SwitchState, SwitchToggleEvent,
 };
 use smithay::backend::libinput::{LibinputInputBackend, LibinputSessionInterface};
 use smithay::backend::renderer::Color32F;
@@ -3961,6 +3961,11 @@ impl State {
                 self.flight = None;
             }
             InputEvent::GestureSwipeEnd { .. } => self.fingers = 0,
+            InputEvent::SwitchToggle { event }
+                if event.switch() == Some(Switch::Lid) && event.state() == SwitchState::On =>
+            {
+                self.lock_now();
+            }
             InputEvent::Keyboard { event } => {
                 let code = event.key_code().raw();
                 if self.holds.holds(code) {
@@ -4592,6 +4597,27 @@ pub fn open(
             }
         })
         .map_err(|e| format!("cannot watch the password checks: {e}"))?;
+    match crate::logind::start() {
+        Ok(events) => {
+            handle
+                .insert_source(events, |event, _, state: &mut State| {
+                    if let ChannelEvent::Msg(event) = event {
+                        match event {
+                            crate::logind::Event::Lock | crate::logind::Event::Sleep => {
+                                state.lock_now();
+                            }
+                            crate::logind::Event::Woke => {
+                                state.last_input = Instant::now();
+                                state.wake();
+                            }
+                        }
+                    }
+                })
+                .map_err(|e| format!("cannot watch logind: {e}"))?;
+        }
+        Err(error) => eprintln!("drifter: no lock on sleep or on request: {error}"),
+    }
+
     match crate::polkit::start() {
         Ok(requests) => {
             handle
