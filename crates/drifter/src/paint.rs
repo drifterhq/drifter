@@ -219,8 +219,8 @@ impl Frame for PaintFrame<'_, '_> {
 
     fn context_id(&self) -> ContextId<Tex> {
         match self {
-            PaintFrame::Gles(frame) => frame.context_id().map(),
-            PaintFrame::Pixman(frame) => frame.context_id().map(),
+            PaintFrame::Gles(frame) => Frame::context_id(frame).map(),
+            PaintFrame::Pixman(frame) => Frame::context_id(frame).map(),
         }
     }
 
@@ -230,8 +230,8 @@ impl Frame for PaintFrame<'_, '_> {
         at: &[Rectangle<i32, Physical>],
     ) -> Result<(), PaintError> {
         match self {
-            PaintFrame::Gles(frame) => Ok(frame.clear(color, at)?),
-            PaintFrame::Pixman(frame) => Ok(frame.clear(color, at)?),
+            PaintFrame::Gles(frame) => Ok(Frame::clear(frame, color, at)?),
+            PaintFrame::Pixman(frame) => Ok(Frame::clear(frame, color, at)?),
         }
     }
 
@@ -242,8 +242,8 @@ impl Frame for PaintFrame<'_, '_> {
         color: Color32F,
     ) -> Result<(), PaintError> {
         match self {
-            PaintFrame::Gles(frame) => Ok(frame.draw_solid(dst, damage, color)?),
-            PaintFrame::Pixman(frame) => Ok(frame.draw_solid(dst, damage, color)?),
+            PaintFrame::Gles(frame) => Ok(Frame::draw_solid(frame, dst, damage, color)?),
+            PaintFrame::Pixman(frame) => Ok(Frame::draw_solid(frame, dst, damage, color)?),
         }
     }
 
@@ -259,7 +259,8 @@ impl Frame for PaintFrame<'_, '_> {
         alpha: f32,
     ) -> Result<(), PaintError> {
         match (self, texture) {
-            (PaintFrame::Gles(frame), Tex::Gles(texture)) => Ok(frame.render_texture_at(
+            (PaintFrame::Gles(frame), Tex::Gles(texture)) => Ok(Frame::render_texture_at(
+                frame,
                 texture,
                 pos,
                 texture_scale,
@@ -269,7 +270,8 @@ impl Frame for PaintFrame<'_, '_> {
                 opaque_regions,
                 alpha,
             )?),
-            (PaintFrame::Pixman(frame), Tex::Pixman(texture)) => Ok(frame.render_texture_at(
+            (PaintFrame::Pixman(frame), Tex::Pixman(texture)) => Ok(Frame::render_texture_at(
+                frame,
                 texture,
                 pos,
                 texture_scale,
@@ -294,7 +296,8 @@ impl Frame for PaintFrame<'_, '_> {
         alpha: f32,
     ) -> Result<(), PaintError> {
         match (self, texture) {
-            (PaintFrame::Gles(frame), Tex::Gles(texture)) => Ok(frame.render_texture_from_to(
+            (PaintFrame::Gles(frame), Tex::Gles(texture)) => Ok(Frame::render_texture_from_to(
+                frame,
                 texture,
                 src,
                 dst,
@@ -303,7 +306,8 @@ impl Frame for PaintFrame<'_, '_> {
                 src_transform,
                 alpha,
             )?),
-            (PaintFrame::Pixman(frame), Tex::Pixman(texture)) => Ok(frame.render_texture_from_to(
+            (PaintFrame::Pixman(frame), Tex::Pixman(texture)) => Ok(Frame::render_texture_from_to(
+                frame,
                 texture,
                 src,
                 dst,
@@ -318,8 +322,8 @@ impl Frame for PaintFrame<'_, '_> {
 
     fn transformation(&self) -> Transform {
         match self {
-            PaintFrame::Gles(frame) => frame.transformation(),
-            PaintFrame::Pixman(frame) => frame.transformation(),
+            PaintFrame::Gles(frame) => Frame::transformation(frame),
+            PaintFrame::Pixman(frame) => Frame::transformation(frame),
         }
     }
 
@@ -332,8 +336,8 @@ impl Frame for PaintFrame<'_, '_> {
 
     fn finish(self) -> Result<SyncPoint, PaintError> {
         match self {
-            PaintFrame::Gles(frame) => Ok(frame.finish()?),
-            PaintFrame::Pixman(frame) => Ok(frame.finish()?),
+            PaintFrame::Gles(frame) => Ok(Frame::finish(frame)?),
+            PaintFrame::Pixman(frame) => Ok(Frame::finish(frame)?),
         }
     }
 }
