@@ -274,13 +274,13 @@ On a real panel Drifter uses the largest mode the panel offers, which is its nat
 
 ## Renderer
 
-Drifter draws with GLES when there is a real GPU. When the only GL is a software one (llvmpipe, softpipe or swrast), or there is no GL at all, it draws with pixman. The startup log says which, on the `gl` line.
+Drifter draws with GLES when there is a real GPU. When the only GL is a software one (llvmpipe, softpipe or swrast), or there is no GL at all, it draws with pixman. llvmpipe shades every damaged pixel through a JIT shader and costs many times more CPU. The `gl` line of the startup log names the renderer.
 
-The reason is cost. llvmpipe runs every damaged pixel through a JIT shader. Pixman copies and blends with plain SIMD loops. Measured in the VM on 2026-10-01, a 200 x 55 foot redrawing at 60 fps cost Drifter 80% of one core on llvmpipe and 6% on pixman. Idle cost and camera flights were the same on both.
+Pixman draws into dumb buffers, never GBM buffers. Pixman only draws into linear memory it maps. A dumb buffer is always linear; a GBM buffer can carry an unknown modifier, and pixman refuses it.
 
-Pixman draws into dumb buffers, not GBM buffers. Pixman can only draw into linear memory it maps, and a dumb buffer is always linear. GBM can hand out a buffer with an unknown layout, and pixman refuses it.
+Both renderers read an offscreen target back top row first, so screen copies are never flipped.
 
-`paint.rs` holds `Painter`, one renderer type over both, and `Scanout`, one DRM compositor type over both buffer kinds. The rest of Drifter only sees those two.
+`paint.rs` holds `Painter`, one renderer over both, and `Scanout`, one DRM compositor over both buffer kinds. The rest of Drifter only sees those two.
 
 ## Protocols
 

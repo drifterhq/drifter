@@ -24,16 +24,12 @@ use smithay::reexports::wayland_server::protocol::wl_buffer::WlBuffer;
 use smithay::utils::{Buffer as BufferCoord, Physical, Point, Rectangle, Scale, Size, Transform};
 use smithay::wayland::compositor::SurfaceData;
 
-// GLES when there is a real GPU, pixman when the only GL is a software one.
-// llvmpipe shades every damaged pixel through JIT shaders; pixman blits.
 #[derive(Debug)]
 pub enum Painter {
     Gles(GlesRenderer),
     Pixman(PixmanRenderer),
 }
 
-// A GPU renders into GBM buffers. Pixman needs linear memory it can map,
-// and dumb buffers are always linear and need no GPU driver at all.
 pub enum Scanout {
     Gbm(
         DrmCompositor<
@@ -56,7 +52,6 @@ macro_rules! each {
 }
 
 impl Scanout {
-    // Ok(true) when nothing changed and no flip is needed.
     pub fn render_frame<E: RenderElement<Painter>>(
         &mut self,
         renderer: &mut Painter,

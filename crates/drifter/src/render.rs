@@ -1525,7 +1525,6 @@ impl State {
                 DrmFourcc::Abgr8888,
             )
             .map_err(|e| format!("cannot read the screen back: {e}"))?;
-        // Both renderers read an offscreen target back top row first.
         let bytes = self
             .renderer
             .map_texture(&mapping)
