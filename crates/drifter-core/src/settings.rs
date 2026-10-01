@@ -833,10 +833,11 @@ impl Model {
                         least: f64::from(rate_least),
                         most: f64::from(rate_most),
                         value: f64::from(keys.repeat_rate),
-                        unit: " a second",
+                        unit: "",
                         zero: None,
                     },
-                ),
+                )
+                .detail("Repeats a second while a key is held"),
             ],
             footer: Some("Variants and xkb options are set in the config file.".into()),
             thumbs: None,

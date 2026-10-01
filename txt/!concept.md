@@ -85,6 +85,10 @@ Every change is written to `conf/drifter.toml` the moment it is made, sliders in
 
 `cargo run -p drifter-core --example settings -- <folder>` draws every page and both dialogs to PNG files, so the design can be checked on any machine.
 
+## Keyboard
+
+`[keyboard]` sets the xkb layout, variant and options, and the repeat delay and rate. An empty layout is the system default. Settings > Keyboard & Mouse picks a layout from the `! layout` section of `/usr/share/X11/xkb/rules/evdev.lst`, with a search field, and sets the repeat with two sliders. Picking a new layout clears the variant. Variants and options are set in the file only. A change is applied live: a new keymap goes to every client, and the repeat goes to clients on wl_keyboard version 4 or later. A layout that does not compile is reported on stderr, and the keyboard keeps the keymap it had.
+
 ## Wallpaper modes
 
 One key, `wallpaper_mode`. Three names for the user. One factor in the code.
@@ -170,14 +174,7 @@ Session
 
 ## What is not built yet
 
-The MVP list is finished: config, the compositor, both drawers, the hot corner, click to fly, free zoom, and edge pan.
-
-What is left:
-- Lock on lid close and on a logind Lock signal.
-- A `/etc/pam.d/drifter` stack of its own, so the lock does not depend on `login`.
-- Submenus. A dbusmenu item with `children-display` is drawn but does not open.
-- A world-sized wallpaper as mipmapped tiles. Today the whole image is one texture.
-- The headless backend and frame capture, which is testing target 2.
+`txt/later.md` lists it.
 
 ## Tray
 
@@ -248,6 +245,10 @@ Alt-Tab opens the switcher in the middle of the screen: one tile per window, new
 
 The lock screen is part of the compositor. It is not a client, so there is no protocol for another program to bypass.
 
+These lock it: modifier + L, the power menu, `[lock] after` minutes with no input, the lid closing (a libinput switch event), a logind `Lock` signal on Drifter's session (`loginctl lock-session`), and logind `PrepareForSleep`. Drifter holds a logind sleep inhibitor in delay mode. On `PrepareForSleep(true)` it locks, waits 400 ms so the lock is on the screen, and lets go, so the machine never wakes to the desktop. It takes the inhibitor again on wake. A logind `Unlock` signal is ignored: only the password unlocks.
+
+The screen turns off after `[lock] screen_off` minutes with no input, 10 by default. Drifter clears every CRTC, which sets DPMS off, and draws nothing until any input event or a wake from sleep. Waking resets the compositor state, so the next frame is drawn in full and the CRTC comes back on. An idle inhibitor holds both the lock and the screen off.
+
 While locked:
 - Only the lock panel is drawn. Windows, popups, drawers, the dock, the tray, menus and the cursor are not in the frame list at all. If the panel fails to draw, the screen is the plain background color. It never falls back to the desktop.
 - Every input event is read by the lock and goes no further. Keyboard focus and pointer focus are cleared, so no client sees a key or a click. Pointer, scroll, gestures, hot corner, edge push, drawers, modifier + Escape and the tray are all dead.
@@ -294,7 +295,7 @@ Drifter speaks these, beside the core ones:
 - Relative pointer and pointer constraints.
 - Cursor shape.
 - Text input and input method, so an input method such as fcitx5 works.
-- Idle inhibit. Drifter keeps the list. Nothing blanks the screen yet, so nothing reads it yet.
+- Idle inhibit. While any inhibitor is alive, the idle lock and the screen off both wait.
 - wlr layer shell. Overlay layers draw over everything but Drifter's cursor. Top layers draw under Drifter's drawers and menus and over windows. Bottom and background layers draw under windows. A layer that asks for the keyboard gets it, and gives it back to the top window when it goes. Maximize leaves room for the space a bar reserves.
 
 X11 apps run through `xwayland-satellite`, when it is installed. Drifter starts it on the first free display number and gives every app it launches that `DISPLAY`. Without it Drifter says so on stderr and X11 apps cannot run.
@@ -358,12 +359,6 @@ A crash never unlocks the screen. Locking writes `$XDG_RUNTIME_DIR/drifter-locke
 On multi-monitor, the monitor whose camera holds a fullscreen window obeys its lock.
 
 Multi-monitor overlap. Two cameras may look at the same region. Proposal: allow it.
-
-## Deferred
-
-- Saved camera presets. A coordinate plus a zoom level, bound to a keyboard shortcut and optionally a launcher button.
-- Moving windows directly in the overview.
-- A subtle grid or coordinate system shown when zoomed out.
 
 ## Testing
 
