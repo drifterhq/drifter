@@ -25,7 +25,7 @@ use smithay::backend::drm::{DrmDevice, DrmDeviceFd, DrmEvent};
 use smithay::backend::egl::{EGLContext, EGLDisplay};
 use smithay::backend::input::{
     AbsolutePositionEvent, ButtonState, Event as InputMeta, InputEvent, KeyState, KeyboardKeyEvent,
-    PointerButtonEvent, PointerMotionEvent, Switch, SwitchState, SwitchToggleEvent,
+    PointerButtonEvent, PointerMotionEvent, Switch as HardSwitch, SwitchState, SwitchToggleEvent,
 };
 use smithay::backend::libinput::{LibinputInputBackend, LibinputSessionInterface};
 use smithay::backend::renderer::Color32F;
@@ -3962,7 +3962,7 @@ impl State {
             }
             InputEvent::GestureSwipeEnd { .. } => self.fingers = 0,
             InputEvent::SwitchToggle { event }
-                if event.switch() == Some(Switch::Lid) && event.state() == SwitchState::On =>
+                if event.switch() == Some(HardSwitch::Lid) && event.state() == SwitchState::On =>
             {
                 self.lock_now();
             }
