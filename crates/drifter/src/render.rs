@@ -1,6 +1,8 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use crate::paint::{Painter, Tex};
+
 use drifter_core::camera::{Camera, Flight};
 use drifter_core::cursor::{self, Cursor};
 use drifter_core::dock::{Dock, Slot};
@@ -33,7 +35,6 @@ use smithay::backend::renderer::element::surface::{
 };
 use smithay::backend::renderer::element::texture::{TextureBuffer, TextureRenderElement};
 use smithay::backend::renderer::gles::GlesRenderer;
-use smithay::backend::renderer::gles::GlesTexture;
 use smithay::backend::session::libseat::{LibSeatSession, LibSeatSessionNotifier};
 use smithay::backend::session::{Event as SessionEvent, Session};
 use smithay::output::OutputModeSource;
@@ -79,11 +80,11 @@ render_elements! {
     Client=RescaleRenderElement<WaylandSurfaceRenderElement<R>>,
 }
 
-type Skin = Piece<GlesRenderer>;
+type Skin = Piece<Painter>;
 
 type Shown = RescaleRenderElement<Skin>;
 
-type ThemeCursor = (TextureBuffer<GlesTexture>, Vec2, Vec2);
+type ThemeCursor = (TextureBuffer<Tex>, Vec2, Vec2);
 
 type Showing = (
     Rect,
@@ -129,7 +130,7 @@ struct Head {
     flight: Option<(Flight, Instant)>,
     drawers: [Drawer; 2],
     screen: Vec2,
-    panels: [TextureBuffer<GlesTexture>; 2],
+    panels: [TextureBuffer<Tex>; 2],
     awaiting: bool,
     frames: u32,
     last: Instant,
@@ -151,8 +152,8 @@ struct Switch {
     order: Vec<u64>,
     at: usize,
     layout: drifter_core::switcher::Layout,
-    art: Option<TextureBuffer<GlesTexture>>,
-    icons: Vec<Option<TextureBuffer<GlesTexture>>>,
+    art: Option<TextureBuffer<Tex>>,
+    icons: Vec<Option<TextureBuffer<Tex>>>,
 }
 
 enum Shortcut {
@@ -187,7 +188,7 @@ impl Paper {
 
 struct Card {
     note: drifter_core::notify::Note,
-    art: TextureBuffer<GlesTexture>,
+    art: TextureBuffer<Tex>,
     tall: f64,
     until: Option<Instant>,
 }
@@ -202,7 +203,7 @@ struct Pending {
 struct Popover {
     items: Vec<Item>,
     rect: Rect,
-    art: TextureBuffer<GlesTexture>,
+    art: TextureBuffer<Tex>,
     target: Target,
     hover: Option<usize>,
 }
@@ -226,7 +227,7 @@ struct Lock {
     note: Note,
     checking: Option<Instant>,
     ticket: Option<u64>,
-    art: Option<TextureBuffer<GlesTexture>>,
+    art: Option<TextureBuffer<Tex>>,
     rect: Rect,
     shown: (String, String, usize, Note),
     user: std::ffi::CString,
@@ -276,7 +277,7 @@ pub struct State {
     cursor_status: smithay::input::pointer::CursorImageStatus,
     named_cursors: std::collections::HashMap<&'static str, Option<ThemeCursor>>,
     layer_focus: Option<smithay::reexports::wayland_server::protocol::wl_surface::WlSurface>,
-    skin: std::collections::HashMap<String, (TextureBuffer<GlesTexture>, Vec2)>,
+    skin: std::collections::HashMap<String, (TextureBuffer<Tex>, Vec2)>,
     started: Instant,
     socket: String,
     drm: DrmDevice,
@@ -290,11 +291,11 @@ pub struct State {
     at: usize,
     hand: usize,
     libinput: Libinput,
-    renderer: GlesRenderer,
-    wallpaper: Option<(TextureBuffer<GlesTexture>, Vec2)>,
-    panels: [TextureBuffer<GlesTexture>; 2],
+    renderer: Painter,
+    wallpaper: Option<(TextureBuffer<Tex>, Vec2)>,
+    panels: [TextureBuffer<Tex>; 2],
     shapes: [Panel; 2],
-    arrow: TextureBuffer<GlesTexture>,
+    arrow: TextureBuffer<Tex>,
     arrow_size: Vec2,
     arrow_hotspot: Vec2,
     font: Option<Font>,
@@ -304,19 +305,19 @@ pub struct State {
     pinned_from: (drifter_core::DockConfig, drifter_core::AppsConfig),
     apps_chosen: drifter_core::AppsConfig,
     dock_spare: Option<drifter_core::Image>,
-    trash: Option<TextureBuffer<GlesTexture>>,
-    cog: Option<TextureBuffer<GlesTexture>>,
-    dot: Option<TextureBuffer<GlesTexture>>,
-    glow: Option<TextureBuffer<GlesTexture>>,
-    rule: Option<TextureBuffer<GlesTexture>>,
-    app_icons: std::collections::HashMap<String, TextureBuffer<GlesTexture>>,
+    trash: Option<TextureBuffer<Tex>>,
+    cog: Option<TextureBuffer<Tex>>,
+    dot: Option<TextureBuffer<Tex>>,
+    glow: Option<TextureBuffer<Tex>>,
+    rule: Option<TextureBuffer<Tex>>,
+    app_icons: std::collections::HashMap<String, TextureBuffer<Tex>>,
     no_icon: std::collections::HashSet<String>,
     format: String,
-    clock: Option<(String, TextureBuffer<GlesTexture>, Rect)>,
-    stats: Option<(TextureBuffer<GlesTexture>, Vec2)>,
+    clock: Option<(String, TextureBuffer<Tex>, Rect)>,
+    stats: Option<(TextureBuffer<Tex>, Vec2)>,
     sampler: crate::stats::Sampler,
     sampled: Option<Instant>,
-    icons: Vec<(String, String, TextureBuffer<GlesTexture>)>,
+    icons: Vec<(String, String, TextureBuffer<Tex>)>,
     popover: Option<Popover>,
     switch: Option<Switch>,
     lock: Option<Lock>,
@@ -324,9 +325,9 @@ pub struct State {
     lock_small: Option<Font>,
     verify: smithay::reexports::calloop::channel::Sender<(u64, crate::auth::Verdict)>,
     tickets: u64,
-    power: Option<TextureBuffer<GlesTexture>>,
+    power: Option<TextureBuffer<Tex>>,
     look: Look,
-    tip: Option<(TextureBuffer<GlesTexture>, Rect)>,
+    tip: Option<(TextureBuffer<Tex>, Rect)>,
     tip_of: Option<String>,
     snap: Snap,
     config_seen: Option<(std::time::SystemTime, u64, u64)>,
@@ -338,21 +339,21 @@ pub struct State {
     shot_tx: smithay::reexports::calloop::channel::Sender<Result<PathBuf, String>>,
     config_path: PathBuf,
     zone: Option<Zone>,
-    plain: Option<TextureBuffer<GlesTexture>>,
-    titles: std::collections::HashMap<String, (TextureBuffer<GlesTexture>, Vec2)>,
+    plain: Option<TextureBuffer<Tex>>,
+    titles: std::collections::HashMap<String, (TextureBuffer<Tex>, Vec2)>,
     hover_since: Option<(Vec2, Instant)>,
     tray_bus: Option<crate::tray::Tray>,
     media: Option<crate::media::Media>,
     notes_bus: Option<crate::notes::Notes>,
     copies: Vec<crate::screencopy::Copy>,
     prompts: Vec<Pending>,
-    prompt_art: Option<(TextureBuffer<GlesTexture>, Rect)>,
+    prompt_art: Option<(TextureBuffer<Tex>, Rect)>,
     checked: smithay::reexports::calloop::channel::Sender<(String, crate::polkit::Outcome)>,
     copied: std::collections::HashSet<smithay::reexports::wayland_server::backend::ClientId>,
     cursor_count: usize,
     shot_wanted: bool,
     cards: Vec<Card>,
-    hud: Option<(TextureBuffer<GlesTexture>, Rect, Instant)>,
+    hud: Option<(TextureBuffer<Tex>, Rect, Instant)>,
     drawers: [Drawer; 2],
     tunables: Tunables,
     screen: Vec2,
@@ -696,7 +697,7 @@ impl State {
                 at.x.round() as i32,
                 at.y.round() as i32,
             ));
-            let client: Vec<WaylandSurfaceRenderElement<GlesRenderer>> =
+            let client: Vec<WaylandSurfaceRenderElement<Painter>> =
                 render_elements_from_surface_tree(
                     &mut self.renderer,
                     &surface,
@@ -712,7 +713,7 @@ impl State {
                         at.x.round() as i32,
                         at.y.round() as i32,
                     ));
-                    let bare: Vec<WaylandSurfaceRenderElement<GlesRenderer>> =
+                    let bare: Vec<WaylandSurfaceRenderElement<Painter>> =
                         render_elements_from_surface_tree(
                             &mut self.renderer,
                             &popup,
@@ -879,7 +880,7 @@ impl State {
                     at.x.round() as i32,
                     at.y.round() as i32,
                 ));
-                render_elements_from_surface_tree::<_, WaylandSurfaceRenderElement<GlesRenderer>>(
+                render_elements_from_surface_tree::<_, WaylandSurfaceRenderElement<Painter>>(
                     &mut self.renderer,
                     &surface,
                     anchor,
@@ -935,7 +936,7 @@ impl State {
                     origin.x.round() as i32,
                     origin.y.round() as i32,
                 ));
-                let bare: Vec<WaylandSurfaceRenderElement<GlesRenderer>> =
+                let bare: Vec<WaylandSurfaceRenderElement<Painter>> =
                     render_elements_from_surface_tree(
                         &mut self.renderer,
                         &surface,
@@ -1498,18 +1499,16 @@ impl State {
 
     fn capture(&mut self, elements: &[Shown], cursor: bool) -> Result<(Vec<u8>, bool), String> {
         use smithay::backend::renderer::damage::OutputDamageTracker;
-        use smithay::backend::renderer::{Bind, ExportMem, Offscreen};
+        use smithay::backend::renderer::{Bind, ExportMem};
         use smithay::utils::{Buffer as BufferCoord, Physical, Rectangle, Size};
 
         let whole = self.physical();
         let size = Size::<i32, Physical>::from((whole.x as i32, whole.y as i32));
         let buffer_size = Size::<i32, BufferCoord>::from((size.w, size.h));
-        let mut texture: GlesTexture = Offscreen::<GlesTexture>::create_buffer(
-            &mut self.renderer,
-            DrmFourcc::Abgr8888,
-            buffer_size,
-        )
-        .map_err(|e| format!("no offscreen buffer: {e}"))?;
+        let mut texture = self
+            .renderer
+            .canvas(DrmFourcc::Abgr8888, buffer_size)
+            .map_err(|e| format!("no offscreen buffer: {e}"))?;
         let mut target = self
             .renderer
             .bind(&mut texture)
@@ -3755,7 +3754,7 @@ impl State {
         elements.push(Skin::Texture(element(art, panel, 1.0)));
     }
 
-    fn switch_icon(&mut self, app: &str, side: u32) -> Option<TextureBuffer<GlesTexture>> {
+    fn switch_icon(&mut self, app: &str, side: u32) -> Option<TextureBuffer<Tex>> {
         let key = format!("{app}@{side}");
         if let Some(held) = self.app_icons.get(&key) {
             return Some(held.clone());
@@ -4066,14 +4065,7 @@ pub fn open(
     let (drm, drm_events) =
         DrmDevice::new(drm_fd, true).map_err(|e| format!("cannot open drm device: {e}"))?;
 
-    let egl_display =
-        unsafe { EGLDisplay::new(gbm.clone()) }.map_err(|e| format!("egl display: {e}"))?;
-    let context = EGLContext::new(&egl_display).map_err(|e| format!("egl context: {e}"))?;
-    let renderer_formats = context.dmabuf_render_formats().clone();
-    let mut renderer =
-        unsafe { GlesRenderer::new(context) }.map_err(|e| format!("gles renderer: {e}"))?;
-
-    let gl = describe(&mut renderer);
+    let (mut renderer, renderer_formats, gl) = pick_painter(&gbm)?;
     let screen = Vec2::new(f64::from(virtual_size.0), f64::from(virtual_size.1));
     let world = config.world_size(screen);
     let start = Camera::at_work_zoom(world / 2.0);
@@ -4955,10 +4947,10 @@ fn state_poll_fd(
 }
 
 fn upload(
-    renderer: &mut GlesRenderer,
+    renderer: &mut Painter,
     image: Option<&Image>,
     what: &str,
-) -> Result<Option<TextureBuffer<GlesTexture>>, String> {
+) -> Result<Option<TextureBuffer<Tex>>, String> {
     match image {
         None => Ok(None),
         Some(image) => TextureBuffer::from_memory(
@@ -4982,10 +4974,10 @@ fn config_stamp(path: &Path) -> Option<(std::time::SystemTime, u64, u64)> {
     Some((meta.modified().ok()?, meta.len(), meta.ino()))
 }
 
-type Pinned = Vec<(drifter_core::Launch, Option<TextureBuffer<GlesTexture>>)>;
+type Pinned = Vec<(drifter_core::Launch, Option<TextureBuffer<Tex>>)>;
 
 fn dock_items(
-    renderer: &mut GlesRenderer,
+    renderer: &mut Painter,
     config: &Config,
     side: u32,
     spare: Option<&drifter_core::Image>,
@@ -5031,11 +5023,7 @@ fn lock_marker() -> Option<PathBuf> {
     std::env::var_os("XDG_RUNTIME_DIR").map(|dir| PathBuf::from(dir).join("drifter-locked"))
 }
 
-fn element(
-    buffer: &TextureBuffer<GlesTexture>,
-    rect: Rect,
-    alpha: f32,
-) -> TextureRenderElement<GlesTexture> {
+fn element(buffer: &TextureBuffer<Tex>, rect: Rect, alpha: f32) -> TextureRenderElement<Tex> {
     let origin = rect.origin.round();
     let far = (rect.origin + rect.size).round();
     let size = far - origin;
@@ -5104,20 +5092,16 @@ fn tiles(piece: ChromePiece) -> bool {
     )
 }
 
-fn cropped(
-    buffer: &TextureBuffer<GlesTexture>,
-    source: Rect,
-    target: Rect,
-) -> TextureRenderElement<GlesTexture> {
+fn cropped(buffer: &TextureBuffer<Tex>, source: Rect, target: Rect) -> TextureRenderElement<Tex> {
     faded(buffer, source, target, 1.0)
 }
 
 fn faded(
-    buffer: &TextureBuffer<GlesTexture>,
+    buffer: &TextureBuffer<Tex>,
     source: Rect,
     target: Rect,
     alpha: f32,
-) -> TextureRenderElement<GlesTexture> {
+) -> TextureRenderElement<Tex> {
     let origin = target.origin.round();
     let far = (target.origin + target.size).round();
     let size = far - origin;
@@ -5132,6 +5116,52 @@ fn faded(
         Some((size.x as i32, size.y as i32).into()),
         Kind::Unspecified,
     )
+}
+
+fn pick_painter(
+    gbm: &GbmDevice<DrmDeviceFd>,
+) -> Result<
+    (
+        Painter,
+        smithay::backend::allocator::format::FormatSet,
+        String,
+    ),
+    String,
+> {
+    match gles(gbm) {
+        Ok((mut renderer, formats)) => {
+            let name = describe(&mut renderer);
+            if !is_software(&name) {
+                return Ok((Painter::Gles(renderer), formats, name));
+            }
+            eprintln!("drifter: {name} is software gl, so drifter draws with pixman");
+        }
+        Err(error) => eprintln!("drifter: no gpu ({error}), so drifter draws with pixman"),
+    }
+    let renderer = smithay::backend::renderer::pixman::PixmanRenderer::new()
+        .map_err(|e| format!("pixman renderer: {e}"))?;
+    let painter = Painter::Pixman(renderer);
+    let formats = painter.render_formats();
+    Ok((painter, formats, "pixman".to_string()))
+}
+
+fn gles(
+    gbm: &GbmDevice<DrmDeviceFd>,
+) -> Result<(GlesRenderer, smithay::backend::allocator::format::FormatSet), String> {
+    let egl_display =
+        unsafe { EGLDisplay::new(gbm.clone()) }.map_err(|e| format!("egl display: {e}"))?;
+    let context = EGLContext::new(&egl_display).map_err(|e| format!("egl context: {e}"))?;
+    let formats = context.dmabuf_render_formats().clone();
+    let renderer =
+        unsafe { GlesRenderer::new(context) }.map_err(|e| format!("gles renderer: {e}"))?;
+    Ok((renderer, formats))
+}
+
+fn is_software(renderer: &str) -> bool {
+    let renderer = renderer.to_lowercase();
+    ["llvmpipe", "softpipe", "swrast"]
+        .iter()
+        .any(|name| renderer.contains(name))
 }
 
 fn describe(renderer: &mut GlesRenderer) -> String {
@@ -5601,10 +5631,10 @@ fn turn(rotate: u32) -> Transform {
 }
 
 fn paint_panels(
-    renderer: &mut GlesRenderer,
+    renderer: &mut Painter,
     width: f64,
     shapes: &[Panel; 2],
-) -> Result<[TextureBuffer<GlesTexture>; 2], String> {
+) -> Result<[TextureBuffer<Tex>; 2], String> {
     let mut built = Vec::new();
     for edge in Edge::ALL {
         let what = match edge {

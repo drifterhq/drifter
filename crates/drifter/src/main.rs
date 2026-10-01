@@ -14,6 +14,8 @@ mod media;
 #[cfg(target_os = "linux")]
 mod notes;
 #[cfg(target_os = "linux")]
+mod paint;
+#[cfg(target_os = "linux")]
 mod polkit;
 #[cfg(target_os = "linux")]
 mod portal;
