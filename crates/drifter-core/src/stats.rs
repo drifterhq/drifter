@@ -63,6 +63,7 @@ fn stamp(canvas: &mut Image, piece: &Image, left: i64) {
 pub enum Metric {
     Cpu,
     Ram,
+    Battery,
     Disk(String),
 }
 
@@ -71,7 +72,10 @@ impl Metric {
         match text.trim() {
             "cpu" => Ok(Metric::Cpu),
             "ram" => Ok(Metric::Ram),
-            "" => Err("a tray metric is empty. use cpu, ram, a mount point or a device".into()),
+            "battery" => Ok(Metric::Battery),
+            "" => Err(
+                "a tray metric is empty. use cpu, ram, battery, a mount point or a device".into(),
+            ),
             disk => match disk.strip_prefix("/dev/") {
                 Some(device) => Ok(Metric::Disk(
                     device.rsplit('/').next().unwrap_or(device).to_string(),
@@ -140,6 +144,54 @@ pub fn disk_label(kernel: Option<&str>, source: &str) -> String {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Cell {
+    pub full: u64,
+    pub now: u64,
+    pub charging: bool,
+}
+
+pub fn read_cell(
+    kind: &str,
+    capacity: Option<&str>,
+    energy: (Option<&str>, Option<&str>),
+    status: &str,
+) -> Option<Cell> {
+    if kind.trim() != "Battery" {
+        return None;
+    }
+    let number = |text: Option<&str>| text.and_then(|t| t.trim().parse::<u64>().ok());
+    let charging = status.trim() == "Charging";
+    match (number(energy.0), number(energy.1)) {
+        (Some(full), Some(now)) if full > 0 => Some(Cell {
+            full,
+            now,
+            charging,
+        }),
+        _ => number(capacity).map(|percent| Cell {
+            full: 100,
+            now: percent.min(100),
+            charging,
+        }),
+    }
+}
+
+pub fn battery(cells: &[Cell]) -> Option<(&'static str, u8)> {
+    let full: u64 = cells.iter().map(|cell| cell.full).sum();
+    if full == 0 {
+        return None;
+    }
+    let now: u64 = cells.iter().map(|cell| cell.now.min(cell.full)).sum();
+    let percent = ((now as f64 / full as f64) * 100.0)
+        .round()
+        .clamp(0.0, 100.0) as u8;
+    let label = match cells.iter().any(|cell| cell.charging) {
+        true => "CHG",
+        false => "BAT",
+    };
+    Some((label, percent))
+}
+
 pub fn cpu_times(stat: &str) -> Option<CpuTimes> {
     let line = stat.lines().find(|line| line.starts_with("cpu "))?;
     let fields: Vec<u64> = line
@@ -196,6 +248,31 @@ fn percent(part: u64, whole: u64) -> u8 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn batteries_add_up_by_energy_and_charging_shows_in_the_label() {
+        let one = read_cell(
+            "Battery",
+            Some("90"),
+            (Some("50000000"), Some("25000000")),
+            "Discharging",
+        )
+        .unwrap();
+        let two = read_cell("Battery", Some("80"), (None, None), "Charging\n").unwrap();
+        assert_eq!(battery(&[one]), Some(("BAT", 50)));
+        assert_eq!(
+            two,
+            Cell {
+                full: 100,
+                now: 80,
+                charging: true
+            }
+        );
+        assert_eq!(battery(&[two]), Some(("CHG", 80)));
+        assert_eq!(read_cell("Mains", Some("1"), (None, None), ""), None);
+        assert_eq!(battery(&[]), None);
+        assert_eq!(Metric::parse("battery"), Ok(Metric::Battery));
+    }
+
     use super::*;
 
     const STAT: &str = "cpu  100 20 30 800 50 0 0 0 0 0\ncpu0 50 10 15 400 25 0 0 0 0 0\nintr 1\n";

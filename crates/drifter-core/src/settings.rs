@@ -135,6 +135,7 @@ pub struct Model {
     pub stats: bool,
     pub cpu: bool,
     pub ram: bool,
+    pub battery: bool,
     pub disks: Vec<Disk>,
     pub kept: Vec<String>,
     pub side: Side,
@@ -184,11 +185,12 @@ impl Model {
             ));
         }
 
-        let (mut cpu, mut ram, mut kept) = (false, false, Vec::new());
+        let (mut cpu, mut ram, mut battery, mut kept) = (false, false, false, Vec::new());
         for text in &config.tray.metrics {
             match Metric::parse(text) {
                 Ok(Metric::Cpu) => cpu = true,
                 Ok(Metric::Ram) => ram = true,
+                Ok(Metric::Battery) => battery = true,
                 Ok(Metric::Disk(name)) => {
                     let found = stats::find_disk(mounts, &name, &kernel).and_then(|mount| {
                         disks.iter_mut().find(|(_, device)| *device == mount.device)
@@ -232,6 +234,7 @@ impl Model {
             stats: config.tray.stats,
             cpu,
             ram,
+            battery,
             disks: disks.into_iter().map(|(disk, _)| disk).collect(),
             kept,
             side: config.window.buttons,
@@ -448,6 +451,9 @@ impl Model {
                 .filter(|disk| disk.on)
                 .map(|disk| disk.point.clone()),
         );
+        if self.battery {
+            out.push("battery".to_string());
+        }
         out.extend(self.kept.iter().cloned());
         out
     }
@@ -639,6 +645,9 @@ impl Model {
                         .enabled(self.stats),
                     Row::new(Id::Ram, "Memory", Control::Switch(self.ram))
                         .detail("Memory in use")
+                        .enabled(self.stats),
+                    Row::new(Id::Battery, "Battery", Control::Switch(self.battery))
+                        .detail("Charge left. CHG while it charges. Hidden with no battery")
                         .enabled(self.stats),
                 ];
                 for (index, disk) in self.disks.iter().enumerate() {
@@ -1128,6 +1137,7 @@ impl Model {
             (Id::Stats, Value::Switch(on)) => self.stats = on,
             (Id::Cpu, Value::Switch(on)) => self.cpu = on,
             (Id::Ram, Value::Switch(on)) => self.ram = on,
+            (Id::Battery, Value::Switch(on)) => self.battery = on,
             (Id::Disk(index), Value::Switch(on)) => {
                 if let Some(disk) = self.disks.get_mut(index) {
                     disk.on = on;
@@ -1499,6 +1509,7 @@ pub enum Id {
     Stats,
     Cpu,
     Ram,
+    Battery,
     Disk(usize),
     Side,
     Title,
@@ -2617,10 +2628,10 @@ mod tests {
     #[test]
     fn the_default_config_shows_cpu_ram_and_the_root_disk() {
         let model = model(&Config::default());
-        assert!(model.stats && model.cpu && model.ram);
+        assert!(model.stats && model.cpu && model.ram && model.battery);
         assert!(model.disks[0].on);
         assert!(!model.disks[1].on);
-        assert_eq!(model.metrics(), ["cpu", "ram", "/"]);
+        assert_eq!(model.metrics(), ["cpu", "ram", "/", "battery"]);
     }
 
     #[test]
@@ -2713,7 +2724,7 @@ mod tests {
         let out = after.write(&before, text).unwrap();
         let back = Config::parse(&out).unwrap();
         assert!(!back.tray.stats);
-        assert_eq!(back.tray.metrics, ["cpu", "/", "/home"]);
+        assert_eq!(back.tray.metrics, ["cpu", "/", "/home", "battery"]);
         back.validate().unwrap();
     }
 

@@ -76,6 +76,7 @@ impl Reader {
             let field = match &metric {
                 Metric::Cpu => self.cpu().map(|value| ("CPU".to_string(), value)),
                 Metric::Ram => ram().map(|value| ("RAM".to_string(), value)),
+                Metric::Battery => battery().map(|(label, value)| (label.to_string(), value)),
                 Metric::Disk(name) => {
                     let mounts = mounts.get_or_insert_with(|| {
                         std::fs::read_to_string("/proc/self/mountinfo")
@@ -104,6 +105,27 @@ impl Reader {
             .unwrap_or(CpuTimes { busy: 0, total: 0 });
         Some(stats::cpu_percent(before, now))
     }
+}
+
+fn battery() -> Option<(&'static str, u8)> {
+    let read = |dir: &std::path::Path, name: &str| std::fs::read_to_string(dir.join(name)).ok();
+    let cells: Vec<stats::Cell> = std::fs::read_dir("/sys/class/power_supply")
+        .ok()?
+        .flatten()
+        .filter_map(|entry| {
+            let dir = entry.path();
+            let kind = read(&dir, "type")?;
+            let full = read(&dir, "energy_full").or_else(|| read(&dir, "charge_full"));
+            let now = read(&dir, "energy_now").or_else(|| read(&dir, "charge_now"));
+            stats::read_cell(
+                &kind,
+                read(&dir, "capacity").as_deref(),
+                (full.as_deref(), now.as_deref()),
+                &read(&dir, "status").unwrap_or_default(),
+            )
+        })
+        .collect();
+    stats::battery(&cells)
 }
 
 fn ram() -> Option<u8> {

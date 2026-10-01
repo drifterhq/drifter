@@ -333,7 +333,7 @@ fn default_stats() -> bool {
 }
 
 fn default_metrics() -> Vec<String> {
-    ["cpu", "ram", "/"].map(String::from).to_vec()
+    ["cpu", "ram", "/", "battery"].map(String::from).to_vec()
 }
 
 fn default_tray_size() -> f64 {
@@ -918,7 +918,7 @@ mod tests {
     fn the_stats_show_cpu_ram_and_the_root_disk_by_default() {
         let config = Config::default();
         assert!(config.tray.stats);
-        assert_eq!(config.tray.metrics, ["cpu", "ram", "/"]);
+        assert_eq!(config.tray.metrics, ["cpu", "ram", "/", "battery"]);
         assert_eq!(Config::parse("[tray]\n").unwrap().tray, config.tray);
     }
 
