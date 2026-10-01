@@ -18,19 +18,27 @@ if [ ! -r "$tty" ]; then
     exit 1
 fi
 
+gone() {
+    for _ in $(seq "$1"); do
+        pgrep -f scripts/drifter-session >/dev/null || pgrep -x drifter >/dev/null || return 0
+        sleep 0.1
+    done
+    return 1
+}
+
 pkill -f scripts/drifter-session 2>/dev/null || true
 pkill -x drifter 2>/dev/null || true
-
-for _ in $(seq 50); do
-    pgrep -x drifter >/dev/null || break
-    sleep 0.1
-done
-if pgrep -x drifter >/dev/null; then
+if ! gone 100; then
+    pkill -KILL -f scripts/drifter-session 2>/dev/null || true
     pkill -KILL -x drifter 2>/dev/null || true
-    sleep 0.5
+    if ! gone 50; then
+        echo "the old drifter will not quit; not starting a second one" >&2
+        exit 1
+    fi
 fi
+sleep 0.5
 
-nohup sh -c "exec <$tty >$log 2>&1; $here/scripts/drifter-session" >/dev/null 2>&1 &
+setsid -f sh -c 'exec <"$1" >"$2" 2>&1; exec "$3"' drifter-tty "$tty" "$log" "$here/scripts/drifter-session"
 
 echo "started, logging to $log"
 echo "stop it with: pkill -x drifter"

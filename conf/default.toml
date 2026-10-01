@@ -46,6 +46,20 @@ accel = true
 # The pad does nothing while you type.
 ignore_while_typing = true
 
+# Monitors. Settings > Displays writes these for you.
+# One table per monitor, found by its connector name. Drifter prints the
+# names when it starts, like "screen      HDMI-A-1 1920 x 1080 @ 60".
+# scale    1 to 3. 2 makes text and windows twice as big.
+# rotate   0, 90, 180 or 270.
+# x, y     where it sits beside the others, in pixels after scale.
+#          A monitor with no place goes to the right of the rest.
+# [[monitor]]
+# name = "HDMI-A-1"
+# scale = 1.5
+# rotate = 0
+# x = 0
+# y = 0
+
 [drawers]
 # Bar heights in pixels. Minimum 16.
 # Top holds the tray. Bottom holds the dock.

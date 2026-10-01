@@ -156,6 +156,12 @@ Pointer
 Multi-monitor
 
 - One shared world. One camera per monitor.
+- Every monitor has its own scale, rotation and place. Settings > Displays sets them: click a monitor to choose it, drag it to move it, and its edges snap to the others. They are saved as `[[monitor]]` tables in the config, by connector name.
+- The pointer crosses to the next monitor at an edge they share. Holding the modifier stops it at the edge, so edge pan works on every monitor.
+- Each monitor has its own drawers and hot corner. The cursor, menus, cards, the switcher and the volume display show on the monitor with the pointer.
+- The world size comes from the first monitor.
+- Every window is told the largest scale, so it is sharp on every monitor.
+- Plugging a monitor in or out is seen at once.
 
 Session
 
@@ -168,9 +174,7 @@ The MVP list is finished: config, the compositor, both drawers, the hot corner, 
 
 What is left:
 - Lock on lid close and on a logind Lock signal.
-- Notifications, screenshots and screen sharing, and a password prompt for polkit.
 - A `/etc/pam.d/drifter` stack of its own, so the lock does not depend on `login`.
-- Multi-monitor. One world, one camera per monitor.
 - Submenus. A dbusmenu item with `children-display` is drawn but does not open.
 - A world-sized wallpaper as mipmapped tiles. Today the whole image is one texture.
 - The headless backend and frame capture, which is testing target 2.

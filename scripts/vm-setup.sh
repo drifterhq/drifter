@@ -10,8 +10,8 @@ sudo apt-get update
 
 sudo apt-get install -y linux-image-amd64
 
-sub=$(grep -oE "gnulinux-advanced-[0-9a-f-]+" /boot/grub/grub.cfg | head -1)
-gen=$(grep -oE "gnulinux-[0-9][^']*-advanced-[0-9a-f-]+" /boot/grub/grub.cfg | grep -v -- '-cloud-' | head -1)
+sub=$(grep -oE "gnulinux-advanced-[0-9a-f-]+" /boot/grub/grub.cfg | head -1 || true)
+gen=$(grep -oE "gnulinux-[0-9][^']*-advanced-[0-9a-f-]+" /boot/grub/grub.cfg | grep -v -- '-cloud-' | head -1 || true)
 if [ -z "$sub" ] || [ -z "$gen" ]; then
     echo "could not find a non-cloud kernel entry in /boot/grub/grub.cfg" >&2
     echo "without the generic kernel there is no /dev/dri and drifter cannot run" >&2
@@ -68,7 +68,8 @@ fi
     --git https://github.com/Supreeeme/xwayland-satellite --tag v0.8.3 xwayland-satellite
 
 cargo_line='export PATH="$HOME/.cargo/bin:$PATH"'
-if ! grep -qF "$cargo_line" "$HOME/.bashrc" 2>/dev/null; then
+touch "$HOME/.bashrc"
+if ! grep -qF "$cargo_line" "$HOME/.bashrc"; then
     printf '%s\n' "$cargo_line" | cat - "$HOME/.bashrc" > "$HOME/.bashrc.new"
     mv "$HOME/.bashrc.new" "$HOME/.bashrc"
 fi
