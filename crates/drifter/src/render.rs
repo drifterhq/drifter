@@ -4416,8 +4416,9 @@ pub fn open(
     if state.heads.is_empty() {
         return Err("no connected monitor with modes".to_string());
     }
-    for head in &mut state.heads {
-        head.camera = Camera::at_work_zoom(state.world / 2.0);
+    state.heads[0].camera = Camera::at_work_zoom(state.world / 2.0);
+    for index in 1..state.heads.len() {
+        state.heads[index].camera = state.beside(index);
     }
     state.load(state.hand);
     state.pointer = state.screen / 2.0;
@@ -5251,6 +5252,22 @@ impl State {
         Some(global - self.heads[next].place)
     }
 
+    fn beside(&self, index: usize) -> Camera {
+        let (Some(base), Some(head)) = (self.heads.first(), self.heads.get(index)) else {
+            return Camera::at_work_zoom(self.world / 2.0);
+        };
+        let middle = |one: &Head| one.place + one.screen / 2.0;
+        let mut camera = Camera::at_work_zoom(
+            base.camera.center + (middle(head) - middle(base)) / base.camera.zoom,
+        );
+        camera.zoom = base
+            .camera
+            .zoom
+            .max(Camera::fit_zoom(head.screen, self.world));
+        camera.clamp_to_world(self.world, head.screen);
+        camera
+    }
+
     pub fn top_scale(&self) -> f64 {
         self.heads.iter().map(|head| head.scale).fold(1.0, f64::max)
     }
@@ -5479,6 +5496,7 @@ impl State {
                     .remove_global::<State>(head.global.clone());
             }
         }
+        let known = self.heads.len();
         for (handle, info) in &connected {
             if self.heads.iter().any(|head| head.connector == *handle) {
                 continue;
@@ -5487,6 +5505,7 @@ impl State {
                 eprintln!("drifter: {error}");
             }
         }
+        let fresh = known..self.heads.len();
         if self.heads.is_empty() {
             return;
         }
@@ -5500,6 +5519,13 @@ impl State {
             self.tip = None;
         }
         self.relayout(false);
+        if known > 0 && !fresh.is_empty() {
+            self.stash();
+            for index in fresh {
+                self.heads[index].camera = self.beside(index);
+            }
+            self.load(self.hand);
+        }
     }
 
     fn relayout(&mut self, repaint: bool) {
