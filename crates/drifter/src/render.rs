@@ -5251,7 +5251,7 @@ impl State {
         Some(global - self.heads[next].place)
     }
 
-    fn top_scale(&self) -> f64 {
+    pub fn top_scale(&self) -> f64 {
         self.heads.iter().map(|head| head.scale).fold(1.0, f64::max)
     }
 
