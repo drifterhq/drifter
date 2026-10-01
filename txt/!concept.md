@@ -254,7 +254,7 @@ While locked:
 - A window that opens while locked is not shown and does not get focus. Move and resize requests are refused.
 - Drifter has no VT switch key, so another VT cannot be reached from the keyboard.
 
-The password is checked by PAM, service `login`, for the user that owns the session (found from the uid, never from `$USER`). Empty passwords are refused. PAM does the fail delay and any account lockout, so the system policy applies. A password that PAM cannot check is never accepted, and Drifter refuses to lock at all when `/etc/pam.d/login` is missing or `pam_start` fails, so nobody is ever locked out with no way in.
+The password is checked by PAM, service `drifter`, for the user that owns the session (found from the uid, never from `$USER`). Empty passwords are refused. PAM does the fail delay and any account lockout, so the system policy applies. A password that PAM cannot check is never accepted, and Drifter refuses to lock at all when it finds no stack or `pam_start` fails, so nobody is ever locked out with no way in. `scripts/install.sh` writes `/etc/pam.d/drifter` from the distro's own stack: `common-auth` and `common-account` on Debian, `system-auth` on Fedora and Arch. Without it Drifter falls back to service `login`.
 
 The typed password lives in a buffer that never grows, so it is never copied by a reallocation. Every path that ends with it wipes it: backspace, Escape, submit, unlock and drop. The check runs on its own thread, so the screen stays alive, and the copy handed to PAM is wiped when the check ends.
 
@@ -300,6 +300,8 @@ Drifter speaks these, beside the core ones:
 X11 apps run through `xwayland-satellite`, when it is installed. Drifter starts it on the first free display number and gives every app it launches that `DISPLAY`. Without it Drifter says so on stderr and X11 apps cannot run.
 
 ## Running it
+
+`scripts/install.sh` runs once, as the user. It writes `/etc/pam.d/drifter` and `/usr/share/wayland-sessions/drifter.desktop`. The session file runs `scripts/drifter-session` from this clone, so a display manager such as GDM or SDDM lists Drifter, and a rebuild is picked up at the next login. Moving the clone means running it again.
 
 Escape goes to the focused app like any key. Three things open the power menu: the button at the right end of the top drawer, modifier + Escape (in the middle of the screen), and a right click on empty desktop (under Settings). Modifier + L locks the screen at once.
 

@@ -4,8 +4,18 @@ use std::ptr;
 
 use zeroize::Zeroize;
 
-const SERVICE: &CStr = c"login";
-const STACK: &str = "/etc/pam.d/login";
+const STACKS: [(&CStr, &str); 2] = [
+    (c"drifter", "/etc/pam.d/drifter"),
+    (c"login", "/etc/pam.d/login"),
+];
+
+fn service() -> Result<&'static CStr, String> {
+    STACKS
+        .iter()
+        .find(|(_, path)| std::path::Path::new(path).is_file())
+        .map(|(name, _)| *name)
+        .ok_or_else(|| "neither /etc/pam.d/drifter nor /etc/pam.d/login exists, so no password can be checked".to_string())
+}
 
 const PAM_SUCCESS: c_int = 0;
 const PAM_CONV_ERR: c_int = 19;
@@ -84,16 +94,14 @@ pub fn user_of(uid: u32) -> Result<CString, String> {
 }
 
 pub fn ready() -> Result<CString, String> {
-    if !std::path::Path::new(STACK).is_file() {
-        return Err(format!("{STACK} is missing, so no password can be checked"));
-    }
+    let service = service()?;
     let user = user()?;
     let mut handle: *mut Handle = ptr::null_mut();
     let conversation = Conversation {
         talk: refuse,
         data: ptr::null_mut(),
     };
-    let code = unsafe { pam_start(SERVICE.as_ptr(), user.as_ptr(), &conversation, &mut handle) };
+    let code = unsafe { pam_start(service.as_ptr(), user.as_ptr(), &conversation, &mut handle) };
     if code != PAM_SUCCESS || handle.is_null() {
         return Err(format!("pam_start failed with code {code}"));
     }
@@ -105,6 +113,10 @@ static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 pub fn verify(user: &CStr, password: Vec<u8>) -> Verdict {
     let mut secret = Secret { bytes: password };
+    let service = match service() {
+        Ok(service) => service,
+        Err(error) => return Verdict::Broken(error),
+    };
     let _turn = ONE_AT_A_TIME
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -113,7 +125,7 @@ pub fn verify(user: &CStr, password: Vec<u8>) -> Verdict {
         data: (&mut secret as *mut Secret).cast(),
     };
     let mut handle: *mut Handle = ptr::null_mut();
-    let code = unsafe { pam_start(SERVICE.as_ptr(), user.as_ptr(), &conversation, &mut handle) };
+    let code = unsafe { pam_start(service.as_ptr(), user.as_ptr(), &conversation, &mut handle) };
     if code != PAM_SUCCESS || handle.is_null() {
         return Verdict::Broken(format!("pam_start failed with code {code}"));
     }
