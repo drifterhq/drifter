@@ -1493,7 +1493,7 @@ impl State {
         }
     }
 
-    fn capture(&mut self, elements: &[Shown], cursor: bool) -> Result<(Vec<u8>, bool), String> {
+    fn capture(&mut self, elements: &[Shown], cursor: bool) -> Result<Vec<u8>, String> {
         use smithay::backend::renderer::damage::OutputDamageTracker;
         use smithay::backend::renderer::{Bind, ExportMem};
         use smithay::utils::{Buffer as BufferCoord, Physical, Rectangle, Size};
@@ -1525,13 +1525,13 @@ impl State {
                 DrmFourcc::Abgr8888,
             )
             .map_err(|e| format!("cannot read the screen back: {e}"))?;
-        let flipped = !smithay::backend::renderer::TextureMapping::flipped(&mapping);
+        // Both renderers read an offscreen target back top row first.
         let bytes = self
             .renderer
             .map_texture(&mapping)
             .map_err(|e| format!("cannot read the screen back: {e}"))?
             .to_vec();
-        Ok((bytes, flipped))
+        Ok(bytes)
     }
 
     fn draw_into(
@@ -1588,7 +1588,7 @@ impl State {
             }
             return;
         }
-        let mut shots: [Option<(Vec<u8>, bool)>; 2] = [None, None];
+        let mut shots: [Option<Vec<u8>>; 2] = [None, None];
         for copy in ready {
             if let Ok(dmabuf) = smithay::wayland::dmabuf::get_dmabuf(&copy.buffer) {
                 let mut dmabuf = dmabuf.clone();
@@ -1608,9 +1608,9 @@ impl State {
                     Err(error) => eprintln!("drifter: {error}"),
                 }
             }
-            let written = shots[slot].as_ref().map(|(bytes, flipped)| {
-                crate::screencopy::fill(&copy, self.physical(), bytes, *flipped)
-            });
+            let written = shots[slot]
+                .as_ref()
+                .map(|bytes| crate::screencopy::fill(&copy, self.physical(), bytes));
             match written {
                 Some(Ok(())) => crate::screencopy::done(&copy),
                 Some(Err(error)) => {
@@ -1623,7 +1623,7 @@ impl State {
     }
 
     fn screenshot(&mut self, elements: &[Shown]) {
-        let (bytes, flipped) = match self.capture(elements, false) {
+        let bytes = match self.capture(elements, false) {
             Ok(shot) => shot,
             Err(error) => {
                 eprintln!("drifter: no screenshot: {error}");
@@ -1633,16 +1633,8 @@ impl State {
         let whole = self.physical();
         let (width, height) = (whole.x as u32, whole.y as u32);
         let mut rgba = Vec::with_capacity(bytes.len());
-        for row in 0..height as usize {
-            let source = if flipped {
-                height as usize - 1 - row
-            } else {
-                row
-            };
-            let line = &bytes[source * width as usize * 4..(source + 1) * width as usize * 4];
-            for pixel in line.as_chunks::<4>().0 {
-                rgba.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 255]);
-            }
+        for pixel in bytes.as_chunks::<4>().0 {
+            rgba.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 255]);
         }
         let image = drifter_core::Image {
             width,

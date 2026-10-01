@@ -146,11 +146,10 @@ fn clip(asked: Rect, screen: Rect) -> Rect {
     Rect::new(low, (high - low).max(Vec2::ZERO))
 }
 
-pub fn fill(copy: &Copy, screen: Vec2, rgba: &[u8], flipped: bool) -> Result<(), String> {
+pub fn fill(copy: &Copy, screen: Vec2, rgba: &[u8]) -> Result<(), String> {
     let region = copy.region;
     let (width, height) = (region.size.x as usize, region.size.y as usize);
     let full_w = screen.x as usize;
-    let full_h = screen.y as usize;
     smithay::wayland::shm::with_buffer_contents_mut(&copy.buffer, |ptr, len, data| {
         let stride = data.stride as usize;
         let offset = data.offset as usize;
@@ -169,11 +168,7 @@ pub fn fill(copy: &Copy, screen: Vec2, rgba: &[u8], flipped: bool) -> Result<(),
         let left = region.origin.x as usize;
         let top = region.origin.y as usize;
         for row in 0..height {
-            let source_row = match flipped {
-                true => full_h - 1 - (top + row),
-                false => top + row,
-            };
-            let from = (source_row * full_w + left) * 4;
+            let from = ((top + row) * full_w + left) * 4;
             let to = row * stride;
             for x in 0..width {
                 let pixel = &rgba[from + x * 4..from + x * 4 + 4];
