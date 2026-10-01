@@ -5429,7 +5429,8 @@ impl State {
                 (64, 64).into(),
                 Some(gbm.clone()),
             )
-            .map(Scanout::Gbm),
+            .map(Scanout::Gbm)
+            .map_err(|e| e.to_string()),
             _ => {
                 let fd = self.drm.device_fd().clone();
                 DrmCompositor::new(
@@ -5444,6 +5445,7 @@ impl State {
                     None::<GbmDevice<DrmDeviceFd>>,
                 )
                 .map(Scanout::Dumb)
+                .map_err(|e| e.to_string())
             }
         }
         .map_err(|e| format!("drm compositor for {name}: {e}"))?;
