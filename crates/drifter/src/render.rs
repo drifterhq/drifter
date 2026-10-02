@@ -4198,7 +4198,7 @@ pub fn open(
     path: &Path,
     virtual_size: (u32, u32),
     background: [f32; 4],
-    wallpaper: Option<&Image>,
+    wallpaper: Option<Image>,
 ) -> Result<Screen, String> {
     let events: EventLoop<'static, State> =
         EventLoop::try_new().map_err(|e| format!("cannot create the event loop: {e}"))?;
@@ -4248,13 +4248,8 @@ pub fn open(
         },
     ];
 
-    let wallpaper_element = wallpaper.map(|image| {
-        Backdrop::new(drifter_core::tiles::Pyramid::build(
-            image.clone(),
-            world,
-            screen,
-        ))
-    });
+    let wallpaper_element = wallpaper
+        .map(|image| Backdrop::new(drifter_core::tiles::Pyramid::build(image, world, screen)));
     let supplied = config
         .cursor_path()
         .and_then(|path| match drifter_core::image::load(&path) {
@@ -4603,10 +4598,10 @@ pub fn open(
         .join(", ");
     let found_size = (first.pixels.x as u16, first.pixels.y as u16);
     let found_refresh = (first.mode.refresh / 1000) as u32;
-    let rect = wallpaper.map(|image| {
+    let rect = state.wallpaper.as_ref().map(|paper| {
         drifter_core::wallpaper::place(
             config.workspace.wallpaper_mode,
-            image.size(),
+            paper.pyramid.size(),
             state.screen,
             state.world,
             &state.camera,

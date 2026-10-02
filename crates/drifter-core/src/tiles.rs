@@ -2,6 +2,7 @@ use crate::geom::{Rect, Vec2};
 use crate::image::Image;
 
 pub const TILE: u32 = 2048;
+const GUTTER: u32 = 1;
 
 #[derive(Clone)]
 pub struct Pyramid {
@@ -88,9 +89,13 @@ impl Pyramid {
                             (at.y - seen.origin.y) * per.y,
                         )
                 };
+                let gutter = Vec2::new(
+                    f64::from(GUTTER.min(col * TILE)),
+                    f64::from(GUTTER.min(row * TILE)),
+                );
                 out.push(Piece {
                     key: (level, col, row),
-                    source: Rect::new(low - tile.origin, high - low),
+                    source: Rect::new(low - tile.origin + gutter, high - low),
                     target: Rect::new(on_screen(low), on_screen(high) - on_screen(low)),
                 });
             }
@@ -101,7 +106,11 @@ impl Pyramid {
     pub fn tile(&self, key: (usize, u32, u32)) -> Image {
         let (level, col, row) = key;
         let image = &self.levels[level.min(self.levels.len() - 1)];
-        crop(image, col * TILE, row * TILE, TILE, TILE)
+        let left = (col * TILE).saturating_sub(GUTTER);
+        let top = (row * TILE).saturating_sub(GUTTER);
+        let right = (col * TILE + TILE + GUTTER).min(image.width);
+        let bottom = (row * TILE + TILE + GUTTER).min(image.height);
+        crop(image, left, top, right - left, bottom - top)
     }
 }
 
@@ -254,7 +263,22 @@ mod tests {
     fn a_tile_at_the_edge_is_cut_to_the_picture() {
         let pyramid = Pyramid::build(picture(5000, 3000), Vec2::ZERO, Vec2::new(5000.0, 3000.0));
         let edge = pyramid.tile((0, 2, 1));
-        assert_eq!((edge.width, edge.height), (5000 - 4096, 3000 - 2048));
-        assert_eq!(edge.rgba[0..2], [(4096 % 256) as u8, (2048 % 256) as u8]);
+        assert_eq!(
+            (edge.width, edge.height),
+            (5000 - 4096 + 1, 3000 - 2048 + 1)
+        );
+        assert_eq!(edge.rgba[0..2], [(4095 % 256) as u8, (2047 % 256) as u8]);
+        let first = pyramid.tile((0, 0, 0));
+        assert_eq!((first.width, first.height), (2049, 2049));
+    }
+
+    #[test]
+    fn a_piece_skips_the_border_copied_from_its_neighbor() {
+        let pyramid = Pyramid::build(picture(5000, 3000), Vec2::ZERO, Vec2::new(5000.0, 3000.0));
+        let source = Rect::new(Vec2::new(2000.0, 0.0), Vec2::new(200.0, 100.0));
+        let pieces = pyramid.pieces(source, source);
+        assert_eq!(pieces[0].source.origin, Vec2::new(2000.0, 0.0));
+        assert_eq!(pieces[1].key, (0, 1, 0));
+        assert_eq!(pieces[1].source.origin, Vec2::new(1.0, 0.0));
     }
 }
