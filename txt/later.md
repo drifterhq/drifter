@@ -11,7 +11,6 @@ Work that is not yet done, after the 2026-10-01 daily-driver list. Done items le
 
 - SVG icons. Icon lookup only finds PNG, and many themes (Papirus, much of Adwaita) are SVG only, so tray, dock and picker icons go missing. Render SVG with resvg, and draw a placeholder when an item has no icon at all, so a tray item is never invisible.
 - The headless backend and frame capture, so tests run without the VM.
-- A world-sized wallpaper as mipmapped tiles. Today the whole image is one texture, which costs memory and can pass the GPU's texture size limit.
 
 ## Deferred
 

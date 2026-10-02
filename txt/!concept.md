@@ -115,7 +115,13 @@ Every mode keeps the picture's shape. Drifter cuts a centered piece of the pictu
 
 The supplied image does not have to be an exact size. Drifter scales it to what the mode needs, keeps the aspect ratio, and crops the overflow.
 
-A world-sized wallpaper in `pan` mode is large. A 4x6 world at 4K is about 199 megapixels, roughly 800 MB raw. So it is stored as mipmapped tiles, and only the tiles near the camera are resident at full detail. Zoomed out, the whole picture is needed but only at a low mip level, which is cheap. The full-resolution image is never resident all at once.
+Every mode draws the picture from a pyramid of tiles (`drifter-core/src/tiles.rs`), built on the loader thread:
+- Level 0 is the picture, halved while it is still at least twice the size needed to cover the world, because no mode shows it larger than the world.
+- Each next level is half the last, by averaging 2 x 2 pixels, until a level fits the screen.
+- Each level is cut into 2048 px tiles, so no texture passes a GPU's size limit. Each tile carries a 1 px border copied from its neighbors, so filtering at a tile edge shows no seam.
+- Each frame takes the level that is not smaller than the screen needs: how far the picture is shrunk on screen, log 2, rounded down.
+- A tile is uploaded the first time it is seen and dropped when it has not been drawn for 5 seconds. Zoomed in, only the few level 0 tiles in view are on the GPU. Zoomed out, the whole picture is drawn from one small level.
+- The pyramid stays in CPU memory, about 4/3 of the picture, so a dropped tile can come back without decoding the file again.
 
 ## Rules
 
