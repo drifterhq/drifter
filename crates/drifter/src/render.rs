@@ -3,6 +3,9 @@ use std::time::{Duration, Instant};
 
 use crate::paint::{Painter, Scanout, Tex};
 
+#[cfg(test)]
+mod tests;
+
 use drifter_core::camera::{Camera, Flight};
 use drifter_core::cursor::{self, Cursor};
 use drifter_core::dock::{Dock, Slot};
