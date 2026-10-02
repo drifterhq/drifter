@@ -58,6 +58,7 @@ struct Settings {
     history_seen: Option<std::time::SystemTime>,
     size: (u32, u32),
     exit: bool,
+    resized: bool,
 
     look: Look,
     fonts: (Font, Font, Font),
@@ -191,6 +192,7 @@ pub fn run() -> Result<(), String> {
         history_seen: None,
         size: START,
         exit: false,
+        resized: false,
         look,
         fonts,
         wallpaper,
@@ -215,6 +217,9 @@ pub fn run() -> Result<(), String> {
         events
             .dispatch(None, &mut settings)
             .map_err(|e| format!("event loop: {e}"))?;
+        if std::mem::take(&mut settings.resized) {
+            settings.draw();
+        }
     }
     Ok(())
 }
@@ -1150,7 +1155,7 @@ impl WindowHandler for Settings {
         self.clamp_scroll();
         let most = self.look.side_most(f64::from(self.size.1));
         self.look.side_scroll = self.look.side_scroll.min(most);
-        self.draw();
+        self.resized = true;
     }
 }
 
