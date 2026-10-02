@@ -2415,6 +2415,7 @@ impl State {
         let click = match code {
             BTN_LEFT => crate::tray::Click::Left,
             BTN_MIDDLE => crate::tray::Click::Middle,
+            BTN_RIGHT => return false,
             _ => return true,
         };
         if let Some(bus) = self.tray_bus.as_ref() {

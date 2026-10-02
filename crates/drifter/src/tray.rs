@@ -349,17 +349,53 @@ fn choose(connection: &zbus::blocking::Connection, service: &str, id: i32) {
     }
 }
 
-fn poke(connection: &zbus::blocking::Connection, service: &str, click: Click, x: i32, y: i32) {
+fn poke(
+    connection: &zbus::blocking::Connection,
+    service: &str,
+    click: Click,
+    x: i32,
+    y: i32,
+) -> bool {
     let (name, path) = split(service);
     let Ok(proxy) = zbus::blocking::Proxy::new(connection, name, path, ITEM) else {
-        return;
+        return false;
     };
     let method = match click {
-        Click::Left => "Activate",
+        Click::Left => {
+            if proxy.get_property::<bool>("ItemIsMenu").unwrap_or(false) {
+                return false;
+            }
+            "Activate"
+        }
         Click::Middle => "SecondaryActivate",
     };
-    if let Err(error) = proxy.call_method(method, &(x, y)) {
-        eprintln!("drifter: tray {method} failed: {error}");
+    match proxy.call_method(method, &(x, y)) {
+        Ok(_) => true,
+        Err(error) => {
+            eprintln!("drifter: tray {method} failed: {error}");
+            false
+        }
+    }
+}
+
+fn send_menu(
+    connection: &zbus::blocking::Connection,
+    wake: &SyncSender<Update>,
+    service: String,
+    trail: Vec<i32>,
+    at: (f64, f64),
+) {
+    let parent = trail.last().copied().unwrap_or(0);
+    match read_menu(connection, &service, parent) {
+        Some(items) if !items.is_empty() || parent != 0 => {
+            let _ = wake.send(Update::Menu {
+                service,
+                trail,
+                items,
+                at,
+            });
+        }
+        _ => eprintln!("drifter: {service} offers no menu"),
     }
 }
 
@@ -441,18 +477,7 @@ fn serve(
             Job::Menu(service, trail, x, y) => {
                 let connection = connection.clone();
                 let wake = wake.clone();
-                let parent = trail.last().copied().unwrap_or(0);
-                std::thread::spawn(move || match read_menu(&connection, &service, parent) {
-                    Some(items) if !items.is_empty() || parent != 0 => {
-                        let _ = wake.send(Update::Menu {
-                            service,
-                            trail,
-                            items,
-                            at: (x, y),
-                        });
-                    }
-                    _ => eprintln!("drifter: {service} offers no menu"),
-                });
+                std::thread::spawn(move || send_menu(&connection, &wake, service, trail, (x, y)));
             }
             Job::Choose(service, id) => {
                 let connection = connection.clone();
@@ -460,7 +485,14 @@ fn serve(
             }
             Job::Poke(service, click, x, y) => {
                 let connection = connection.clone();
-                std::thread::spawn(move || poke(&connection, &service, click, x, y));
+                let wake = wake.clone();
+                std::thread::spawn(move || {
+                    let left = matches!(click, Click::Left);
+                    if !poke(&connection, &service, click, x, y) && left {
+                        let at = (f64::from(x), f64::from(y));
+                        send_menu(&connection, &wake, service, Vec::new(), at);
+                    }
+                });
             }
         }
     }
