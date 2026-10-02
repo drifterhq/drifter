@@ -129,7 +129,7 @@ fn bootstrap(config: &Config) -> ExitCode {
         &card,
         virtual_size,
         night,
-        wallpaper.as_ref(),
+        wallpaper,
     ) {
         Ok(screen) => screen,
         Err(error) => {
