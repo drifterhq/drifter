@@ -598,7 +598,10 @@ impl Model {
                     .detail("From time servers on the internet")
                     .enabled(self.ntp.is_some()),
                 ],
-                footer: Some("The system may ask for your password.".into()),
+                footer: Some(match &self.time_error {
+                    Some(error) => format!("Not changed: {error}"),
+                    None => "The system may ask for your password.".into(),
+                }),
                 thumbs: None,
             },
             Group {

@@ -42,6 +42,7 @@ const APP: &str = "drifter-settings";
 const START: (u32, u32) = (860, 640);
 const ICON: u32 = 22;
 const LOADERS: usize = 3;
+const WATCH: std::time::Duration = std::time::Duration::from_secs(1);
 
 struct Settings {
     registry: RegistryState,
@@ -53,7 +54,8 @@ struct Settings {
     pointer: Option<wl_pointer::WlPointer>,
     keyboard: Option<wl_keyboard::WlKeyboard>,
     mods: Modifiers,
-    chores: LoopSender<()>,
+    chores: LoopSender<Option<String>>,
+    history_seen: Option<std::time::SystemTime>,
     size: (u32, u32),
     exit: bool,
 
@@ -149,11 +151,12 @@ pub fn run() -> Result<(), String> {
         })
         .map_err(|e| format!("cannot watch the thumbnails: {e}"))?;
     let loads = loaders(done_tx);
-    let (chores, chores_done) = loop_channel::<()>();
+    let (chores, chores_done) = loop_channel::<Option<String>>();
     events
         .handle()
         .insert_source(chores_done, |event, _, settings: &mut Settings| {
-            if let ChannelEvent::Msg(()) = event {
+            if let ChannelEvent::Msg(error) = event {
+                settings.model.time_error = error;
                 let time = read_time();
                 (settings.model.zone, settings.model.ntp) = time.clone();
                 (settings.saved.zone, settings.saved.ntp) = time;
@@ -163,6 +166,16 @@ pub fn run() -> Result<(), String> {
             }
         })
         .map_err(|e| format!("cannot watch the system changes: {e}"))?;
+    events
+        .handle()
+        .insert_source(
+            smithay_client_toolkit::reexports::calloop::timer::Timer::from_duration(WATCH),
+            |_, _, settings: &mut Settings| {
+                settings.watch();
+                smithay_client_toolkit::reexports::calloop::timer::TimeoutAction::ToDuration(WATCH)
+            },
+        )
+        .map_err(|e| format!("cannot start the settings timer: {e}"))?;
 
     let mut settings = Settings {
         registry: RegistryState::new(&globals),
@@ -175,6 +188,7 @@ pub fn run() -> Result<(), String> {
         keyboard: None,
         mods: Modifiers::default(),
         chores,
+        history_seen: None,
         size: START,
         exit: false,
         look,
@@ -604,6 +618,33 @@ impl Settings {
         self.sheet = Some(Sheet::picker(purpose, self.apps.clone()));
     }
 
+    fn watch(&mut self) {
+        if self.sheet.is_some() || self.holding.is_some() {
+            return;
+        }
+        match self.section {
+            Section::Notifications => {
+                let stamp = std::fs::metadata(history_path())
+                    .and_then(|meta| meta.modified())
+                    .ok();
+                if stamp != self.history_seen {
+                    self.history_seen = stamp;
+                    self.refresh(Section::Notifications);
+                    self.draw();
+                }
+            }
+            Section::Sound => {
+                let sound = read_sound();
+                if sound != self.model.sound {
+                    self.model.sound = sound.clone();
+                    self.saved.sound = sound;
+                    self.draw();
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn refresh(&mut self, section: Section) {
         match section {
             Section::Sound => {
@@ -962,15 +1003,25 @@ impl Settings {
             let spawned = std::thread::Builder::new()
                 .name("settings-time".to_string())
                 .spawn(move || {
+                    let mut failed = None;
                     for args in asks {
                         let ran = std::process::Command::new("timedatectl")
                             .args(&args)
-                            .status();
-                        if let Err(error) = ran {
-                            eprintln!("drifter-settings: timedatectl {args:?}: {error}");
+                            .stdin(std::process::Stdio::null())
+                            .output();
+                        match ran {
+                            Ok(out) if out.status.success() => {}
+                            Ok(out) => {
+                                let said = String::from_utf8_lossy(&out.stderr);
+                                let said = said.trim().trim_start_matches("Failed to ");
+                                failed = Some(said.to_string());
+                            }
+                            Err(error) => {
+                                failed = Some(format!("timedatectl did not run: {error}"))
+                            }
                         }
                     }
-                    let _ = done.send(());
+                    let _ = done.send(failed);
                 });
             if let Err(error) = spawned {
                 eprintln!("drifter-settings: cannot change the time settings: {error}");

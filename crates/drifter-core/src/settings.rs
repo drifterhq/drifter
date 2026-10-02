@@ -212,6 +212,7 @@ pub struct Model {
     pub zone: String,
     pub ntp: Option<bool>,
     pub about: Vec<(String, String)>,
+    pub time_error: Option<String>,
 }
 
 impl Model {
@@ -348,6 +349,7 @@ impl Model {
             zone: String::new(),
             ntp: None,
             about: Vec::new(),
+            time_error: None,
         }
         .mark_custom(&config.tray.format)
     }
