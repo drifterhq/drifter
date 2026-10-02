@@ -1,6 +1,6 @@
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use drifter_core::camera::Camera;
@@ -194,10 +194,8 @@ fn start(name: &str, config: &Config, wallpaper: Option<Image>) -> Run {
     let serial = HEADLESS
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let folder = std::env::temp_dir().join(format!(
-        "drifter-headless-{}-{name}",
-        std::process::id()
-    ));
+    let folder =
+        std::env::temp_dir().join(format!("drifter-headless-{}-{name}", std::process::id()));
     std::fs::create_dir_all(&folder).unwrap();
     unsafe { std::env::set_var("XDG_RUNTIME_DIR", &folder) };
     let screen = super::open(None, config, SIZE, BACKGROUND, wallpaper).expect("a headless screen");
@@ -406,7 +404,9 @@ fn a_window_wears_a_frame_that_hugs_it_at_every_zoom() {
         if (f64::from(red_x) - inner.origin.x).abs() > 1.0
             || (f64::from(red_y) - inner.origin.y).abs() > 1.0
         {
-            wrong.push(format!("zoom {zoom}: red at {red_x},{red_y}, content at {inner:?}"));
+            wrong.push(format!(
+                "zoom {zoom}: red at {red_x},{red_y}, content at {inner:?}"
+            ));
         }
 
         let mut want = |x: f64, y: f64, framed: bool, part: &str| {
@@ -552,7 +552,12 @@ fn each_wallpaper_mode_moves_with_the_camera_as_it_should() {
 
     let (before, after) = shots(WallpaperMode::Parallax);
     let state = &run.screen.state;
-    let image = state.wallpaper.as_ref().expect("a wallpaper").pyramid.size();
+    let image = state
+        .wallpaper
+        .as_ref()
+        .expect("a wallpaper")
+        .pyramid
+        .size();
     let place = |camera: &Camera| {
         drifter_core::wallpaper::place(
             WallpaperMode::Parallax,
@@ -563,8 +568,8 @@ fn each_wallpaper_mode_moves_with_the_camera_as_it_should() {
         )
     };
     let (from, to) = (place(&home), place(&away));
-    let expected = (to.source.origin.x - from.source.origin.x) * from.target.size.x
-        / from.source.size.x;
+    let expected =
+        (to.source.origin.x - from.source.origin.x) * from.target.size.x / from.source.size.x;
     let (shift, score) = best_shift(&before, &after, 260);
     assert!(
         expected > 5.0 && expected < 195.0,
@@ -644,7 +649,9 @@ fn drawers_slide_in_at_their_edge_and_leave_no_trace() {
             ));
         }
         if stray > 0 {
-            wrong.push(format!("{edge:?} drawer changed {stray} pixels outside {rect:?}"));
+            wrong.push(format!(
+                "{edge:?} drawer changed {stray} pixels outside {rect:?}"
+            ));
         }
 
         run.screen.state.pointer_to(middle);
