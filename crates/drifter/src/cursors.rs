@@ -1,18 +1,11 @@
 use drifter_core::{Image, Vec2};
 
 const FALLBACK_THEME: &str = "Adwaita";
-const SIZE: u32 = 24;
-
-pub fn size() -> u32 {
-    std::env::var("XCURSOR_SIZE")
-        .ok()
-        .and_then(|text| text.parse().ok())
-        .filter(|size| *size > 0)
-        .unwrap_or(SIZE)
-}
-
-pub fn load(names: &[&str]) -> Option<(Image, Vec2)> {
-    let chosen = std::env::var("XCURSOR_THEME").unwrap_or_else(|_| "default".to_string());
+pub fn load(names: &[&str], theme: Option<&str>, size: u32) -> Option<(Image, Vec2)> {
+    let chosen = theme
+        .map(str::to_string)
+        .or_else(|| std::env::var("XCURSOR_THEME").ok())
+        .unwrap_or_else(|| "default".to_string());
     let themes = [
         xcursor::CursorTheme::load(&chosen),
         xcursor::CursorTheme::load(FALLBACK_THEME),
@@ -22,7 +15,7 @@ pub fn load(names: &[&str]) -> Option<(Image, Vec2)> {
         .find_map(|theme| names.iter().find_map(|name| theme.load_icon(name)))?;
     let bytes = std::fs::read(&path).ok()?;
     let frames = xcursor::parser::parse_xcursor(&bytes)?;
-    let want = size();
+    let want = size;
     let best = frames
         .iter()
         .map(|frame| frame.size)

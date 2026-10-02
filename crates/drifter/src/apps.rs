@@ -82,6 +82,35 @@ pub fn start(exec: &str, files: &[&str], socket: &str) {
 }
 
 static X11: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+static ENV: std::sync::Mutex<Vec<(String, String)>> = std::sync::Mutex::new(Vec::new());
+
+pub fn set_env(key: &str, value: Option<String>) {
+    if let Ok(mut held) = ENV.lock() {
+        held.retain(|(name, _)| name != key);
+        if let Some(value) = value {
+            held.push((key.to_string(), value));
+        }
+    }
+}
+
+pub fn open_role(
+    role: drifter_core::desktop::Role,
+    chosen: &drifter_core::AppsConfig,
+    socket: &str,
+) {
+    let item = chosen
+        .get(role)
+        .cloned()
+        .or_else(|| drifter_core::desktop::system_default(role).map(drifter_core::Launch::App));
+    match (role, item) {
+        (drifter_core::desktop::Role::Files, item) => {
+            let home = std::env::var("HOME").unwrap_or_else(|_| "/".to_string());
+            open_folder(&home, item.as_ref(), socket);
+        }
+        (_, Some(item)) => run(&item, socket),
+        (role, None) => eprintln!("drifter: no {role:?} app is set or installed"),
+    }
+}
 
 pub fn x11_display() -> Option<String> {
     X11.get().cloned()
@@ -138,6 +167,11 @@ pub fn launch(argv: &[String], socket: &str) {
         return;
     };
     let mut command = std::process::Command::new(program);
+    if let Ok(held) = ENV.lock() {
+        for (key, value) in held.iter() {
+            command.env(key, value);
+        }
+    }
     match X11.get() {
         Some(display) => command.env("DISPLAY", display),
         None => command.env_remove("DISPLAY"),

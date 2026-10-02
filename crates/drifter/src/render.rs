@@ -52,11 +52,7 @@ use smithay::reexports::rustix::fs::OFlags;
 use smithay::reexports::wayland_server::Display;
 use smithay::utils::{DeviceFd, Scale, Transform};
 
-const ESCAPE: u32 = 9;
-const KEY_L: u32 = 46;
-const KEY_TAB: u32 = 23;
-const KEY_F4: u32 = 70;
-const KEY_PRINT: u32 = 107;
+const KEY_POWER: u32 = 124;
 const LOCK_PATIENCE: Duration = Duration::from_secs(30);
 const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
@@ -178,10 +174,8 @@ struct Switch {
 }
 
 enum Shortcut {
-    Switch { back: bool },
-    Close,
+    Do(drifter_core::shortcut::Action, bool),
     Media(crate::media::Key),
-    Shot,
     Swallow,
 }
 
@@ -289,6 +283,20 @@ pub struct State {
     fingers: u32,
     touch: drifter_core::Touchpad,
     touchpads: Vec<smithay::reexports::input::Device>,
+    mouse: drifter_core::Mouse,
+    mice: Vec<smithay::reexports::input::Device>,
+    power_rules: drifter_core::Power,
+    slept: bool,
+    notify: drifter_core::Notify,
+    noted: Vec<u32>,
+    shortcuts: Vec<(
+        drifter_core::shortcut::Action,
+        drifter_core::shortcut::Combo,
+    )>,
+    switch_mods: drifter_core::shortcut::Mods,
+    swallowed: Vec<u32>,
+    appearance: drifter_core::Appearance,
+    asset_paths: [Option<PathBuf>; 4],
     holds: drifter_core::Modifier,
     last_title: Option<(Vec2, Instant)>,
     held: Option<usize>,
@@ -994,13 +1002,16 @@ impl State {
                 if !self.named_cursors.contains_key(name) {
                     let mut names = vec![name];
                     names.extend_from_slice(icon.alt_names());
-                    let art = crate::cursors::load(&names).and_then(|(image, hotspot)| {
-                        let size = image.size();
-                        upload(&mut self.renderer, Some(&image), "cursor")
-                            .ok()
-                            .flatten()
-                            .map(|buffer| (buffer, size, hotspot))
-                    });
+                    let theme = self.appearance.cursor_theme.as_deref();
+                    let size = self.appearance.cursor_size;
+                    let art =
+                        crate::cursors::load(&names, theme, size).and_then(|(image, hotspot)| {
+                            let size = image.size();
+                            upload(&mut self.renderer, Some(&image), "cursor")
+                                .ok()
+                                .flatten()
+                                .map(|buffer| (buffer, size, hotspot))
+                        });
                     self.named_cursors.insert(name, art);
                 }
                 match self.named_cursors.get(name) {
@@ -2301,7 +2312,11 @@ impl State {
     }
 
     fn watch_corner(&mut self) {
-        if self.modifier || self.lock.is_some() || self.held_by_fullscreen().is_some() {
+        if !self.tunables.hot_corner
+            || self.modifier
+            || self.lock.is_some()
+            || self.held_by_fullscreen().is_some()
+        {
             self.corner_since = None;
             return;
         }
@@ -2476,6 +2491,198 @@ impl State {
         {
             self.go_dark();
         }
+        let sleep = self.power_rules.sleep_after;
+        if sleep > 0 && !self.slept && idle >= Duration::from_secs(sleep.saturating_mul(60)) {
+            self.slept = true;
+            self.lock_now();
+            crate::power::run(drifter_core::power::Action::Suspend);
+        }
+    }
+
+    fn lid_closed(&mut self) {
+        use drifter_core::Lid;
+        match self.power_rules.lid {
+            Lid::Nothing => {}
+            Lid::Lock => {
+                self.lock_now();
+            }
+            Lid::Suspend => {
+                self.lock_now();
+                if self.heads.len() <= 1 {
+                    crate::power::run(drifter_core::power::Action::Suspend);
+                }
+            }
+        }
+    }
+
+    fn power_pressed(&mut self) {
+        use drifter_core::PowerKey;
+        use drifter_core::power::Action;
+        match self.power_rules.button {
+            PowerKey::Nothing => {}
+            PowerKey::Menu => {
+                if self.lock.is_none() {
+                    let middle = self.screen * 0.5;
+                    self.open_popover(drifter_core::power::items(), middle, Target::Desktop);
+                }
+            }
+            PowerKey::Suspend => {
+                self.lock_now();
+                crate::power::run(Action::Suspend);
+            }
+            PowerKey::Off => crate::power::run(Action::Shutdown),
+        }
+    }
+
+    fn set_shortcuts(&mut self, keys: &drifter_core::Keys, camera: drifter_core::Modifier) {
+        use drifter_core::shortcut::Action;
+        self.shortcuts = keys
+            .combos()
+            .into_iter()
+            .map(|(action, combo)| (action, combo.resolve(camera)))
+            .collect();
+        self.switch_mods = self
+            .shortcuts
+            .iter()
+            .find(|(action, _)| *action == Action::Switch)
+            .map(|(_, combo)| combo.mods)
+            .unwrap_or_default();
+    }
+
+    fn run_shortcut(&mut self, action: drifter_core::shortcut::Action, shift: bool) {
+        use drifter_core::desktop::Role;
+        use drifter_core::shortcut::Action;
+        if self.lock.is_some() {
+            return;
+        }
+        match action {
+            Action::Switch => self.switch_step(shift),
+            Action::Close => self.close_focused(),
+            Action::Screenshot => {
+                self.shot_wanted = true;
+                self.kick_now();
+            }
+            Action::Lock => {
+                self.lock_now();
+            }
+            Action::Power => {
+                let middle = self.screen * 0.5;
+                self.open_popover(drifter_core::power::items(), middle, Target::Desktop);
+            }
+            Action::Overview => {
+                if self.flight.is_none() && !self.press_overview() {
+                    self.fly_out();
+                }
+            }
+            Action::Terminal => {
+                crate::apps::open_role(Role::Terminal, &self.apps_chosen, &self.socket)
+            }
+            Action::Files => crate::apps::open_role(Role::Files, &self.apps_chosen, &self.socket),
+            Action::Browser => {
+                crate::apps::open_role(Role::Browser, &self.apps_chosen, &self.socket)
+            }
+            Action::Settings => self.open_settings(),
+        }
+    }
+
+    fn follow_looks(&mut self, config: &Config) {
+        let look = config.appearance.clone();
+        let paths = asset_paths(config);
+        let was = std::mem::replace(&mut self.appearance, look.clone());
+        if was != look {
+            tell_gnome(Some(&was), &look);
+            cursor_env(&look);
+        }
+        if was.icons != look.icons {
+            drifter_core::icon::set_theme(look.icons.clone());
+            self.app_icons.clear();
+            self.no_icon.clear();
+        }
+        let cursor_moved =
+            (&was.cursor_theme, was.cursor_size) != (&look.cursor_theme, look.cursor_size);
+        if cursor_moved {
+            self.named_cursors.clear();
+        }
+        if paths == self.asset_paths && !cursor_moved && was.icons == look.icons {
+            return;
+        }
+        if paths[0] != self.asset_paths[0] || cursor_moved {
+            match load_arrow(&mut self.renderer, config) {
+                Ok((arrow, size, hotspot)) => {
+                    self.arrow = arrow;
+                    self.arrow_size = size;
+                    self.arrow_hotspot = hotspot;
+                }
+                Err(error) => eprintln!("drifter: {error}"),
+            }
+        }
+        if paths[1] != self.asset_paths[1] {
+            match Font::find(config.font_path(), config.tray.size) {
+                Ok(font) => self.font = Some(font),
+                Err(error) => eprintln!("drifter: no clock: {error}"),
+            }
+            self.lock_big = Font::find(config.font_path(), 56.0).ok();
+            self.lock_small = Font::find(config.font_path(), 15.0).ok();
+            self.clock = None;
+            self.stats = None;
+            self.titles.clear();
+        }
+        if paths[2] != self.asset_paths[2] {
+            let (skin, chrome) = load_skin(&mut self.renderer, config);
+            self.skin = skin;
+            self.chrome = chrome;
+            self.chrome.follow(&config.window);
+        }
+        if paths[3] != self.asset_paths[3] {
+            let side = self.dock.icon as u32;
+            let (trash, cog, spare) = load_dock_art(&mut self.renderer, config, side);
+            self.trash = trash;
+            self.cog = cog;
+            self.dock_spare = spare;
+        }
+        if was.icons != look.icons || paths[3] != self.asset_paths[3] {
+            let side = self.dock.icon as u32;
+            match dock_items(&mut self.renderer, config, side, self.dock_spare.as_ref()) {
+                Ok(pinned) => {
+                    self.pinned = pinned;
+                    self.pinned_from = (config.dock.clone(), config.apps.clone());
+                }
+                Err(error) => eprintln!("drifter: {error}"),
+            }
+        }
+        self.asset_paths = paths;
+    }
+
+    fn remember_note(&mut self, note: &drifter_core::notify::Note) {
+        if self.noted.contains(&note.id) {
+            return;
+        }
+        self.noted.push(note.id);
+        if self.noted.len() > 64 {
+            self.noted.remove(0);
+        }
+        if !self.notify.history {
+            return;
+        }
+        let path = Config::state_dir().join("notes");
+        let when = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|since| since.as_secs())
+            .unwrap_or(0);
+        let recent = drifter_core::notify::Recent {
+            when,
+            app: note.app.clone(),
+            summary: note.summary.clone(),
+            body: note.body.clone(),
+        };
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        let out = drifter_core::notify::remember(&text, &recent);
+        if let Some(folder) = path.parent() {
+            let _ = std::fs::create_dir_all(folder);
+        }
+        if let Err(error) = std::fs::write(&path, out) {
+            eprintln!("drifter: cannot keep the note history: {error}");
+        }
     }
 
     fn go_dark(&mut self) {
@@ -2598,12 +2805,21 @@ impl State {
         if self.keys != config.keyboard {
             self.set_keys(&config.keyboard);
         }
-        if self.touch != config.touchpad {
+        if self.touch != config.touchpad || self.mouse != config.mouse {
             self.touch = config.touchpad;
+            self.mouse = config.mouse;
             for pad in &mut self.touchpads {
-                set_up_touchpad(pad, &self.touch);
+                set_up_touchpad(pad, &self.touch, self.mouse.left_handed);
+            }
+            for mouse in &mut self.mice {
+                set_up_mouse(mouse, &self.mouse);
             }
         }
+        self.tunables = Tunables::from(&config.motion);
+        self.power_rules = config.power;
+        self.notify = config.notify;
+        self.set_shortcuts(&config.keys, config.input.modifier);
+        self.follow_looks(config);
 
         let heights = [config.drawers.top, config.drawers.bottom];
         let mut repaint = false;
@@ -2982,7 +3198,7 @@ impl State {
 
             if pan != Vec2::ZERO && self.held_by_fullscreen().is_none() {
                 let mut camera = self.camera;
-                camera.pan_by_screen(pan);
+                camera.pan_by_screen(pan * self.tunables.pan_scale);
                 camera.clamp_to_world(self.world, self.screen);
                 self.camera = camera;
                 self.flight = None;
@@ -3680,45 +3896,69 @@ impl State {
             event.state(),
             SERIAL_COUNTER.next_serial(),
             time,
-            |_, held, _| {
+            |state, held, keysym| {
+                use drifter_core::shortcut::{Action, Mods, keysym_word};
                 if let Some(key) = crate::media::key(code) {
                     return FilterResult::Intercept(match pressed {
                         true => Shortcut::Media(key),
                         false => Shortcut::Swallow,
                     });
                 }
-                if code == KEY_PRINT {
-                    return FilterResult::Intercept(match pressed {
-                        true => Shortcut::Shot,
-                        false => Shortcut::Swallow,
-                    });
+                if !pressed {
+                    return match state.swallowed.iter().position(|held| *held == code) {
+                        Some(at) => {
+                            state.swallowed.swap_remove(at);
+                            FilterResult::Intercept(Shortcut::Swallow)
+                        }
+                        None => FilterResult::Forward,
+                    };
                 }
-                match (pressed && held.alt, code) {
-                    (true, KEY_TAB) => {
-                        FilterResult::Intercept(Shortcut::Switch { back: held.shift })
+                let mut names: Vec<String> = keysym
+                    .modified_syms()
+                    .iter()
+                    .copied()
+                    .chain(keysym.raw_syms())
+                    .filter_map(|sym| sym.name())
+                    .map(keysym_word)
+                    .collect();
+                if let Some(latin) = keysym.raw_latin_sym_or_raw_current_sym()
+                    && let Some(name) = latin.name()
+                {
+                    names.push(keysym_word(name));
+                }
+                let mods = Mods {
+                    ctrl: held.ctrl,
+                    alt: held.alt,
+                    shift: held.shift,
+                    logo: held.logo,
+                };
+                let found = state.shortcuts.iter().find(|(action, combo)| {
+                    let free_shift = *action == Action::Switch && !combo.mods.shift;
+                    combo.matches(mods, &names, free_shift)
+                });
+                match found {
+                    Some((action, _)) => {
+                        state.swallowed.push(code);
+                        FilterResult::Intercept(Shortcut::Do(*action, held.shift))
                     }
-                    (true, KEY_F4) => FilterResult::Intercept(Shortcut::Close),
-                    _ => FilterResult::Forward,
+                    None => FilterResult::Forward,
                 }
             },
         );
         match shortcut {
-            Some(Shortcut::Switch { back }) => self.switch_step(back),
-            Some(Shortcut::Close) => self.close_focused(),
+            Some(Shortcut::Do(action, shift)) => self.run_shortcut(action, shift),
             Some(Shortcut::Media(key)) => {
                 if let Some(media) = self.media.as_ref() {
                     media.press(key);
                 }
             }
-            Some(Shortcut::Shot) => {
-                if self.lock.is_none() {
-                    self.shot_wanted = true;
-                    self.kick_now();
-                }
-            }
             Some(Shortcut::Swallow) | None => {}
         }
-        if self.switch.is_some() && !keyboard.modifier_state().alt {
+        let held = keyboard.modifier_state();
+        let wanted = self.switch_mods;
+        let still =
+            (wanted.alt && held.alt) || (wanted.ctrl && held.ctrl) || (wanted.logo && held.logo);
+        if self.switch.is_some() && !still {
             self.switch_commit();
         }
     }
@@ -3951,7 +4191,17 @@ impl State {
         self.kick_now();
     }
 
-    fn show_note(&mut self, note: drifter_core::notify::Note) {
+    fn show_note(&mut self, mut note: drifter_core::notify::Note) {
+        let usual = (self.notify.seconds > 0).then(|| self.notify.seconds.saturating_mul(1000));
+        note.expire = drifter_core::notify::expire_ms(note.asked, note.critical, usual);
+        let update = self.cards.iter().any(|card| card.note.id == note.id);
+        if !update {
+            self.remember_note(&note);
+        }
+        if self.notify.quiet && !note.critical && !update {
+            self.tell_closed(note.id, 1);
+            return;
+        }
         let Some(font) = self.font.as_ref() else {
             self.tell_closed(note.id, 3);
             return;
@@ -4134,7 +4384,25 @@ impl State {
 
     fn input(&mut self, event: InputEvent<LibinputInputBackend>) {
         self.last_input = Instant::now();
+        self.slept = false;
         self.wake();
+        match &event {
+            InputEvent::SwitchToggle { event }
+                if SwitchToggleEvent::switch(event) == Some(HardSwitch::Lid) =>
+            {
+                if SwitchToggleEvent::state(event) == SwitchState::On {
+                    self.lid_closed();
+                }
+                return;
+            }
+            InputEvent::Keyboard { event } if event.key_code().raw() == KEY_POWER => {
+                if event.state() == KeyState::Pressed {
+                    self.power_pressed();
+                }
+                return;
+            }
+            _ => {}
+        }
         if self.lock.is_none()
             && !self.prompts.is_empty()
             && let InputEvent::Keyboard { event } = &event
@@ -4207,21 +4475,6 @@ impl State {
                 }
                 self.tell_button(code, event.state(), event.time_msec());
             }
-            InputEvent::Keyboard { event }
-                if event.state() == KeyState::Pressed
-                    && event.key_code().raw() == ESCAPE
-                    && self.modifier =>
-            {
-                let middle = self.screen * 0.5;
-                self.open_popover(drifter_core::power::items(), middle, Target::Desktop);
-            }
-            InputEvent::Keyboard { event }
-                if event.state() == KeyState::Pressed
-                    && event.key_code().raw() == KEY_L
-                    && self.modifier =>
-            {
-                self.lock_now();
-            }
             InputEvent::PointerAxis { event } => {
                 use smithay::backend::input::{Axis, PointerAxisEvent};
                 if self.modifier {
@@ -4238,18 +4491,19 @@ impl State {
                 self.tell_axis(&event);
             }
             InputEvent::DeviceAdded { mut device } => {
-                use smithay::reexports::input::AccelProfile;
+                use smithay::reexports::input::DeviceCapability;
                 if is_touchpad(&device) {
-                    set_up_touchpad(&mut device, &self.touch);
+                    set_up_touchpad(&mut device, &self.touch, self.mouse.left_handed);
                     self.touchpads.push(device.clone());
-                } else if device.config_accel_is_available() {
-                    let _ = device.config_accel_set_profile(AccelProfile::Flat);
-                    let _ = device.config_accel_set_speed(0.0);
+                } else if device.has_capability(DeviceCapability::Pointer) {
+                    set_up_mouse(&mut device, &self.mouse);
+                    self.mice.push(device.clone());
                 }
                 println!("drifter: input {}", device.name());
             }
             InputEvent::DeviceRemoved { device } => {
                 self.touchpads.retain(|pad| *pad != device);
+                self.mice.retain(|mouse| *mouse != device);
             }
             InputEvent::GestureSwipeBegin { event } => {
                 use smithay::backend::input::GestureBeginEvent;
@@ -4268,12 +4522,6 @@ impl State {
                 self.flight = None;
             }
             InputEvent::GestureSwipeEnd { .. } => self.fingers = 0,
-            InputEvent::SwitchToggle { event }
-                if SwitchToggleEvent::switch(&event) == Some(HardSwitch::Lid)
-                    && SwitchToggleEvent::state(&event) == SwitchState::On =>
-            {
-                self.lock_now();
-            }
             InputEvent::Keyboard { event } => {
                 let code = event.key_code().raw();
                 if self.holds.holds(code) {
@@ -4444,7 +4692,11 @@ pub fn open(
     let screen = Vec2::new(f64::from(virtual_size.0), f64::from(virtual_size.1));
     let world = config.world_size(screen);
     let start = Camera::at_work_zoom(world / 2.0);
-    let tunables = Tunables::default();
+    let tunables = Tunables::from(&config.motion);
+    crate::apps::set_env("DRIFTER_RENDERER", Some(gl.clone()));
+    drifter_core::icon::set_theme(config.appearance.icons.clone());
+    tell_gnome(None, &config.appearance);
+    cursor_env(&config.appearance);
     let shapes = [
         Panel {
             height: config.drawers.top,
@@ -4458,25 +4710,7 @@ pub fn open(
 
     let wallpaper_element = wallpaper
         .map(|image| Backdrop::new(drifter_core::tiles::Pyramid::build(image, world, screen)));
-    let supplied = config
-        .cursor_path()
-        .and_then(|path| match drifter_core::image::load(&path) {
-            Ok(image) => Some(image),
-            Err(error) => {
-                eprintln!("drifter: no cursor: {error}");
-                None
-            }
-        });
-    let (arrow_image, arrow_hotspot) = match supplied {
-        Some(image) => (image, Vec2::ZERO),
-        None => {
-            let drawn = Cursor::default();
-            (drawn.paint(), drawn.hotspot())
-        }
-    };
-    let arrow_size = arrow_image.size();
-    let arrow = upload(&mut renderer, Some(&arrow_image), "cursor")?
-        .ok_or_else(|| "cannot build the cursor".to_string())?;
+    let (arrow, arrow_size, arrow_hotspot) = load_arrow(&mut renderer, config)?;
 
     let open_band = {
         let mut probe = Drawer::new(Edge::Top);
@@ -4485,35 +4719,7 @@ pub fn open(
         probe.band(screen, &shapes[Edge::Top.index()])
     };
 
-    let chrome = Chrome::default();
-    let mut skin = std::collections::HashMap::new();
-    if let Some(dir) = config.window_dir() {
-        for name in crate::shell::skin_names() {
-            let path = dir.join(&name);
-            match drifter_core::image::load(&path) {
-                Ok(image) => {
-                    let image = tile_skin(&name, image);
-                    let size = image.size();
-                    match upload(&mut renderer, Some(&image), &name) {
-                        Ok(Some(buffer)) => {
-                            skin.insert(name, (buffer, size));
-                        }
-                        Ok(None) => {}
-                        Err(error) => eprintln!("drifter: {error}"),
-                    }
-                }
-                Err(error) => eprintln!("drifter: no window art: {error}"),
-            }
-        }
-    }
-    let mut chrome = match skin.get("title-mid.png").zip(skin.get("edge-left.png")) {
-        Some(((_, title), (_, edge))) => Chrome {
-            title: title.y,
-            edge: edge.x,
-            ..chrome
-        },
-        None => chrome,
-    };
+    let (skin, mut chrome) = load_skin(&mut renderer, config);
     chrome.follow(&config.window);
 
     let panels = paint_panels(&mut renderer, screen.x, &shapes)?;
@@ -4588,25 +4794,8 @@ pub fn open(
     };
 
     let trash_look = Dock::default();
-    let art = config.dock_dir();
     let side = trash_look.icon as u32;
-    let from_art = |name: &str| -> Option<drifter_core::Image> {
-        let dir = art.as_ref()?;
-        match drifter_core::image::load(&dir.join(format!("{name}.png"))) {
-            Ok(image) => Some(image.scaled(side, side)),
-            Err(error) => {
-                eprintln!("drifter: no dock art for {name}: {error}");
-                None
-            }
-        }
-    };
-
-    let trash_image = from_art("trash")
-        .unwrap_or_else(|| drifter_core::dock::paint_trash(side, trash_look.rule_ink()));
-    let trash = upload(&mut renderer, Some(&trash_image), "trash")?;
-    let cog_image = from_art("settings")
-        .unwrap_or_else(|| drifter_core::dock::paint_cog(side, trash_look.rule_ink()));
-    let cog = upload(&mut renderer, Some(&cog_image), "settings")?;
+    let (trash, cog, spare) = load_dock_art(&mut renderer, config, side);
     let power_image = drifter_core::tray::paint_power(tray.button as u32, tray.ink);
     let power = upload(&mut renderer, Some(&power_image), "power")?;
     let lock_big = Font::find(config.font_path(), 56.0).ok();
@@ -4621,7 +4810,6 @@ pub fn open(
         smithay::reexports::calloop::channel::channel::<Result<PathBuf, String>>();
     let (verify_tx, verify_rx) =
         smithay::reexports::calloop::channel::channel::<(u64, crate::auth::Verdict)>();
-    let spare = from_art("app");
 
     let pinned = dock_items(&mut renderer, config, side, spare.as_ref())?;
 
@@ -4671,6 +4859,17 @@ pub fn open(
         fingers: 0,
         touch: config.touchpad,
         touchpads: Vec::new(),
+        mouse: config.mouse,
+        mice: Vec::new(),
+        power_rules: config.power,
+        slept: false,
+        notify: config.notify,
+        noted: Vec::new(),
+        shortcuts: Vec::new(),
+        switch_mods: drifter_core::shortcut::Mods::default(),
+        swallowed: Vec::new(),
+        appearance: config.appearance.clone(),
+        asset_paths: asset_paths(config),
         holds: config.input.modifier,
         last_title: None,
         held: None,
@@ -4786,6 +4985,7 @@ pub fn open(
     };
 
     let mut state = state;
+    state.set_shortcuts(&config.keys, config.input.modifier);
     match live {
         true => state.scan_heads(),
         false => state.add_offscreen_head(virtual_size)?,
@@ -4906,6 +5106,7 @@ pub fn open(
                             }
                             crate::logind::Event::Woke => {
                                 state.last_input = Instant::now();
+                                state.slept = false;
                                 state.wake();
                             }
                         }
@@ -5405,12 +5606,236 @@ fn element(buffer: &TextureBuffer<Tex>, rect: Rect, alpha: f32) -> TextureRender
 
 const TILE_SPAN: u32 = 8192;
 
+fn asset_paths(config: &Config) -> [Option<PathBuf>; 4] {
+    [
+        config.cursor_path(),
+        config.font_path(),
+        config.window_dir(),
+        config.dock_dir(),
+    ]
+}
+
+fn cursor_env(look: &drifter_core::Appearance) {
+    crate::apps::set_env("XCURSOR_THEME", look.cursor_theme.clone());
+    crate::apps::set_env("XCURSOR_SIZE", Some(look.cursor_size.to_string()));
+}
+
+fn tell_gnome(was: Option<&drifter_core::Appearance>, look: &drifter_core::Appearance) {
+    use drifter_core::Style;
+    let mut sets: Vec<(&'static str, String)> = Vec::new();
+    let changed = |pick: fn(&drifter_core::Appearance) -> Option<String>| {
+        let now = pick(look);
+        now.clone()
+            .filter(|_| was.is_none_or(|was| pick(was) != now))
+    };
+    if let Some(style) = changed(|look| look.style.map(|s| format!("{s:?}"))) {
+        let scheme = if style == format!("{:?}", Style::Dark) {
+            "prefer-dark"
+        } else {
+            "default"
+        };
+        sets.push(("color-scheme", scheme.to_string()));
+        sets.push(("gtk-theme", style));
+    }
+    if let Some(accent) = changed(|look| look.accent.map(|a| a.word().to_string())) {
+        sets.push(("accent-color", accent));
+    }
+    if let Some(icons) = changed(|look| look.icons.clone()) {
+        sets.push(("icon-theme", icons));
+    }
+    if let Some(cursor) = changed(|look| look.cursor_theme.clone()) {
+        sets.push(("cursor-theme", cursor));
+    }
+    let size_moved = match was {
+        Some(was) => was.cursor_size != look.cursor_size,
+        None => look.cursor_size != drifter_core::Appearance::default().cursor_size,
+    };
+    if size_moved {
+        sets.push(("cursor-size", look.cursor_size.to_string()));
+    }
+    if sets.is_empty() {
+        return;
+    }
+    let spawned = std::thread::Builder::new()
+        .name("drifter-gsettings".to_string())
+        .spawn(move || {
+            const SCHEMA: &str = "org.gnome.desktop.interface";
+            for (key, value) in sets {
+                let value = match key {
+                    "gtk-theme" => {
+                        let now = std::process::Command::new("gsettings")
+                            .args(["get", SCHEMA, "gtk-theme"])
+                            .output()
+                            .map(|out| {
+                                String::from_utf8_lossy(&out.stdout)
+                                    .trim()
+                                    .trim_matches('\'')
+                                    .to_string()
+                            })
+                            .unwrap_or_default();
+                        if now != "Adwaita" && now != "Adwaita-dark" {
+                            continue;
+                        }
+                        match value.as_str() {
+                            "Dark" => "Adwaita-dark".to_string(),
+                            _ => "Adwaita".to_string(),
+                        }
+                    }
+                    _ => value,
+                };
+                let ran = std::process::Command::new("gsettings")
+                    .args(["set", SCHEMA, key, &value])
+                    .stderr(std::process::Stdio::null())
+                    .status();
+                match ran {
+                    Ok(status) if status.success() => {}
+                    Ok(_) => eprintln!("drifter: gsettings has no {key} here"),
+                    Err(error) => {
+                        eprintln!("drifter: apps keep their look, gsettings did not run: {error}");
+                        return;
+                    }
+                }
+            }
+        });
+    if let Err(error) = spawned {
+        eprintln!("drifter: cannot tell apps about the look: {error}");
+    }
+}
+
+fn load_arrow(
+    renderer: &mut Painter,
+    config: &Config,
+) -> Result<(TextureBuffer<Tex>, Vec2, Vec2), String> {
+    let supplied = config
+        .cursor_path()
+        .and_then(|path| match drifter_core::image::load(&path) {
+            Ok(image) => Some(image),
+            Err(error) => {
+                eprintln!("drifter: no cursor: {error}");
+                None
+            }
+        });
+    let look = &config.appearance;
+    let (image, hotspot) = match supplied {
+        Some(image) => (image, Vec2::ZERO),
+        None => crate::cursors::load(
+            &["default", "left_ptr"],
+            look.cursor_theme.as_deref(),
+            look.cursor_size,
+        )
+        .unwrap_or_else(|| {
+            let drawn = Cursor::default();
+            (drawn.paint(), drawn.hotspot())
+        }),
+    };
+    let size = image.size();
+    let arrow = upload(renderer, Some(&image), "cursor")?
+        .ok_or_else(|| "cannot build the cursor".to_string())?;
+    Ok((arrow, size, hotspot))
+}
+
+type SkinSet = std::collections::HashMap<String, (TextureBuffer<Tex>, Vec2)>;
+
+fn load_skin(renderer: &mut Painter, config: &Config) -> (SkinSet, Chrome) {
+    let mut skin = std::collections::HashMap::new();
+    if let Some(dir) = config.window_dir() {
+        for name in crate::shell::skin_names() {
+            let path = dir.join(&name);
+            match drifter_core::image::load(&path) {
+                Ok(image) => {
+                    let image = tile_skin(&name, image);
+                    let size = image.size();
+                    match upload(renderer, Some(&image), &name) {
+                        Ok(Some(buffer)) => {
+                            skin.insert(name, (buffer, size));
+                        }
+                        Ok(None) => {}
+                        Err(error) => eprintln!("drifter: {error}"),
+                    }
+                }
+                Err(error) => eprintln!("drifter: no window art: {error}"),
+            }
+        }
+    }
+    let chrome = Chrome::default();
+    let chrome = match skin.get("title-mid.png").zip(skin.get("edge-left.png")) {
+        Some(((_, title), (_, edge))) => Chrome {
+            title: title.y,
+            edge: edge.x,
+            ..chrome
+        },
+        None => chrome,
+    };
+    (skin, chrome)
+}
+
+type DockArt = (
+    Option<TextureBuffer<Tex>>,
+    Option<TextureBuffer<Tex>>,
+    Option<drifter_core::Image>,
+);
+
+fn load_dock_art(renderer: &mut Painter, config: &Config, side: u32) -> DockArt {
+    let look = Dock::default();
+    let art = config.dock_dir();
+    let from_art = |name: &str| -> Option<drifter_core::Image> {
+        let dir = art.as_ref()?;
+        match drifter_core::image::load(&dir.join(format!("{name}.png"))) {
+            Ok(image) => Some(image.scaled(side, side)),
+            Err(error) => {
+                eprintln!("drifter: no dock art for {name}: {error}");
+                None
+            }
+        }
+    };
+    let trash_image =
+        from_art("trash").unwrap_or_else(|| drifter_core::dock::paint_trash(side, look.rule_ink()));
+    let cog_image = from_art("settings")
+        .unwrap_or_else(|| drifter_core::dock::paint_cog(side, look.rule_ink()));
+    let mut built =
+        |image: &drifter_core::Image, what: &str| match upload(renderer, Some(image), what) {
+            Ok(buffer) => buffer,
+            Err(error) => {
+                eprintln!("drifter: {error}");
+                None
+            }
+        };
+    let trash = built(&trash_image, "trash");
+    let cog = built(&cog_image, "settings");
+    (trash, cog, from_art("app"))
+}
+
+fn set_up_mouse(device: &mut smithay::reexports::input::Device, mouse: &drifter_core::Mouse) {
+    use smithay::reexports::input::AccelProfile;
+    if device.config_accel_is_available() {
+        let profile = match mouse.accel {
+            true => AccelProfile::Adaptive,
+            false => AccelProfile::Flat,
+        };
+        let _ = device.config_accel_set_profile(profile);
+        let _ = device.config_accel_set_speed(mouse.libinput_speed());
+    }
+    if device.config_scroll_has_natural_scroll() {
+        let _ = device.config_scroll_set_natural_scroll_enabled(mouse.natural);
+    }
+    if device.config_left_handed_is_available() {
+        let _ = device.config_left_handed_set(mouse.left_handed);
+    }
+}
+
 fn is_touchpad(device: &smithay::reexports::input::Device) -> bool {
     device.config_tap_finger_count() > 0
 }
 
-fn set_up_touchpad(device: &mut smithay::reexports::input::Device, pad: &drifter_core::Touchpad) {
+fn set_up_touchpad(
+    device: &mut smithay::reexports::input::Device,
+    pad: &drifter_core::Touchpad,
+    left_handed: bool,
+) {
     use smithay::reexports::input::{AccelProfile, ScrollMethod, TapButtonMap};
+    if device.config_left_handed_is_available() {
+        let _ = device.config_left_handed_set(left_handed);
+    }
     let _ = device.config_tap_set_enabled(pad.tap);
     let _ = device.config_tap_set_button_map(TapButtonMap::LeftRightMiddle);
     if device

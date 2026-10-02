@@ -29,6 +29,33 @@ wallpaper_order = "random"
 # Choices: super, alt, ctrl.
 modifier = "ctrl"
 
+[mouse]
+# Pointer speed, 0 to 10. 5 is the middle.
+speed = 5
+# A fast move takes the pointer farther.
+accel = false
+# The page follows the wheel.
+natural = false
+# Swap the buttons. Also swaps them on the touchpad.
+left_handed = false
+
+[motion]
+# Rest the pointer in the top left corner to zoom out.
+hot_corner = true
+# Corner size in pixels, 8 to 160.
+corner_size = 48
+# Milliseconds the pointer rests before the corner fires, 0 to 2000.
+corner_wait = 300
+# How far the world moves when you push an edge, in percent, 25 to 400.
+pan_speed = 100
+# Milliseconds the camera takes to fly, 40 to 1500.
+flight = 260
+# Milliseconds before a bar opens and after the pointer leaves, 0 to 2000.
+bar_open = 120
+bar_close = 400
+# Milliseconds a bar takes to slide, 40 to 1500.
+bar_slide = 300
+
 [touchpad]
 # Tap the pad to click. One finger is left, two is right.
 tap = true
@@ -109,6 +136,48 @@ buttons = "left"
 order = ["close", "minimize", "maximize"]
 # Show the window title in the middle of the title bar.
 title = true
+
+[appearance]
+# What apps that follow GNOME settings look like. Leave a key out to leave
+# that part alone.
+# style = "dark"          light or dark
+# accent = "blue"         blue, teal, green, yellow, orange, red, pink, purple, slate
+# icons = "Papirus"       an icon theme folder name
+# cursor_theme = "Adwaita"
+# Cursor size in pixels.
+cursor_size = 24
+
+[notify]
+# Do not disturb. Only urgent notes show.
+quiet = false
+# Seconds a note shows when the app does not ask. 0 keeps it until clicked.
+seconds = 5
+# Keep the last 50 notes. Settings > Notifications lists them.
+history = true
+
+[keys]
+# One shortcut each. Join keys with +: ctrl, alt, shift, super, and camera
+# for the camera key. The last part is a key name, like Tab, F4, l or Print.
+# An empty string means no shortcut. Hold shift with the switch to go back.
+switch = "alt+Tab"
+close = "alt+F4"
+screenshot = "Print"
+lock = "camera+l"
+power = "camera+Escape"
+overview = ""
+terminal = ""
+files = ""
+browser = ""
+settings = ""
+
+[power]
+# Minutes with no input before the computer sleeps. 0 never sleeps.
+sleep_after = 0
+# When the lid closes: suspend, lock or nothing.
+# With another monitor plugged in, suspend only locks.
+lid = "suspend"
+# The power button: menu, suspend, off or nothing.
+button = "menu"
 
 [lock]
 # Minutes with no input before the screen locks. 0 never locks.

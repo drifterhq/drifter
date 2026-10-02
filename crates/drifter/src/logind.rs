@@ -69,6 +69,18 @@ fn watch_sleep(bus: &Connection, tx: Sender<Event>) -> Result<(), String> {
         .receive_signal("PrepareForSleep")
         .map_err(|e| e.to_string())?;
     let mut held = inhibit(&manager);
+    let _keys = manager
+        .call::<_, _, OwnedFd>(
+            "Inhibit",
+            &(
+                "handle-power-key:handle-lid-switch",
+                "Drifter",
+                "Drifter follows Settings > Power for the lid and the power button",
+                "block",
+            ),
+        )
+        .inspect_err(|e| eprintln!("drifter: logind keeps the lid and power button: {e}"))
+        .ok();
     for message in signals {
         let going: bool = message.body().deserialize().unwrap_or(false);
         let event = match going {

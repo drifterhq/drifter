@@ -70,10 +70,19 @@ The font is Work Sans, under the SIL Open Font License, kept at `fonts/` with it
 
 The settings window is `drifter-settings`, a small Wayland program built from Drifter's own drawing code, with no toolkit. Drifter frames it like any window. The dock cog, a right click on empty desktop and the power menu open it, and a second open brings the running one back.
 
-A sidebar picks the page: Desktop, Wallpaper, Windows, Dock, Top Bar, Keyboard & Mouse, Lock Screen, Login Items and Default Apps. Each page is grouped rounded cards with switches, sliders, segmented buttons and small row buttons.
+A sidebar picks the page: Desktop, Displays, Wallpaper, Appearance, Windows, Dock, Top Bar, Notifications, Sound, Keyboard, Mouse, Touchpad, Shortcuts, Power, Lock Screen, Date & Time, Login Items, Default Apps and About. The sidebar scrolls when the window is short. Each page is grouped rounded cards with switches, sliders, segmented buttons, color swatches and small row buttons. Lists with many choices (layouts, variants, themes, time zones, sound devices) open a searchable sheet.
 
-- Desktop: world size, one slider from 2 to 10 screens a side, over a grid that shows the one screen seen at zoom 1.
-- Wallpaper: behavior, a folder chosen with a folder browser, a grid of thumbnails from it to click, and rotation every so many seconds, minutes or hours, at random or by name.
+- Desktop: world size, one slider from 2 to 10 screens a side, over a grid that shows the one screen seen at zoom 1. Below it, the hot corner (on or off, size, wait), the edge pan speed, the camera flight time, and the bar open wait, close wait and slide time. These are `[motion]`.
+- Wallpaper: one picture chosen with a file browser, behavior, a folder chosen with a folder browser, a grid of thumbnails from it to click, and rotation every so many seconds, minutes or hours, at random or by name.
+- Appearance: light or dark and the accent color for apps, the icon theme, the cursor theme and size, the pointer picture, the font, and the window and dock art folders. `[appearance]` and `[assets]`. Drifter passes style, accent, icon and cursor theme to gsettings `org.gnome.desktop.interface` when they change, and to new apps as `XCURSOR_THEME` and `XCURSOR_SIZE`. "As set" leaves the apps' look alone. The gtk-theme only moves between Adwaita and Adwaita-dark, never away from a theme the user picked elsewhere. Art and font changes apply live.
+- Notifications: do not disturb, how long a note shows (or until clicked), and a history. `[notify]`. While quiet, only urgent notes show. The history keeps the last 50 notes in `$XDG_STATE_HOME/drifter/notes`, and the page lists the newest with a Clear button.
+- Sound: output and input device, volume and mute, through `wpctl`. This is live system state, not config.
+- Keyboard: layout, variant, what Caps Lock does, the compose key and the repeat. Other xkb options stay in the file and show read-only.
+- Mouse: the camera key, then pointer speed, acceleration, natural scrolling and the primary button. `[mouse]`. Before this, mice were always flat with no settings. The primary button also swaps the touchpad.
+- Shortcuts: switch windows, close, screenshot, lock, power menu, overview, open the terminal, files, browser or Settings. `[keys]`, one string each like `"alt+Tab"` or `"camera+l"`, where camera is the camera key. Change opens a sheet that takes the next key press. A plain key needs Ctrl, Alt or Super unless it is an F key, Print or a media key. Taking keys from another shortcut clears that one.
+- Power: sleep after so many idle minutes, what the lid does (sleep, lock, nothing) and what the power button does (menu, sleep, off, nothing). `[power]`. Drifter holds a logind block on the lid and power key so these win. With a second monitor plugged in, closing the lid only locks.
+- Date & Time: the time zone and network time through `timedatectl`, which may ask for a password through Drifter's polkit prompt. The clock switches live here too.
+- About: the Drifter version, computer name, system, kernel, processor, memory, the renderer Drifter drew with (passed to apps as `DRIFTER_RENDERER`) and the config file path.
 - Windows: buttons left or right, their order, and whether the title shows, over a live title bar preview.
 - Dock: size, and the dock items. Add one from the installed apps or as a typed command line. Move it up or down, remove it, or give it a PNG or JPEG icon of its own. Below them, five switches show or hide the file manager, terminal and browser the system names as defaults, the settings cog and the trash.
 - Top Bar: bar height, text size, the clock and the system info.
@@ -93,7 +102,7 @@ Drifter checks the hour on its 400 ms config tick. When the wanted warmth change
 
 ## Keyboard
 
-`[keyboard]` sets the xkb layout, variant and options, and the repeat delay and rate. An empty layout is the system default. Settings > Keyboard & Mouse picks a layout from the `! layout` section of `/usr/share/X11/xkb/rules/evdev.lst`, with a search field, and sets the repeat with two sliders. Picking a new layout clears the variant. Variants and options are set in the file only. A change is applied live: a new keymap goes to every client, and the repeat goes to clients on wl_keyboard version 4 or later. A layout that does not compile is reported on stderr, and the keyboard keeps the keymap it had.
+`[keyboard]` sets the xkb layout, variant and options, and the repeat delay and rate. An empty layout is the system default. Settings > Keyboard picks a layout from the `! layout` section of `/usr/share/X11/xkb/rules/evdev.lst` and a variant from its `! variant` section, each with a search field, and sets the repeat with two sliders. Picking a new layout clears the variant. Caps Lock (`caps:escape`, `ctrl:nocaps`) and the compose key (`compose:ralt`, `compose:menu`) are segmented buttons that swap their own option and keep every other option. A change is applied live: a new keymap goes to every client, and the repeat goes to clients on wl_keyboard version 4 or later. A layout that does not compile is reported on stderr, and the keyboard keeps the keymap it had.
 
 ## Wallpaper modes
 
@@ -251,6 +260,8 @@ The way out is Alt-Tab. The fullscreen window stays fullscreen in the world, and
 `[window]` in the config sets which end of the title bar holds the buttons (`buttons = "left"` or `"right"`), their order left to right (`order`, naming close, minimize and maximize once each), and whether the title shows (`title`). Maximize turns into restore on a maximized window in the same slot.
 
 ### Alt-Tab and Alt-F4
+
+These are the default shortcuts, and Settings > Shortcuts can move them. The switcher commits when the switch shortcut's modifiers are let go.
 
 Alt-Tab opens the switcher in the middle of the screen: one tile per window, newest first, each with its app icon, and the chosen window's title under the row. An app with no icon gets a plain tile with its first letter. Each Tab moves one tile, Shift-Tab moves back, and the row shrinks its tiles to fit the screen. Letting go of Alt picks the window: it comes back from the dock if it was there, takes focus, and the camera flies to it. Alt-F4 closes the focused window the same way its close button does.
 
