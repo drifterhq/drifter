@@ -186,6 +186,9 @@ The top drawer is the tray. It reads right to left, because the right side is wh
 - Status icons live on the LEFT end, 18 px, 14 px apart, starting 12 px in, growing rightward. They never reach the clock, so the clock never moves when an icon appears.
 - Left click is Activate and middle click is the secondary action. Both go straight to the program.
 - RIGHT CLICK IS DRIFTER'S. Drifter reads the item's menu over `com.canonical.dbusmenu` and paints it itself at the pointer. It never calls ContextMenu, because an app asked for its menu draws its own window, and then there are two menus.
+- A submenu opens in place. Clicking an item with `children-display = submenu` (drawn with an arrow) sends `AboutToShow` and an `opened` event for it, reads its layout, and replaces the menu with its children under a Back row. Back goes up one level.
+- A left click on an item with `ItemIsMenu`, or whose `Activate` fails, opens the menu, because such an item has nothing else to do.
+- The hot corner does not arm over a tray icon or while a menu is open. The first icon sits inside the 48 px corner.
 - Hovering an icon shows its tooltip, taken from the item's ToolTip property.
 - Icons come from the StatusNotifierItem D-Bus protocol, which is how modern tray apps publish themselves. Drifter owns `org.kde.StatusNotifierWatcher`, holds the registered item list, and reads each item's `IconPixmap`, or its `IconName` from the icon folders. This needs no Wayland client, so the tray works before windows do. An `IconName` is looked up in the item's own `IconThemePath`, then the icon theme named in the GTK settings and the themes it inherits, then hicolor, then pixmaps, at the size nearest 24 px. Only PNG icons can be drawn.
 - Every tray call to an app waits at most 1 second. Clicks and menus each run on their own thread, and icons are read side by side, so an app that stops answering never blocks the others.
