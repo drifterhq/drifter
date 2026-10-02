@@ -134,6 +134,22 @@ struct Head {
     warmth: Option<u32>,
 }
 
+struct Backdrop {
+    pyramid: drifter_core::tiles::Pyramid,
+    resident: std::collections::HashMap<(usize, u32, u32), (TextureBuffer<Tex>, Instant)>,
+}
+
+impl Backdrop {
+    fn new(pyramid: drifter_core::tiles::Pyramid) -> Backdrop {
+        Backdrop {
+            pyramid,
+            resident: std::collections::HashMap::new(),
+        }
+    }
+}
+
+const TILE_KEEP: Duration = Duration::from_secs(5);
+
 pub struct Screen {
     found: Found,
     events: EventLoop<'static, State>,
@@ -295,7 +311,7 @@ pub struct State {
     hand: usize,
     libinput: Libinput,
     renderer: Painter,
-    wallpaper: Option<(TextureBuffer<Tex>, Vec2)>,
+    wallpaper: Option<Backdrop>,
     panels: [TextureBuffer<Tex>; 2],
     shapes: [Panel; 2],
     arrow: TextureBuffer<Tex>,
@@ -342,7 +358,10 @@ pub struct State {
     dark: bool,
     login: Vec<drifter_core::Launch>,
     paper: Paper,
-    paper_tx: smithay::reexports::calloop::channel::Sender<(PathBuf, Option<drifter_core::Image>)>,
+    paper_tx: smithay::reexports::calloop::channel::Sender<(
+        PathBuf,
+        Option<drifter_core::tiles::Pyramid>,
+    )>,
     shot_tx: smithay::reexports::calloop::channel::Sender<Result<PathBuf, String>>,
     config_path: PathBuf,
     zone: Option<Zone>,
@@ -757,15 +776,34 @@ impl State {
             &mut elements,
         );
 
-        if let Some((buffer, size)) = self.wallpaper.as_ref() {
+        if let Some(paper) = self.wallpaper.as_mut() {
             let laid = drifter_core::wallpaper::place(
                 self.mode,
-                *size,
+                paper.pyramid.size(),
                 self.screen,
                 self.world,
                 &self.camera,
             );
-            elements.push(Skin::Texture(cropped(buffer, laid.source, laid.target)));
+            let now = Instant::now();
+            for piece in paper.pyramid.pieces(laid.source, laid.target) {
+                if !paper.resident.contains_key(&piece.key) {
+                    let image = paper.pyramid.tile(piece.key);
+                    match upload(&mut self.renderer, Some(&image), "wallpaper tile") {
+                        Ok(Some(buffer)) => {
+                            paper.resident.insert(piece.key, (buffer, now));
+                        }
+                        Ok(None) => continue,
+                        Err(error) => {
+                            eprintln!("drifter: {error}");
+                            continue;
+                        }
+                    }
+                }
+                if let Some((buffer, used)) = paper.resident.get_mut(&piece.key) {
+                    *used = now;
+                    elements.push(Skin::Texture(cropped(buffer, piece.source, piece.target)));
+                }
+            }
         }
         elements
     }
@@ -2325,11 +2363,13 @@ impl State {
 
     fn load_wallpaper(&self, path: PathBuf) {
         let reply = self.paper_tx.clone();
+        let (world, screen) = (self.world, self.screen);
         let spawned = std::thread::Builder::new()
             .name("drifter-wallpaper".to_string())
             .spawn(move || match drifter_core::image::load(&path) {
                 Ok(image) => {
-                    let _ = reply.send((path, Some(image)));
+                    let pyramid = drifter_core::tiles::Pyramid::build(image, world, screen);
+                    let _ = reply.send((path, Some(pyramid)));
                 }
                 Err(error) => {
                     eprintln!("drifter: no wallpaper {}: {error}", path.display());
@@ -2341,20 +2381,20 @@ impl State {
         }
     }
 
-    fn take_wallpaper(&mut self, path: PathBuf, image: Option<drifter_core::Image>) {
-        let Some(image) = image else {
-            self.paper.shown = Some(path);
-            return;
-        };
-        match upload(&mut self.renderer, Some(&image), "wallpaper") {
-            Ok(Some(buffer)) => {
-                self.wallpaper = Some((buffer, image.size()));
-                self.paper.shown = Some(path);
-            }
-            Ok(None) => {}
-            Err(error) => eprintln!("drifter: {error}"),
+    fn take_wallpaper(&mut self, path: PathBuf, pyramid: Option<drifter_core::tiles::Pyramid>) {
+        if let Some(pyramid) = pyramid {
+            self.wallpaper = Some(Backdrop::new(pyramid));
         }
+        self.paper.shown = Some(path);
         self.kick_now();
+    }
+
+    fn evict_tiles(&mut self) {
+        if let Some(paper) = self.wallpaper.as_mut() {
+            paper
+                .resident
+                .retain(|_, (_, used)| used.elapsed() < TILE_KEEP);
+        }
     }
 
     fn watch_config(&mut self) {
@@ -4208,8 +4248,13 @@ pub fn open(
         },
     ];
 
-    let texture = upload(&mut renderer, wallpaper, "wallpaper")?;
-    let wallpaper_element = texture.zip(wallpaper.map(|image| image.size()));
+    let wallpaper_element = wallpaper.map(|image| {
+        Backdrop::new(drifter_core::tiles::Pyramid::build(
+            image.clone(),
+            world,
+            screen,
+        ))
+    });
     let supplied = config
         .cursor_path()
         .and_then(|path| match drifter_core::image::load(&path) {
@@ -4362,8 +4407,10 @@ pub fn open(
     let lock_small = Font::find(config.font_path(), 15.0).ok();
     let (checked_tx, checked_rx) =
         smithay::reexports::calloop::channel::channel::<(String, crate::polkit::Outcome)>();
-    let (paper_tx, paper_rx) =
-        smithay::reexports::calloop::channel::channel::<(PathBuf, Option<drifter_core::Image>)>();
+    let (paper_tx, paper_rx) = smithay::reexports::calloop::channel::channel::<(
+        PathBuf,
+        Option<drifter_core::tiles::Pyramid>,
+    )>();
     let (shot_tx, shot_rx) =
         smithay::reexports::calloop::channel::channel::<Result<PathBuf, String>>();
     let (verify_tx, verify_rx) =
@@ -4765,8 +4812,8 @@ pub fn open(
 
     handle
         .insert_source(paper_rx, |event, _, state: &mut State| {
-            if let ChannelEvent::Msg((path, image)) = event {
-                state.take_wallpaper(path, image);
+            if let ChannelEvent::Msg((path, pyramid)) = event {
+                state.take_wallpaper(path, pyramid);
             }
         })
         .map_err(|e| format!("cannot watch the wallpaper: {e}"))?;
@@ -4815,6 +4862,7 @@ pub fn open(
                 state.watch_config();
                 state.watch_idle();
                 state.watch_night();
+                state.evict_tiles();
                 state.watch_wallpaper();
                 TimeoutAction::ToDuration(CONFIG_WATCH)
             },

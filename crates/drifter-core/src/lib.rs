@@ -27,6 +27,7 @@ pub mod snap;
 pub mod stats;
 pub mod switcher;
 pub mod text;
+pub mod tiles;
 pub mod tray;
 pub mod wallpaper;
 pub mod window;
