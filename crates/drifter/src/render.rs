@@ -5738,23 +5738,25 @@ type SkinSet = std::collections::HashMap<String, (TextureBuffer<Tex>, Vec2)>;
 
 fn load_skin(renderer: &mut Painter, config: &Config) -> (SkinSet, Chrome) {
     let mut skin = std::collections::HashMap::new();
-    if let Some(dir) = config.window_dir() {
-        for name in crate::shell::skin_names() {
-            let path = dir.join(&name);
-            match drifter_core::image::load(&path) {
-                Ok(image) => {
-                    let image = tile_skin(&name, image);
-                    let size = image.size();
-                    match upload(renderer, Some(&image), &name) {
-                        Ok(Some(buffer)) => {
-                            skin.insert(name, (buffer, size));
-                        }
-                        Ok(None) => {}
-                        Err(error) => eprintln!("drifter: {error}"),
-                    }
-                }
-                Err(error) => eprintln!("drifter: no window art: {error}"),
+    let dir = config.window_dir();
+    let drawn = Chrome::default();
+    for name in crate::shell::skin_names() {
+        let from_file = dir.as_ref().and_then(|dir| {
+            drifter_core::image::load(&dir.join(&name))
+                .inspect_err(|error| eprintln!("drifter: no window art: {error}"))
+                .ok()
+        });
+        let Some(image) = from_file.or_else(|| drifter_core::window::painted(&name, &drawn)) else {
+            continue;
+        };
+        let image = tile_skin(&name, image);
+        let size = image.size();
+        match upload(renderer, Some(&image), &name) {
+            Ok(Some(buffer)) => {
+                skin.insert(name, (buffer, size));
             }
+            Ok(None) => {}
+            Err(error) => eprintln!("drifter: {error}"),
         }
     }
     let chrome = Chrome::default();

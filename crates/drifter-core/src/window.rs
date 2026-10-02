@@ -270,6 +270,24 @@ pub fn paint(piece: Piece, chrome: &Chrome, active: bool) -> Image {
     )
 }
 
+pub fn painted(name: &str, chrome: &Chrome) -> Option<Image> {
+    for piece in Piece::ALL {
+        for active in [true, false] {
+            if piece.file_name(active) == name {
+                return Some(paint(piece, chrome, active));
+            }
+        }
+    }
+    for button in Button::ALL {
+        for look in Look::ALL {
+            if button.file_name(look) == name {
+                return Some(paint_button(button, look, chrome));
+            }
+        }
+    }
+    None
+}
+
 pub fn paint_button(button: Button, look: Look, chrome: &Chrome) -> Image {
     let size = Vec2::splat(chrome.button);
     let mut image = rounded(
@@ -543,6 +561,23 @@ impl Chrome {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn every_skin_file_has_a_painted_stand_in() {
+        let chrome = Chrome::default();
+        for piece in Piece::ALL {
+            for active in [true, false] {
+                assert!(painted(&piece.file_name(active), &chrome).is_some());
+            }
+        }
+        for button in Button::ALL {
+            for look in Look::ALL {
+                assert!(painted(&button.file_name(look), &chrome).is_some());
+            }
+        }
+        assert!(painted("nothing.png", &chrome).is_none());
+    }
+
     use super::*;
 
     fn chrome() -> Chrome {
