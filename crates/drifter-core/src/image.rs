@@ -110,7 +110,13 @@ pub fn save_png(image: &Image, path: &Path) -> Result<(), String> {
         .map_err(|e| format!("{}: {e}", path.display()))
 }
 
+pub const SVG_SIZE: u32 = 256;
+
 pub fn load(path: &Path) -> Result<Image, String> {
+    load_sized(path, SVG_SIZE)
+}
+
+pub fn load_sized(path: &Path, want: u32) -> Result<Image, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
         return load_png(path, &bytes);
@@ -118,7 +124,47 @@ pub fn load(path: &Path) -> Result<Image, String> {
     if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
         return load_jpeg(path, &bytes);
     }
-    Err(format!("{}: not a png or a jpeg", path.display()))
+    if is_svg(&bytes) {
+        return draw_svg(&bytes, want).map_err(|e| format!("{}: {e}", path.display()));
+    }
+    Err(format!("{}: not a png, a jpeg or an svg", path.display()))
+}
+
+fn is_svg(bytes: &[u8]) -> bool {
+    let head = &bytes[..bytes.len().min(1024)];
+    let text = String::from_utf8_lossy(head);
+    let text = text.trim_start_matches('\u{feff}').trim_start();
+    (text.starts_with("<?xml") || text.starts_with("<svg") || text.starts_with("<!--"))
+        && text.contains("<svg")
+}
+
+pub fn draw_svg(bytes: &[u8], want: u32) -> Result<Image, String> {
+    use resvg::{tiny_skia, usvg};
+
+    let tree =
+        usvg::Tree::from_data(bytes, &usvg::Options::default()).map_err(|e| e.to_string())?;
+    let size = tree.size();
+    let longest = size.width().max(size.height());
+    if longest <= 0.0 {
+        return Err("the svg has no size".to_string());
+    }
+    let scale = want.max(1) as f32 / longest;
+    let width = (size.width() * scale).round().max(1.0) as u32;
+    let height = (size.height() * scale).round().max(1.0) as u32;
+    let mut pixmap =
+        tiny_skia::Pixmap::new(width, height).ok_or_else(|| "the svg is too big".to_string())?;
+    resvg::render(
+        &tree,
+        tiny_skia::Transform::from_scale(scale, scale),
+        &mut pixmap.as_mut(),
+    );
+    let mut image = Image {
+        width,
+        height,
+        rgba: pixmap.take(),
+    };
+    image.straighten();
+    Ok(image)
 }
 
 fn load_jpeg(path: &Path, bytes: &[u8]) -> Result<Image, String> {
@@ -308,6 +354,30 @@ fn load_png(path: &Path, bytes: &[u8]) -> Result<Image, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const SQUARE: &str = "<?xml version=\"1.0\"?>\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"8\"><rect x=\"0\" y=\"0\" width=\"8\" height=\"8\" fill=\"#ff0000\"/></svg>";
+
+    #[test]
+    fn an_svg_is_drawn_at_the_size_asked_for() {
+        let dir = std::env::temp_dir().join(format!("drifter-svg-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("icon.svg");
+        std::fs::write(&path, SQUARE).unwrap();
+        let image = load_sized(&path, 32).unwrap();
+        assert_eq!((image.width, image.height), (32, 16));
+        assert_eq!(image.rgba[0..4], [255, 0, 0, 255]);
+        let right = ((8 * 32 + 24) * 4) as usize;
+        assert_eq!(image.rgba[right + 3], 0);
+        assert_eq!(load(&path).unwrap().width, SVG_SIZE);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn text_that_is_not_svg_is_refused() {
+        assert!(!is_svg(b"hello"));
+        assert!(is_svg(b"\n  <svg xmlns='x'></svg>"));
+        assert!(draw_svg(b"<svg", 16).is_err());
+    }
 
     fn write_png(path: &Path, width: u32, height: u32, color: png::ColorType, data: &[u8]) {
         let file = std::fs::File::create(path).unwrap();

@@ -210,7 +210,7 @@ fn named(name: &str) -> Option<Image> {
         None if name.starts_with('/') => std::path::PathBuf::from(name),
         None => drifter_core::icon::find(name, None, 48)?,
     };
-    drifter_core::image::load(&path)
+    drifter_core::image::load_sized(&path, ICON)
         .ok()
         .map(|image| image.scaled(ICON, ICON))
 }

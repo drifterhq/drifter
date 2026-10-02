@@ -154,7 +154,9 @@ fn read_icon(connection: &zbus::blocking::Connection, service: &str) -> Option<I
     let (name, path) = split(service);
     let proxy = zbus::blocking::Proxy::new(connection, name, path, ITEM).ok()?;
 
-    let image = pixmap(&proxy).or_else(|| named(&proxy))?;
+    let image = pixmap(&proxy)
+        .or_else(|| named(&proxy))
+        .unwrap_or_else(placeholder);
     let title = tip(&proxy).unwrap_or_else(|| service.to_string());
 
     Some(Icon {
@@ -162,6 +164,18 @@ fn read_icon(connection: &zbus::blocking::Connection, service: &str) -> Option<I
         title,
         image,
     })
+}
+
+fn placeholder() -> Image {
+    let mut canvas = drifter_core::paint::Canvas::new(24, 24);
+    canvas.circle(
+        drifter_core::Vec2::new(12.0, 12.0),
+        9.0,
+        [190, 196, 210],
+        1.0,
+    );
+    canvas.circle(drifter_core::Vec2::new(12.0, 12.0), 4.0, [60, 64, 76], 1.0);
+    canvas.image
 }
 
 fn tip(proxy: &zbus::blocking::Proxy<'_>) -> Option<String> {
@@ -310,7 +324,7 @@ fn named(proxy: &zbus::blocking::Proxy<'_>) -> Option<Image> {
     let theme: String = proxy.get_property("IconThemePath").unwrap_or_default();
     let own = (!theme.is_empty()).then(|| std::path::PathBuf::from(theme));
     let path = drifter_core::icon::find(&name, own.as_deref(), 24)?;
-    drifter_core::image::load(&path).ok()
+    drifter_core::image::load_sized(&path, 24).ok()
 }
 
 fn read_icons(connection: &zbus::blocking::Connection, names: &[String]) -> Vec<Icon> {

@@ -282,7 +282,7 @@ fn icon_file(name: &str) -> Option<PathBuf> {
 }
 
 fn icon_image(path: &Path) -> Option<Image> {
-    drifter_core::image::load(path)
+    drifter_core::image::load_sized(path, ICON)
         .ok()
         .map(|image| image.scaled(ICON, ICON))
 }

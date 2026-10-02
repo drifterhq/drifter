@@ -84,9 +84,11 @@ fn size_of(path: &Path) -> Option<u32> {
 }
 
 fn score(path: &Path, want: u32) -> u32 {
+    let svg = path.extension().is_some_and(|ext| ext == "svg");
     match size_of(path) {
-        Some(size) if size >= want => size - want,
-        Some(size) => (want - size) * 2,
+        Some(size) if size >= want => (size - want) * 2,
+        Some(size) => (want - size) * 4,
+        None if svg => 1,
         None => u32::MAX / 2,
     }
 }
@@ -113,6 +115,7 @@ fn gather(dir: &Path, file: &str, depth: usize, found: &mut Vec<PathBuf>) {
 fn best(dir: &Path, name: &str, want: u32) -> Option<PathBuf> {
     let mut found = Vec::new();
     gather(dir, &format!("{name}.png"), 0, &mut found);
+    gather(dir, &format!("{name}.svg"), 0, &mut found);
     found.sort();
     found
         .into_iter()
@@ -152,13 +155,20 @@ pub fn find_in(
             return found;
         }
     }
-    let pixmaps = roots
-        .iter()
-        .filter_map(|root| root.parent())
-        .map(|share| share.join("pixmaps").join(format!("{name}.png")));
-    std::iter::once(PathBuf::from("/usr/share/pixmaps").join(format!("{name}.png")))
-        .chain(pixmaps)
-        .find(|path| path.is_file())
+    let folders: Vec<PathBuf> = std::iter::once(PathBuf::from("/usr/share/pixmaps"))
+        .chain(
+            roots
+                .iter()
+                .filter_map(|root| root.parent())
+                .map(|share| share.join("pixmaps")),
+        )
+        .collect();
+    ["png", "svg"].iter().find_map(|ext| {
+        folders
+            .iter()
+            .map(|folder| folder.join(format!("{name}.{ext}")))
+            .find(|path| path.is_file())
+    })
 }
 
 type Asked = (String, Option<PathBuf>, u32);
@@ -268,6 +278,20 @@ mod tests {
         let themes = vec!["hicolor".to_string()];
         let found = find_in("app", Some(&own), &[root], &themes, 24).unwrap();
         assert_eq!(found, own.join("app.png"));
+    }
+
+    #[test]
+    fn a_scalable_svg_beats_a_png_of_the_wrong_size() {
+        let root = scratch("svg");
+        touch(&root.join("Theme/48x48/apps/tool.png"));
+        touch(&root.join("Theme/scalable/apps/tool.svg"));
+        touch(&root.join("Theme/24x24/apps/exact.png"));
+        touch(&root.join("Theme/scalable/apps/exact.svg"));
+        let themes = vec!["Theme".to_string()];
+        let found = find_in("tool", None, &[root.clone()], &themes, 24).unwrap();
+        assert!(found.ends_with("scalable/apps/tool.svg"));
+        let found = find_in("exact", None, &[root], &themes, 24).unwrap();
+        assert!(found.ends_with("24x24/apps/exact.png"));
     }
 
     #[test]

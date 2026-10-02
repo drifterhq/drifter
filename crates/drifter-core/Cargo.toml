@@ -9,6 +9,7 @@ chrono = { version = "0.4.45", default-features = false, features = ["clock", "s
 fontdue = { version = "0.9.4", default-features = false }
 jpeg-decoder = { version = "0.3.2", default-features = false }
 png = "0.18.1"
+resvg = { version = "0.48.1", default-features = false }
 serde = { version = "1.0.229", features = ["derive"] }
 toml = "1.1.6"
 toml_edit = "0.25.15"

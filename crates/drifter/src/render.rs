@@ -3489,7 +3489,7 @@ impl State {
         let wanted = self.dock.icon as u32;
         let art = crate::apps::find(&name)
             .and_then(|entry| entry.icon)
-            .and_then(|path| drifter_core::image::load(&path).ok())
+            .and_then(|path| drifter_core::image::load_sized(&path, wanted).ok())
             .map(|image| image.scaled(wanted, wanted));
         let Some(image) = art else {
             eprintln!("drifter: no dock icon for {name}");
@@ -4093,7 +4093,7 @@ impl State {
         }
         let image = crate::apps::find(app)
             .and_then(|entry| entry.icon)
-            .and_then(|path| drifter_core::image::load(&path).ok())
+            .and_then(|path| drifter_core::image::load_sized(&path, side).ok())
             .map(|image| image.scaled(side, side))?;
         let buffer = upload(&mut self.renderer, Some(&image), "switcher icon")
             .ok()
@@ -5361,7 +5361,7 @@ fn dock_items(
             .or_else(|| item.app().and_then(crate::apps::find).and_then(|e| e.icon))
             .or_else(|| crate::apps::icon_file(&item.name()));
         let art = path
-            .and_then(|path| match drifter_core::image::load(&path) {
+            .and_then(|path| match drifter_core::image::load_sized(&path, side) {
                 Ok(image) => Some(image),
                 Err(error) => {
                     eprintln!("drifter: no dock icon for {}: {error}", item.name());
