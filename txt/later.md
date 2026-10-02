@@ -11,7 +11,6 @@ Work that is not yet done, after the 2026-10-01 daily-driver list. Done items le
 
 - Tray submenus. A dbusmenu item with `children-display` is drawn but does not open, so nm-applet and Nextcloud are only half usable.
 - Night light through wlr gamma control, with a Settings page for the warmth and the hours.
-- Clipboard that outlives its app. Today a copy is lost when the app it came from closes.
 - The headless backend and frame capture, so tests run without the VM.
 - A world-sized wallpaper as mipmapped tiles. Today the whole image is one texture, which costs memory and can pass the GPU's texture size limit.
 

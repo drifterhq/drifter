@@ -289,6 +289,7 @@ Drifter speaks these, beside the core ones:
 
 - linux-dmabuf v4 with feedback for the render node, so GPU apps hand over their buffers directly. The same node is given to the scanout exporter, so a buffer can go to the screen without a composite pass.
 - Primary selection, for middle click paste.
+- A clipboard that outlives its app. When an app copies, Drifter asks for every type it offers, reads them all on a thread (2 seconds at most, 32 MB in all), and then offers the copy itself. The app's source is cancelled, and a paste is served from Drifter's memory, so closing the app keeps the copy. A copy that is too big or too slow stays with its app. The primary selection is not kept.
 - xdg-activation. A request with a token under 10 seconds old raises and focuses the window, and brings it back from the dock.
 - viewporter and fractional scale. The scale is always 1.
 - xdg-output.
