@@ -39,7 +39,10 @@ impl Image {
 
     pub fn tint(&mut self, ink: [u8; 3]) {
         for pixel in self.rgba.as_chunks_mut::<4>().0 {
-            pixel[..3].copy_from_slice(&ink);
+            let a = u32::from(pixel[3]);
+            for (channel, value) in pixel[..3].iter_mut().zip(ink) {
+                *channel = ((u32::from(value) * a + 127) / 255) as u8;
+            }
         }
     }
 
@@ -164,13 +167,11 @@ pub fn draw_svg(bytes: &[u8], want: u32) -> Result<Image, String> {
         tiny_skia::Transform::from_scale(scale, scale),
         &mut pixmap.as_mut(),
     );
-    let mut image = Image {
+    Ok(Image {
         width,
         height,
         rgba: pixmap.take(),
-    };
-    image.straighten();
-    Ok(image)
+    })
 }
 
 fn load_jpeg(path: &Path, bytes: &[u8]) -> Result<Image, String> {
@@ -386,7 +387,7 @@ mod tests {
             rgba: vec![10, 20, 30, 0, 40, 50, 60, 128],
         };
         image.tint([200, 201, 202]);
-        assert_eq!(image.rgba, [200, 201, 202, 0, 200, 201, 202, 128]);
+        assert_eq!(image.rgba, [0, 0, 0, 0, 100, 101, 101, 128]);
     }
 
     #[test]
