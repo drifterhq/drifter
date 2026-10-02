@@ -240,6 +240,10 @@ fn a_window_is_drawn_at_its_size_and_halves_at_half_zoom() {
         started.elapsed() > Duration::from_millis(500)
     });
 
+    assert!(
+        screen.state.heads[0].frames > 1,
+        "the offscreen head draws frames of its own"
+    );
     let near = snapshot(&mut screen.state);
     let _ = drifter_core::image::save_png(&near, &runtime.join("zoom-1.png"));
     let (x, y, width, height) = red_box(&near).expect("the red window is on screen");
