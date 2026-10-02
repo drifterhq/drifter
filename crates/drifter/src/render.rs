@@ -299,7 +299,7 @@ pub struct State {
     skin: std::collections::HashMap<String, (TextureBuffer<Tex>, Vec2)>,
     started: Instant,
     socket: String,
-    drm: DrmDevice,
+    drm: Option<DrmDevice>,
     gbm: Option<GbmDevice<DrmDeviceFd>>,
     render_node: Option<smithay::backend::drm::DrmNode>,
     render_formats: smithay::backend::allocator::format::FormatSet,
@@ -309,7 +309,7 @@ pub struct State {
     heads: Vec<Head>,
     at: usize,
     hand: usize,
-    libinput: Libinput,
+    libinput: Option<Libinput>,
     renderer: Painter,
     wallpaper: Option<Backdrop>,
     panels: [TextureBuffer<Tex>; 2],
@@ -393,6 +393,104 @@ pub struct State {
     handle: LoopHandle<'static, State>,
     signal: LoopSignal,
     failure: Option<String>,
+}
+
+fn wire(
+    handle: &smithay::reexports::calloop::LoopHandle<'static, State>,
+    state: &State,
+    drm_events: smithay::backend::drm::DrmDeviceNotifier,
+    libinput: Libinput,
+    plugs: std::io::Result<smithay::backend::udev::UdevBackend>,
+    seat_events: LibSeatSessionNotifier,
+) -> Result<(), String> {
+    handle
+        .insert_source(drm_events, |event, _, state: &mut State| match event {
+            DrmEvent::VBlank(crtc) => {
+                let Some(head) = state.heads.iter_mut().find(|head| head.crtc == crtc) else {
+                    return;
+                };
+                head.awaiting = false;
+                if let Err(error) = head.compositor.frame_submitted() {
+                    eprintln!("drifter: frame submit on {} failed: {error}", head.name);
+                }
+                if let Err(error) = state.draw() {
+                    state.stop(error);
+                }
+            }
+            DrmEvent::Error(error) => eprintln!("drifter: drm event: {error}"),
+        })
+        .map_err(|e| format!("cannot watch drm events: {e}"))?;
+
+    let card = state.drm.as_ref().map(|drm| drm.device_id());
+    match plugs {
+        Ok(plugs) => {
+            handle
+                .insert_source(plugs, move |event, _, state: &mut State| {
+                    if let smithay::backend::udev::UdevEvent::Changed { device_id } = event
+                        && Some(device_id) == card
+                        && state.active
+                    {
+                        state.scan_heads();
+                        state.kick_now();
+                    }
+                })
+                .map_err(|e| format!("cannot watch for monitors: {e}"))?;
+        }
+        Err(error) => eprintln!("drifter: monitors plugged in later are not seen: {error}"),
+    }
+
+    handle
+        .insert_source(seat_events, |event, _, state: &mut State| match event {
+            SessionEvent::PauseSession => {
+                state.active = false;
+                if let Some(libinput) = state.libinput.as_mut() {
+                    libinput.suspend();
+                }
+                if let Some(drm) = state.drm.as_mut() {
+                    drm.pause();
+                }
+                state.drop_held_input();
+            }
+            SessionEvent::ActivateSession => {
+                state.active = true;
+                state.dark = false;
+                state.last_input = Instant::now();
+                if state
+                    .libinput
+                    .as_mut()
+                    .is_some_and(|libinput| libinput.resume().is_err())
+                {
+                    eprintln!("drifter: cannot take the input devices back");
+                }
+                state.drop_held_input();
+                if let Some(Err(error)) = state.drm.as_mut().map(|drm| drm.activate(true)) {
+                    eprintln!("drifter: cannot take the screen back: {error}");
+                }
+                for head in &mut state.heads {
+                    head.awaiting = false;
+                    head.warmth = None;
+                    if let Err(error) = head.compositor.reset_state() {
+                        eprintln!("drifter: cannot reset {}: {error}", head.name);
+                    }
+                    head.compositor.reset_buffers();
+                }
+                state.scan_heads();
+                state.last = Instant::now();
+                state.kick();
+            }
+        })
+        .map_err(|e| format!("cannot watch seat events: {e}"))?;
+
+    handle
+        .insert_source(
+            LibinputInputBackend::new(libinput),
+            |event, _, state: &mut State| {
+                state.input(event);
+                state.kick();
+            },
+        )
+        .map_err(|e| format!("cannot watch input events: {e}"))?;
+    Ok(())
 }
 
 impl State {
@@ -1506,7 +1604,77 @@ impl State {
         })?;
         head.frames += 1;
         head.awaiting = true;
+        if head.compositor.is_offscreen() {
+            let name = head.name.clone();
+            let _ = self.handle.insert_source(
+                Timer::from_duration(Duration::from_millis(16)),
+                move |_, _, state: &mut State| {
+                    if let Some(head) = state.heads.iter_mut().find(|head| head.name == name) {
+                        head.awaiting = false;
+                    }
+                    if let Err(error) = state.draw() {
+                        state.stop(error);
+                    }
+                    TimeoutAction::Drop
+                },
+            );
+        }
         Ok(true)
+    }
+
+    fn add_offscreen_head(&mut self, size: (u32, u32)) -> Result<(), String> {
+        let name = "HEADLESS-1".to_string();
+        let pixels = Vec2::new(f64::from(size.0), f64::from(size.1));
+        let mode = smithay::output::Mode {
+            size: (size.0 as i32, size.1 as i32).into(),
+            refresh: 60_000,
+        };
+        let source = OutputModeSource::Static {
+            size: mode.size,
+            scale: Scale::from(1.0),
+            transform: Transform::Normal,
+        };
+        let compositor = Scanout::offscreen(&mut self.renderer, source)?;
+        let output = smithay::output::Output::new(
+            name.clone(),
+            smithay::output::PhysicalProperties {
+                size: (0, 0).into(),
+                subpixel: smithay::output::Subpixel::Unknown,
+                make: "Drifter".to_string(),
+                model: name.clone(),
+            },
+        );
+        let global = output.create_global::<State>(&self.wayland.handle);
+        output.set_preferred(mode);
+        let panels = paint_panels(&mut self.renderer, pixels.x, &self.shapes)?;
+        let placeholder = std::num::NonZeroU32::MIN;
+        self.heads.push(Head {
+            name,
+            connector: connector::Handle::from(placeholder),
+            crtc: crtc::Handle::from(placeholder),
+            compositor,
+            output,
+            global,
+            mode,
+            pixels,
+            scale: 1.0,
+            rotate: 0,
+            place: Vec2::ZERO,
+            camera: Camera::at_work_zoom(self.world / 2.0),
+            flight: None,
+            drawers: [Drawer::new(Edge::Top), Drawer::new(Edge::Bottom)],
+            screen: pixels,
+            panels,
+            awaiting: false,
+            warmth: None,
+            frames: 0,
+            last: Instant::now(),
+        });
+        self.hand = 0;
+        self.at = 0;
+        self.load(0);
+        self.relayout(false);
+        Ok(())
     }
 
     fn physical(&self) -> Vec2 {
@@ -2227,9 +2395,9 @@ impl State {
     fn watch_night(&mut self) {
         use smithay::reexports::drm::control::Device as _;
 
-        if !self.active {
+        let Some(drm) = self.drm.as_ref().filter(|_| self.active) else {
             return;
-        }
+        };
         let night = self.night.on
             && drifter_core::night::is_night(
                 self.night.start,
@@ -2245,7 +2413,7 @@ impl State {
                 continue;
             }
             head.warmth = Some(wanted);
-            let length = match self.drm.get_crtc(head.crtc) {
+            let length = match drm.get_crtc(head.crtc) {
                 Ok(info) => info.gamma_length() as usize,
                 Err(error) => {
                     eprintln!("drifter: no night light on {}: {error}", head.name);
@@ -2262,7 +2430,7 @@ impl State {
                 continue;
             }
             let [red, green, blue] = drifter_core::night::ramp(length, wanted);
-            if let Err(error) = self.drm.set_gamma(head.crtc, &red, &green, &blue) {
+            if let Err(error) = drm.set_gamma(head.crtc, &red, &green, &blue) {
                 eprintln!("drifter: no night light on {}: {error}", head.name);
             }
         }
@@ -4191,46 +4359,77 @@ impl Screen {
     }
 }
 
+pub struct Seat<'a> {
+    pub session: &'a mut LibSeatSession,
+    pub events: LibSeatSessionNotifier,
+    pub card: &'a Path,
+}
+
 pub fn open(
-    session: &mut LibSeatSession,
-    seat_events: LibSeatSessionNotifier,
+    seat: Option<Seat<'_>>,
     config: &Config,
-    path: &Path,
     virtual_size: (u32, u32),
     background: [f32; 4],
     wallpaper: Option<Image>,
 ) -> Result<Screen, String> {
     let events: EventLoop<'static, State> =
         EventLoop::try_new().map_err(|e| format!("cannot create the event loop: {e}"))?;
-    let signals = Signals::new(&[
-        Signal::SIGUSR1,
-        Signal::SIGUSR2,
-        Signal::SIGTERM,
-        Signal::SIGHUP,
-        Signal::SIGINT,
-    ])
-    .map_err(|e| format!("cannot watch signals: {e}"))?;
+    let live = seat.is_some();
+    let signals = match live {
+        true => Some(
+            Signals::new(&[
+                Signal::SIGUSR1,
+                Signal::SIGUSR2,
+                Signal::SIGTERM,
+                Signal::SIGHUP,
+                Signal::SIGINT,
+            ])
+            .map_err(|e| format!("cannot watch signals: {e}"))?,
+        ),
+        false => None,
+    };
 
-    let fd = session
-        .open(
-            path,
-            OFlags::RDWR | OFlags::CLOEXEC | OFlags::NOCTTY | OFlags::NONBLOCK,
-        )
-        .map_err(|e| format!("cannot open {}: {e}", path.display()))?;
+    let mut path = PathBuf::from("headless");
+    let mut drm = None;
+    let mut drm_events = None;
+    let mut gbm = None;
+    let mut render_node = None;
+    let mut wired = None;
+    if let Some(seat) = seat {
+        path = seat.card.to_path_buf();
+        let fd = seat
+            .session
+            .open(
+                seat.card,
+                OFlags::RDWR | OFlags::CLOEXEC | OFlags::NOCTTY | OFlags::NONBLOCK,
+            )
+            .map_err(|e| format!("cannot open {}: {e}", seat.card.display()))?;
 
-    let drm_fd = DrmDeviceFd::new(DeviceFd::from(fd));
-    let render_node = smithay::backend::drm::DrmNode::from_file(drm_fd.clone())
-        .ok()
-        .map(|node| {
-            node.node_with_type(smithay::backend::drm::NodeType::Render)
-                .and_then(Result::ok)
-                .unwrap_or(node)
-        });
-    let gbm = GbmDevice::new(drm_fd.clone())
-        .inspect_err(|e| eprintln!("drifter: no gbm device: {e}"))
-        .ok();
-    let (drm, drm_events) =
-        DrmDevice::new(drm_fd, true).map_err(|e| format!("cannot open drm device: {e}"))?;
+        let drm_fd = DrmDeviceFd::new(DeviceFd::from(fd));
+        render_node = smithay::backend::drm::DrmNode::from_file(drm_fd.clone())
+            .ok()
+            .map(|node| {
+                node.node_with_type(smithay::backend::drm::NodeType::Render)
+                    .and_then(Result::ok)
+                    .unwrap_or(node)
+            });
+        gbm = GbmDevice::new(drm_fd.clone())
+            .inspect_err(|e| eprintln!("drifter: no gbm device: {e}"))
+            .ok();
+        let (device, notifier) =
+            DrmDevice::new(drm_fd, true).map_err(|e| format!("cannot open drm device: {e}"))?;
+        drm = Some(device);
+        drm_events = Some(notifier);
+
+        let mut libinput =
+            Libinput::new_with_udev(LibinputSessionInterface::from(seat.session.clone()));
+        let seat_name = seat.session.seat();
+        libinput
+            .udev_assign_seat(&seat_name)
+            .map_err(|_| format!("cannot take input on seat {seat_name}"))?;
+        let plugs = smithay::backend::udev::UdevBackend::new(&seat_name);
+        wired = Some((libinput, plugs, seat.events));
+    }
 
     let (mut renderer, renderer_formats, gl) = pick_painter(gbm.as_ref())?;
     let screen = Vec2::new(f64::from(virtual_size.0), f64::from(virtual_size.1));
@@ -4347,26 +4546,29 @@ pub fn open(
         },
     );
 
-    let (tray_bus, tray_icons) = match crate::tray::start() {
-        Ok((bus, icons)) => (Some(bus), Some(icons)),
-        Err(error) => {
+    let (tray_bus, tray_icons) = match live.then(crate::tray::start) {
+        Some(Ok((bus, icons))) => (Some(bus), Some(icons)),
+        Some(Err(error)) => {
             eprintln!("drifter: no tray: {error}");
             (None, None)
         }
+        None => (None, None),
     };
-    let (notes_bus, note_events) = match crate::notes::start() {
-        Ok((bus, events)) => (Some(bus), Some(events)),
-        Err(error) => {
+    let (notes_bus, note_events) = match live.then(crate::notes::start) {
+        Some(Ok((bus, events))) => (Some(bus), Some(events)),
+        Some(Err(error)) => {
             eprintln!("drifter: no notifications: {error}");
             (None, None)
         }
+        None => (None, None),
     };
-    let (media, media_readings) = match crate::media::start() {
-        Ok((media, readings)) => (Some(media), Some(readings)),
-        Err(error) => {
+    let (media, media_readings) = match live.then(crate::media::start) {
+        Some(Ok((media, readings))) => (Some(media), Some(readings)),
+        Some(Err(error)) => {
             eprintln!("drifter: no media keys: {error}");
             (None, None)
         }
+        None => (None, None),
     };
     let font = match Font::find(config.font_path(), tray.size) {
         Ok(font) => Some(font),
@@ -4442,13 +4644,6 @@ pub fn open(
     };
     let plain = upload(&mut renderer, Some(&plain_image), "outline")?;
 
-    let mut libinput = Libinput::new_with_udev(LibinputSessionInterface::from(session.clone()));
-    let seat_name = session.seat();
-    libinput
-        .udev_assign_seat(&seat_name)
-        .map_err(|_| format!("cannot take input on seat {seat_name}"))?;
-    let plugs = smithay::backend::udev::UdevBackend::new(&seat_name);
-
     let (clip, clip_events) = crate::clipboard::Keeper::new(events.handle());
     let state = State {
         output,
@@ -4490,7 +4685,7 @@ pub fn open(
         heads: Vec::new(),
         at: 0,
         hand: 0,
-        libinput: libinput.clone(),
+        libinput: wired.as_ref().map(|(libinput, _, _)| libinput.clone()),
         renderer,
         wallpaper: wallpaper_element,
         panels,
@@ -4545,7 +4740,10 @@ pub fn open(
         paper: Paper::from(config),
         paper_tx,
         shot_tx,
-        config_path: Config::config_path(),
+        config_path: match live {
+            true => Config::config_path(),
+            false => PathBuf::new(),
+        },
         zone: None,
         plain,
         titles: std::collections::HashMap::new(),
@@ -4579,7 +4777,10 @@ pub fn open(
     };
 
     let mut state = state;
-    state.scan_heads();
+    match live {
+        true => state.scan_heads(),
+        false => state.add_offscreen_head(virtual_size)?,
+    }
     if state.heads.is_empty() {
         return Err("no connected monitor with modes".to_string());
     }
@@ -4612,85 +4813,9 @@ pub fn open(
 
     let handle = events.handle();
 
-    handle
-        .insert_source(drm_events, |event, _, state: &mut State| match event {
-            DrmEvent::VBlank(crtc) => {
-                let Some(head) = state.heads.iter_mut().find(|head| head.crtc == crtc) else {
-                    return;
-                };
-                head.awaiting = false;
-                if let Err(error) = head.compositor.frame_submitted() {
-                    eprintln!("drifter: frame submit on {} failed: {error}", head.name);
-                }
-                if let Err(error) = state.draw() {
-                    state.stop(error);
-                }
-            }
-            DrmEvent::Error(error) => eprintln!("drifter: drm event: {error}"),
-        })
-        .map_err(|e| format!("cannot watch drm events: {e}"))?;
-
-    let card = state.drm.device_id();
-    match plugs {
-        Ok(plugs) => {
-            handle
-                .insert_source(plugs, move |event, _, state: &mut State| {
-                    if let smithay::backend::udev::UdevEvent::Changed { device_id } = event
-                        && device_id == card
-                        && state.active
-                    {
-                        state.scan_heads();
-                        state.kick_now();
-                    }
-                })
-                .map_err(|e| format!("cannot watch for monitors: {e}"))?;
-        }
-        Err(error) => eprintln!("drifter: monitors plugged in later are not seen: {error}"),
+    if let (Some(drm_events), Some((libinput, plugs, seat_events))) = (drm_events, wired) {
+        wire(&handle, &state, drm_events, libinput, plugs, seat_events)?;
     }
-
-    handle
-        .insert_source(seat_events, |event, _, state: &mut State| match event {
-            SessionEvent::PauseSession => {
-                state.active = false;
-                state.libinput.suspend();
-                state.drm.pause();
-                state.drop_held_input();
-            }
-            SessionEvent::ActivateSession => {
-                state.active = true;
-                state.dark = false;
-                state.last_input = Instant::now();
-                if state.libinput.resume().is_err() {
-                    eprintln!("drifter: cannot take the input devices back");
-                }
-                state.drop_held_input();
-                if let Err(error) = state.drm.activate(true) {
-                    eprintln!("drifter: cannot take the screen back: {error}");
-                }
-                for head in &mut state.heads {
-                    head.awaiting = false;
-                    head.warmth = None;
-                    if let Err(error) = head.compositor.reset_state() {
-                        eprintln!("drifter: cannot reset {}: {error}", head.name);
-                    }
-                    head.compositor.reset_buffers();
-                }
-                state.scan_heads();
-                state.last = Instant::now();
-                state.kick();
-            }
-        })
-        .map_err(|e| format!("cannot watch seat events: {e}"))?;
-
-    handle
-        .insert_source(
-            LibinputInputBackend::new(libinput),
-            |event, _, state: &mut State| {
-                state.input(event);
-                state.kick();
-            },
-        )
-        .map_err(|e| format!("cannot watch input events: {e}"))?;
 
     if let Some(icons) = tray_icons {
         handle
@@ -4758,7 +4883,10 @@ pub fn open(
         })
         .map_err(|e| format!("cannot keep the clipboard: {e}"))?;
 
-    match crate::logind::start() {
+    match live
+        .then(crate::logind::start)
+        .unwrap_or(Err(String::new()))
+    {
         Ok(events) => {
             handle
                 .insert_source(events, |event, _, state: &mut State| {
@@ -4776,10 +4904,14 @@ pub fn open(
                 })
                 .map_err(|e| format!("cannot watch logind: {e}"))?;
         }
-        Err(error) => eprintln!("drifter: no lock on sleep or on request: {error}"),
+        Err(error) if live => eprintln!("drifter: no lock on sleep or on request: {error}"),
+        Err(_) => {}
     }
 
-    match crate::polkit::start() {
+    match live
+        .then(crate::polkit::start)
+        .unwrap_or(Err(String::new()))
+    {
         Ok(requests) => {
             handle
                 .insert_source(requests, |event, _, state: &mut State| {
@@ -4794,7 +4926,8 @@ pub fn open(
                 })
                 .map_err(|e| format!("cannot watch polkit: {e}"))?;
         }
-        Err(error) => eprintln!("drifter: no password prompt: {error}"),
+        Err(error) if live => eprintln!("drifter: no password prompt: {error}"),
+        Err(_) => {}
     }
 
     handle
@@ -4838,8 +4971,10 @@ pub fn open(
         .map_err(|e| format!("cannot watch the wayland socket: {e}"))?;
 
     state.socket = socket_name.clone();
-    crate::apps::start_x11(&socket_name);
-    crate::portal::announce(&socket_name);
+    if live {
+        crate::apps::start_x11(&socket_name);
+        crate::portal::announce(&socket_name);
+    }
     let poll = state_poll_fd(&mut state);
     handle
         .insert_source(poll, |_, _, state: &mut State| {
@@ -4864,20 +4999,22 @@ pub fn open(
         )
         .map_err(|e| format!("cannot watch the config: {e}"))?;
 
-    handle
-        .insert_source(signals, |event, _, state: &mut State| {
-            let edge = match event.signal() {
-                Signal::SIGUSR1 => Edge::Top,
-                Signal::SIGUSR2 => Edge::Bottom,
-                _ => {
-                    state.signal.stop();
-                    return;
-                }
-            };
-            state.toggle(edge);
-            state.kick();
-        })
-        .map_err(|e| format!("cannot watch signals: {e}"))?;
+    if let Some(signals) = signals {
+        handle
+            .insert_source(signals, |event, _, state: &mut State| {
+                let edge = match event.signal() {
+                    Signal::SIGUSR1 => Edge::Top,
+                    Signal::SIGUSR2 => Edge::Bottom,
+                    _ => {
+                        state.signal.stop();
+                        return;
+                    }
+                };
+                state.toggle(edge);
+                state.kick();
+            })
+            .map_err(|e| format!("cannot watch signals: {e}"))?;
+    }
 
     Ok(Screen {
         found: Found {
@@ -5614,15 +5751,18 @@ impl State {
             })
             .ok_or_else(|| "selected mode vanished from the connector".to_string())?;
 
-        let resources = self
+        let drm = self
             .drm
+            .as_ref()
+            .ok_or_else(|| "there is no drm device".to_string())?;
+        let resources = drm
             .resource_handles()
             .map_err(|e| format!("cannot read drm resources: {e}"))?;
         let used: Vec<crtc::Handle> = self.heads.iter().map(|head| head.crtc).collect();
-        let crtc = pick_crtc(&self.drm, &resources, info, &used)
+        let crtc = pick_crtc(drm, &resources, info, &used)
             .ok_or_else(|| format!("connector {name} has no free crtc"))?;
-        let surface = self
-            .drm
+        let fd = drm.device_fd().clone();
+        let surface = drm
             .create_surface(crtc, drm_mode, &[handle])
             .map_err(|e| format!("cannot create a drm surface for {name}: {e}"))?;
 
@@ -5653,22 +5793,19 @@ impl State {
             )
             .map(Scanout::Gbm)
             .map_err(|e| e.to_string()),
-            _ => {
-                let fd = self.drm.device_fd().clone();
-                DrmCompositor::new(
-                    source,
-                    surface,
-                    None,
-                    smithay::backend::allocator::dumb::DumbAllocator::new(fd.clone()),
-                    fd,
-                    colors,
-                    self.render_formats.clone(),
-                    (64, 64).into(),
-                    None::<GbmDevice<DrmDeviceFd>>,
-                )
-                .map(Scanout::Dumb)
-                .map_err(|e| e.to_string())
-            }
+            _ => DrmCompositor::new(
+                source,
+                surface,
+                None,
+                smithay::backend::allocator::dumb::DumbAllocator::new(fd.clone()),
+                fd,
+                colors,
+                self.render_formats.clone(),
+                (64, 64).into(),
+                None::<GbmDevice<DrmDeviceFd>>,
+            )
+            .map(Scanout::Dumb)
+            .map_err(|e| e.to_string()),
         }
         .map_err(|e| format!("drm compositor for {name}: {e}"))?;
 
@@ -5725,7 +5862,10 @@ impl State {
     }
 
     fn scan_heads(&mut self) {
-        let Ok(resources) = self.drm.resource_handles() else {
+        let Some(drm) = self.drm.as_ref() else {
+            return;
+        };
+        let Ok(resources) = drm.resource_handles() else {
             eprintln!("drifter: cannot read drm resources");
             return;
         };
@@ -5733,8 +5873,7 @@ impl State {
             .connectors()
             .iter()
             .filter_map(|handle| {
-                self.drm
-                    .get_connector(*handle, true)
+                drm.get_connector(*handle, true)
                     .ok()
                     .map(|info| (*handle, info))
             })

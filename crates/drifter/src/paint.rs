@@ -6,6 +6,7 @@ use smithay::backend::allocator::gbm::GbmAllocator;
 use smithay::backend::drm::DrmDeviceFd;
 use smithay::backend::drm::compositor::{DrmCompositor, FrameFlags};
 use smithay::backend::drm::exporter::gbm::GbmFramebufferExporter;
+use smithay::backend::renderer::damage::OutputDamageTracker;
 use smithay::backend::renderer::element::RenderElement;
 use smithay::backend::renderer::gles::{
     GlesError, GlesFrame, GlesMapping, GlesRenderer, GlesTarget, GlesTexture,
@@ -40,18 +41,44 @@ pub enum Scanout {
         >,
     ),
     Dumb(DrmCompositor<DumbAllocator, DrmDeviceFd, (), DrmDeviceFd>),
+    Offscreen(Offscreen),
+}
+
+pub struct Offscreen {
+    canvas: Canvas,
+    tracker: OutputDamageTracker,
+    drawn: bool,
 }
 
 macro_rules! each {
-    ($scanout:expr, $compositor:ident => $body:expr) => {
+    ($scanout:expr, $compositor:ident => $body:expr, $screen:ident => $other:expr) => {
         match $scanout {
             Scanout::Gbm($compositor) => $body,
             Scanout::Dumb($compositor) => $body,
+            Scanout::Offscreen($screen) => $other,
         }
     };
 }
 
 impl Scanout {
+    pub fn offscreen(painter: &mut Painter, source: OutputModeSource) -> Result<Scanout, String> {
+        let OutputModeSource::Static { size, .. } = source else {
+            return Err("an offscreen head needs a fixed size".to_string());
+        };
+        let canvas = painter
+            .canvas(Fourcc::Abgr8888, (size.w, size.h).into())
+            .map_err(|e| format!("no offscreen buffer: {e}"))?;
+        Ok(Scanout::Offscreen(Offscreen {
+            canvas,
+            tracker: OutputDamageTracker::from_mode_source(source),
+            drawn: false,
+        }))
+    }
+
+    pub fn is_offscreen(&self) -> bool {
+        matches!(self, Scanout::Offscreen(_))
+    }
+
     pub fn render_frame<E: RenderElement<Painter>>(
         &mut self,
         renderer: &mut Painter,
@@ -59,33 +86,55 @@ impl Scanout {
         clear: Color32F,
     ) -> Result<bool, String> {
         each!(self, compositor => compositor
-            .render_frame(renderer, elements, clear, FrameFlags::DEFAULT)
-            .map(|result| result.is_empty)
-            .map_err(|e| e.to_string()))
+        .render_frame(renderer, elements, clear, FrameFlags::DEFAULT)
+        .map(|result| result.is_empty)
+        .map_err(|e| e.to_string()),
+        screen => {
+            let age = usize::from(screen.drawn);
+            let mut target = renderer.bind(&mut screen.canvas).map_err(|e| e.to_string())?;
+            let result = screen
+                .tracker
+                .render_output(renderer, &mut target, age, elements, clear)
+                .map_err(|e| format!("{e:?}"))?;
+            let empty = result.damage.is_none_or(|damage| damage.is_empty());
+            screen.drawn = true;
+            Ok(empty)
+        })
     }
 
     pub fn queue_frame(&mut self) -> Result<(), String> {
-        each!(self, compositor => compositor.queue_frame(()).map_err(|e| e.to_string()))
+        each!(self, compositor => compositor.queue_frame(()).map_err(|e| e.to_string()),
+            _screen => Ok(()))
     }
 
     pub fn frame_submitted(&mut self) -> Result<(), String> {
-        each!(self, compositor => compositor.frame_submitted().map(|_| ()).map_err(|e| e.to_string()))
+        each!(self, compositor => compositor.frame_submitted().map(|_| ()).map_err(|e| e.to_string()),
+            _screen => Ok(()))
     }
 
     pub fn reset_state(&mut self) -> Result<(), String> {
-        each!(self, compositor => compositor.reset_state().map_err(|e| e.to_string()))
+        each!(self, compositor => compositor.reset_state().map_err(|e| e.to_string()),
+        screen => {
+            screen.drawn = false;
+            Ok(())
+        })
     }
 
     pub fn clear(&mut self) -> Result<(), String> {
-        each!(self, compositor => compositor.clear().map_err(|e| e.to_string()))
+        each!(self, compositor => compositor.clear().map_err(|e| e.to_string()),
+            _screen => Ok(()))
     }
 
     pub fn reset_buffers(&mut self) {
-        each!(self, compositor => compositor.reset_buffers())
+        each!(self, compositor => compositor.reset_buffers(), screen => screen.drawn = false)
     }
 
     pub fn set_output_mode_source(&mut self, source: OutputModeSource) {
-        each!(self, compositor => compositor.set_output_mode_source(source))
+        each!(self, compositor => compositor.set_output_mode_source(source),
+        screen => {
+            screen.tracker = OutputDamageTracker::from_mode_source(source);
+            screen.drawn = false;
+        })
     }
 }
 

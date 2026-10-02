@@ -123,10 +123,12 @@ fn bootstrap(config: &Config) -> ExitCode {
         .and_then(|path| load_image(&path, "wallpaper"));
 
     let screen = match render::open(
-        &mut seat.session,
-        seat.notifier,
+        Some(render::Seat {
+            session: &mut seat.session,
+            events: seat.notifier,
+            card: &card,
+        }),
         config,
-        &card,
         virtual_size,
         night,
         wallpaper,
