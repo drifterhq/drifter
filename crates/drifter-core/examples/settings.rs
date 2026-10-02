@@ -79,6 +79,7 @@ fn main() {
             Some((path.clone(), drifter_core::settings::cover(&image, 128, 72)))
         })
         .collect();
+    model.about = drifter_core::system::about(Some("GLES on a test GPU"), &Config::config_path());
     let icons = HashMap::new();
     let look = Look::default();
     let size = Vec2::new(860.0, 640.0);

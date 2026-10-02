@@ -163,7 +163,9 @@ impl Server {
             summary,
             body,
             actions: notify::actions(&actions),
-            expire: notify::expire_ms(expire_timeout, critical),
+            expire: notify::expire_ms(expire_timeout, critical, Some(notify::DEFAULT_MS)),
+            asked: expire_timeout,
+            critical,
             icon,
         };
         let _ = self.events.send(Event::Show(note));

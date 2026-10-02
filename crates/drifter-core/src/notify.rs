@@ -11,6 +11,8 @@ pub struct Note {
     pub body: String,
     pub actions: Vec<(String, String)>,
     pub expire: Option<u32>,
+    pub asked: i32,
+    pub critical: bool,
     pub icon: Option<Image>,
 }
 
@@ -26,12 +28,76 @@ impl Note {
 pub const DEFAULT_MS: u32 = 5000;
 pub const MOST: usize = 5;
 
-pub fn expire_ms(asked: i32, critical: bool) -> Option<u32> {
+pub fn expire_ms(asked: i32, critical: bool, usual: Option<u32>) -> Option<u32> {
     match (asked, critical) {
         (_, true) => None,
         (0, _) => None,
         (ms, _) if ms > 0 => Some(ms as u32),
-        _ => Some(DEFAULT_MS),
+        _ => usual,
+    }
+}
+
+pub const KEPT: usize = 50;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Recent {
+    pub when: u64,
+    pub app: String,
+    pub summary: String,
+    pub body: String,
+}
+
+fn flat(text: &str) -> String {
+    text.chars()
+        .map(|c| {
+            if c == '\t' || c == '\n' || c == '\r' {
+                ' '
+            } else {
+                c
+            }
+        })
+        .collect()
+}
+
+pub fn remember(history: &str, note: &Recent) -> String {
+    let line = format!(
+        "{}\t{}\t{}\t{}",
+        note.when,
+        flat(&note.app),
+        flat(&note.summary),
+        flat(&note.body)
+    );
+    let mut lines: Vec<&str> = history.lines().filter(|line| !line.is_empty()).collect();
+    lines.push(&line);
+    let skip = lines.len().saturating_sub(KEPT);
+    let mut out = lines[skip..].join("\n");
+    out.push('\n');
+    out
+}
+
+pub fn recall(history: &str) -> Vec<Recent> {
+    history
+        .lines()
+        .rev()
+        .filter_map(|line| {
+            let mut parts = line.splitn(4, '\t');
+            Some(Recent {
+                when: parts.next()?.parse().ok()?,
+                app: parts.next()?.to_string(),
+                summary: parts.next()?.to_string(),
+                body: parts.next().unwrap_or("").to_string(),
+            })
+        })
+        .collect()
+}
+
+pub fn ago(when: u64, now: u64) -> String {
+    let gone = now.saturating_sub(when);
+    match gone {
+        0..60 => "Just now".to_string(),
+        60..3600 => format!("{} min ago", gone / 60),
+        3600..86400 => format!("{} h ago", gone / 3600),
+        _ => format!("{} days ago", gone / 86400),
     }
 }
 
@@ -273,16 +339,41 @@ mod tests {
             body: body.into(),
             actions: Vec::new(),
             expire: Some(DEFAULT_MS),
+            asked: -1,
+            critical: false,
             icon: None,
         }
     }
 
     #[test]
     fn the_timeout_follows_the_spec() {
-        assert_eq!(expire_ms(-1, false), Some(DEFAULT_MS));
-        assert_eq!(expire_ms(0, false), None);
-        assert_eq!(expire_ms(2500, false), Some(2500));
-        assert_eq!(expire_ms(2500, true), None);
+        let usual = Some(DEFAULT_MS);
+        assert_eq!(expire_ms(-1, false, usual), usual);
+        assert_eq!(expire_ms(-1, false, None), None);
+        assert_eq!(expire_ms(0, false, usual), None);
+        assert_eq!(expire_ms(2500, false, usual), Some(2500));
+        assert_eq!(expire_ms(2500, true, usual), None);
+    }
+
+    #[test]
+    fn the_history_keeps_the_newest_fifty_on_one_line_each() {
+        let mut text = String::new();
+        for at in 0..60 {
+            let note = Recent {
+                when: at,
+                app: "Mail".into(),
+                summary: format!("note {at}"),
+                body: "two\nlines\tand a tab".into(),
+            };
+            text = remember(&text, &note);
+        }
+        let back = recall(&text);
+        assert_eq!(back.len(), KEPT);
+        assert_eq!(back[0].summary, "note 59");
+        assert_eq!(back[0].body, "two lines and a tab");
+        assert_eq!(back.last().unwrap().when, 10);
+        assert_eq!(ago(100, 100), "Just now");
+        assert_eq!(ago(0, 7200), "2 h ago");
     }
 
     #[test]

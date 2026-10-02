@@ -2,51 +2,72 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::config::{
-    ButtonName, Config, FASTEST, Keyboard, Launch, Modifier, Night, REPEAT_DELAY, REPEAT_RATE,
-    Side, ThreeTap, Touchpad, WallpaperMode, WallpaperOrder,
+    Appearance, ButtonName, Config, FASTEST, Keyboard, Keys, Launch, Modifier, Motion, Mouse,
+    Night, Notify, Power, REPEAT_DELAY, REPEAT_RATE, Side, ThreeTap, Touchpad, WallpaperMode,
+    WallpaperOrder,
 };
 use crate::desktop::Role;
 use crate::geom::{Rect, Vec2};
 use crate::image::Image;
 use crate::keyboard::Layout;
+use crate::notify::Recent;
 use crate::paint::Canvas;
 use crate::screens::{self, Head, MonitorConfig};
 use crate::sheet::{For, Sheet};
 use crate::stats::{self, Metric, Mount};
+use crate::system::Sound;
 use crate::text::Font;
 
 pub const WORLD_LEAST: u32 = 2;
 pub const WORLD_MOST: u32 = 10;
 pub const UNITS: [u64; 3] = [1, 60, 3600];
 
+mod pages;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Section {
     Desktop,
     Displays,
     Wallpaper,
+    Appearance,
     Window,
     Dock,
     TopBar,
-    Input,
+    Notifications,
+    Sound,
+    Keyboard,
+    Mouse,
     Touchpad,
+    Shortcuts,
+    Power,
     Lock,
+    Time,
     Login,
     Apps,
+    About,
 }
 
 impl Section {
-    pub const ALL: [Section; 11] = [
+    pub const ALL: [Section; 19] = [
         Section::Desktop,
         Section::Displays,
         Section::Wallpaper,
+        Section::Appearance,
         Section::Window,
         Section::Dock,
         Section::TopBar,
-        Section::Input,
+        Section::Notifications,
+        Section::Sound,
+        Section::Keyboard,
+        Section::Mouse,
         Section::Touchpad,
+        Section::Shortcuts,
+        Section::Power,
         Section::Lock,
+        Section::Time,
         Section::Login,
         Section::Apps,
+        Section::About,
     ];
 
     pub fn name(self) -> &'static str {
@@ -54,14 +75,22 @@ impl Section {
             Section::Desktop => "Desktop",
             Section::Displays => "Displays",
             Section::Wallpaper => "Wallpaper",
+            Section::Appearance => "Appearance",
             Section::Window => "Windows",
             Section::Dock => "Dock",
             Section::TopBar => "Top Bar",
-            Section::Input => "Keyboard & Mouse",
+            Section::Notifications => "Notifications",
+            Section::Sound => "Sound",
+            Section::Keyboard => "Keyboard",
+            Section::Mouse => "Mouse",
             Section::Touchpad => "Touchpad",
+            Section::Shortcuts => "Shortcuts",
+            Section::Power => "Power",
             Section::Lock => "Lock Screen",
+            Section::Time => "Date & Time",
             Section::Login => "Login Items",
             Section::Apps => "Default Apps",
+            Section::About => "About",
         }
     }
 
@@ -70,14 +99,22 @@ impl Section {
             Section::Desktop => [52, 168, 140],
             Section::Displays => [70, 120, 210],
             Section::Wallpaper => [40, 170, 210],
+            Section::Appearance => [70, 76, 96],
             Section::Window => [88, 110, 230],
             Section::Dock => [120, 128, 146],
             Section::TopBar => [240, 140, 50],
-            Section::Input => [150, 110, 220],
+            Section::Notifications => [226, 64, 72],
+            Section::Sound => [230, 70, 130],
+            Section::Keyboard => [150, 110, 220],
+            Section::Mouse => [110, 120, 200],
             Section::Touchpad => [60, 150, 110],
+            Section::Shortcuts => [130, 100, 200],
+            Section::Power => [70, 170, 80],
             Section::Lock => [96, 102, 120],
+            Section::Time => [60, 130, 220],
             Section::Login => [220, 80, 90],
             Section::Apps => [214, 160, 40],
+            Section::About => [128, 134, 150],
         }
     }
 }
@@ -86,7 +123,9 @@ impl Section {
 pub enum Ask {
     Pick(For),
     Files(For),
-    Layouts,
+    Choose(For),
+    Capture(usize),
+    Forget,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -159,6 +198,20 @@ pub struct Model {
     pub monitors: Vec<Monitor>,
     pub picked: usize,
     pub monitor_config: Vec<MonitorConfig>,
+    pub mouse: Mouse,
+    pub motion: Motion,
+    pub appearance: Appearance,
+    pub assets: [Option<PathBuf>; 4],
+    pub power: Power,
+    pub notify: Notify,
+    pub keys: Keys,
+    pub variants: Vec<Layout>,
+    pub recent: Vec<Recent>,
+    pub now: u64,
+    pub sound: Sound,
+    pub zone: String,
+    pub ntp: Option<bool>,
+    pub about: Vec<(String, String)>,
 }
 
 impl Model {
@@ -275,6 +328,26 @@ impl Model {
             monitors: Vec::new(),
             picked: 0,
             monitor_config: config.monitor.clone(),
+            mouse: config.mouse,
+            motion: config.motion,
+            appearance: config.appearance.clone(),
+            assets: [
+                config.cursor_path(),
+                config.font_path(),
+                config.window_dir(),
+                config.dock_dir(),
+            ]
+            .map(|path| path.map(clean)),
+            power: config.power,
+            notify: config.notify,
+            keys: config.keys.clone(),
+            variants: crate::keyboard::variants(&config.keyboard.layout),
+            recent: Vec::new(),
+            now: 0,
+            sound: Sound::default(),
+            zone: String::new(),
+            ntp: None,
+            about: Vec::new(),
         }
         .mark_custom(&config.tray.format)
     }
@@ -512,27 +585,32 @@ impl Model {
 
     pub fn groups(&self, section: Section) -> Vec<Group> {
         match section {
-            Section::Desktop => vec![Group {
-                header: None,
-                rows: vec![
-                    Row::new(
-                        Id::World,
-                        "World size",
-                        Control::Slider {
-                            least: f64::from(WORLD_LEAST),
-                            most: f64::from(WORLD_MOST),
-                            value: f64::from(self.world),
-                            unit: "",
-                            zero: None,
-                        },
-                    )
-                    .detail("Screens across and screens down"),
-                ],
-                footer: Some(
-                    "Hold the camera key and push an edge to pan, or scroll to zoom out.".into(),
-                ),
-                thumbs: None,
-            }],
+            Section::Desktop => {
+                let mut groups = vec![Group {
+                    header: None,
+                    rows: vec![
+                        Row::new(
+                            Id::World,
+                            "World size",
+                            Control::Slider {
+                                least: f64::from(WORLD_LEAST),
+                                most: f64::from(WORLD_MOST),
+                                value: f64::from(self.world),
+                                unit: "",
+                                zero: None,
+                            },
+                        )
+                        .detail("Screens across and screens down"),
+                    ],
+                    footer: Some(
+                        "Hold the camera key and push an edge to pan, or scroll to zoom out."
+                            .into(),
+                    ),
+                    thumbs: None,
+                }];
+                groups.extend(self.motion_groups());
+                groups
+            }
             Section::Wallpaper => self.wallpaper_groups(),
             Section::Window => vec![
                 Group {
@@ -690,12 +768,6 @@ impl Model {
                         thumbs: None,
                     },
                     Group {
-                        header: Some("Clock"),
-                        rows: self.clock_rows(),
-                        footer: None,
-                        thumbs: None,
-                    },
-                    Group {
                         header: Some("System info"),
                         rows: info,
                         footer: Some(
@@ -705,29 +777,15 @@ impl Model {
                     },
                 ]
             }
-            Section::Input => vec![
-                Group {
-                    header: None,
-                    rows: vec![Row::new(
-                        Id::Modifier,
-                        "Camera key",
-                        Control::Segments {
-                            options: vec!["Super", "Alt", "Ctrl"],
-                            chosen: match self.modifier {
-                                Modifier::Super => 0,
-                                Modifier::Alt => 1,
-                                Modifier::Ctrl => 2,
-                            },
-                        },
-                    )],
-                    footer: Some(
-                        "Hold it to zoom with the scroll wheel, and to pan by pushing an edge."
-                            .into(),
-                    ),
-                    thumbs: None,
-                },
-                self.keyboard_group(),
-            ],
+            Section::Keyboard => vec![self.keyboard_group()],
+            Section::Mouse => self.mouse_groups(),
+            Section::Appearance => self.appearance_groups(),
+            Section::Notifications => self.notify_groups(),
+            Section::Sound => self.sound_groups(),
+            Section::Shortcuts => self.shortcut_groups(),
+            Section::Power => self.power_groups(),
+            Section::Time => self.time_groups(),
+            Section::About => self.about_groups(),
             Section::Touchpad => self.touchpad_groups(),
             Section::Displays => {
                 let mut groups = self.display_groups();
@@ -856,56 +914,10 @@ impl Model {
         }]
     }
 
-    fn keyboard_group(&self) -> Group {
-        let keys = &self.keyboard;
-        let mut layout = crate::keyboard::name_of(&self.layouts, &keys.layout);
-        if !keys.variant.is_empty() {
-            layout = format!("{layout}, {}", keys.variant);
-        }
-        let (delay_least, delay_most) = REPEAT_DELAY;
-        let (rate_least, rate_most) = REPEAT_RATE;
-        Group {
-            header: Some("Keyboard"),
-            rows: vec![
-                Row::new(
-                    Id::Layout,
-                    "Layout",
-                    Control::Buttons(vec![Mark::Text("Choose")]),
-                )
-                .detail(&layout),
-                Row::new(
-                    Id::RepeatDelay,
-                    "Repeat after",
-                    Control::Slider {
-                        least: f64::from(delay_least),
-                        most: f64::from(delay_most),
-                        value: f64::from(keys.repeat_delay),
-                        unit: " ms",
-                        zero: None,
-                    },
-                )
-                .detail("How long a key is held before it repeats"),
-                Row::new(
-                    Id::RepeatRate,
-                    "Repeat speed",
-                    Control::Slider {
-                        least: f64::from(rate_least),
-                        most: f64::from(rate_most),
-                        value: f64::from(keys.repeat_rate),
-                        unit: "",
-                        zero: None,
-                    },
-                )
-                .detail("Repeats a second while a key is held"),
-            ],
-            footer: Some("Variants and xkb options are set in the config file.".into()),
-            thumbs: None,
-        }
-    }
-
     pub fn choose_layout(&mut self, code: String) {
         if code != self.keyboard.layout {
             self.keyboard.variant.clear();
+            self.variants = crate::keyboard::variants(&code);
         }
         self.keyboard.layout = code;
     }
@@ -1015,18 +1027,26 @@ impl Model {
         let mut groups = vec![
             Group {
                 header: None,
-                rows: vec![Row::new(
-                    Id::WallpaperMode,
-                    "Behavior",
-                    Control::Segments {
-                        options: vec!["Fixed", "Pan", "Parallax"],
-                        chosen: match self.wallpaper_mode {
-                            WallpaperMode::Fixed => 0,
-                            WallpaperMode::Pan => 1,
-                            WallpaperMode::Parallax => 2,
+                rows: vec![
+                    Row::new(
+                        Id::Picture,
+                        "Picture",
+                        Control::Buttons(vec![Mark::Text("Choose")]),
+                    )
+                    .detail(&file_name(self.wallpaper.as_deref(), "None chosen")),
+                    Row::new(
+                        Id::WallpaperMode,
+                        "Behavior",
+                        Control::Segments {
+                            options: vec!["Fixed", "Pan", "Parallax"],
+                            chosen: match self.wallpaper_mode {
+                                WallpaperMode::Fixed => 0,
+                                WallpaperMode::Pan => 1,
+                                WallpaperMode::Parallax => 2,
+                            },
                         },
-                    },
-                )],
+                    ),
+                ],
                 footer: Some(
                     match self.wallpaper_mode {
                         WallpaperMode::Fixed => "The picture stays put while the camera moves.",
@@ -1203,7 +1223,7 @@ impl Model {
                     disk.on = on;
                 }
             }
-            _ => {}
+            (id, value) => self.set_more(id, value),
         }
     }
 
@@ -1212,7 +1232,8 @@ impl Model {
             (Id::Order(slot), 0) if slot > 0 && slot < 3 => self.order.swap(slot, slot - 1),
             (Id::Order(slot), 1) if slot < 2 => self.order.swap(slot, slot + 1),
             (Id::Folder, _) => return Some(Ask::Files(For::Folder)),
-            (Id::Layout, _) => return Some(Ask::Layouts),
+            (Id::Layout, _) => return Some(Ask::Choose(For::Layout)),
+            (Id::Picture, _) => return Some(Ask::Files(For::Picture)),
             (Id::Login(at), 0) if at < self.login.len() => {
                 self.login.remove(at);
             }
@@ -1231,7 +1252,7 @@ impl Model {
             (Id::Custom, _) => self.custom = None,
             (Id::Scale, 0) => self.step_scale(false),
             (Id::Scale, 1) => self.step_scale(true),
-            _ => {}
+            (id, index) => return self.press_more(id, index),
         }
         None
     }
@@ -1382,6 +1403,9 @@ impl Model {
         if keys.variant != was.variant {
             put(&mut doc, "keyboard", "variant", word(&keys.variant));
         }
+        if keys.options != was.options {
+            put(&mut doc, "keyboard", "options", word(&keys.options));
+        }
         if keys.repeat_delay != was.repeat_delay {
             put(
                 &mut doc,
@@ -1457,12 +1481,7 @@ impl Model {
             if self.defaults[at] != before.defaults[at] {
                 match &self.defaults[at] {
                     Some(item) => put(&mut doc, "apps", key, launch(item)),
-                    None => {
-                        if let Some(table) = doc.get_mut("apps").and_then(|t| t.as_table_like_mut())
-                        {
-                            table.remove(key);
-                        }
-                    }
+                    None => drop_key(&mut doc, "apps", key),
                 }
             }
         }
@@ -1498,7 +1517,20 @@ impl Model {
                 );
             }
         }
+        self.write_more(before, &mut doc);
         Ok(doc.to_string())
+    }
+}
+
+fn file_name(path: Option<&std::path::Path>, none: &str) -> String {
+    path.and_then(|path| path.file_name())
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| none.to_string())
+}
+
+fn drop_key(doc: &mut toml_edit::DocumentMut, table: &str, key: &str) {
+    if let Some(table) = doc.get_mut(table).and_then(|t| t.as_table_like_mut()) {
+        table.remove(key);
     }
 }
 
@@ -1618,6 +1650,47 @@ pub enum Id {
     MonitorName,
     Scale,
     Turn,
+    Picture,
+    Variant,
+    Caps,
+    Compose,
+    Options,
+    MouseSpeed,
+    MouseAccel,
+    MouseNatural,
+    LeftHanded,
+    HotCorner,
+    CornerSize,
+    CornerWait,
+    PanSpeed,
+    Flight,
+    BarOpen,
+    BarClose,
+    BarSlide,
+    Style,
+    AccentColor,
+    IconTheme,
+    CursorTheme,
+    CursorSize,
+    Asset(usize),
+    SleepAfter,
+    Lid,
+    PowerButton,
+    Quiet,
+    NoteSeconds,
+    History,
+    Recent(usize),
+    Forget,
+    Shortcut(usize),
+    Output,
+    Volume,
+    Mute,
+    Input,
+    Mic,
+    MicMute,
+    Zone,
+    AutoTime,
+    Info(usize),
 }
 
 const SHOWS: [&str; 5] = [
@@ -1668,6 +1741,11 @@ pub enum Control {
         chosen: usize,
     },
     Buttons(Vec<Mark>),
+    Swatches {
+        colors: Vec<[u8; 3]>,
+        chosen: Option<usize>,
+    },
+    Note(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1770,13 +1848,14 @@ pub struct Look {
     pub accent: [u8; 3],
     pub off: [u8; 3],
     pub pick: [u8; 3],
+    pub side_scroll: f64,
 }
 
 impl Default for Look {
     fn default() -> Self {
         Look {
             sidebar: 220.0,
-            item: 32.0,
+            item: 28.0,
             pad: 28.0,
             row: 46.0,
             radius: 10.0,
@@ -1797,6 +1876,7 @@ impl Default for Look {
             accent: [64, 128, 238],
             off: [72, 77, 94],
             pick: [98, 105, 128],
+            side_scroll: 0.0,
         }
     }
 }
@@ -1810,6 +1890,7 @@ pub struct Placed {
     pub footer: Option<Rect>,
 }
 
+const SIDE_TOP: f64 = 52.0;
 const THUMB_GAP: f64 = 10.0;
 const THUMB_PAD: f64 = 14.0;
 
@@ -1820,9 +1901,34 @@ impl Look {
 
     pub fn item_rect(&self, index: usize) -> Rect {
         Rect::new(
-            Vec2::new(10.0, 52.0 + index as f64 * (self.item + 2.0)),
+            Vec2::new(
+                10.0,
+                SIDE_TOP + index as f64 * (self.item + 2.0) - self.side_scroll,
+            ),
             Vec2::new(self.sidebar - 20.0, self.item),
         )
+    }
+
+    pub fn side_most(&self, height: f64) -> f64 {
+        let whole = SIDE_TOP + Section::ALL.len() as f64 * (self.item + 2.0) + 10.0;
+        (whole - height).max(0.0)
+    }
+
+    pub fn swatch_rects(&self, row: Rect, count: usize) -> Vec<Rect> {
+        let (size, gap) = (22.0, 8.0);
+        let whole = count as f64 * (size + gap) - gap;
+        let left = row.max().x - 14.0 - whole;
+        (0..count)
+            .map(|slot| {
+                Rect::new(
+                    Vec2::new(
+                        left + slot as f64 * (size + gap),
+                        row.center().y - size / 2.0,
+                    ),
+                    Vec2::splat(size),
+                )
+            })
+            .collect()
     }
 
     fn column(&self, size: Vec2) -> (f64, f64) {
@@ -2020,6 +2126,9 @@ impl Look {
         pointer: Vec2,
     ) -> Option<Hit> {
         if pointer.x < self.sidebar {
+            if pointer.y < SIDE_TOP - 6.0 {
+                return None;
+            }
             return Section::ALL
                 .iter()
                 .enumerate()
@@ -2065,6 +2174,15 @@ impl Look {
                         .iter()
                         .position(|mark| mark.contains(pointer))
                         .map(|at| Hit::Press(row.id, at)),
+                    Control::Swatches { colors, .. } => self
+                        .swatch_rects(*rect, colors.len())
+                        .iter()
+                        .position(|spot| {
+                            Rect::new(spot.origin - Vec2::splat(3.0), spot.size + Vec2::splat(6.0))
+                                .contains(pointer)
+                        })
+                        .map(|at| Hit::Change(row.id, Value::Choice(at))),
+                    Control::Note(_) => None,
                 };
             }
         }
@@ -2170,10 +2288,11 @@ impl Look {
         canvas.round_rect(side, 0.0, self.side, 1.0);
         let edge = Rect::new(Vec2::new(self.sidebar - 1.0, 0.0), Vec2::new(1.0, size.y));
         canvas.round_rect(edge, 0.0, self.rule, 1.0);
-        let heading = fonts.small.paint("Settings", self.dim);
-        canvas.stamp(&heading, Vec2::new(22.0, 24.0), 1.0);
         for (index, each) in Section::ALL.iter().enumerate() {
             let rect = self.item_rect(index);
+            if rect.max().y < SIDE_TOP - 6.0 || rect.origin.y > size.y {
+                continue;
+            }
             if *each == section {
                 canvas.round_rect(rect, 7.0, self.accent, 1.0);
             }
@@ -2190,6 +2309,10 @@ impl Look {
             );
             canvas.stamp(&label, at, 1.0);
         }
+        let top = Rect::new(Vec2::ZERO, Vec2::new(self.sidebar - 1.0, SIDE_TOP - 6.0));
+        canvas.round_rect(top, 0.0, self.side, 1.0);
+        let heading = fonts.small.paint("Settings", self.dim);
+        canvas.stamp(&heading, Vec2::new(22.0, 24.0), 1.0);
 
         if let Some(sheet) = art.sheet {
             sheet.paint(&mut canvas, self, fonts, art.icons);
@@ -2219,6 +2342,15 @@ impl Look {
         let room = match &row.control {
             Control::Buttons(marks) => {
                 self.mark_rects(rect, marks)
+                    .first()
+                    .map(|first| first.origin.x)
+                    .unwrap_or(rect.max().x)
+                    - x
+                    - 10.0
+            }
+            Control::Note(_) => rect.size.x * 0.32,
+            Control::Swatches { colors, .. } => {
+                self.swatch_rects(rect, colors.len())
                     .first()
                     .map(|first| first.origin.x)
                     .unwrap_or(rect.max().x)
@@ -2317,6 +2449,28 @@ impl Look {
                         - Vec2::new(f64::from(text.width), f64::from(text.height)) / 2.0;
                     canvas.stamp(&text, at, fade);
                 }
+            }
+            Control::Swatches { colors, chosen } => {
+                for (slot, (color, spot)) in colors
+                    .iter()
+                    .zip(self.swatch_rects(rect, colors.len()))
+                    .enumerate()
+                {
+                    if *chosen == Some(slot) {
+                        canvas.circle(spot.center(), spot.size.x / 2.0 + 3.0, self.ink, fade);
+                        canvas.circle(spot.center(), spot.size.x / 2.0 + 1.5, self.card, fade);
+                    }
+                    canvas.circle(spot.center(), spot.size.x / 2.0, *color, fade);
+                }
+            }
+            Control::Note(text) => {
+                let room = rect.size.x * 0.62 - 14.0;
+                let painted = fonts.body.paint(&fit(fonts.body, text, room), self.dim);
+                let at = Vec2::new(
+                    rect.max().x - 14.0 - f64::from(painted.width),
+                    rect.center().y - f64::from(painted.height) / 2.0,
+                );
+                canvas.stamp(&painted, at, fade);
             }
             Control::Buttons(marks) => {
                 for (mark, spot) in marks.iter().zip(self.mark_rects(rect, marks)) {
@@ -2623,13 +2777,63 @@ fn paint_glyph(canvas: &mut Canvas, section: Section, icon: Rect) {
             canvas.round_rect(r(4.0, 4.0, 14.0, 5.0), 2.0, white, 1.0);
             canvas.round_rect(r(4.0, 11.0, 14.0, 7.0), 1.5, white, 0.45);
         }
-        Section::Input => {
+        Section::Appearance => {
+            canvas.circle(o + Vec2::new(11.0, 11.0), 7.0, white, 1.0);
+            canvas.round_rect(r(11.0, 4.0, 7.0, 14.0), 0.0, section.tint(), 1.0);
+            canvas.circle(o + Vec2::new(11.0, 11.0), 1.0, white, 1.0);
+        }
+        Section::Notifications => {
+            canvas.circle(o + Vec2::new(11.0, 10.0), 5.5, white, 1.0);
+            canvas.round_rect(r(5.5, 10.0, 11.0, 5.0), 1.0, white, 1.0);
+            canvas.round_rect(r(4.0, 14.5, 14.0, 1.5), 0.5, white, 1.0);
+            canvas.circle(o + Vec2::new(11.0, 17.5), 1.6, white, 1.0);
+        }
+        Section::Sound => {
+            canvas.round_rect(r(4.0, 8.5, 4.0, 5.0), 0.5, white, 1.0);
+            canvas.triangle(
+                [
+                    o + Vec2::new(6.0, 11.0),
+                    o + Vec2::new(12.0, 5.0),
+                    o + Vec2::new(12.0, 17.0),
+                ],
+                white,
+                1.0,
+            );
+            canvas.round_rect(r(14.0, 9.0, 1.5, 4.0), 0.7, white, 1.0);
+            canvas.round_rect(r(17.0, 7.0, 1.5, 8.0), 0.7, white, 1.0);
+        }
+        Section::Keyboard => {
             canvas.round_rect(r(3.0, 6.0, 16.0, 10.0), 2.0, white, 1.0);
             let key = section.tint();
             for x in [5.5, 9.0, 12.5] {
                 canvas.round_rect(r(x, 8.0, 2.5, 2.0), 0.5, key, 1.0);
             }
             canvas.round_rect(r(6.0, 12.0, 10.0, 2.0), 0.5, key, 1.0);
+        }
+        Section::Mouse => {
+            canvas.round_rect(r(6.5, 3.0, 9.0, 16.0), 4.5, white, 1.0);
+            canvas.round_rect(r(10.5, 5.0, 1.0, 4.0), 0.5, section.tint(), 1.0);
+        }
+        Section::Shortcuts => {
+            canvas.round_rect(r(3.0, 7.0, 7.0, 8.0), 1.5, white, 1.0);
+            canvas.round_rect(r(12.0, 7.0, 7.0, 8.0), 1.5, white, 1.0);
+            canvas.round_rect(r(10.0, 10.5, 2.0, 1.0), 0.5, white, 1.0);
+        }
+        Section::Power => {
+            canvas.circle(o + Vec2::new(11.0, 12.0), 6.5, white, 1.0);
+            canvas.circle(o + Vec2::new(11.0, 12.0), 4.5, section.tint(), 1.0);
+            canvas.round_rect(r(9.0, 3.0, 4.0, 7.0), 1.0, section.tint(), 1.0);
+            canvas.round_rect(r(10.0, 3.5, 2.0, 8.0), 1.0, white, 1.0);
+        }
+        Section::Time => {
+            canvas.circle(o + Vec2::new(11.0, 11.0), 7.5, white, 1.0);
+            canvas.round_rect(r(10.2, 6.0, 1.6, 5.8), 0.8, section.tint(), 1.0);
+            canvas.round_rect(r(10.2, 10.2, 4.8, 1.6), 0.8, section.tint(), 1.0);
+        }
+        Section::About => {
+            canvas.circle(o + Vec2::new(11.0, 11.0), 7.5, white, 1.0);
+            canvas.circle(o + Vec2::new(11.0, 7.5), 1.3, section.tint(), 1.0);
+            canvas.round_rect(r(10.0, 10.0, 2.0, 6.0), 1.0, section.tint(), 1.0);
         }
         Section::Displays => {
             canvas.round_rect(r(3.0, 4.0, 16.0, 11.0), 2.0, white, 1.0);
@@ -2841,7 +3045,10 @@ mod tests {
     fn keyboard_changes_write_the_keyboard_table() {
         let text = "[keyboard]\nlayout = \"us\"\nvariant = \"dvorak\"\n";
         let before = model(&config(text));
-        assert_eq!(before.clone().press(Id::Layout, 0), Some(Ask::Layouts));
+        assert_eq!(
+            before.clone().press(Id::Layout, 0),
+            Some(Ask::Choose(For::Layout))
+        );
         let mut after = before.clone();
         after.choose_layout("de".into());
         after.set(Id::RepeatDelay, Value::Number(5000.0));
@@ -3133,21 +3340,30 @@ mod tests {
     }
 
     #[test]
-    fn every_section_fits_in_the_sidebar_of_the_smallest_window() {
-        let look = Look::default();
+    fn the_sidebar_scrolls_to_its_last_section_in_the_smallest_window() {
+        let mut look = Look::default();
+        let least = look.least();
+        look.side_scroll = look.side_most(least.y);
         let last = look.item_rect(Section::ALL.len() - 1);
-        assert!(last.max().y < look.least().y);
+        assert!(last.max().y < least.y);
+        let model = model(&Config::default());
+        assert_eq!(
+            look.hit(least, Section::Desktop, &model, 0.0, last.center()),
+            Some(Hit::Section(Section::About))
+        );
+        let hidden = Vec2::new(40.0, 20.0);
+        assert_eq!(look.hit(least, Section::Desktop, &model, 0.0, hidden), None);
     }
 
     #[test]
     fn clicking_a_switch_row_flips_it() {
         let look = Look::default();
         let model = model(&Config::default());
-        let groups = model.groups(Section::TopBar);
-        let placed = look.place(SIZE, Section::TopBar, &groups, 0.0);
+        let groups = model.groups(Section::Time);
+        let placed = look.place(SIZE, Section::Time, &groups, 0.0);
         let seconds = placed[1].rows[2].center();
         assert_eq!(
-            look.hit(SIZE, Section::TopBar, &model, 0.0, seconds),
+            look.hit(SIZE, Section::Time, &model, 0.0, seconds),
             Some(Hit::Change(Id::Seconds, Value::Switch(false)))
         );
     }
@@ -3159,7 +3375,7 @@ mod tests {
         model.stats = false;
         let groups = model.groups(Section::TopBar);
         let placed = look.place(SIZE, Section::TopBar, &groups, 0.0);
-        let cpu = placed[2].rows[1].center();
+        let cpu = placed[1].rows[1].center();
         assert_eq!(look.hit(SIZE, Section::TopBar, &model, 0.0, cpu), None);
     }
 
@@ -3211,11 +3427,11 @@ mod tests {
     fn clicking_a_segment_picks_it() {
         let look = Look::default();
         let model = model(&Config::default());
-        let groups = model.groups(Section::Input);
-        let row = look.place(SIZE, Section::Input, &groups, 0.0)[0].rows[0];
+        let groups = model.groups(Section::Mouse);
+        let row = look.place(SIZE, Section::Mouse, &groups, 0.0)[0].rows[0];
         let alt = look.segment_rect(row, 3, 1).center();
         assert_eq!(
-            look.hit(SIZE, Section::Input, &model, 0.0, alt),
+            look.hit(SIZE, Section::Mouse, &model, 0.0, alt),
             Some(Hit::Change(Id::Modifier, Value::Choice(1)))
         );
     }

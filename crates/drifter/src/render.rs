@@ -1898,6 +1898,8 @@ impl State {
             body,
             actions: Vec::new(),
             expire: Some(drifter_core::notify::DEFAULT_MS),
+            asked: -1,
+            critical: false,
             icon: None,
         });
     }
@@ -4333,6 +4335,8 @@ impl Screen {
                 body: format!("{error}. Drifter uses its defaults until it is fixed."),
                 actions: Vec::new(),
                 expire: None,
+                asked: 0,
+                critical: true,
                 icon: None,
             });
         }
@@ -4347,6 +4351,8 @@ impl Screen {
                 body: format!("What happened is in {}", log.display()),
                 actions: Vec::new(),
                 expire: Some(10_000),
+                asked: 10_000,
+                critical: false,
                 icon: None,
             });
         }

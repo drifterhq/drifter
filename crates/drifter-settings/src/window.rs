@@ -5,8 +5,10 @@ use std::sync::{Arc, Mutex};
 
 use drifter_core::desktop::App;
 use drifter_core::settings::{Art, Ask, Fonts, Hit, Id, Look, Model, Section, Value};
-use drifter_core::sheet::{For, Pick, Sheet};
+use drifter_core::sheet::{Choice, For, Pick, Sheet};
+use drifter_core::shortcut::{self, Combo, Mods};
 use drifter_core::stats::{self, Mount};
+use drifter_core::system::{self, Sound};
 use drifter_core::{Config, Font, Image, Launch, Vec2};
 use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState};
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
@@ -50,6 +52,8 @@ struct Settings {
     window: Window,
     pointer: Option<wl_pointer::WlPointer>,
     keyboard: Option<wl_keyboard::WlKeyboard>,
+    mods: Modifiers,
+    chores: LoopSender<()>,
     size: (u32, u32),
     exit: bool,
 
@@ -90,7 +94,12 @@ pub fn run() -> Result<(), String> {
         .and_then(|path| drifter_core::image::load(&path).ok())
         .map(small);
     let apps = drifter_core::desktop::installed();
+    drifter_core::icon::set_theme(config.appearance.icons.clone());
     let mut model = read_model(&config);
+    model.sound = read_sound();
+    (model.zone, model.ntp) = read_time();
+    model.about = system::about(std::env::var("DRIFTER_RENDERER").ok().as_deref(), &path);
+    read_recent(&mut model);
     model.names = apps
         .iter()
         .map(|app| (app.id.clone(), app.name.clone()))
@@ -109,7 +118,10 @@ pub fn run() -> Result<(), String> {
     let window = shell.create_window(surface, WindowDecorations::RequestServer, &qh);
     window.set_title("Settings");
     window.set_app_id(APP);
-    let look = Look::default();
+    let look = Look {
+        accent: accent(&model),
+        ..Look::default()
+    };
     let least = look.least();
     window.set_min_size(Some((least.x as u32, least.y as u32)));
     window.commit();
@@ -137,6 +149,20 @@ pub fn run() -> Result<(), String> {
         })
         .map_err(|e| format!("cannot watch the thumbnails: {e}"))?;
     let loads = loaders(done_tx);
+    let (chores, chores_done) = loop_channel::<()>();
+    events
+        .handle()
+        .insert_source(chores_done, |event, _, settings: &mut Settings| {
+            if let ChannelEvent::Msg(()) = event {
+                let time = read_time();
+                (settings.model.zone, settings.model.ntp) = time.clone();
+                (settings.saved.zone, settings.saved.ntp) = time;
+                if settings.section == Section::Time && settings.sheet.is_none() {
+                    settings.draw();
+                }
+            }
+        })
+        .map_err(|e| format!("cannot watch the system changes: {e}"))?;
 
     let mut settings = Settings {
         registry: RegistryState::new(&globals),
@@ -147,6 +173,8 @@ pub fn run() -> Result<(), String> {
         window,
         pointer: None,
         keyboard: None,
+        mods: Modifiers::default(),
+        chores,
         size: START,
         exit: false,
         look,
@@ -220,6 +248,98 @@ fn read_model(config: &Config) -> Model {
         .map(|text| stats::mounts(&text))
         .unwrap_or_default();
     Model::read(config, &mounts, kernel)
+}
+
+fn accent(model: &Model) -> [u8; 3] {
+    model
+        .appearance
+        .accent
+        .map(|accent| accent.color())
+        .unwrap_or(Look::default().accent)
+}
+
+fn output(program: &str, args: &[&str]) -> Option<String> {
+    std::process::Command::new(program)
+        .args(args)
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+fn wpctl(args: &[&str]) {
+    if let Err(error) = std::process::Command::new("wpctl").args(args).status() {
+        eprintln!("drifter-settings: wpctl {args:?}: {error}");
+    }
+}
+
+const SINK: &str = "@DEFAULT_AUDIO_SINK@";
+const SOURCE: &str = "@DEFAULT_AUDIO_SOURCE@";
+
+fn read_sound() -> Sound {
+    let Some(status) = output("wpctl", &["status"]) else {
+        return Sound::default();
+    };
+    let (outputs, inputs) = system::parse_status(&status);
+    let level = |target: &str| {
+        output("wpctl", &["get-volume", target])
+            .and_then(|text| drifter_core::hud::parse_wpctl(&text))
+            .unwrap_or((0.0, false))
+    };
+    let (volume, muted) = level(SINK);
+    let (mic, mic_muted) = level(SOURCE);
+    Sound {
+        ready: true,
+        outputs,
+        inputs,
+        volume: volume.min(1.0),
+        muted,
+        mic: mic.min(1.0),
+        mic_muted,
+    }
+}
+
+fn read_time() -> (String, Option<bool>) {
+    let shown = output("timedatectl", &["show", "-p", "Timezone", "-p", "NTP"]);
+    let field = |key: &str| {
+        shown.as_deref().and_then(|text| {
+            text.lines()
+                .find_map(|line| line.strip_prefix(key)?.strip_prefix('='))
+                .map(str::to_string)
+        })
+    };
+    let zone = field("Timezone")
+        .filter(|zone| !zone.is_empty())
+        .or_else(|| {
+            std::fs::read_link("/etc/localtime")
+                .ok()
+                .and_then(|link| system::zone_from_link(&link))
+        })
+        .unwrap_or_default();
+    (zone, field("NTP").map(|ntp| ntp == "yes"))
+}
+
+fn zones() -> Vec<Choice> {
+    ["zone1970.tab", "zone.tab", "tzdata.zi"]
+        .iter()
+        .find_map(|name| std::fs::read_to_string(Path::new("/usr/share/zoneinfo").join(name)).ok())
+        .map(|table| system::zone_choices(&table))
+        .unwrap_or_default()
+}
+
+fn history_path() -> PathBuf {
+    Config::state_dir().join("notes")
+}
+
+fn read_recent(model: &mut Model) {
+    model.recent = std::fs::read_to_string(history_path())
+        .map(|text| drifter_core::notify::recall(&text))
+        .unwrap_or_default();
+    model.now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_secs())
+        .unwrap_or(0);
 }
 
 fn kernel(mount: &Mount) -> Option<String> {
@@ -414,6 +534,7 @@ impl Settings {
             Some(Hit::Section(section)) => {
                 self.section = section;
                 self.scroll = 0.0;
+                self.refresh(section);
                 self.want_thumbs();
             }
             Some(Hit::Change(id, value)) => {
@@ -434,8 +555,18 @@ impl Settings {
                 }
                 Some(Ask::Pick(purpose)) => self.open_picker(purpose),
                 Some(Ask::Files(purpose)) => self.open_files(purpose),
-                Some(Ask::Layouts) => {
-                    self.sheet = Some(Sheet::layouts(self.model.layouts.clone()));
+                Some(Ask::Choose(purpose)) => self.open_choices(purpose),
+                Some(Ask::Capture(at)) => {
+                    let (title, now) = self.model.shortcut_name(at);
+                    self.sheet = Some(Sheet::capture(at, &title, &now));
+                }
+                Some(Ask::Forget) => {
+                    if let Err(error) = std::fs::remove_file(history_path())
+                        && error.kind() != std::io::ErrorKind::NotFound
+                    {
+                        eprintln!("drifter-settings: cannot clear the history: {error}");
+                    }
+                    read_recent(&mut self.model);
                 }
                 None => self.save(),
             },
@@ -473,15 +604,61 @@ impl Settings {
         self.sheet = Some(Sheet::picker(purpose, self.apps.clone()));
     }
 
+    fn refresh(&mut self, section: Section) {
+        match section {
+            Section::Sound => {
+                self.model.sound = read_sound();
+                self.saved.sound = self.model.sound.clone();
+            }
+            Section::Notifications => {
+                read_recent(&mut self.model);
+                self.saved.recent = self.model.recent.clone();
+            }
+            Section::Time => {
+                let time = read_time();
+                (self.model.zone, self.model.ntp) = time.clone();
+                (self.saved.zone, self.saved.ntp) = time;
+            }
+            _ => {}
+        }
+    }
+
+    fn open_choices(&mut self, purpose: For) {
+        let items = match purpose {
+            For::Layout => self.model.layouts.clone(),
+            For::Variant => self.model.variants.clone(),
+            For::IconTheme => drifter_core::icon::icon_themes(&drifter_core::icon::roots()),
+            For::CursorTheme => drifter_core::icon::cursor_themes(&drifter_core::icon::roots()),
+            For::Output => system::choices(&self.model.sound.outputs),
+            For::Input => system::choices(&self.model.sound.inputs),
+            For::Zone => zones(),
+            _ => Vec::new(),
+        };
+        self.sheet = Some(Sheet::choices(purpose, items));
+    }
+
     fn open_files(&mut self, purpose: For) {
         let pictures = home().join("Pictures");
+        let pictures = if pictures.is_dir() { pictures } else { home() };
+        let near = |path: Option<&PathBuf>| {
+            path.and_then(|path| path.parent())
+                .map(Path::to_path_buf)
+                .filter(|folder| folder.is_dir())
+        };
         let start = match purpose {
             For::Folder => self
                 .model
                 .folder
                 .clone()
                 .filter(|folder| folder.is_dir())
-                .unwrap_or(if pictures.is_dir() { pictures } else { home() }),
+                .unwrap_or(pictures),
+            For::Picture => near(self.model.wallpaper.as_ref()).unwrap_or(pictures),
+            For::Pointer => near(self.model.assets[0].as_ref()).unwrap_or_else(home),
+            For::Font => near(self.model.assets[1].as_ref())
+                .or_else(|| Some(PathBuf::from("/usr/share/fonts")).filter(|f| f.is_dir()))
+                .unwrap_or_else(home),
+            For::WindowArt => near(self.model.assets[2].as_ref()).unwrap_or_else(home),
+            For::DockArt => near(self.model.assets[3].as_ref()).unwrap_or_else(home),
             _ => home(),
         };
         self.sheet = Some(Sheet::files(purpose, start));
@@ -520,31 +697,46 @@ impl Settings {
             Pick::Command(_) => {}
             Pick::Into(folder) => self.sheet = Some(Sheet::files(purpose, folder)),
             Pick::Folder(folder) => {
-                self.model.choose_folder(folder);
+                match purpose {
+                    For::Folder => self.model.choose_folder(folder),
+                    _ => self.model.choose_file(purpose, folder),
+                }
                 self.sheet = None;
                 self.save();
                 self.want_thumbs();
             }
             Pick::File(file) => {
-                if let For::DockIcon(at) = purpose {
-                    self.model.set_icon(at, Some(file));
-                    self.load_row_icons();
-                    self.save();
+                match purpose {
+                    For::DockIcon(at) => {
+                        self.model.set_icon(at, Some(file));
+                        self.load_row_icons();
+                    }
+                    _ => self.model.choose_file(purpose, file),
                 }
                 self.sheet = None;
+                self.save();
+                if purpose == For::Picture {
+                    self.reload_wallpaper();
+                }
             }
-            Pick::Layout(code) => {
-                self.model.choose_layout(code);
+            Pick::Choice(code) => {
+                self.model.choose(purpose, code);
                 self.sheet = None;
                 self.save();
             }
             Pick::Default => {
-                if let For::DockIcon(at) = purpose {
-                    self.model.set_icon(at, None);
-                    self.load_row_icons();
-                    self.save();
+                match purpose {
+                    For::DockIcon(at) => {
+                        self.model.set_icon(at, None);
+                        self.load_row_icons();
+                    }
+                    For::Shortcut(at) => {
+                        let _ = self.model.set_shortcut(at, None);
+                    }
+                    _ => {}
                 }
                 self.sheet = None;
+                self.save();
             }
         }
     }
@@ -644,6 +836,12 @@ impl Settings {
             return;
         }
         if self.at.x <= self.look.sidebar {
+            let most = self.look.side_most(size.y);
+            let before = self.look.side_scroll;
+            self.look.side_scroll = (before + by).clamp(0.0, most);
+            if self.look.side_scroll != before {
+                self.draw();
+            }
             return;
         }
         let before = self.scroll;
@@ -654,7 +852,54 @@ impl Settings {
         }
     }
 
+    fn capture(&mut self, at: usize, event: &KeyEvent) {
+        let name = event
+            .keysym
+            .name()
+            .map(shortcut::keysym_word)
+            .unwrap_or_default();
+        if name.is_empty() || shortcut::is_modifier(&name) {
+            return;
+        }
+        let mods = Mods {
+            ctrl: self.mods.ctrl,
+            alt: self.mods.alt,
+            shift: self.mods.shift,
+            logo: self.mods.logo,
+        };
+        if event.keysym == Keysym::Escape && mods == Mods::default() {
+            self.sheet = None;
+            self.draw();
+            return;
+        }
+        let combo = Combo {
+            mods,
+            camera: false,
+            key: name,
+        };
+        match self.model.set_shortcut(at, Some(combo)) {
+            Ok(()) => {
+                self.sheet = None;
+                self.save();
+            }
+            Err(note) => {
+                if let Some(sheet) = self.sheet.as_mut() {
+                    sheet.tell(&note);
+                }
+            }
+        }
+        self.draw();
+    }
+
     fn key(&mut self, event: &KeyEvent) {
+        if let Some(Sheet::Capture {
+            purpose: For::Shortcut(at),
+            ..
+        }) = self.sheet
+        {
+            self.capture(at, event);
+            return;
+        }
         let Some(sheet) = self.sheet.as_mut() else {
             return;
         };
@@ -675,7 +920,73 @@ impl Settings {
         self.draw();
     }
 
+    fn apply_live(&mut self) {
+        let before = self.saved.clone();
+        let (now, was) = (&self.model.sound, &before.sound);
+        let mut fresh = false;
+        let picked = |devices: Option<&system::Device>| devices.map(|device| device.id);
+        for (now_id, was_id) in [
+            (picked(now.output()), picked(was.output())),
+            (picked(now.input()), picked(was.input())),
+        ] {
+            if let Some(id) = now_id.filter(|id| Some(*id) != was_id) {
+                wpctl(&["set-default", &id.to_string()]);
+                fresh = true;
+            }
+        }
+        let levels = [
+            (SINK, now.volume, was.volume, now.muted, was.muted),
+            (SOURCE, now.mic, was.mic, now.mic_muted, was.mic_muted),
+        ];
+        for (target, level, was_level, muted, was_muted) in levels {
+            if !fresh && (level - was_level).abs() > 1e-6 {
+                wpctl(&["set-volume", target, &format!("{level:.2}")]);
+            }
+            if !fresh && muted != was_muted {
+                wpctl(&["set-mute", target, if muted { "1" } else { "0" }]);
+            }
+        }
+        if fresh {
+            self.model.sound = read_sound();
+        }
+
+        let mut asks: Vec<Vec<String>> = Vec::new();
+        if self.model.zone != before.zone && !self.model.zone.is_empty() {
+            asks.push(vec!["set-timezone".into(), self.model.zone.clone()]);
+        }
+        if let Some(on) = self.model.ntp.filter(|on| Some(*on) != before.ntp) {
+            asks.push(vec!["set-ntp".into(), on.to_string()]);
+        }
+        if !asks.is_empty() {
+            let done = self.chores.clone();
+            let spawned = std::thread::Builder::new()
+                .name("settings-time".to_string())
+                .spawn(move || {
+                    for args in asks {
+                        let ran = std::process::Command::new("timedatectl")
+                            .args(&args)
+                            .status();
+                        if let Err(error) = ran {
+                            eprintln!("drifter-settings: timedatectl {args:?}: {error}");
+                        }
+                    }
+                    let _ = done.send(());
+                });
+            if let Err(error) = spawned {
+                eprintln!("drifter-settings: cannot change the time settings: {error}");
+            }
+        }
+
+        if self.model.appearance.icons != before.appearance.icons {
+            drifter_core::icon::set_theme(self.model.appearance.icons.clone());
+            self.icons.clear();
+            self.load_row_icons();
+        }
+        self.look.accent = accent(&self.model);
+    }
+
     fn save(&mut self) {
+        self.apply_live();
         let text = match std::fs::read_to_string(&self.path) {
             Ok(text) => text,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
@@ -786,6 +1097,8 @@ impl WindowHandler for Settings {
         let height = configure.new_size.1.map(|v| v.get()).unwrap_or(self.size.1);
         self.size = (width.max(least.x as u32), height.max(least.y as u32));
         self.clamp_scroll();
+        let most = self.look.side_most(f64::from(self.size.1));
+        self.look.side_scroll = self.look.side_scroll.min(most);
         self.draw();
     }
 }
@@ -890,9 +1203,10 @@ impl KeyboardHandler for Settings {
         _: &QueueHandle<Self>,
         _: &wl_keyboard::WlKeyboard,
         _: u32,
-        _: Modifiers,
+        modifiers: Modifiers,
         _: u32,
     ) {
+        self.mods = modifiers;
     }
 }
 

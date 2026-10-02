@@ -23,9 +23,11 @@ pub mod prompt;
 pub mod screens;
 pub mod settings;
 pub mod sheet;
+pub mod shortcut;
 pub mod snap;
 pub mod stats;
 pub mod switcher;
+pub mod system;
 pub mod text;
 pub mod tiles;
 pub mod tray;
@@ -34,8 +36,9 @@ pub mod window;
 
 pub use camera::Camera;
 pub use config::{
-    AppsConfig, Assets, ButtonName, Config, DockConfig, Keyboard, Launch, Modifier, Night, Side,
-    ThreeTap, Touchpad, TrayConfig, Tunables, WallpaperMode, WallpaperOrder,
+    Accent, Appearance, AppsConfig, Assets, ButtonName, Config, DockConfig, Keyboard, Keys, Launch,
+    Lid, Modifier, Motion, Mouse, Night, Notify, Power, PowerKey, Side, Style, ThreeTap, Touchpad,
+    TrayConfig, Tunables, WallpaperMode, WallpaperOrder,
 };
 pub use cursor::Cursor;
 pub use drawer::{Drawer, Edge, Panel};

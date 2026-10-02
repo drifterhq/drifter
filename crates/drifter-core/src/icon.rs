@@ -29,7 +29,25 @@ pub fn roots() -> Vec<PathBuf> {
     roots
 }
 
+static CHOSEN: Mutex<Option<String>> = Mutex::new(None);
+
+pub fn set_theme(theme: Option<String>) {
+    let changed = match CHOSEN.lock() {
+        Ok(mut held) if *held != theme => {
+            *held = theme;
+            true
+        }
+        _ => false,
+    };
+    if changed && let Ok(mut seen) = SEEN.lock() {
+        *seen = None;
+    }
+}
+
 pub fn chosen_theme() -> Option<String> {
+    if let Some(theme) = CHOSEN.lock().ok().and_then(|held| held.clone()) {
+        return Some(theme);
+    }
     let home = PathBuf::from(std::env::var_os("HOME")?);
     let config = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
@@ -195,6 +213,49 @@ pub fn find_in(
     })
 }
 
+fn listed(
+    roots: &[PathBuf],
+    keep: impl Fn(&Path, Option<&str>) -> bool,
+) -> Vec<crate::sheet::Choice> {
+    let mut found: Vec<crate::sheet::Choice> = Vec::new();
+    for root in roots {
+        let Ok(read) = std::fs::read_dir(root) else {
+            continue;
+        };
+        for entry in read.flatten() {
+            let dir = entry.path();
+            let code = entry.file_name().to_string_lossy().into_owned();
+            if code.starts_with('.') || code == "hicolor" || code == "default" || !dir.is_dir() {
+                continue;
+            }
+            if found.iter().any(|seen| seen.code == code) {
+                continue;
+            }
+            let index = std::fs::read_to_string(dir.join("index.theme")).ok();
+            if !keep(&dir, index.as_deref()) {
+                continue;
+            }
+            let name = index
+                .as_deref()
+                .and_then(|text| setting(text, "Name"))
+                .unwrap_or_else(|| code.clone());
+            found.push(crate::sheet::Choice { code, name });
+        }
+    }
+    found.sort_by_key(|theme| theme.name.to_lowercase());
+    found
+}
+
+pub fn icon_themes(roots: &[PathBuf]) -> Vec<crate::sheet::Choice> {
+    listed(roots, |_, index| {
+        index.is_some_and(|text| setting(text, "Directories").is_some())
+    })
+}
+
+pub fn cursor_themes(roots: &[PathBuf]) -> Vec<crate::sheet::Choice> {
+    listed(roots, |dir, _| dir.join("cursors").is_dir())
+}
+
 type Asked = (String, Option<PathBuf>, u32);
 
 static SEEN: Mutex<Option<HashMap<Asked, Option<PathBuf>>>> = Mutex::new(None);
@@ -236,6 +297,26 @@ mod tests {
     fn touch(path: &Path) {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, b"x").unwrap();
+    }
+
+    #[test]
+    fn icon_and_cursor_themes_are_told_apart() {
+        let root = scratch("lists");
+        touch(&root.join("Papirus/index.theme"));
+        std::fs::write(
+            root.join("Papirus/index.theme"),
+            "[Icon Theme]\nName=Papirus\nDirectories=48x48/apps\n",
+        )
+        .unwrap();
+        touch(&root.join("Bibata/cursors/left_ptr"));
+        touch(&root.join("hicolor/index.theme"));
+        let icons: Vec<String> = icon_themes(std::slice::from_ref(&root))
+            .into_iter()
+            .map(|t| t.code)
+            .collect();
+        let cursors: Vec<String> = cursor_themes(&[root]).into_iter().map(|t| t.code).collect();
+        assert_eq!(icons, ["Papirus"]);
+        assert_eq!(cursors, ["Bibata"]);
     }
 
     #[test]

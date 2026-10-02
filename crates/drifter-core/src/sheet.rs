@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 use crate::desktop::App;
 use crate::geom::{Rect, Vec2};
 use crate::image::Image;
-use crate::keyboard::{self, Layout};
 use crate::paint::Canvas;
 use crate::settings::{Fonts, Look};
 
@@ -16,6 +15,62 @@ pub enum For {
     DockIcon(usize),
     Default(crate::desktop::Role),
     Layout,
+    Variant,
+    Picture,
+    Pointer,
+    Font,
+    WindowArt,
+    DockArt,
+    IconTheme,
+    CursorTheme,
+    Output,
+    Input,
+    Zone,
+    Shortcut(usize),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Choice {
+    pub code: String,
+    pub name: String,
+}
+
+impl Choice {
+    pub fn new(code: &str, name: &str) -> Choice {
+        Choice {
+            code: code.to_string(),
+            name: name.to_string(),
+        }
+    }
+}
+
+pub fn matching<'a>(items: &'a [Choice], text: &str) -> Vec<&'a Choice> {
+    let wanted = text.trim().to_lowercase();
+    items
+        .iter()
+        .filter(|item| {
+            wanted.is_empty()
+                || item.name.to_lowercase().contains(&wanted)
+                || item.code.to_lowercase() == wanted
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    Folders,
+    Pictures,
+    Fonts,
+}
+
+impl For {
+    fn kind(self) -> Kind {
+        match self {
+            For::Folder | For::WindowArt | For::DockArt => Kind::Folders,
+            For::Font => Kind::Fonts,
+            _ => Kind::Pictures,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,10 +101,17 @@ pub enum Sheet {
         entries: Vec<Entry>,
         scroll: f64,
     },
-    Layouts {
-        layouts: Vec<Layout>,
+    Choices {
+        purpose: For,
+        items: Vec<Choice>,
         scroll: f64,
         text: String,
+    },
+    Capture {
+        purpose: For,
+        title: String,
+        now: String,
+        note: Option<String>,
     },
 }
 
@@ -63,12 +125,18 @@ pub enum Pick {
     Folder(PathBuf),
     File(PathBuf),
     Default,
-    Layout(String),
+    Choice(String),
 }
 
 const ROW: f64 = 36.0;
 
-pub fn entries(folder: &Path, folders_only: bool) -> Vec<Entry> {
+pub fn is_font(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| matches!(ext.to_lowercase().as_str(), "ttf" | "otf"))
+}
+
+pub fn entries(folder: &Path, kind: Kind) -> Vec<Entry> {
     let Ok(read) = std::fs::read_dir(folder) else {
         return Vec::new();
     };
@@ -81,7 +149,12 @@ pub fn entries(folder: &Path, folders_only: bool) -> Vec<Entry> {
             }
             let path = item.path();
             let folder = path.is_dir();
-            let wanted = folder || (!folders_only && crate::wallpaper::is_picture(&path));
+            let wanted = folder
+                || match kind {
+                    Kind::Folders => false,
+                    Kind::Pictures => crate::wallpaper::is_picture(&path),
+                    Kind::Fonts => is_font(&path),
+                };
             wanted.then_some(Entry { name, path, folder })
         })
         .collect();
@@ -101,7 +174,7 @@ impl Sheet {
     }
 
     pub fn files(purpose: For, folder: PathBuf) -> Sheet {
-        let entries = entries(&folder, purpose == For::Folder);
+        let entries = entries(&folder, purpose.kind());
         Sheet::Files {
             purpose,
             folder,
@@ -110,18 +183,36 @@ impl Sheet {
         }
     }
 
-    pub fn layouts(layouts: Vec<Layout>) -> Sheet {
-        Sheet::Layouts {
-            layouts,
+    pub fn choices(purpose: For, items: Vec<Choice>) -> Sheet {
+        Sheet::Choices {
+            purpose,
+            items,
             scroll: 0.0,
             text: String::new(),
         }
     }
 
+    pub fn capture(at: usize, title: &str, now: &str) -> Sheet {
+        Sheet::Capture {
+            purpose: For::Shortcut(at),
+            title: title.to_string(),
+            now: now.to_string(),
+            note: None,
+        }
+    }
+
     pub fn purpose(&self) -> For {
         match self {
-            Sheet::Picker { purpose, .. } | Sheet::Files { purpose, .. } => *purpose,
-            Sheet::Layouts { .. } => For::Layout,
+            Sheet::Picker { purpose, .. }
+            | Sheet::Files { purpose, .. }
+            | Sheet::Choices { purpose, .. }
+            | Sheet::Capture { purpose, .. } => *purpose,
+        }
+    }
+
+    pub fn tell(&mut self, words: &str) {
+        if let Sheet::Capture { note, .. } = self {
+            *note = Some(words.to_string());
         }
     }
 
@@ -131,7 +222,7 @@ impl Sheet {
             Sheet::Picker {
                 tab: Tab::Command,
                 ..
-            } | Sheet::Layouts { .. }
+            } | Sheet::Choices { .. }
         )
     }
 
@@ -142,7 +233,7 @@ impl Sheet {
                 text,
                 ..
             } => Some(text),
-            Sheet::Layouts { text, scroll, .. } => {
+            Sheet::Choices { text, scroll, .. } => {
                 *scroll = 0.0;
                 Some(text)
             }
@@ -169,9 +260,9 @@ impl Sheet {
                 text,
                 ..
             } if !text.trim().is_empty() => Some(Pick::Command(text.trim().to_string())),
-            Sheet::Layouts { layouts, text, .. } => keyboard::matching(layouts, text)
+            Sheet::Choices { items, text, .. } => matching(items, text)
                 .first()
-                .map(|layout| Pick::Layout(layout.code.clone())),
+                .map(|item| Pick::Choice(item.code.clone())),
             _ => None,
         }
     }
@@ -185,7 +276,8 @@ impl Sheet {
             } => apps.len(),
             Sheet::Picker { .. } => 0,
             Sheet::Files { entries, .. } => entries.len(),
-            Sheet::Layouts { layouts, text, .. } => keyboard::matching(layouts, text).len(),
+            Sheet::Choices { items, text, .. } => matching(items, text).len(),
+            Sheet::Capture { .. } => 0,
         }
     }
 
@@ -193,7 +285,8 @@ impl Sheet {
         match self {
             Sheet::Picker { scroll, .. }
             | Sheet::Files { scroll, .. }
-            | Sheet::Layouts { scroll, .. } => *scroll,
+            | Sheet::Choices { scroll, .. } => *scroll,
+            Sheet::Capture { .. } => 0.0,
         }
     }
 
@@ -203,9 +296,10 @@ impl Sheet {
         match self {
             Sheet::Picker { scroll, .. }
             | Sheet::Files { scroll, .. }
-            | Sheet::Layouts { scroll, .. } => {
+            | Sheet::Choices { scroll, .. } => {
                 *scroll = (*scroll + by).clamp(0.0, most);
             }
+            Sheet::Capture { .. } => {}
         }
     }
 
@@ -218,7 +312,7 @@ impl Sheet {
             } => Some(("Add", Pick::Command(text.trim().to_string()))),
             Sheet::Picker { .. } => None,
             Sheet::Files {
-                purpose: For::Folder,
+                purpose: For::Folder | For::WindowArt | For::DockArt,
                 folder,
                 ..
             } => Some(("Choose this folder", Pick::Folder(folder.clone()))),
@@ -226,11 +320,15 @@ impl Sheet {
                 purpose: For::DockIcon(_),
                 ..
             } => Some(("Use the app's icon", Pick::Default)),
-            Sheet::Files { .. } | Sheet::Layouts { .. } => None,
+            Sheet::Capture { .. } => Some(("No shortcut", Pick::Default)),
+            Sheet::Files { .. } | Sheet::Choices { .. } => None,
         }
     }
 
-    fn title(&self) -> &'static str {
+    fn title(&self) -> &str {
+        if let Sheet::Capture { title, .. } = self {
+            return title;
+        }
         match self.purpose() {
             For::Login => "Start at login",
             For::Dock => "Add to the dock",
@@ -240,6 +338,18 @@ impl Sheet {
             For::Default(crate::desktop::Role::Terminal) => "Choose the terminal",
             For::Default(crate::desktop::Role::Browser) => "Choose the web browser",
             For::Layout => "Choose a keyboard layout",
+            For::Variant => "Choose a variant",
+            For::Picture => "Choose a wallpaper",
+            For::Pointer => "Choose a pointer picture",
+            For::Font => "Choose a font",
+            For::WindowArt => "Choose the window art folder",
+            For::DockArt => "Choose the dock art folder",
+            For::IconTheme => "Choose an icon theme",
+            For::CursorTheme => "Choose a cursor theme",
+            For::Output => "Choose a speaker or headphones",
+            For::Input => "Choose a microphone",
+            For::Zone => "Choose a time zone",
+            For::Shortcut(_) => "Press the new shortcut",
         }
     }
 
@@ -286,9 +396,9 @@ impl Sheet {
                 true => Pick::Into(entry.path.clone()),
                 false => Pick::File(entry.path.clone()),
             }),
-            Sheet::Layouts { layouts, text, .. } => keyboard::matching(layouts, text)
+            Sheet::Choices { items, text, .. } => matching(items, text)
                 .get(index)
-                .map(|layout| Pick::Layout(layout.code.clone())),
+                .map(|item| Pick::Choice(item.code.clone())),
             _ => None,
         }
     }
@@ -394,9 +504,41 @@ impl Sheet {
                     1.0,
                 );
             }
-            Sheet::Layouts { text, .. } => {
+            Sheet::Choices { text, .. } => {
                 search(canvas, look, fonts, frame.field, text);
                 self.paint_list(canvas, look, fonts, icons, frame.list);
+            }
+            Sheet::Capture { now, note, .. } => {
+                let list = frame.list;
+                canvas.round_rect(list, 8.0, look.card, 1.0);
+                let shown = match now.is_empty() {
+                    true => "None".to_string(),
+                    false => now.clone(),
+                };
+                let keys = fonts.title.paint(&shown, look.ink);
+                canvas.stamp(&keys, list.center() - keys.size() / 2.0, 1.0);
+                let lines = [
+                    "Hold Ctrl, Alt, Shift or Super and press a key.",
+                    "Esc keeps the old shortcut.",
+                ];
+                for (at, line) in lines.iter().enumerate() {
+                    let text = fonts.small.paint(line, look.dim);
+                    let y = list.origin.y + 18.0 + at as f64 * 18.0;
+                    canvas.stamp(
+                        &text,
+                        Vec2::new(list.center().x - f64::from(text.width) / 2.0, y),
+                        1.0,
+                    );
+                }
+                if let Some(note) = note {
+                    let text = fonts.small.paint(note, look.accent);
+                    let y = list.max().y - 30.0;
+                    canvas.stamp(
+                        &text,
+                        Vec2::new(list.center().x - f64::from(text.width) / 2.0, y),
+                        1.0,
+                    );
+                }
             }
             _ => self.paint_list(canvas, look, fonts, icons, frame.list),
         }
@@ -428,10 +570,11 @@ impl Sheet {
                 .iter()
                 .map(|entry| (entry.name.clone(), None, entry.folder))
                 .collect(),
-            Sheet::Layouts { layouts, text, .. } => keyboard::matching(layouts, text)
+            Sheet::Choices { items, text, .. } => matching(items, text)
                 .into_iter()
-                .map(|layout| (layout.name.clone(), None, false))
+                .map(|item| (item.name.clone(), None, false))
                 .collect(),
+            Sheet::Capture { .. } => Vec::new(),
         };
         if rows.is_empty() {
             let empty = fonts.small.paint("Nothing here", look.dim);
@@ -573,7 +716,7 @@ fn frame(size: Vec2, sheet: &Sheet) -> Frame {
         Vec2::new(inner_w, bar - 12.0 - top),
     );
     let field = match sheet {
-        Sheet::Layouts { .. } => Rect::new(
+        Sheet::Choices { .. } => Rect::new(
             Vec2::new(inner_x, card.origin.y + 48.0),
             Vec2::new(inner_w, 30.0),
         ),
@@ -669,8 +812,10 @@ mod tests {
         std::fs::write(base.join("b.txt"), b"x").unwrap();
         let names =
             |list: Vec<Entry>| -> Vec<String> { list.into_iter().map(|e| e.name).collect() };
-        assert_eq!(names(entries(&base, false)), ["zeta", "a.png"]);
-        assert_eq!(names(entries(&base, true)), ["zeta"]);
+        std::fs::write(base.join("c.ttf"), b"x").unwrap();
+        assert_eq!(names(entries(&base, Kind::Pictures)), ["zeta", "a.png"]);
+        assert_eq!(names(entries(&base, Kind::Folders)), ["zeta"]);
+        assert_eq!(names(entries(&base, Kind::Fonts)), ["zeta", "c.ttf"]);
         std::fs::remove_dir_all(&base).unwrap();
     }
 
@@ -695,20 +840,20 @@ mod tests {
         std::fs::remove_dir_all(&base).unwrap();
     }
 
-    fn layouts() -> Vec<Layout> {
-        keyboard::parse("! layout\n  us  English (US)\n  de  German\n  gb  English (UK)\n")
+    fn layouts() -> Vec<Choice> {
+        crate::keyboard::parse("! layout\n  us  English (US)\n  de  German\n  gb  English (UK)\n")
     }
 
     #[test]
     fn typing_filters_the_layouts_and_enter_takes_the_first() {
-        let mut sheet = Sheet::layouts(layouts());
+        let mut sheet = Sheet::choices(For::Layout, layouts());
         assert!(sheet.typing());
         let list = frame(SIZE, &sheet).list;
         let first = Vec2::new(list.center().x, list.origin.y + ROW * 0.5);
-        assert_eq!(sheet.hit(SIZE, first), Some(Pick::Layout("gb".into())));
+        assert_eq!(sheet.hit(SIZE, first), Some(Pick::Choice("gb".into())));
         sheet.type_text("germ");
-        assert_eq!(sheet.hit(SIZE, first), Some(Pick::Layout("de".into())));
-        assert_eq!(sheet.enter(), Some(Pick::Layout("de".into())));
+        assert_eq!(sheet.hit(SIZE, first), Some(Pick::Choice("de".into())));
+        assert_eq!(sheet.enter(), Some(Pick::Choice("de".into())));
         sheet.type_text("x");
         assert_eq!(sheet.enter(), None);
         sheet.backspace();

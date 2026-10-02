@@ -5,6 +5,7 @@ use std::time::Duration;
 use serde::Deserialize;
 
 use crate::geom::Vec2;
+use crate::shortcut::{Action, Combo};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -469,10 +470,14 @@ fn middle_speed() -> u32 {
     FASTEST / 2
 }
 
+pub fn libinput_speed(speed: u32) -> f64 {
+    let half = f64::from(FASTEST) / 2.0;
+    ((f64::from(speed.min(FASTEST)) - half) / half).clamp(-1.0, 1.0)
+}
+
 impl Touchpad {
     pub fn libinput_speed(&self) -> f64 {
-        let half = f64::from(FASTEST) / 2.0;
-        ((f64::from(self.speed.min(FASTEST)) - half) / half).clamp(-1.0, 1.0)
+        libinput_speed(self.speed)
     }
 }
 
@@ -490,6 +495,368 @@ impl Default for Touchpad {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Mouse {
+    #[serde(default = "middle_speed")]
+    pub speed: u32,
+    #[serde(default)]
+    pub accel: bool,
+    #[serde(default)]
+    pub natural: bool,
+    #[serde(default)]
+    pub left_handed: bool,
+}
+
+impl Mouse {
+    pub fn libinput_speed(&self) -> f64 {
+        libinput_speed(self.speed)
+    }
+}
+
+impl Default for Mouse {
+    fn default() -> Self {
+        Mouse {
+            speed: middle_speed(),
+            accel: false,
+            natural: false,
+            left_handed: false,
+        }
+    }
+}
+
+pub const CORNER_SIZE: (u32, u32) = (8, 160);
+pub const PAN_SPEED: (u32, u32) = (25, 400);
+pub const WAIT_MS: (u32, u32) = (0, 2000);
+pub const SLIDE_MS: (u32, u32) = (40, 1500);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Motion {
+    #[serde(default = "yes")]
+    pub hot_corner: bool,
+    #[serde(default = "corner_size")]
+    pub corner_size: u32,
+    #[serde(default = "corner_wait")]
+    pub corner_wait: u32,
+    #[serde(default = "pan_speed")]
+    pub pan_speed: u32,
+    #[serde(default = "bar_open")]
+    pub bar_open: u32,
+    #[serde(default = "bar_close")]
+    pub bar_close: u32,
+    #[serde(default = "bar_slide")]
+    pub bar_slide: u32,
+    #[serde(default = "flight")]
+    pub flight: u32,
+}
+
+fn corner_size() -> u32 {
+    48
+}
+
+fn corner_wait() -> u32 {
+    300
+}
+
+fn pan_speed() -> u32 {
+    100
+}
+
+fn bar_open() -> u32 {
+    120
+}
+
+fn bar_close() -> u32 {
+    400
+}
+
+fn bar_slide() -> u32 {
+    300
+}
+
+fn flight() -> u32 {
+    260
+}
+
+impl Default for Motion {
+    fn default() -> Self {
+        Motion {
+            hot_corner: true,
+            corner_size: corner_size(),
+            corner_wait: corner_wait(),
+            pan_speed: pan_speed(),
+            bar_open: bar_open(),
+            bar_close: bar_close(),
+            bar_slide: bar_slide(),
+            flight: flight(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Style {
+    Light,
+    Dark,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Accent {
+    Blue,
+    Teal,
+    Green,
+    Yellow,
+    Orange,
+    Red,
+    Pink,
+    Purple,
+    Slate,
+}
+
+impl Accent {
+    pub const ALL: [Accent; 9] = [
+        Accent::Blue,
+        Accent::Teal,
+        Accent::Green,
+        Accent::Yellow,
+        Accent::Orange,
+        Accent::Red,
+        Accent::Pink,
+        Accent::Purple,
+        Accent::Slate,
+    ];
+
+    pub fn word(self) -> &'static str {
+        match self {
+            Accent::Blue => "blue",
+            Accent::Teal => "teal",
+            Accent::Green => "green",
+            Accent::Yellow => "yellow",
+            Accent::Orange => "orange",
+            Accent::Red => "red",
+            Accent::Pink => "pink",
+            Accent::Purple => "purple",
+            Accent::Slate => "slate",
+        }
+    }
+
+    pub fn color(self) -> [u8; 3] {
+        match self {
+            Accent::Blue => [53, 132, 228],
+            Accent::Teal => [33, 144, 164],
+            Accent::Green => [58, 148, 74],
+            Accent::Yellow => [200, 136, 0],
+            Accent::Orange => [237, 91, 0],
+            Accent::Red => [230, 45, 66],
+            Accent::Pink => [213, 97, 153],
+            Accent::Purple => [145, 65, 172],
+            Accent::Slate => [111, 131, 150],
+        }
+    }
+}
+
+pub const CURSOR_SIZES: [u32; 4] = [24, 32, 48, 64];
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Appearance {
+    #[serde(default)]
+    pub style: Option<Style>,
+    #[serde(default)]
+    pub accent: Option<Accent>,
+    #[serde(default)]
+    pub icons: Option<String>,
+    #[serde(default)]
+    pub cursor_theme: Option<String>,
+    #[serde(default = "cursor_size")]
+    pub cursor_size: u32,
+}
+
+fn cursor_size() -> u32 {
+    24
+}
+
+impl Default for Appearance {
+    fn default() -> Self {
+        Appearance {
+            style: None,
+            accent: None,
+            icons: None,
+            cursor_theme: None,
+            cursor_size: cursor_size(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Lid {
+    #[default]
+    Suspend,
+    Lock,
+    Nothing,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum PowerKey {
+    #[default]
+    Menu,
+    Suspend,
+    Off,
+    Nothing,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct Power {
+    #[serde(default)]
+    pub sleep_after: u64,
+    #[serde(default)]
+    pub lid: Lid,
+    #[serde(default)]
+    pub button: PowerKey,
+}
+
+pub const LONGEST_NOTE: u32 = 120;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Notify {
+    #[serde(default)]
+    pub quiet: bool,
+    #[serde(default = "note_seconds")]
+    pub seconds: u32,
+    #[serde(default = "yes")]
+    pub history: bool,
+}
+
+fn note_seconds() -> u32 {
+    5
+}
+
+impl Default for Notify {
+    fn default() -> Self {
+        Notify {
+            quiet: false,
+            seconds: note_seconds(),
+            history: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Keys {
+    #[serde(default = "key_switch")]
+    pub switch: String,
+    #[serde(default = "key_close")]
+    pub close: String,
+    #[serde(default = "key_screenshot")]
+    pub screenshot: String,
+    #[serde(default = "key_lock")]
+    pub lock: String,
+    #[serde(default = "key_power")]
+    pub power: String,
+    #[serde(default)]
+    pub overview: String,
+    #[serde(default)]
+    pub terminal: String,
+    #[serde(default)]
+    pub files: String,
+    #[serde(default)]
+    pub browser: String,
+    #[serde(default)]
+    pub settings: String,
+}
+
+fn key_switch() -> String {
+    Action::Switch.default_combo().into()
+}
+
+fn key_close() -> String {
+    Action::Close.default_combo().into()
+}
+
+fn key_screenshot() -> String {
+    Action::Screenshot.default_combo().into()
+}
+
+fn key_lock() -> String {
+    Action::Lock.default_combo().into()
+}
+
+fn key_power() -> String {
+    Action::Power.default_combo().into()
+}
+
+impl Default for Keys {
+    fn default() -> Self {
+        let mut keys = Keys {
+            switch: String::new(),
+            close: String::new(),
+            screenshot: String::new(),
+            lock: String::new(),
+            power: String::new(),
+            overview: String::new(),
+            terminal: String::new(),
+            files: String::new(),
+            browser: String::new(),
+            settings: String::new(),
+        };
+        for action in Action::ALL {
+            *keys.get_mut(action) = action.default_combo().to_string();
+        }
+        keys
+    }
+}
+
+impl Keys {
+    pub fn get(&self, action: Action) -> &str {
+        match action {
+            Action::Switch => &self.switch,
+            Action::Close => &self.close,
+            Action::Screenshot => &self.screenshot,
+            Action::Lock => &self.lock,
+            Action::Power => &self.power,
+            Action::Overview => &self.overview,
+            Action::Terminal => &self.terminal,
+            Action::Files => &self.files,
+            Action::Browser => &self.browser,
+            Action::Settings => &self.settings,
+        }
+    }
+
+    pub fn get_mut(&mut self, action: Action) -> &mut String {
+        match action {
+            Action::Switch => &mut self.switch,
+            Action::Close => &mut self.close,
+            Action::Screenshot => &mut self.screenshot,
+            Action::Lock => &mut self.lock,
+            Action::Power => &mut self.power,
+            Action::Overview => &mut self.overview,
+            Action::Terminal => &mut self.terminal,
+            Action::Files => &mut self.files,
+            Action::Browser => &mut self.browser,
+            Action::Settings => &mut self.settings,
+        }
+    }
+
+    pub fn combos(&self) -> Vec<(Action, Combo)> {
+        Action::ALL
+            .iter()
+            .filter_map(|action| {
+                Combo::parse(self.get(*action))
+                    .ok()
+                    .flatten()
+                    .map(|combo| (*action, combo))
+            })
+            .collect()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -499,6 +866,18 @@ pub struct Config {
     pub input: Input,
     #[serde(default)]
     pub touchpad: Touchpad,
+    #[serde(default)]
+    pub mouse: Mouse,
+    #[serde(default)]
+    pub motion: Motion,
+    #[serde(default)]
+    pub appearance: Appearance,
+    #[serde(default)]
+    pub power: Power,
+    #[serde(default)]
+    pub notify: Notify,
+    #[serde(default)]
+    pub keys: Keys,
     #[serde(default)]
     pub keyboard: Keyboard,
     #[serde(default)]
@@ -527,6 +906,7 @@ pub struct Config {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Tunables {
+    pub hot_corner: bool,
     pub drawer_height: f64,
     pub drawer_dwell: Duration,
     pub drawer_hide_delay: Duration,
@@ -534,13 +914,14 @@ pub struct Tunables {
     pub edge_band: f64,
     pub hot_corner_dwell: Duration,
     pub hot_corner_size: f64,
-    pub edge_pan_speed: f64,
+    pub pan_scale: f64,
     pub camera_anim: Duration,
 }
 
 impl Default for Tunables {
     fn default() -> Self {
         Tunables {
+            hot_corner: true,
             drawer_height: 64.0,
             drawer_dwell: Duration::from_millis(120),
             drawer_hide_delay: Duration::from_millis(400),
@@ -548,8 +929,25 @@ impl Default for Tunables {
             edge_band: 2.0,
             hot_corner_dwell: Duration::from_millis(300),
             hot_corner_size: 48.0,
-            edge_pan_speed: 1400.0,
+            pan_scale: 1.0,
             camera_anim: Duration::from_millis(260),
+        }
+    }
+}
+
+impl Tunables {
+    pub fn from(motion: &Motion) -> Tunables {
+        let ms = |n: u32| Duration::from_millis(u64::from(n));
+        Tunables {
+            hot_corner: motion.hot_corner,
+            hot_corner_size: f64::from(motion.corner_size),
+            hot_corner_dwell: ms(motion.corner_wait),
+            pan_scale: f64::from(motion.pan_speed) / 100.0,
+            drawer_dwell: ms(motion.bar_open),
+            drawer_hide_delay: ms(motion.bar_close),
+            drawer_anim: ms(motion.bar_slide),
+            camera_anim: ms(motion.flight),
+            ..Tunables::default()
         }
     }
 }
@@ -765,6 +1163,47 @@ impl Config {
             return Err(ConfigError::Invalid(format!(
                 "touchpad speed runs from 0 to {FASTEST}"
             )));
+        }
+        if self.mouse.speed > FASTEST {
+            return Err(ConfigError::Invalid(format!(
+                "mouse speed runs from 0 to {FASTEST}"
+            )));
+        }
+        let motion = &self.motion;
+        let ranges = [
+            ("corner_size", motion.corner_size, CORNER_SIZE, "pixels"),
+            ("corner_wait", motion.corner_wait, WAIT_MS, "milliseconds"),
+            ("pan_speed", motion.pan_speed, PAN_SPEED, "percent"),
+            ("bar_open", motion.bar_open, WAIT_MS, "milliseconds"),
+            ("bar_close", motion.bar_close, WAIT_MS, "milliseconds"),
+            ("bar_slide", motion.bar_slide, SLIDE_MS, "milliseconds"),
+            ("flight", motion.flight, SLIDE_MS, "milliseconds"),
+        ];
+        for (key, value, (least, most), unit) in ranges {
+            if !(least..=most).contains(&value) {
+                return Err(ConfigError::Invalid(format!(
+                    "motion {key} is {unit} from {least} to {most}"
+                )));
+            }
+        }
+        if !(8..=256).contains(&self.appearance.cursor_size) {
+            return Err(ConfigError::Invalid(
+                "appearance cursor_size is pixels from 8 to 256".into(),
+            ));
+        }
+        if self.power.sleep_after > LONGEST_LOCK {
+            return Err(ConfigError::Invalid(format!(
+                "power sleep_after is minutes and must be at most {LONGEST_LOCK}"
+            )));
+        }
+        if self.notify.seconds > LONGEST_NOTE {
+            return Err(ConfigError::Invalid(format!(
+                "notify seconds must be at most {LONGEST_NOTE}"
+            )));
+        }
+        for action in Action::ALL {
+            Combo::parse(self.keys.get(action))
+                .map_err(|error| ConfigError::Invalid(format!("keys {}: {error}", action.key())))?;
         }
         if self.lock.screen_off > LONGEST_LOCK {
             return Err(ConfigError::Invalid(format!(
