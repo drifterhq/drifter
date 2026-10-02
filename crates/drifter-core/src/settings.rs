@@ -2614,7 +2614,7 @@ impl Look {
         canvas.round_rect(view, 2.0, self.accent, 0.35);
         outline(canvas, view, 2.0, self.accent);
         let caption = fonts.small.paint(
-            &format!("{world} × {world} screens. The blue screen is what you see at zoom 1."),
+            &format!("{world} × {world} screens. The colored screen is what you see at zoom 1."),
             self.dim,
         );
         let at = Vec2::new(
