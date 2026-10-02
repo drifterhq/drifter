@@ -20,6 +20,7 @@ pub enum Update {
     Icons(Vec<Icon>),
     Menu {
         service: String,
+        trail: Vec<i32>,
         items: Vec<drifter_core::menu::Item>,
         at: (f64, f64),
     },
@@ -33,7 +34,7 @@ pub enum Click {
 enum Job {
     Look,
     Poke(String, Click, i32, i32),
-    Menu(String, f64, f64),
+    Menu(String, Vec<i32>, f64, f64),
     Choose(String, i32),
 }
 
@@ -46,8 +47,8 @@ impl Tray {
         let _ = self.jobs.send(Job::Poke(service.to_string(), click, x, y));
     }
 
-    pub fn ask_menu(&self, service: &str, x: f64, y: f64) {
-        let _ = self.jobs.send(Job::Menu(service.to_string(), x, y));
+    pub fn ask_menu(&self, service: &str, trail: Vec<i32>, x: f64, y: f64) {
+        let _ = self.jobs.send(Job::Menu(service.to_string(), trail, x, y));
     }
 
     pub fn choose(&self, service: &str, id: i32) {
@@ -194,6 +195,7 @@ type Node = (
 fn read_menu(
     connection: &zbus::blocking::Connection,
     service: &str,
+    parent: i32,
 ) -> Option<Vec<drifter_core::menu::Item>> {
     use zbus::zvariant::{OwnedObjectPath, Value};
 
@@ -203,10 +205,18 @@ fn read_menu(
 
     let menu =
         zbus::blocking::Proxy::new(connection, name, menu_path, "com.canonical.dbusmenu").ok()?;
-    let _ = menu.call_method("AboutToShow", &(0i32));
+    let _ = menu.call_method("AboutToShow", &(parent,));
+    if parent != 0 {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|gap| gap.as_secs() as u32)
+            .unwrap_or(0);
+        let data = Value::I32(0);
+        let _ = menu.call_method("Event", &(parent, "opened", &data, now));
+    }
 
     let layout: (u32, Node) = menu
-        .call("GetLayout", &(0i32, 1i32, Vec::<String>::new()))
+        .call("GetLayout", &(parent, 1i32, Vec::<String>::new()))
         .ok()?;
 
     let mut items = Vec::new();
@@ -428,13 +438,15 @@ fn serve(
                 println!("drifter: tray has {} icon(s)", icons.len());
                 let _ = wake.send(Update::Icons(icons));
             }
-            Job::Menu(service, x, y) => {
+            Job::Menu(service, trail, x, y) => {
                 let connection = connection.clone();
                 let wake = wake.clone();
-                std::thread::spawn(move || match read_menu(&connection, &service) {
-                    Some(items) if !items.is_empty() => {
+                let parent = trail.last().copied().unwrap_or(0);
+                std::thread::spawn(move || match read_menu(&connection, &service, parent) {
+                    Some(items) if !items.is_empty() || parent != 0 => {
                         let _ = wake.send(Update::Menu {
                             service,
+                            trail,
                             items,
                             at: (x, y),
                         });

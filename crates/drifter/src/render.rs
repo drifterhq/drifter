@@ -140,7 +140,11 @@ pub struct Screen {
 }
 
 enum Target {
-    Tray(String),
+    Tray {
+        service: String,
+        trail: Vec<i32>,
+        at: Vec2,
+    },
     Window(u64),
     Desktop,
 }
@@ -1892,10 +1896,24 @@ impl State {
         }
 
         match &open.target {
-            Target::Tray(service) => {
-                let service = service.clone();
+            Target::Tray { service, trail, at } => {
+                let (service, mut trail, at) = (service.clone(), trail.clone(), *at);
+                let deeper = chosen.id == drifter_core::menu::BACK || chosen.children;
                 if let Some(bus) = self.tray_bus.as_ref() {
-                    bus.choose(&service, chosen.id);
+                    match deeper {
+                        true => {
+                            match chosen.id == drifter_core::menu::BACK {
+                                true => trail.pop(),
+                                false => {
+                                    trail.push(chosen.id);
+                                    None
+                                }
+                            };
+                            bus.ask_menu(&service, trail, at.x, at.y);
+                            return true;
+                        }
+                        false => bus.choose(&service, chosen.id),
+                    }
                 }
             }
             Target::Desktop => {
@@ -2029,7 +2047,7 @@ impl State {
         {
             let service = self.icons[slot].0.clone();
             if let Some(bus) = self.tray_bus.as_ref() {
-                bus.ask_menu(&service, self.pointer.x, self.pointer.y);
+                bus.ask_menu(&service, Vec::new(), self.pointer.x, self.pointer.y);
             }
             return true;
         }
@@ -4582,9 +4600,18 @@ pub fn open(
                 if let ChannelEvent::Msg(update) = event {
                     match update {
                         crate::tray::Update::Icons(icons) => state.take_icons(icons),
-                        crate::tray::Update::Menu { service, items, at } => {
+                        crate::tray::Update::Menu {
+                            service,
+                            trail,
+                            items,
+                            at,
+                        } => {
                             let at = Vec2::new(at.0, at.1);
-                            state.open_popover(items, at, Target::Tray(service));
+                            let items = match trail.is_empty() {
+                                true => items,
+                                false => drifter_core::menu::with_back(items),
+                            };
+                            state.open_popover(items, at, Target::Tray { service, trail, at });
                         }
                     }
                     state.kick();

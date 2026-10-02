@@ -11,6 +11,17 @@ pub struct Item {
     pub children: bool,
 }
 
+pub const BACK: i32 = -1;
+pub const BACK_RULE: i32 = -2;
+
+pub fn with_back(items: Vec<Item>) -> Vec<Item> {
+    let mut out = vec![Item::line(BACK, "Back"), Item::rule(BACK_RULE)];
+    out.extend(items);
+    out
+}
+
+const ARROW_ROOM: f64 = 14.0;
+
 impl Item {
     pub fn line(id: i32, label: &str) -> Item {
         Item {
@@ -95,7 +106,11 @@ impl Look {
             .filter(|item| !item.separator)
             .map(|item| font.map(|font| font.width_of(&item.label)).unwrap_or(0.0))
             .fold(0.0f64, f64::max);
-        let width = (widest + self.pad * 4.0).max(self.least_width);
+        let arrow = match items.iter().any(|item| item.children) {
+            true => ARROW_ROOM,
+            false => 0.0,
+        };
+        let width = (widest + self.pad * 4.0 + arrow).max(self.least_width);
         Vec2::new(width.ceil(), self.height(items).ceil())
     }
 
@@ -174,7 +189,12 @@ impl Look {
             let Some(font) = font else {
                 continue;
             };
-            let text = font.paint(&item.label, if item.enabled { self.ink } else { self.dim });
+            let ink = if item.enabled { self.ink } else { self.dim };
+            if item.children {
+                let tip = Vec2::new(size.x - self.pad * 2.0, rect.center().y);
+                paint_arrow(&mut image, tip, ink);
+            }
+            let text = font.paint(&item.label, ink);
             let at = Vec2::new(
                 rect.origin.x + self.pad * 2.0,
                 rect.origin.y + (rect.size.y - f64::from(text.height)) / 2.0,
@@ -183,6 +203,22 @@ impl Look {
         }
 
         image
+    }
+}
+
+fn paint_arrow(image: &mut Image, tip: Vec2, ink: [u8; 3]) {
+    let (tip_x, mid_y) = (tip.x.round() as i64, tip.y.round() as i64);
+    for dy in -4i64..=4 {
+        let reach = 4 - dy.abs();
+        for dx in 0..=reach {
+            let (x, y) = (tip_x - 4 + dx, mid_y + dy);
+            if x < 0 || y < 0 || x >= i64::from(image.width) || y >= i64::from(image.height) {
+                continue;
+            }
+            let at = ((y as usize) * (image.width as usize) + x as usize) * 4;
+            image.rgba[at..at + 3].copy_from_slice(&ink);
+            image.rgba[at + 3] = 255;
+        }
     }
 }
 
@@ -278,6 +314,26 @@ pub(crate) fn stamp(image: &mut Image, text: &Image, at: Vec2) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_submenu_starts_with_back_and_a_rule() {
+        let items = with_back(vec![Item::line(7, "Wi-Fi")]);
+        assert_eq!(items[0].id, BACK);
+        assert!(items[1].separator);
+        assert_eq!(items[2].label, "Wi-Fi");
+    }
+
+    #[test]
+    fn an_item_with_children_makes_room_for_its_arrow() {
+        let look = Look::default();
+        let plain = vec![Item::line(1, "")];
+        let mut parent = Item::line(1, "");
+        parent.children = true;
+        let wide = look.size(&[parent.clone()], None).x;
+        assert!(wide >= look.size(&plain, None).x);
+        let image = look.paint(&[parent], Vec2::new(200.0, look.height(&plain)), None, None);
+        assert_eq!(image.width, 200);
+    }
 
     const SCREEN: Vec2 = Vec2::new(1920.0, 1080.0);
 
