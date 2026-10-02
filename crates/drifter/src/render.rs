@@ -5753,7 +5753,7 @@ impl State {
 
         let drm = self
             .drm
-            .as_ref()
+            .as_mut()
             .ok_or_else(|| "there is no drm device".to_string())?;
         let resources = drm
             .resource_handles()

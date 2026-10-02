@@ -41,10 +41,10 @@ pub enum Scanout {
         >,
     ),
     Dumb(DrmCompositor<DumbAllocator, DrmDeviceFd, (), DrmDeviceFd>),
-    Offscreen(Offscreen),
+    Offscreen(Headless),
 }
 
-pub struct Offscreen {
+pub struct Headless {
     canvas: Canvas,
     tracker: OutputDamageTracker,
     drawn: bool,
@@ -68,7 +68,7 @@ impl Scanout {
         let canvas = painter
             .canvas(Fourcc::Abgr8888, (size.w, size.h).into())
             .map_err(|e| format!("no offscreen buffer: {e}"))?;
-        Ok(Scanout::Offscreen(Offscreen {
+        Ok(Scanout::Offscreen(Headless {
             canvas,
             tracker: OutputDamageTracker::from_mode_source(source),
             drawn: false,
