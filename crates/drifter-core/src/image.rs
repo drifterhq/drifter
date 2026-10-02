@@ -37,6 +37,12 @@ impl Image {
         }
     }
 
+    pub fn tint(&mut self, ink: [u8; 3]) {
+        for pixel in self.rgba.as_chunks_mut::<4>().0 {
+            pixel[..3].copy_from_slice(&ink);
+        }
+    }
+
     pub fn tiled(&self, width: u32, height: u32) -> Image {
         let width = width.max(1);
         let height = height.max(1);
@@ -370,6 +376,17 @@ mod tests {
         assert_eq!(image.rgba[right + 3], 0);
         assert_eq!(load(&path).unwrap().width, SVG_SIZE);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_tint_keeps_the_alpha() {
+        let mut image = Image {
+            width: 2,
+            height: 1,
+            rgba: vec![10, 20, 30, 0, 40, 50, 60, 128],
+        };
+        image.tint([200, 201, 202]);
+        assert_eq!(image.rgba, [200, 201, 202, 0, 200, 201, 202, 128]);
     }
 
     #[test]

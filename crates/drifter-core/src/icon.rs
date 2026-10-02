@@ -39,6 +39,30 @@ pub fn chosen_theme() -> Option<String> {
         .iter()
         .filter_map(|file| std::fs::read_to_string(config.join(file)).ok())
         .find_map(|text| setting(&text, "gtk-icon-theme-name"))
+        .or_else(gnome_theme)
+        .or_else(|| Some(GTK_DEFAULT.to_string()))
+}
+
+const GTK_DEFAULT: &str = "Adwaita";
+
+fn gnome_theme() -> Option<String> {
+    let out = std::process::Command::new("gsettings")
+        .args(["get", "org.gnome.desktop.interface", "icon-theme"])
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    let name = text.trim().trim_matches('\'').to_string();
+    (!name.is_empty()).then_some(name)
+}
+
+pub fn is_symbolic(path: &Path) -> bool {
+    path.file_stem()
+        .and_then(|stem| stem.to_str())
+        .is_some_and(|stem| stem.ends_with("-symbolic"))
 }
 
 fn setting(text: &str, key: &str) -> Option<String> {
@@ -186,7 +210,11 @@ pub fn find(name: &str, extra: Option<&Path>, want: u32) -> Option<PathBuf> {
     }
     let roots = roots();
     let themes = themes(chosen_theme().as_deref(), &roots);
-    let found = find_in(name, extra, &roots, &themes, want);
+    let found = find_in(name, extra, &roots, &themes, want).or_else(|| {
+        (!name.ends_with("-symbolic"))
+            .then(|| find_in(&format!("{name}-symbolic"), extra, &roots, &themes, want))
+            .flatten()
+    });
     if let Ok(mut seen) = SEEN.lock() {
         seen.get_or_insert_with(HashMap::new)
             .insert(key, found.clone());
@@ -292,6 +320,12 @@ mod tests {
         assert!(found.ends_with("scalable/apps/tool.svg"));
         let found = find_in("exact", None, &[root], &themes, 24).unwrap();
         assert!(found.ends_with("24x24/apps/exact.png"));
+    }
+
+    #[test]
+    fn a_symbolic_icon_is_known_by_its_name() {
+        assert!(is_symbolic(Path::new("/x/network-wireless-symbolic.svg")));
+        assert!(!is_symbolic(Path::new("/x/network-wireless.svg")));
     }
 
     #[test]

@@ -8,6 +8,7 @@ use smithay::reexports::calloop::channel::{Channel, SyncSender, sync_channel};
 const WATCHER: &str = "org.kde.StatusNotifierWatcher";
 const WATCHER_PATH: &str = "/StatusNotifierWatcher";
 const ITEM: &str = "org.kde.StatusNotifierItem";
+const SYMBOLIC_INK: [u8; 3] = [222, 226, 234];
 const PATIENCE: std::time::Duration = std::time::Duration::from_secs(1);
 
 pub struct Icon {
@@ -324,7 +325,11 @@ fn named(proxy: &zbus::blocking::Proxy<'_>) -> Option<Image> {
     let theme: String = proxy.get_property("IconThemePath").unwrap_or_default();
     let own = (!theme.is_empty()).then(|| std::path::PathBuf::from(theme));
     let path = drifter_core::icon::find(&name, own.as_deref(), 24)?;
-    drifter_core::image::load_sized(&path, 24).ok()
+    let mut image = drifter_core::image::load_sized(&path, 24).ok()?;
+    if drifter_core::icon::is_symbolic(&path) {
+        image.tint(SYMBOLIC_INK);
+    }
+    Some(image)
 }
 
 fn read_icons(connection: &zbus::blocking::Connection, names: &[String]) -> Vec<Icon> {
