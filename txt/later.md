@@ -9,7 +9,6 @@ Work that is not yet done, after the 2026-10-01 daily-driver list. Done items le
 
 ## Soon
 
-- SVG icons. Icon lookup only finds PNG, and many themes (Papirus, much of Adwaita) are SVG only, so tray, dock and picker icons go missing. Render SVG with resvg, and draw a placeholder when an item has no icon at all, so a tray item is never invisible.
 - More headless checks: world bounds, each wallpaper mode, window chrome, drawers. The harness is in `render/tests.rs`.
 
 ## Deferred
