@@ -55,6 +55,9 @@ bar_open = 120
 bar_close = 400
 # Milliseconds a bar takes to slide, 40 to 1500.
 bar_slide = 300
+# A bar that does not hide stays on screen. Fullscreen and the lock still hide it.
+hide_top = true
+hide_bottom = true
 
 [touchpad]
 # Tap the pad to click. One finger is left, two is right.

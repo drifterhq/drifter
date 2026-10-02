@@ -48,8 +48,9 @@ impl State {
             return;
         }
         self.stash();
+        let hides = self.tunables.bar_hides;
         for drawer in &mut self.heads[self.at].drawers {
-            drawer.open = false;
+            drawer.open &= !hides[drawer.edge.index()];
         }
         self.popover = None;
         self.tip = None;

@@ -229,7 +229,13 @@ impl State {
                 set_up_mouse(mouse, &self.mouse);
             }
         }
+        let pinned = self.tunables.bar_hides;
         self.tunables = Tunables::from(&config.motion);
+        for edge in Edge::ALL {
+            if !pinned[edge.index()] && self.tunables.bar_hides[edge.index()] {
+                self.set(edge, false);
+            }
+        }
         self.power_rules = config.power;
         self.notify = config.notify;
         self.set_shortcuts(&config.keys, config.input.modifier);

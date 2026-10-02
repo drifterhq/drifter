@@ -872,6 +872,7 @@ impl State {
         let at = self.at;
         let dt = now.duration_since(self.heads[at].last);
         self.heads[at].last = now;
+        self.pin_bars();
         for drawer in &mut self.drawers {
             drawer.advance(dt, self.tunables.drawer_anim);
         }
@@ -1056,7 +1057,9 @@ impl State {
         {
             self.leave = None;
             for edge in Edge::ALL {
-                self.set(edge, false);
+                if self.tunables.bar_hides[edge.index()] {
+                    self.set(edge, false);
+                }
             }
         }
         self.settle_tip();
@@ -1070,6 +1073,21 @@ impl State {
 
     fn set(&mut self, edge: Edge, open: bool) {
         self.drawers[edge.index()].open = open;
+    }
+
+    fn hiding_open(&self) -> bool {
+        Edge::ALL
+            .iter()
+            .any(|edge| self.tunables.bar_hides[edge.index()] && self.drawers[edge.index()].open)
+    }
+
+    fn pin_bars(&mut self) {
+        let shown = self.lock.is_none() && self.held_by_fullscreen().is_none();
+        for edge in Edge::ALL {
+            if !self.tunables.bar_hides[edge.index()] {
+                self.set(edge, shown);
+            }
+        }
     }
 
     fn toggle(&mut self, edge: Edge) {

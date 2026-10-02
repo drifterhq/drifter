@@ -1666,6 +1666,8 @@ pub enum Id {
     CornerWait,
     PanSpeed,
     Flight,
+    HideTop,
+    HideBottom,
     BarOpen,
     BarClose,
     BarSlide,

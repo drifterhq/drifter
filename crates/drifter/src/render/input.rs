@@ -45,6 +45,11 @@ impl State {
 
         self.pointer = inside;
 
+        if !matches!(self.grab, Grab::None) {
+            self.dwell = None;
+            return;
+        }
+
         match self.wanted() {
             Some(edge) => {
                 self.leave = None;
@@ -56,7 +61,7 @@ impl State {
             }
             None => {
                 self.dwell = None;
-                if self.drawers.iter().any(|drawer| drawer.open) && self.leave.is_none() {
+                if self.hiding_open() && self.leave.is_none() {
                     self.leave = Some(Instant::now());
                 }
             }

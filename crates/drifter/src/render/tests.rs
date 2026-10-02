@@ -24,7 +24,7 @@ use wayland_client::globals::registry_queue_init;
 use wayland_client::protocol::{wl_output, wl_shm, wl_surface};
 use wayland_client::{Connection, QueueHandle};
 
-use super::{RescaleRenderElement, Screen, Shown, State};
+use super::{Grab, RescaleRenderElement, Screen, Shown, State};
 
 const SIZE: (u32, u32) = (800, 600);
 const PAINT: (u32, u32) = (200, 100);
@@ -665,4 +665,66 @@ fn drawers_slide_in_at_their_edge_and_leave_no_trace() {
         }
     }
     assert!(wrong.is_empty(), "drawers are off:\n{}", wrong.join("\n"));
+}
+
+#[test]
+fn a_window_grab_at_the_edge_does_not_open_a_bar() {
+    let mut run = start("grab-edge", &Config::default(), None);
+    let bottom = Edge::Bottom.index();
+    let rim = Vec2::new(f64::from(SIZE.0) / 2.0, f64::from(SIZE.1) - 1.0);
+    run.screen.state.grab = Grab::Move {
+        id: u64::MAX,
+        offset: Vec2::ZERO,
+    };
+    run.screen.state.pointer_to(rim);
+    run.screen.state.tick();
+    let waited = Instant::now() + run.screen.state.tunables.drawer_dwell * 4;
+    pump(&mut run.screen, |_| Instant::now() >= waited);
+    assert!(
+        !run.screen.state.drawers[bottom].open,
+        "the bottom bar opened while a window was held at the edge"
+    );
+
+    run.screen.state.grab = Grab::None;
+    run.screen.state.pointer_to(rim);
+    run.screen.state.tick();
+    pump(&mut run.screen, |state| state.drawers[bottom].open);
+    assert!(
+        run.screen.state.drawers[bottom].open,
+        "the bottom bar does not open after the window is let go"
+    );
+}
+
+#[test]
+fn a_bar_that_does_not_hide_stays_on_screen() {
+    let config = Config::parse("[motion]\nhide_bottom = false\n").unwrap();
+    let mut run = start("pinned-bar", &config, None);
+    let (top, bottom) = (Edge::Top.index(), Edge::Bottom.index());
+    let middle = Vec2::new(f64::from(SIZE.0) / 2.0, f64::from(SIZE.1) / 2.0);
+    run.screen.state.pointer_to(middle);
+    run.screen.state.kick_now();
+    pump(&mut run.screen, |state| {
+        state.drawers[bottom].open && state.drawers[bottom].settled()
+    });
+    assert!(
+        run.screen.state.drawers[bottom].open,
+        "the pinned bar is not shown"
+    );
+
+    run.screen.state.pointer_to(Vec2::new(middle.x, 0.0));
+    run.screen.state.tick();
+    pump(&mut run.screen, |state| state.drawers[top].open);
+    run.screen.state.pointer_to(middle);
+    run.screen.state.tick();
+    pump(&mut run.screen, |state| {
+        !state.drawers[top].open && state.drawers[top].settled()
+    });
+    assert!(
+        !run.screen.state.drawers[top].open,
+        "the top bar did not hide"
+    );
+    assert!(
+        run.screen.state.drawers[bottom].open,
+        "the pinned bar hid with the top bar"
+    );
 }

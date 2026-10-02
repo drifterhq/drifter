@@ -113,6 +113,18 @@ impl Model {
             Group {
                 header: Some("Bars"),
                 rows: vec![
+                    Row::new(
+                        Id::HideTop,
+                        "Auto hide top bar",
+                        Control::Switch(motion.hide_top),
+                    )
+                    .detail("Off keeps the top bar on screen"),
+                    Row::new(
+                        Id::HideBottom,
+                        "Auto hide bottom bar",
+                        Control::Switch(motion.hide_bottom),
+                    )
+                    .detail("Off keeps the bottom bar on screen"),
                     slider(Id::BarOpen, "Open after", WAIT_MS, motion.bar_open, " ms")
                         .detail("How long the pointer rests at the edge"),
                     slider(
@@ -648,6 +660,8 @@ impl Model {
                 self.motion.pan_speed = number(n / 5.0, (5, 80)) * 5
             }
             (Id::Flight, Value::Number(n)) => self.motion.flight = number(n / 10.0, (4, 150)) * 10,
+            (Id::HideTop, Value::Switch(on)) => self.motion.hide_top = on,
+            (Id::HideBottom, Value::Switch(on)) => self.motion.hide_bottom = on,
             (Id::BarOpen, Value::Number(n)) => {
                 self.motion.bar_open = number(n / 10.0, (0, 200)) * 10
             }
@@ -821,8 +835,14 @@ impl Model {
         }
 
         let (motion, was) = (&self.motion, &before.motion);
-        if motion.hot_corner != was.hot_corner {
-            put(doc, "motion", "hot_corner", flag(motion.hot_corner));
+        for (key, now, then) in [
+            ("hot_corner", motion.hot_corner, was.hot_corner),
+            ("hide_top", motion.hide_top, was.hide_top),
+            ("hide_bottom", motion.hide_bottom, was.hide_bottom),
+        ] {
+            if now != then {
+                put(doc, "motion", key, flag(now));
+            }
         }
         for (key, now, then) in [
             ("corner_size", motion.corner_size, was.corner_size),
@@ -929,6 +949,17 @@ mod tests {
         let back = Config::parse(&out).unwrap();
         back.validate().unwrap();
         back
+    }
+
+    #[test]
+    fn the_bar_auto_hide_switches_write_the_motion_table() {
+        let back = round_trip("", |m| {
+            m.set(Id::HideBottom, Value::Switch(false));
+        });
+        assert!(back.motion.hide_top);
+        assert!(!back.motion.hide_bottom);
+        let tunables = crate::config::Tunables::from(&back.motion);
+        assert_eq!(tunables.bar_hides, [true, false]);
     }
 
     #[test]

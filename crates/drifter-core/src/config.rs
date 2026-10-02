@@ -547,6 +547,10 @@ pub struct Motion {
     pub bar_close: u32,
     #[serde(default = "bar_slide")]
     pub bar_slide: u32,
+    #[serde(default = "yes")]
+    pub hide_top: bool,
+    #[serde(default = "yes")]
+    pub hide_bottom: bool,
     #[serde(default = "flight")]
     pub flight: u32,
 }
@@ -589,6 +593,8 @@ impl Default for Motion {
             bar_open: bar_open(),
             bar_close: bar_close(),
             bar_slide: bar_slide(),
+            hide_top: true,
+            hide_bottom: true,
             flight: flight(),
         }
     }
@@ -911,6 +917,7 @@ pub struct Tunables {
     pub drawer_dwell: Duration,
     pub drawer_hide_delay: Duration,
     pub drawer_anim: Duration,
+    pub bar_hides: [bool; 2],
     pub edge_band: f64,
     pub hot_corner_dwell: Duration,
     pub hot_corner_size: f64,
@@ -926,6 +933,7 @@ impl Default for Tunables {
             drawer_dwell: Duration::from_millis(120),
             drawer_hide_delay: Duration::from_millis(400),
             drawer_anim: Duration::from_millis(300),
+            bar_hides: [true, true],
             edge_band: 2.0,
             hot_corner_dwell: Duration::from_millis(300),
             hot_corner_size: 48.0,
@@ -946,6 +954,7 @@ impl Tunables {
             drawer_dwell: ms(motion.bar_open),
             drawer_hide_delay: ms(motion.bar_close),
             drawer_anim: ms(motion.bar_slide),
+            bar_hides: [motion.hide_top, motion.hide_bottom],
             camera_anim: ms(motion.flight),
             ..Tunables::default()
         }
