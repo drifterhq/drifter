@@ -85,6 +85,12 @@ Every change is written to `conf/drifter.toml` the moment it is made, sliders in
 
 `cargo run -p drifter-core --example settings -- <folder>` draws every page and both dialogs to PNG files, so the design can be checked on any machine.
 
+## Night light
+
+`[night]` makes the screen warmer between two hours. `on` turns it on, `warmth` is kelvin from 1900 to 6500, and night runs from `start` to `end` (hours 0 to 23), through midnight. The same switch, slider and hours sit under Settings > Displays.
+
+Drifter checks the hour on its 400 ms config tick. When the wanted warmth changes, it sets each CRTC's legacy gamma ramp: a straight ramp scaled by the white point of that temperature (red stays full, green and then blue drop). Each head keeps the warmth it was given, so a new monitor or a VT switch back gets the ramp again. A CRTC with no gamma ramp, like virtio-gpu in the VM, is reported on stderr and left alone.
+
 ## Keyboard
 
 `[keyboard]` sets the xkb layout, variant and options, and the repeat delay and rate. An empty layout is the system default. Settings > Keyboard & Mouse picks a layout from the `! layout` section of `/usr/share/X11/xkb/rules/evdev.lst`, with a search field, and sets the repeat with two sliders. Picking a new layout clears the variant. Variants and options are set in the file only. A change is applied live: a new keymap goes to every client, and the repeat goes to clients on wl_keyboard version 4 or later. A layout that does not compile is reported on stderr, and the keyboard keeps the keymap it had.

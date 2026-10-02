@@ -4,13 +4,12 @@ Work that is not yet done, after the 2026-10-01 daily-driver list. Done items le
 
 ## Must, before daily use
 
-- Run Drifter on bare metal: the RTX 5060 box on the proprietary NVIDIA driver. Check smoothness, real input, the touchpad, monitor hotplug and VT switching. Fix what breaks. Nothing here has run outside the VM.
+- Run Drifter on bare metal: the RTX 5060 box on the proprietary NVIDIA driver. Check smoothness, real input, the touchpad, monitor hotplug, VT switching and the night light, which the VM cannot show. Fix what breaks. Nothing here has run outside the VM.
 - Screen sharing on pixman. Pixman only binds linear dmabufs. If the portal hands Drifter a GPU-tiled buffer, the copy fails. Test a share with no GPU, and fall back to a shared memory copy when the bind fails.
 
 ## Soon
 
 - SVG icons. Icon lookup only finds PNG, and many themes (Papirus, much of Adwaita) are SVG only, so tray, dock and picker icons go missing. Render SVG with resvg, and draw a placeholder when an item has no icon at all, so a tray item is never invisible.
-- Night light through wlr gamma control, with a Settings page for the warmth and the hours.
 - The headless backend and frame capture, so tests run without the VM.
 - A world-sized wallpaper as mipmapped tiles. Today the whole image is one texture, which costs memory and can pass the GPU's texture size limit.
 

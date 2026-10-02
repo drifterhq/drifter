@@ -2282,7 +2282,7 @@ impl Look {
                 canvas.circle(knob, 9.0, [255, 255, 255], fade);
                 let words = match (zero, value.round() <= *least) {
                     (Some(zero), true) => zero.to_string(),
-                    _ if unit.starts_with(' ') || unit.is_empty() => {
+                    _ if unit.starts_with([' ', ':']) || unit.is_empty() => {
                         format!("{}{unit}", value.round() as i64)
                     }
                     _ => format!("{} {unit}", value.round() as i64),
