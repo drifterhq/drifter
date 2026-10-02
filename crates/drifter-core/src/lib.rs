@@ -15,6 +15,7 @@ pub mod lock;
 pub mod menu;
 pub mod mode;
 pub mod motion;
+pub mod night;
 pub mod notify;
 pub mod paint;
 pub mod power;
@@ -32,8 +33,8 @@ pub mod window;
 
 pub use camera::Camera;
 pub use config::{
-    AppsConfig, Assets, ButtonName, Config, DockConfig, Keyboard, Launch, Modifier, Side, ThreeTap,
-    Touchpad, TrayConfig, Tunables, WallpaperMode, WallpaperOrder,
+    AppsConfig, Assets, ButtonName, Config, DockConfig, Keyboard, Launch, Modifier, Night, Side,
+    ThreeTap, Touchpad, TrayConfig, Tunables, WallpaperMode, WallpaperOrder,
 };
 pub use cursor::Cursor;
 pub use drawer::{Drawer, Edge, Panel};

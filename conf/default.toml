@@ -60,6 +60,15 @@ ignore_while_typing = true
 # x = 0
 # y = 0
 
+[night]
+# Warmer colors at night, easier on the eyes in the dark.
+on = false
+# Kelvin at night. 1900 is very warm, 6500 is plain white.
+warmth = 4000
+# Hours, 0 to 23. Night runs from start to end, through midnight.
+start = 21
+end = 7
+
 [keyboard]
 # The layout, like "us", "de" or "gb". Empty uses the system default.
 layout = ""

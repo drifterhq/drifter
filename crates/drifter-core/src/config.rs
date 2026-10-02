@@ -372,6 +372,42 @@ pub enum ThreeTap {
 
 pub const FASTEST: u32 = 10;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Night {
+    #[serde(default)]
+    pub on: bool,
+    #[serde(default = "night_warmth")]
+    pub warmth: u32,
+    #[serde(default = "night_start")]
+    pub start: u32,
+    #[serde(default = "night_end")]
+    pub end: u32,
+}
+
+fn night_warmth() -> u32 {
+    4000
+}
+
+fn night_start() -> u32 {
+    21
+}
+
+fn night_end() -> u32 {
+    7
+}
+
+impl Default for Night {
+    fn default() -> Self {
+        Night {
+            on: false,
+            warmth: night_warmth(),
+            start: night_start(),
+            end: night_end(),
+        }
+    }
+}
+
 pub const REPEAT_DELAY: (u32, u32) = (100, 1000);
 pub const REPEAT_RATE: (u32, u32) = (5, 60);
 
@@ -465,6 +501,8 @@ pub struct Config {
     pub touchpad: Touchpad,
     #[serde(default)]
     pub keyboard: Keyboard,
+    #[serde(default)]
+    pub night: Night,
     #[serde(default)]
     pub drawers: Drawers,
     #[serde(default)]
@@ -698,6 +736,17 @@ impl Config {
         if self.tray.size < 6.0 {
             return Err(ConfigError::Invalid(
                 "tray size is text height in pixels and must be at least 6".into(),
+            ));
+        }
+        let (warm, plain) = (crate::night::WARMEST, crate::night::PLAIN);
+        if !(warm..=plain).contains(&self.night.warmth) {
+            return Err(ConfigError::Invalid(format!(
+                "night warmth is kelvin from {warm} to {plain}"
+            )));
+        }
+        if self.night.start > 23 || self.night.end > 23 {
+            return Err(ConfigError::Invalid(
+                "night start and end are hours from 0 to 23".into(),
             ));
         }
         let (least, most) = REPEAT_DELAY;
@@ -1086,6 +1135,28 @@ mod tests {
         assert_eq!(config.workspace.height, 3);
         assert_eq!(config.workspace.wallpaper_mode, WallpaperMode::Pan);
         assert_eq!(config.input.modifier, Modifier::Super);
+    }
+
+    #[test]
+    fn night_is_off_by_default_and_checked() {
+        let night = Config::default().night;
+        assert!(!night.on);
+        assert_eq!((night.warmth, night.start, night.end), (4000, 21, 7));
+        let set = Config::parse("[night]\non = true\nwarmth = 3000\n").unwrap();
+        set.validate().unwrap();
+        assert!(set.night.on && set.night.end == 7);
+        assert!(
+            Config::parse("[night]\nwarmth = 9000\n")
+                .unwrap()
+                .validate()
+                .is_err()
+        );
+        assert!(
+            Config::parse("[night]\nstart = 24\n")
+                .unwrap()
+                .validate()
+                .is_err()
+        );
     }
 
     #[test]

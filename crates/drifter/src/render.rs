@@ -131,6 +131,7 @@ struct Head {
     awaiting: bool,
     frames: u32,
     last: Instant,
+    warmth: Option<u32>,
 }
 
 pub struct Screen {
@@ -335,6 +336,7 @@ pub struct State {
     config_seen: Option<(std::time::SystemTime, u64, u64)>,
     last_input: Instant,
     keys: drifter_core::Keyboard,
+    night: drifter_core::Night,
     lock_after: u64,
     screen_off: u64,
     dark: bool,
@@ -2184,6 +2186,50 @@ impl State {
         crate::apps::launch(&[program.to_string_lossy().into_owned()], &self.socket);
     }
 
+    fn watch_night(&mut self) {
+        use smithay::reexports::drm::control::Device as _;
+
+        if !self.active {
+            return;
+        }
+        let night = self.night.on
+            && drifter_core::night::is_night(
+                self.night.start,
+                self.night.end,
+                drifter_core::night::hour_now(),
+            );
+        let wanted = match night {
+            true => self.night.warmth,
+            false => drifter_core::night::PLAIN,
+        };
+        for head in &mut self.heads {
+            if head.warmth == Some(wanted) {
+                continue;
+            }
+            head.warmth = Some(wanted);
+            let length = match self.drm.get_crtc(head.crtc) {
+                Ok(info) => info.gamma_length() as usize,
+                Err(error) => {
+                    eprintln!("drifter: no night light on {}: {error}", head.name);
+                    continue;
+                }
+            };
+            if length == 0 {
+                if night {
+                    eprintln!(
+                        "drifter: {} has no gamma ramp, so no night light",
+                        head.name
+                    );
+                }
+                continue;
+            }
+            let [red, green, blue] = drifter_core::night::ramp(length, wanted);
+            if let Err(error) = self.drm.set_gamma(head.crtc, &red, &green, &blue) {
+                eprintln!("drifter: no night light on {}: {error}", head.name);
+            }
+        }
+    }
+
     fn set_keys(&mut self, keys: &drifter_core::Keyboard) {
         let keyboard = self.wayland.keyboard.clone();
         if keys.layout != self.keys.layout
@@ -2335,6 +2381,7 @@ impl State {
         self.mode = config.workspace.wallpaper_mode;
         self.holds = config.input.modifier;
         self.modifier = false;
+        self.night = config.night;
         if self.keys != config.keyboard {
             self.set_keys(&config.keyboard);
         }
@@ -4448,6 +4495,7 @@ pub fn open(
         config_seen: None,
         last_input: Instant::now(),
         keys: config.keyboard.clone(),
+        night: config.night,
         lock_after: config.lock.after,
         screen_off: config.lock.screen_off,
         dark: false,
@@ -4579,6 +4627,7 @@ pub fn open(
                 }
                 for head in &mut state.heads {
                     head.awaiting = false;
+                    head.warmth = None;
                     if let Err(error) = head.compositor.reset_state() {
                         eprintln!("drifter: cannot reset {}: {error}", head.name);
                     }
@@ -4765,6 +4814,7 @@ pub fn open(
             |_, _, state: &mut State| {
                 state.watch_config();
                 state.watch_idle();
+                state.watch_night();
                 state.watch_wallpaper();
                 TimeoutAction::ToDuration(CONFIG_WATCH)
             },
@@ -5624,6 +5674,7 @@ impl State {
             screen,
             panels,
             awaiting: false,
+            warmth: None,
             frames: 0,
             last: Instant::now(),
         });

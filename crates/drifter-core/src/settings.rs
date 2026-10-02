@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::config::{
-    ButtonName, Config, FASTEST, Keyboard, Launch, Modifier, REPEAT_DELAY, REPEAT_RATE, Side,
-    ThreeTap, Touchpad, WallpaperMode, WallpaperOrder,
+    ButtonName, Config, FASTEST, Keyboard, Launch, Modifier, Night, REPEAT_DELAY, REPEAT_RATE,
+    Side, ThreeTap, Touchpad, WallpaperMode, WallpaperOrder,
 };
 use crate::desktop::Role;
 use crate::geom::{Rect, Vec2};
@@ -124,6 +124,7 @@ pub struct Model {
     pub touchpad: Touchpad,
     pub keyboard: Keyboard,
     pub layouts: Vec<Layout>,
+    pub night: Night,
     pub top: f64,
     pub bottom: f64,
     pub text_size: f64,
@@ -222,6 +223,7 @@ impl Model {
             modifier: config.input.modifier,
             touchpad: config.touchpad,
             keyboard: config.keyboard.clone(),
+            night: config.night,
             layouts: crate::keyboard::installed(),
             top: config.drawers.top,
             bottom: config.drawers.bottom,
@@ -727,7 +729,11 @@ impl Model {
                 self.keyboard_group(),
             ],
             Section::Touchpad => self.touchpad_groups(),
-            Section::Displays => self.display_groups(),
+            Section::Displays => {
+                let mut groups = self.display_groups();
+                groups.extend(self.night_groups());
+                groups
+            }
             Section::Lock => vec![Group {
                 header: None,
                 rows: vec![
@@ -804,6 +810,50 @@ impl Model {
                 }]
             }
         }
+    }
+
+    fn night_groups(&self) -> Vec<Group> {
+        let night = &self.night;
+        let hour = |id, label: &str, value: u32| {
+            Row::new(
+                id,
+                label,
+                Control::Slider {
+                    least: 0.0,
+                    most: 23.0,
+                    value: f64::from(value),
+                    unit: ":00",
+                    zero: None,
+                },
+            )
+            .enabled(night.on)
+        };
+        vec![Group {
+            header: Some("Night light"),
+            rows: vec![
+                Row::new(Id::NightOn, "Night light", Control::Switch(night.on))
+                    .detail("Warmer colors at night"),
+                Row::new(
+                    Id::Warmth,
+                    "Warmth",
+                    Control::Slider {
+                        least: f64::from(crate::night::WARMEST),
+                        most: f64::from(crate::night::PLAIN),
+                        value: f64::from(night.warmth),
+                        unit: " K",
+                        zero: None,
+                    },
+                )
+                .detail("Lower is warmer")
+                .enabled(night.on),
+                hour(Id::NightStart, "Starts at", night.start),
+                hour(Id::NightEnd, "Ends at", night.end),
+            ],
+            footer: Some(
+                "Night runs from the start hour to the end hour, through midnight.".into(),
+            ),
+            thumbs: None,
+        }]
     }
 
     fn keyboard_group(&self) -> Group {
@@ -1070,6 +1120,16 @@ impl Model {
             (Id::ScreenOff, Value::Number(n)) => {
                 self.screen_off = n.round().clamp(0.0, 60.0) as u64
             }
+            (Id::NightOn, Value::Switch(on)) => self.night.on = on,
+            (Id::Warmth, Value::Number(n)) => {
+                let (least, most) = (crate::night::WARMEST, crate::night::PLAIN);
+                self.night.warmth =
+                    ((n / 100.0).round() * 100.0).clamp(f64::from(least), f64::from(most)) as u32
+            }
+            (Id::NightStart, Value::Number(n)) => {
+                self.night.start = n.round().clamp(0.0, 23.0) as u32
+            }
+            (Id::NightEnd, Value::Number(n)) => self.night.end = n.round().clamp(0.0, 23.0) as u32,
             (Id::RepeatDelay, Value::Number(n)) => {
                 let (least, most) = REPEAT_DELAY;
                 self.keyboard.repeat_delay =
@@ -1301,6 +1361,20 @@ impl Model {
         if pad.speed != was.speed {
             put(&mut doc, "touchpad", "speed", int(f64::from(pad.speed)));
         }
+        let (night, was) = (&self.night, &before.night);
+        if night.on != was.on {
+            put(&mut doc, "night", "on", toml_edit::Value::from(night.on));
+        }
+        let numbers = [
+            ("warmth", night.warmth, was.warmth),
+            ("start", night.start, was.start),
+            ("end", night.end, was.end),
+        ];
+        for (key, now, then) in numbers {
+            if now != then {
+                put(&mut doc, "night", key, int(f64::from(now)));
+            }
+        }
         let (keys, was) = (&self.keyboard, &before.keyboard);
         if keys.layout != was.layout {
             put(&mut doc, "keyboard", "layout", word(&keys.layout));
@@ -1519,6 +1593,10 @@ pub enum Id {
     Layout,
     RepeatDelay,
     RepeatRate,
+    NightOn,
+    Warmth,
+    NightStart,
+    NightEnd,
     Folder,
     Rotate,
     Unit,
@@ -2738,6 +2816,25 @@ mod tests {
         let back = Config::parse(&after.write(&before, text).unwrap()).unwrap();
         assert_eq!(back.input.modifier, Modifier::Super);
         assert_eq!(back.workspace.wallpaper_mode, WallpaperMode::Parallax);
+    }
+
+    #[test]
+    fn night_changes_write_the_night_table() {
+        let text = "";
+        let before = model(&config(text));
+        let mut after = before.clone();
+        after.set(Id::NightOn, Value::Switch(true));
+        after.set(Id::Warmth, Value::Number(3449.0));
+        after.set(Id::NightStart, Value::Number(22.4));
+        let out = after.write(&before, text).unwrap();
+        let back = Config::parse(&out).unwrap();
+        assert!(back.night.on);
+        assert_eq!(
+            (back.night.warmth, back.night.start, back.night.end),
+            (3400, 22, 7)
+        );
+        assert!(!out.contains("end"));
+        back.validate().unwrap();
     }
 
     #[test]
