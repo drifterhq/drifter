@@ -250,6 +250,7 @@ enum LockKey {
 pub struct State {
     pub output: smithay::output::Output,
     pub wayland: crate::shell::Wayland,
+    pub clip: crate::clipboard::Keeper,
     pub windows: Vec<crate::shell::Window>,
     pub popups: smithay::desktop::PopupManager,
     display: Option<Display<State>>,
@@ -4334,6 +4335,7 @@ pub fn open(
         .map_err(|_| format!("cannot take input on seat {seat_name}"))?;
     let plugs = smithay::backend::udev::UdevBackend::new(&seat_name);
 
+    let (clip, clip_events) = crate::clipboard::Keeper::new(events.handle());
     let state = State {
         output,
         wayland,
@@ -4456,6 +4458,7 @@ pub fn open(
         active: true,
         ticking: false,
         handle: events.handle(),
+        clip,
         signal: events.get_signal(),
         failure: None,
     };
@@ -4620,6 +4623,16 @@ pub fn open(
             }
         })
         .map_err(|e| format!("cannot watch the password checks: {e}"))?;
+    handle
+        .insert_source(clip_events, |event, _, state: &mut State| {
+            if let ChannelEvent::Msg(copied) = event {
+                let seat = state.wayland._seat.clone();
+                let dh = state.wayland.handle.clone();
+                state.clip.arrived(copied, &dh, &seat);
+            }
+        })
+        .map_err(|e| format!("cannot keep the clipboard: {e}"))?;
+
     match crate::logind::start() {
         Ok(events) => {
             handle

@@ -146,7 +146,31 @@ impl SeatHandler for State {
 }
 
 impl SelectionHandler for State {
-    type SelectionUserData = ();
+    type SelectionUserData = crate::clipboard::Clip;
+
+    fn new_selection(
+        &mut self,
+        ty: smithay::wayland::selection::SelectionTarget,
+        source: Option<smithay::wayland::selection::SelectionSource>,
+        _seat: Seat<Self>,
+    ) {
+        if ty == smithay::wayland::selection::SelectionTarget::Clipboard {
+            self.clip.changed(source.map(|source| source.mime_types()));
+        }
+    }
+
+    fn send_selection(
+        &mut self,
+        ty: smithay::wayland::selection::SelectionTarget,
+        mime_type: String,
+        fd: OwnedFd,
+        _seat: Seat<Self>,
+        user_data: &crate::clipboard::Clip,
+    ) {
+        if ty == smithay::wayland::selection::SelectionTarget::Clipboard {
+            crate::clipboard::send(user_data, &mime_type, fd);
+        }
+    }
 }
 
 impl DataDeviceHandler for State {

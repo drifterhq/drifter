@@ -8,6 +8,8 @@ mod apps;
 #[cfg(target_os = "linux")]
 mod auth;
 #[cfg(target_os = "linux")]
+mod clipboard;
+#[cfg(target_os = "linux")]
 mod cursors;
 #[cfg(target_os = "linux")]
 mod logind;
