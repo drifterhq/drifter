@@ -126,6 +126,17 @@ pub fn load(path: &Path) -> Result<Image, String> {
 }
 
 pub fn load_sized(path: &Path, want: u32) -> Result<Image, String> {
+    load_with(path, |bytes| draw_svg(bytes, want))
+}
+
+pub fn load_covering(path: &Path, width: f64, height: f64) -> Result<Image, String> {
+    load_with(path, |bytes| cover_svg(bytes, width, height))
+}
+
+fn load_with(
+    path: &Path,
+    svg: impl FnOnce(&[u8]) -> Result<Image, String>,
+) -> Result<Image, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
         return load_png(path, &bytes);
@@ -134,7 +145,7 @@ pub fn load_sized(path: &Path, want: u32) -> Result<Image, String> {
         return load_jpeg(path, &bytes);
     }
     if is_svg(&bytes) {
-        return draw_svg(&bytes, want).map_err(|e| format!("{}: {e}", path.display()));
+        return svg(&bytes).map_err(|e| format!("{}: {e}", path.display()));
     }
     Err(format!("{}: not a png, a jpeg or an svg", path.display()))
 }
@@ -148,22 +159,42 @@ fn is_svg(bytes: &[u8]) -> bool {
 }
 
 pub fn draw_svg(bytes: &[u8], want: u32) -> Result<Image, String> {
-    use resvg::{tiny_skia, usvg};
-
-    let tree =
-        usvg::Tree::from_data(bytes, &usvg::Options::default()).map_err(|e| e.to_string())?;
+    let tree = svg_tree(bytes)?;
     let size = tree.size();
     let longest = size.width().max(size.height());
     if longest <= 0.0 {
         return Err("the svg has no size".to_string());
     }
-    let scale = want.max(1) as f32 / longest;
+    render_svg(&tree, want.max(1) as f32 / longest)
+}
+
+fn cover_svg(bytes: &[u8], width: f64, height: f64) -> Result<Image, String> {
+    if width <= 0.0 || height <= 0.0 {
+        return draw_svg(bytes, SVG_SIZE);
+    }
+    let tree = svg_tree(bytes)?;
+    let size = tree.size();
+    if size.width() <= 0.0 || size.height() <= 0.0 {
+        return Err("the svg has no size".to_string());
+    }
+    let scale = (width / f64::from(size.width())).max(height / f64::from(size.height()));
+    render_svg(&tree, scale as f32)
+}
+
+fn svg_tree(bytes: &[u8]) -> Result<resvg::usvg::Tree, String> {
+    resvg::usvg::Tree::from_data(bytes, &resvg::usvg::Options::default()).map_err(|e| e.to_string())
+}
+
+fn render_svg(tree: &resvg::usvg::Tree, scale: f32) -> Result<Image, String> {
+    use resvg::tiny_skia;
+
+    let size = tree.size();
     let width = (size.width() * scale).round().max(1.0) as u32;
     let height = (size.height() * scale).round().max(1.0) as u32;
     let mut pixmap =
         tiny_skia::Pixmap::new(width, height).ok_or_else(|| "the svg is too big".to_string())?;
     resvg::render(
-        &tree,
+        tree,
         tiny_skia::Transform::from_scale(scale, scale),
         &mut pixmap.as_mut(),
     );
@@ -376,6 +407,24 @@ mod tests {
         let right = ((8 * 32 + 24) * 4) as usize;
         assert_eq!(image.rgba[right + 3], 0);
         assert_eq!(load(&path).unwrap().width, SVG_SIZE);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_covering_svg_fills_the_box_and_a_picture_keeps_its_size() {
+        let dir = std::env::temp_dir().join(format!("drifter-cover-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("wall.svg");
+        std::fs::write(&path, SQUARE).unwrap();
+        let wide = load_covering(&path, 4000.0, 1000.0).unwrap();
+        assert_eq!((wide.width, wide.height), (4000, 2000));
+        let tall = load_covering(&path, 1000.0, 3000.0).unwrap();
+        assert_eq!((tall.width, tall.height), (6000, 3000));
+        assert_eq!(load_covering(&path, 0.0, 0.0).unwrap().width, SVG_SIZE);
+        let png = dir.join("wall.png");
+        write_png(&png, 3, 2, png::ColorType::Rgba, &[255; 24]);
+        let kept = load_covering(&png, 4000.0, 1000.0).unwrap();
+        assert_eq!((kept.width, kept.height), (3, 2));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

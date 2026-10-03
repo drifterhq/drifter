@@ -38,16 +38,18 @@ impl State {
         let (world, screen) = (self.world, self.screen);
         let spawned = std::thread::Builder::new()
             .name("drifter-wallpaper".to_string())
-            .spawn(move || match drifter_core::image::load(&path) {
-                Ok(image) => {
-                    let pyramid = drifter_core::tiles::Pyramid::build(image, world, screen);
-                    let _ = reply.send((path, Some(pyramid)));
-                }
-                Err(error) => {
-                    eprintln!("drifter: no wallpaper {}: {error}", path.display());
-                    let _ = reply.send((path, None));
-                }
-            });
+            .spawn(
+                move || match drifter_core::image::load_covering(&path, world.x, world.y) {
+                    Ok(image) => {
+                        let pyramid = drifter_core::tiles::Pyramid::build(image, world, screen);
+                        let _ = reply.send((path, Some(pyramid)));
+                    }
+                    Err(error) => {
+                        eprintln!("drifter: no wallpaper {}: {error}", path.display());
+                        let _ = reply.send((path, None));
+                    }
+                },
+            );
         if let Err(error) = spawned {
             eprintln!("drifter: cannot load the wallpaper: {error}");
         }

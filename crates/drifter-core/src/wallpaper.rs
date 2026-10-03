@@ -131,7 +131,7 @@ pub fn is_picture(path: &std::path::Path) -> bool {
             .extension()
             .and_then(|ext| ext.to_str())
             .map(|ext| ext.to_lowercase())
-            .is_some_and(|ext| matches!(ext.as_str(), "png" | "jpg" | "jpeg"))
+            .is_some_and(|ext| matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "svg"))
 }
 
 pub fn next_picture(
@@ -167,6 +167,21 @@ mod folder_tests {
             .iter()
             .map(PathBuf::from)
             .collect()
+    }
+
+    #[test]
+    fn svg_files_are_pictures_like_png_and_jpeg() {
+        let dir = std::env::temp_dir().join(format!("drifter-pictures-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["a.svg", "b.PNG", "c.jpg", "d.SVG", "e.txt", "f.webp"] {
+            std::fs::write(dir.join(name), b"").unwrap();
+        }
+        let found: Vec<String> = pictures(&dir)
+            .iter()
+            .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(found, ["a.svg", "b.PNG", "c.jpg", "d.SVG"]);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
