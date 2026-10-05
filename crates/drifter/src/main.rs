@@ -47,16 +47,6 @@ mod wlr_output;
 mod wlr_toplevel;
 
 #[cfg(target_os = "linux")]
-fn load_image(path: &Path, what: &str) -> Option<drifter_core::Image> {
-    match drifter_core::image::load(path) {
-        Ok(image) => Some(image),
-        Err(error) => {
-            eprintln!("drifter: no {what}: {error}");
-            None
-        }
-    }
-}
-
 #[cfg(target_os = "linux")]
 fn print_rect(what: &str, rect: Option<drifter_core::Rect>) {
     match rect {
