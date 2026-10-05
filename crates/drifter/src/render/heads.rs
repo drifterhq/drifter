@@ -428,6 +428,10 @@ impl State {
             base.y * f64::from(self.screens_wide.1),
         );
         let world = self.world;
+        for window in &mut self.windows {
+            window.content = window.content.inside(world);
+            window.restore = window.restore.map(|rect| rect.inside(world));
+        }
         for head in &mut self.heads {
             let least = Camera::fit_zoom(head.screen, world);
             head.camera.zoom = head.camera.zoom.clamp(least, 4.0);

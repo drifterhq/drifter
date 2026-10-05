@@ -112,6 +112,11 @@ impl Rect {
         Rect::new(origin, (self.origin + self.size).round() - origin)
     }
 
+    pub fn inside(&self, area: Vec2) -> Rect {
+        let far = (area - self.size).max(Vec2::ZERO);
+        Rect::new(self.origin.clamp(Vec2::ZERO, far), self.size)
+    }
+
     pub fn contains(&self, p: Vec2) -> bool {
         let m = self.max();
         p.x >= self.origin.x && p.y >= self.origin.y && p.x < m.x && p.y < m.y
@@ -120,6 +125,18 @@ impl Rect {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_rect_moves_back_inside_a_smaller_area() {
+        let area = Vec2::new(100.0, 50.0);
+        let far = Rect::new(Vec2::new(300.0, -20.0), Vec2::new(40.0, 20.0));
+        assert_eq!(far.inside(area).origin, Vec2::new(60.0, 0.0));
+        let fine = Rect::new(Vec2::new(10.0, 10.0), Vec2::new(40.0, 20.0));
+        assert_eq!(fine.inside(area), fine);
+        let huge = Rect::new(Vec2::new(30.0, 30.0), Vec2::new(400.0, 400.0));
+        assert_eq!(huge.inside(area).origin, Vec2::ZERO);
+    }
+
     use super::*;
 
     #[test]

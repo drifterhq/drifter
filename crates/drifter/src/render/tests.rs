@@ -1127,3 +1127,32 @@ fn a_screen_locker_covers_everything_until_it_unlocks() {
     stop.store(true, Ordering::Relaxed);
     let _ = client.join();
 }
+
+#[test]
+fn a_smaller_world_pulls_windows_back_inside() {
+    let config = Config::parse("[workspace]\nwidth = 9\nheight = 9\n").unwrap();
+    let mut run = start("shrink", &config, None);
+    let (stop, client) = red_window(&mut run);
+    let state = &mut run.screen.state;
+    let far = Vec2::new(state.world.x - 300.0, state.world.y - 200.0);
+    let at = state
+        .windows
+        .iter()
+        .position(|window| window.app == "drifter-test-red")
+        .expect("the red window is placed");
+    state.windows[at].content.origin = far;
+
+    state.screens_wide = (3, 3);
+    state.relayout(false);
+    let world = state.world;
+    let content = state.windows[at].content;
+    assert!(
+        content.origin.x >= 0.0
+            && content.origin.y >= 0.0
+            && content.max().x <= world.x
+            && content.max().y <= world.y,
+        "the window {content:?} sits inside the world {world:?}"
+    );
+    stop.store(true, Ordering::Relaxed);
+    let _ = client.join();
+}
