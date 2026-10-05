@@ -434,6 +434,8 @@ pub fn open(
         look: Look::themed(&palette),
         palette,
         tray_raw: Vec::new(),
+        frost_key: None,
+        frost_at: None,
         tip: None,
         tip_of: None,
         snap: Snap::default(),

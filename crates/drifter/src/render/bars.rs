@@ -98,10 +98,11 @@ impl State {
         if items.is_empty() || self.lock.is_some() {
             return;
         }
-        let look = self.look;
+        let look = self.menu_look();
         let size = look.size(&items, self.font.as_ref());
-        let image = look.paint(&items, size, None, self.font.as_ref());
+        let mut image = look.paint(&items, size, None, self.font.as_ref());
         let rect = look.rect(at, size, self.screen);
+        self.frosted(&mut image, rect.origin, f64::from(look.back_alpha) / 255.0);
         match upload(&mut self.renderer, Some(&image), "menu") {
             Ok(Some(art)) => {
                 self.popover = Some(Popover {
@@ -128,7 +129,10 @@ impl State {
         }
         let items = open.items.clone();
         let size = open.rect.size;
-        let image = self.look.paint(&items, size, hover, self.font.as_ref());
+        let origin = open.rect.origin;
+        let look = self.menu_look();
+        let mut image = look.paint(&items, size, hover, self.font.as_ref());
+        self.frosted(&mut image, origin, f64::from(look.back_alpha) / 255.0);
         match upload(&mut self.renderer, Some(&image), "menu") {
             Ok(Some(art)) => {
                 if let Some(open) = self.popover.as_mut() {
@@ -229,10 +233,10 @@ impl State {
         let items = vec![Item::line(0, text)];
         let look = Look {
             least_width: 0.0,
-            ..self.look
+            ..self.menu_look()
         };
         let size = look.size(&items, self.font.as_ref());
-        let image = look.paint(&items, size, None, self.font.as_ref());
+        let mut image = look.paint(&items, size, None, self.font.as_ref());
         let at = Vec2::new(
             under.center().x - size.x / 2.0,
             if below {
@@ -242,6 +246,7 @@ impl State {
             },
         );
         let rect = look.rect(at, size, self.screen);
+        self.frosted(&mut image, rect.origin, f64::from(look.back_alpha) / 255.0);
         match upload(&mut self.renderer, Some(&image), "hover text") {
             Ok(Some(art)) => {
                 self.tip = Some((art, rect));
@@ -543,11 +548,22 @@ impl State {
         Some(self.tray.speaker_rect(band, clock))
     }
 
+    pub(super) fn menu_look(&self) -> Look {
+        Look {
+            back_alpha: (self.veil(f64::from(self.look.back_alpha) / 255.0) * 255.0).round() as u8,
+            ..self.look
+        }
+    }
+
     fn paint_gauge_panel(&mut self, gauge: Gauge) {
         let Some((level, muted)) = self.gauge_level(gauge) else {
             return;
         };
-        let look = drifter_core::volume::Panel::themed(&self.palette);
+        let plain = drifter_core::volume::Panel::themed(&self.palette);
+        let look = drifter_core::volume::Panel {
+            back_alpha: self.veil(plain.back_alpha),
+            ..plain
+        };
         let shown = ((level * 100.0).round() as i64, muted);
         if self
             .gauge_panel
@@ -556,7 +572,14 @@ impl State {
         {
             return;
         }
-        let image = look.paint(gauge, level, muted, self.font.as_ref());
+        let mut image = look.paint(gauge, level, muted, self.font.as_ref());
+        let spot = match self.gauge_panel.as_ref().filter(|panel| panel.gauge == gauge) {
+            Some(panel) => Some(panel.rect),
+            None => self.gauge_rect(gauge).map(|under| look.rect(under, self.screen)),
+        };
+        if let Some(spot) = spot {
+            self.frosted(&mut image, spot.origin, look.back_alpha);
+        }
         let art = match upload(&mut self.renderer, Some(&image), "sound panel") {
             Ok(Some(art)) => art,
             Ok(None) => return,

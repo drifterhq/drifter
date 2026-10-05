@@ -307,6 +307,7 @@ impl State {
         if let Ok(Some(buffer)) = upload(&mut self.renderer, Some(&rule), "dock divider") {
             self.rule = Some(buffer);
         }
+        self.frost_key = None;
         self.take_icons(self.tray_raw.clone());
         if let Some((level, muted)) = self.volume {
             self.speaker = None;

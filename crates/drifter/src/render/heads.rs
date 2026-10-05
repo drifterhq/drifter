@@ -504,6 +504,7 @@ impl State {
                 Some((rect.origin.x as i32, rect.origin.y as i32).into()),
             );
             if resized || repaint {
+                self.frost_key = None;
                 match paint_panels(&mut self.renderer, rect.size.x, &self.shapes, self.palette.bar) {
                     Ok(panels) => self.heads[index].panels = panels,
                     Err(error) => eprintln!("drifter: {error}"),

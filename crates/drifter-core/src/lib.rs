@@ -8,6 +8,7 @@ pub mod disks;
 pub mod dock;
 pub mod drawer;
 pub mod exec;
+pub mod frost;
 pub mod geom;
 pub mod hud;
 pub mod icon;

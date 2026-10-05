@@ -18,6 +18,7 @@ pub struct Palette {
     pub alert: [u8; 3],
     pub glyph: [u8; 3],
     pub shade: [u8; 3],
+    pub veil: u8,
 }
 
 pub const DARK: Palette = Palette {
@@ -37,6 +38,7 @@ pub const DARK: Palette = Palette {
     alert: [255, 120, 110],
     glyph: [226, 230, 238],
     shade: [255, 255, 255],
+    veil: 165,
 };
 
 pub const LIGHT: Palette = Palette {
@@ -56,6 +58,7 @@ pub const LIGHT: Palette = Palette {
     alert: [208, 58, 48],
     glyph: [44, 48, 58],
     shade: [0, 0, 0],
+    veil: 150,
 };
 
 pub fn of(style: Option<Style>) -> Palette {

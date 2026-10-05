@@ -248,9 +248,27 @@ impl State {
             self.tell_closed(note.id, 3);
             return;
         };
-        let look = drifter_core::notify::Look::themed(&self.palette);
+        let plain = drifter_core::notify::Look::themed(&self.palette);
+        let look = drifter_core::notify::Look {
+            back_alpha: self.veil(plain.back_alpha),
+            ..plain
+        };
         let tall = look.height(&note, font);
-        let image = look.paint(&note, font);
+        let mut image = look.paint(&note, font);
+        let mut heights: Vec<f64> = self.cards.iter().map(|card| card.tall).collect();
+        let slot = match self.cards.iter().position(|held| held.note.id == note.id) {
+            Some(at) => {
+                heights[at] = tall;
+                at
+            }
+            None => {
+                heights.insert(0, tall);
+                0
+            }
+        };
+        if let Some(spot) = look.stack(self.screen, &heights).get(slot) {
+            self.frosted(&mut image, spot.origin, look.back_alpha);
+        }
         let art = match upload(&mut self.renderer, Some(&image), "notification") {
             Ok(Some(art)) => art,
             Ok(None) => {

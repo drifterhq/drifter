@@ -156,13 +156,17 @@ struct Head {
 struct Backdrop {
     pyramid: drifter_core::tiles::Pyramid,
     resident: std::collections::HashMap<(usize, u32, u32), (TextureBuffer<Tex>, Instant)>,
+    frost: drifter_core::frost::Frost,
 }
 
 impl Backdrop {
     fn new(pyramid: drifter_core::tiles::Pyramid) -> Backdrop {
+        let smallest = &pyramid.levels[pyramid.levels.len() - 1];
+        let frost = drifter_core::frost::Frost::build(smallest);
         Backdrop {
             pyramid,
             resident: std::collections::HashMap::new(),
+            frost,
         }
     }
 }
@@ -415,6 +419,8 @@ pub struct State {
     sampled: Option<Instant>,
     icons: Vec<(String, String, TextureBuffer<Tex>)>,
     tray_raw: Vec<crate::tray::Icon>,
+    frost_key: Option<[i64; 6]>,
+    frost_at: Option<Instant>,
     palette: drifter_core::theme::Palette,
     popover: Option<Popover>,
     switch: Option<Switch>,
@@ -699,6 +705,7 @@ impl State {
                 )));
             }
         }
+        self.frost_bars();
         for edge in Edge::ALL {
             let drawer = &self.drawers[edge.index()];
             if drawer.visible() {
