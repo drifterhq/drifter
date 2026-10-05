@@ -124,9 +124,11 @@ fn bootstrap(config: &Config) -> ExitCode {
     let virtual_size = (1920, 1080);
     let night = [0.02, 0.05, 0.10, 1.0];
 
-    let wallpaper = config
-        .wallpaper_path()
-        .and_then(|path| load_image(&path, "wallpaper"));
+    let wallpaper = config.wallpaper_path().and_then(|path| {
+        drifter_core::image::load_covering(&path, 5120.0, 2880.0)
+            .map_err(|error| eprintln!("drifter: no wallpaper: {error}"))
+            .ok()
+    });
 
     let screen = match render::open(
         Some(render::Seat {
