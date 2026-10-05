@@ -258,6 +258,7 @@ pub struct Model {
     pub unit: usize,
     pub rotation: WallpaperOrder,
     pub pictures: Vec<PathBuf>,
+    pub livepapers: Vec<PathBuf>,
     pub names: HashMap<String, String>,
     pub monitors: Vec<Monitor>,
     pub picked: usize,
@@ -427,6 +428,10 @@ impl Model {
                 .wallpaper_folder()
                 .map(|folder| crate::wallpaper::pictures(&clean(folder)))
                 .unwrap_or_default(),
+            livepapers: crate::livepaper::installed(&Config::livepaper_folders())
+                .into_iter()
+                .map(clean)
+                .collect(),
             names: HashMap::new(),
             monitors: Vec::new(),
             picked: 0,
@@ -1415,18 +1420,39 @@ impl Model {
                 thumbs: None,
             },
         ];
-        if !self.pictures.is_empty() {
-            let chosen = self
-                .wallpaper
+        let chosen_in = |list: &[PathBuf]| {
+            self.wallpaper
                 .as_ref()
-                .and_then(|now| self.pictures.iter().position(|path| path == now));
+                .and_then(|now| list.iter().position(|path| path == now))
+        };
+        groups.insert(
+            1,
+            Group {
+                header: Some("Livepapers"),
+                rows: Vec::new(),
+                footer: Some(
+                    match self.livepapers.is_empty() {
+                        true => "No livepapers yet. Put .livepaper files in ~/.local/share/drifter/livepapers.",
+                        false => "A livepaper changes with the time of day. Click one to use it.",
+                    }
+                    .into(),
+                ),
+                thumbs: (!self.livepapers.is_empty()).then(|| Thumbs {
+                    shelf: Shelf::Livepapers,
+                    paths: self.livepapers.clone(),
+                    chosen: chosen_in(&self.livepapers),
+                }),
+            },
+        );
+        if !self.pictures.is_empty() {
             groups.push(Group {
                 header: Some("Pictures"),
                 rows: Vec::new(),
                 footer: Some("Click a picture to use it now.".into()),
                 thumbs: Some(Thumbs {
+                    shelf: Shelf::Pictures,
                     paths: self.pictures.clone(),
-                    chosen,
+                    chosen: chosen_in(&self.pictures),
                 }),
             });
         }
@@ -1623,8 +1649,12 @@ impl Model {
         self.folder = Some(folder);
     }
 
-    pub fn choose_picture(&mut self, at: usize) {
-        if let Some(path) = self.pictures.get(at) {
+    pub fn choose_picture(&mut self, shelf: Shelf, at: usize) {
+        let list = match shelf {
+            Shelf::Livepapers => &self.livepapers,
+            Shelf::Pictures => &self.pictures,
+        };
+        if let Some(path) = list.get(at) {
             self.wallpaper = Some(path.clone());
         }
     }
@@ -1651,12 +1681,12 @@ impl Model {
         if self.wallpaper != before.wallpaper
             && let Some(path) = &self.wallpaper
         {
-            put(
-                &mut doc,
-                "workspace",
-                "wallpaper",
-                word(&path.to_string_lossy()),
-            );
+            let shared = self.livepapers.contains(path);
+            let written = match (shared, path.file_name()) {
+                (true, Some(name)) => name.to_string_lossy().into_owned(),
+                _ => path.to_string_lossy().into_owned(),
+            };
+            put(&mut doc, "workspace", "wallpaper", word(&written));
         }
         if self.folder != before.folder
             && let Some(path) = &self.folder
@@ -2211,8 +2241,15 @@ impl Row {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Thumbs {
+    pub shelf: Shelf,
     pub paths: Vec<PathBuf>,
     pub chosen: Option<usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Shelf {
+    Livepapers,
+    Pictures,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2230,7 +2267,7 @@ pub enum Hit {
     Change(Id, Value),
     Press(Id, usize),
     Open(Id),
-    Picture(usize),
+    Picture(Shelf, usize),
     Monitor(usize),
 }
 
@@ -2574,8 +2611,11 @@ impl Look {
         let groups = model.groups(section);
         let placed = self.place(size, section, &groups, scroll);
         for (group, placed) in groups.iter().zip(&placed) {
-            if let Some(at) = placed.thumbs.iter().position(|rect| rect.contains(pointer)) {
-                return Some(Hit::Picture(at));
+            if let (Some(set), Some(at)) = (
+                group.thumbs.as_ref(),
+                placed.thumbs.iter().position(|rect| rect.contains(pointer)),
+            ) {
+                return Some(Hit::Picture(set.shelf, at));
             }
             for (row, rect) in group.rows.iter().zip(&placed.rows) {
                 if !rect.contains(pointer) || !row.enabled {
@@ -4106,6 +4146,26 @@ mod tests {
     }
 
     #[test]
+    fn a_livepaper_is_clicked_and_saved_by_name() {
+        let shelf = std::env::temp_dir().join(format!("drifter-shelf-{}", std::process::id()));
+        std::fs::create_dir_all(&shelf).unwrap();
+        let before = model(&Config::default());
+        let mut after = before.clone();
+        after.livepapers = vec![shelf.join("bloom.livepaper"), shelf.join("tiles.livepaper")];
+        let look = Look::default();
+        let groups = after.groups(Section::Wallpaper);
+        assert_eq!(groups[1].header, Some("Livepapers"));
+        let placed = look.place(SIZE, Section::Wallpaper, &groups, 0.0);
+        let tiles = placed[1].thumbs[1].center();
+        let hit = look.hit(SIZE, Section::Wallpaper, &after, 0.0, tiles);
+        assert_eq!(hit, Some(Hit::Picture(Shelf::Livepapers, 1)));
+        after.choose_picture(Shelf::Livepapers, 1);
+        assert_eq!(after.groups(Section::Wallpaper)[1].thumbs.as_ref().unwrap().chosen, Some(1));
+        let back = Config::parse(&after.write(&before, "").unwrap()).unwrap();
+        assert_eq!(back.workspace.wallpaper.as_deref(), Some(std::path::Path::new("tiles.livepaper")));
+    }
+
+    #[test]
     fn a_wallpaper_folder_offers_its_pictures_to_click() {
         let folder = std::env::temp_dir().join(format!("drifter-pick-{}", std::process::id()));
         std::fs::create_dir_all(&folder).unwrap();
@@ -4120,8 +4180,8 @@ mod tests {
         let placed = look.place(SIZE, Section::Wallpaper, &groups, 0.0);
         let second = placed.last().unwrap().thumbs[1].center();
         let hit = look.hit(SIZE, Section::Wallpaper, &after, 0.0, second);
-        assert_eq!(hit, Some(Hit::Picture(1)));
-        after.choose_picture(1);
+        assert_eq!(hit, Some(Hit::Picture(Shelf::Pictures, 1)));
+        after.choose_picture(Shelf::Pictures, 1);
         let back = Config::parse(&after.write(&before, "").unwrap()).unwrap();
         std::fs::remove_dir_all(&folder).unwrap();
         assert_eq!(back.workspace.wallpaper_folder, Some(folder.clone()));
@@ -4132,7 +4192,7 @@ mod tests {
     fn rotation_rows_wait_for_a_folder() {
         let model = model(&Config::default());
         let groups = model.groups(Section::Wallpaper);
-        let rows = &groups[1].rows;
+        let rows = &groups.iter().find(|group| group.header == Some("Folder")).unwrap().rows;
         assert!(rows[0].enabled);
         assert!(!rows[1].enabled && !rows[2].enabled && !rows[3].enabled);
     }

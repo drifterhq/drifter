@@ -1045,6 +1045,7 @@ impl Tunables {
 
 pub const DEFAULTS: &str = "default.toml";
 pub const SHARED: &str = "/usr/share/drifter/conf";
+pub const FALLBACK_WALLPAPER: &str = "../img/wallpaper.jpeg";
 pub const LONGEST_LOCK: u64 = 7 * 24 * 60;
 pub const LONGEST_ROTATION: u64 = 366 * 24 * 3600;
 
@@ -1063,6 +1064,24 @@ pub fn defaults_for(path: &Path, shared: &Path, exists: impl Fn(&Path) -> bool) 
     [path.with_file_name(DEFAULTS), shared.join(DEFAULTS)]
         .into_iter()
         .find(|candidate| exists(candidate))
+}
+
+pub fn resolve_picture(
+    asked: &Path,
+    livepapers: &[PathBuf],
+    beside: impl Fn(&Path) -> PathBuf,
+) -> PathBuf {
+    if !crate::livepaper::is_livepaper(asked) || asked.components().count() != 1 {
+        return beside(asked);
+    }
+    if let Some(found) = crate::livepaper::find(&asked.to_string_lossy(), livepapers) {
+        return found;
+    }
+    let near = beside(asked);
+    match near.exists() {
+        true => near,
+        false => beside(Path::new(FALLBACK_WALLPAPER)),
+    }
 }
 
 pub fn resolve_beside(
@@ -1187,10 +1206,14 @@ impl Config {
     }
 
     pub fn wallpaper_path(&self) -> Option<PathBuf> {
-        self.workspace
-            .wallpaper
-            .as_deref()
-            .map(|path| self.beside(path))
+        let asked = self.workspace.wallpaper.as_deref()?;
+        Some(resolve_picture(asked, &Self::livepaper_folders(), |path| {
+            self.beside(path)
+        }))
+    }
+
+    pub fn livepaper_folders() -> Vec<PathBuf> {
+        crate::livepaper::folders(&Self::data_dir())
     }
 
     pub fn state_dir() -> PathBuf {
@@ -1789,6 +1812,30 @@ mod tests {
     #[test]
     fn empty_config_is_all_defaults() {
         assert_eq!(Config::parse("").unwrap(), Config::default());
+    }
+
+    #[test]
+    fn a_livepaper_name_is_looked_up_and_falls_back_to_the_picture() {
+        let root = std::env::temp_dir().join(format!("drifter-resolve-{}", std::process::id()));
+        let shelf = root.join("livepapers");
+        std::fs::create_dir_all(&shelf).unwrap();
+        std::fs::write(shelf.join("bloom.livepaper"), b"z").unwrap();
+        let beside = |path: &Path| root.join("conf").join(path);
+        let folders = vec![shelf.clone()];
+        assert_eq!(
+            resolve_picture(Path::new("bloom.livepaper"), &folders, beside),
+            shelf.join("bloom.livepaper")
+        );
+        assert_eq!(
+            resolve_picture(Path::new("gone.livepaper"), &folders, beside),
+            root.join("conf").join(FALLBACK_WALLPAPER)
+        );
+        assert_eq!(
+            resolve_picture(Path::new("../img/a.png"), &folders, beside),
+            root.join("conf/../img/a.png")
+        );
+        let file = Config::parse(include_str!("../../../conf/default.toml")).unwrap();
+        assert_eq!(file.workspace.wallpaper.as_deref(), Some(Path::new("bloom.livepaper")));
     }
 
     #[test]

@@ -2,6 +2,13 @@ use super::*;
 
 impl State {
     pub(super) fn watch_wallpaper(&mut self) {
+        let hour = drifter_core::livepaper::hour_now();
+        if let (Some(shown), Some(was)) = (self.paper.shown.clone(), self.paper.hour)
+            && was != hour
+        {
+            self.paper.hour = Some(hour);
+            self.load_wallpaper(shown);
+        }
         let Some(folder) = self.paper.folder.clone() else {
             return;
         };
@@ -63,6 +70,8 @@ impl State {
         if let Some(pyramid) = pyramid {
             self.wallpaper = Some(Backdrop::new(pyramid));
         }
+        self.paper.hour = drifter_core::livepaper::is_livepaper(&path)
+            .then(drifter_core::livepaper::hour_now);
         self.paper.shown = Some(path);
         self.kick_now();
     }

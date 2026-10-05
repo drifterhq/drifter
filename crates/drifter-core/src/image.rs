@@ -158,7 +158,10 @@ fn load_with(
     path: &Path,
     svg: impl FnOnce(&[u8]) -> Result<Image, String>,
 ) -> Result<Image, String> {
-    let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let bytes = match crate::livepaper::is_livepaper(path) {
+        true => crate::livepaper::frame(path, crate::livepaper::hour_now())?,
+        false => std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?,
+    };
     if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
         return load_png(path, &bytes);
     }

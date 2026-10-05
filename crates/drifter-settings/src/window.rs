@@ -608,7 +608,8 @@ impl Settings {
         if self.section != Section::Wallpaper {
             return;
         }
-        for path in self.model.pictures.clone() {
+        let shown = [self.model.livepapers.clone(), self.model.pictures.clone()].concat();
+        for path in shown {
             if self.asked.insert(path.clone()) {
                 let _ = self.loads.send(path);
             }
@@ -753,8 +754,8 @@ impl Settings {
                     });
                 }
             }
-            Some(Hit::Picture(at)) => {
-                self.model.choose_picture(at);
+            Some(Hit::Picture(shelf, at)) => {
+                self.model.choose_picture(shelf, at);
                 self.save();
                 self.reload_wallpaper();
             }

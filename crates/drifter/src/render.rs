@@ -210,6 +210,7 @@ struct Paper {
     every: u64,
     order: drifter_core::WallpaperOrder,
     next: Option<Instant>,
+    hour: Option<u32>,
 }
 
 impl Paper {
@@ -221,6 +222,10 @@ impl Paper {
             every: config.workspace.wallpaper_every,
             order: config.workspace.wallpaper_order,
             next: None,
+            hour: config
+                .wallpaper_path()
+                .filter(|path| drifter_core::livepaper::is_livepaper(path))
+                .map(|_| drifter_core::livepaper::hour_now()),
         }
     }
 }
