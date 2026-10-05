@@ -1259,3 +1259,218 @@ fn pixman_copies_the_screen_into_a_dmabuf_it_cannot_bind() {
     stop.store(true, Ordering::Relaxed);
     let _ = client.join();
 }
+
+mod wlr_taskbar {
+    use super::*;
+    use wayland_protocols_wlr::foreign_toplevel::v1::client::{
+        zwlr_foreign_toplevel_handle_v1::{self, ZwlrForeignToplevelHandleV1},
+        zwlr_foreign_toplevel_manager_v1::{self, ZwlrForeignToplevelManagerV1},
+    };
+
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct Entry {
+        pub title: String,
+        pub app: String,
+        pub states: Vec<u32>,
+        pub done: bool,
+        pub closed: bool,
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    pub enum Order {
+        Minimize,
+        Activate,
+        Maximize,
+        Close,
+    }
+
+    delegate_noop!(Bar: ignore wl_seat::WlSeat);
+
+    #[derive(Default)]
+    struct Bar {
+        seen: Vec<(ZwlrForeignToplevelHandleV1, Entry)>,
+    }
+
+    impl Bar {
+        fn entry(&mut self, handle: &ZwlrForeignToplevelHandleV1) -> &mut Entry {
+            let at = match self.seen.iter().position(|(each, _)| each == handle) {
+                Some(at) => at,
+                None => {
+                    self.seen.push((handle.clone(), Entry::default()));
+                    self.seen.len() - 1
+                }
+            };
+            &mut self.seen[at].1
+        }
+    }
+
+    impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for Bar {
+        fn event(
+            _: &mut Self,
+            _: &wl_registry::WlRegistry,
+            _: wl_registry::Event,
+            _: &GlobalListContents,
+            _: &Connection,
+            _: &QueueHandle<Self>,
+        ) {
+        }
+    }
+
+    impl Dispatch<ZwlrForeignToplevelManagerV1, ()> for Bar {
+        fn event(
+            state: &mut Self,
+            _: &ZwlrForeignToplevelManagerV1,
+            event: zwlr_foreign_toplevel_manager_v1::Event,
+            _: &(),
+            _: &Connection,
+            _: &QueueHandle<Self>,
+        ) {
+            if let zwlr_foreign_toplevel_manager_v1::Event::Toplevel { toplevel } = event {
+                state.entry(&toplevel);
+            }
+        }
+
+        event_created_child!(Bar, ZwlrForeignToplevelManagerV1, [
+            zwlr_foreign_toplevel_manager_v1::EVT_TOPLEVEL_OPCODE => (ZwlrForeignToplevelHandleV1, ()),
+        ]);
+    }
+
+    impl Dispatch<ZwlrForeignToplevelHandleV1, ()> for Bar {
+        fn event(
+            state: &mut Self,
+            handle: &ZwlrForeignToplevelHandleV1,
+            event: zwlr_foreign_toplevel_handle_v1::Event,
+            _: &(),
+            _: &Connection,
+            _: &QueueHandle<Self>,
+        ) {
+            let entry = state.entry(handle);
+            match event {
+                zwlr_foreign_toplevel_handle_v1::Event::Title { title } => entry.title = title,
+                zwlr_foreign_toplevel_handle_v1::Event::AppId { app_id } => entry.app = app_id,
+                zwlr_foreign_toplevel_handle_v1::Event::State { state } => {
+                    entry.states = state
+                        .chunks_exact(4)
+                        .map(|bytes| u32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+                        .collect();
+                }
+                zwlr_foreign_toplevel_handle_v1::Event::Done => entry.done = true,
+                zwlr_foreign_toplevel_handle_v1::Event::Closed => entry.closed = true,
+                _ => {}
+            }
+        }
+    }
+
+    pub fn run(
+        report: Arc<Mutex<Vec<Entry>>>,
+        orders: Arc<Mutex<Vec<Order>>>,
+        stop: Arc<AtomicBool>,
+    ) {
+        let connection = Connection::connect_to_env().expect("the bar connects");
+        let (globals, mut queue) = registry_queue_init::<Bar>(&connection).expect("a registry");
+        let qh = queue.handle();
+        let seat: wl_seat::WlSeat = globals.bind(&qh, 1..=1, ()).expect("a seat");
+        let _manager: ZwlrForeignToplevelManagerV1 = globals
+            .bind(&qh, 3..=3, ())
+            .expect("zwlr_foreign_toplevel_manager_v1");
+        let mut bar = Bar::default();
+        while !stop.load(Ordering::Relaxed) {
+            for order in std::mem::take(&mut *orders.lock().unwrap()) {
+                let Some((handle, _)) = bar.seen.first() else {
+                    continue;
+                };
+                match order {
+                    Order::Minimize => handle.set_minimized(),
+                    Order::Activate => handle.activate(&seat),
+                    Order::Maximize => handle.set_maximized(),
+                    Order::Close => handle.close(),
+                }
+            }
+            let _ = connection.flush();
+            if let Some(guard) = connection.prepare_read() {
+                let _ = guard.read();
+            }
+            let _ = queue.dispatch_pending(&mut bar);
+            *report.lock().unwrap() = bar.seen.iter().map(|(_, entry)| entry.clone()).collect();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+}
+
+#[test]
+fn a_taskbar_sees_windows_and_can_minimize_raise_maximize_and_close_them() {
+    use wlr_taskbar::{Entry, Order};
+    const MAXIMIZED: u32 = 0;
+    const MINIMIZED: u32 = 1;
+    const ACTIVATED: u32 = 2;
+
+    let mut run = start("taskbar", &Config::default(), None);
+    let report: Arc<Mutex<Vec<Entry>>> = Arc::new(Mutex::new(Vec::new()));
+    let orders = Arc::new(Mutex::new(Vec::new()));
+    let quit = Arc::new(AtomicBool::new(false));
+    let bar = {
+        let (report, orders, quit) = (report.clone(), orders.clone(), quit.clone());
+        std::thread::spawn(move || wlr_taskbar::run(report, orders, quit))
+    };
+    let (stop, client) = red_window(&mut run);
+    let seen = |report: &Arc<Mutex<Vec<Entry>>>| report.lock().unwrap().first().cloned();
+    let wait = |run: &mut Run, test: &dyn Fn(&State, &Entry) -> bool| {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            if let Some(entry) = seen(&report)
+                && test(&run.screen.state, &entry)
+            {
+                return entry;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "timed out; the bar sees {:?}",
+                seen(&report)
+            );
+            run.screen
+                .events
+                .dispatch(Some(Duration::from_millis(10)), &mut run.screen.state)
+                .unwrap();
+            run.screen.state.sync_wlr_toplevels();
+        }
+    };
+    let red = |state: &State| {
+        state
+            .windows
+            .iter()
+            .find(|window| window.app == "drifter-test-red")
+            .map(|window| (window.id, window.hidden, window.restore.is_some(), window.going))
+    };
+
+    let entry = wait(&mut run, &|_, entry| entry.done && entry.title == "red");
+    assert_eq!(entry.app, "drifter-test-red");
+    assert!(entry.states.contains(&ACTIVATED), "the focused window is active: {entry:?}");
+
+    orders.lock().unwrap().push(Order::Minimize);
+    let entry = wait(&mut run, &|state, entry| {
+        entry.states.contains(&MINIMIZED) && red(state).is_some_and(|w| w.1)
+    });
+    assert!(!entry.states.contains(&ACTIVATED), "a minimized window is not active");
+
+    orders.lock().unwrap().push(Order::Activate);
+    wait(&mut run, &|state, entry| {
+        entry.states.contains(&ACTIVATED)
+            && !entry.states.contains(&MINIMIZED)
+            && red(state).is_some_and(|w| !w.1 && state.focus == Some(w.0))
+    });
+
+    orders.lock().unwrap().push(Order::Maximize);
+    wait(&mut run, &|state, entry| {
+        entry.states.contains(&MAXIMIZED) && red(state).is_some_and(|w| w.2)
+    });
+
+    orders.lock().unwrap().push(Order::Close);
+    wait(&mut run, &|state, entry| {
+        entry.closed && red(state).is_none_or(|w| w.3)
+    });
+
+    quit.store(true, Ordering::Relaxed);
+    let _ = bar.join();
+    stop.store(true, Ordering::Relaxed);
+    let _ = client.join();
+}

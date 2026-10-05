@@ -953,6 +953,7 @@ impl State {
             })?;
 
         self.serve_copies(&shown, !empty);
+        self.sync_wlr_toplevels();
         if self.shot_wanted && at == self.hand {
             self.shot_wanted = false;
             self.screenshot(&shown);

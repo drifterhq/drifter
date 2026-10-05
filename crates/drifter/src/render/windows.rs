@@ -774,6 +774,73 @@ impl State {
         let _ = index;
     }
 
+    pub fn sync_wlr_toplevels(&mut self) {
+        let shown: Vec<(u64, crate::wlr_toplevel::Shown)> = self
+            .windows
+            .iter()
+            .filter(|window| window.placed && !window.going)
+            .map(|window| {
+                let minimizing = window
+                    .motion
+                    .is_some_and(|motion| motion.phase == Phase::Minimizing);
+                (
+                    window.id,
+                    crate::wlr_toplevel::Shown {
+                        title: window.title.clone(),
+                        app: window.app.clone(),
+                        maximized: window.restore.is_some(),
+                        minimized: window.hidden || minimizing,
+                        activated: self.focus == Some(window.id) && !window.hidden,
+                        fullscreen: window.full.is_some(),
+                    },
+                )
+            })
+            .collect();
+        let display = self.wayland.handle.clone();
+        let output = self.output.clone();
+        self.wayland
+            .extras
+            .wlr_toplevels
+            .sync(&display, &shown, &output);
+    }
+
+    pub fn answer_wlr_toplevels(&mut self) {
+        use crate::wlr_toplevel::Ask;
+
+        let asks = self.wayland.extras.wlr_toplevels.take_asks();
+        if self.lock.is_some() {
+            return;
+        }
+        for (id, ask) in asks {
+            let Some(place) = self.place_of(id) else {
+                continue;
+            };
+            let window = &self.windows[place];
+            let minimizing = window
+                .motion
+                .is_some_and(|motion| motion.phase == Phase::Minimizing);
+            match ask {
+                Ask::Activate => self.bring(place),
+                Ask::Close => self.press_button(place, ChromeButton::Close),
+                Ask::Minimize(true) if !window.hidden && !minimizing => {
+                    self.press_button(place, ChromeButton::Minimize)
+                }
+                Ask::Minimize(false) if window.hidden => self.bring(place),
+                Ask::Maximize(true) if window.restore.is_none() => {
+                    self.press_button(place, ChromeButton::Maximize)
+                }
+                Ask::Maximize(false) if window.restore.is_some() => {
+                    self.press_button(place, ChromeButton::Restore)
+                }
+                Ask::Fullscreen(true) => self.enter_fullscreen(place),
+                Ask::Fullscreen(false) => self.leave_fullscreen(place),
+                _ => {}
+            }
+        }
+        self.sync_wlr_toplevels();
+        self.kick_now();
+    }
+
     pub(super) fn close_focused(&mut self) {
         if self.lock.is_some() {
             return;

@@ -34,6 +34,7 @@ async-channel = "2"
 smithay-client-toolkit = { version = "0.19", default-features = false, features = ["calloop"] }
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32.13", default-features = false, features = ["client", "unstable", "staging"] }
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 
 [package.metadata.deb]
 name = "drifter"

@@ -39,6 +39,8 @@ mod shell;
 mod stats;
 #[cfg(target_os = "linux")]
 mod tray;
+#[cfg(target_os = "linux")]
+mod wlr_toplevel;
 
 #[cfg(target_os = "linux")]
 fn load_image(path: &Path, what: &str) -> Option<drifter_core::Image> {
