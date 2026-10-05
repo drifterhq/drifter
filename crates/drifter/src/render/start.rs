@@ -412,6 +412,10 @@ pub fn open(
         switch: None,
         lock: None,
         client_lock: None,
+        volume: None,
+        volume_read: None,
+        speaker: None,
+        sound_panel: None,
         lock_big,
         lock_small,
         verify: verify_tx,
@@ -554,8 +558,8 @@ pub fn open(
     if let Some(readings) = media_readings {
         handle
             .insert_source(readings, |event, _, state: &mut State| {
-                if let ChannelEvent::Msg(reading) = event {
-                    state.show_hud(reading);
+                if let ChannelEvent::Msg(heard) = event {
+                    state.hear(heard);
                 }
             })
             .map_err(|e| format!("cannot watch the media keys: {e}"))?;

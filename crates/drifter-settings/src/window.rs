@@ -201,7 +201,10 @@ pub fn run() -> Result<(), String> {
         path,
         saved: model.clone(),
         model,
-        section: Section::Desktop,
+        section: std::env::args()
+            .nth(1)
+            .and_then(|word| Section::from_word(&word))
+            .unwrap_or(Section::Desktop),
         scroll: 0.0,
         at: Vec2::ZERO,
         holding: None,

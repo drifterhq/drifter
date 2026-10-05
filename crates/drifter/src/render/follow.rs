@@ -2,6 +2,10 @@ use super::*;
 
 impl State {
     pub(super) fn open_settings(&mut self) {
+        self.open_settings_at("");
+    }
+
+    pub(super) fn open_settings_at(&mut self, page: &str) {
         if self.lock.is_some() {
             return;
         }
@@ -16,7 +20,11 @@ impl State {
         let program = std::env::current_exe()
             .map(|path| path.with_file_name(SETTINGS_APP))
             .unwrap_or_else(|_| std::path::PathBuf::from(SETTINGS_APP));
-        crate::apps::launch(&[program.to_string_lossy().into_owned()], &self.socket);
+        let mut argv = vec![program.to_string_lossy().into_owned()];
+        if !page.is_empty() {
+            argv.push(page.to_string());
+        }
+        crate::apps::launch(&argv, &self.socket);
     }
 
     pub(super) fn set_keys(&mut self, keys: &drifter_core::Keyboard) {

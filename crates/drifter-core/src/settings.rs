@@ -95,6 +95,22 @@ impl Section {
         }
     }
 
+    pub fn from_word(word: &str) -> Option<Section> {
+        let wanted: String = word
+            .chars()
+            .filter(|c| c.is_alphanumeric())
+            .collect::<String>()
+            .to_lowercase();
+        Section::ALL.into_iter().find(|section| {
+            let name: String = section
+                .name()
+                .chars()
+                .filter(|c| c.is_alphanumeric())
+                .collect();
+            name.to_lowercase() == wanted
+        })
+    }
+
     fn tint(self) -> [u8; 3] {
         match self {
             Section::Desktop => [52, 168, 140],
@@ -2981,6 +2997,14 @@ mod tests {
 
     fn config(text: &str) -> Config {
         Config::parse(text).unwrap()
+    }
+
+    #[test]
+    fn a_page_is_found_by_its_name_in_any_case() {
+        assert_eq!(Section::from_word("sound"), Some(Section::Sound));
+        assert_eq!(Section::from_word("Date & Time"), Some(Section::Time));
+        assert_eq!(Section::from_word("lockscreen"), Some(Section::Lock));
+        assert_eq!(Section::from_word("nope"), None);
     }
 
     #[test]

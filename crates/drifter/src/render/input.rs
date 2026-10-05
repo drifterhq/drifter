@@ -442,6 +442,9 @@ impl State {
     }
 
     pub(super) fn drag(&mut self) {
+        if self.drag_sound_panel() {
+            return;
+        }
         match self.grab {
             Grab::None => {}
             Grab::Move { id, offset } => {
@@ -485,6 +488,7 @@ impl State {
 
         let serial = SERIAL_COUNTER.next_serial();
         if state == ButtonState::Released {
+            self.release_sound_panel();
             if let (Grab::Move { id, .. }, Some(zone)) = (&self.grab, self.zone)
                 && let Some(index) = self.place_of(*id)
             {
@@ -553,6 +557,9 @@ impl State {
             return true;
         }
         if self.press_overview() {
+            return true;
+        }
+        if self.press_sound_panel(code) {
             return true;
         }
         let had_menu = self.popover.is_some();
@@ -814,6 +821,14 @@ impl State {
                     if steps != 0.0 {
                         self.zoom_by(steps);
                     }
+                    return;
+                }
+                let steps = event
+                    .amount_v120(Axis::Vertical)
+                    .map(|raw| -raw / 120.0)
+                    .or_else(|| event.amount(Axis::Vertical).map(|raw| -raw / 10.0))
+                    .unwrap_or(0.0);
+                if self.scroll_sound(steps) {
                     return;
                 }
                 self.tell_axis(&event);

@@ -43,6 +43,15 @@ impl Tray {
         Rect::new(Vec2::new(x, self.centered(band, size.y)), size)
     }
 
+    pub fn speaker_rect(&self, band: Rect, clock: Option<Rect>) -> Rect {
+        let size = Vec2::splat(self.button);
+        let right = clock
+            .map(|clock| clock.origin.x)
+            .unwrap_or_else(|| self.power_rect(band).origin.x);
+        let x = right - self.button_gap - size.x;
+        Rect::new(Vec2::new(x, self.centered(band, size.y)), size)
+    }
+
     pub fn on_power(&self, band: Rect, pointer: Vec2) -> bool {
         self.power_rect(band).contains(pointer)
     }
@@ -167,6 +176,21 @@ mod tests {
         assert!(last.max().x + tray.gap <= clock.origin.x);
         let next = tray.icon_rect(band, room);
         assert!(next.max().x + tray.gap > clock.origin.x);
+    }
+
+    #[test]
+    fn the_speaker_sits_left_of_the_clock_or_the_power_button() {
+        let tray = Tray::default();
+        let band = band();
+        let clock = tray.clock_rect(band, Vec2::new(180.0, 14.0));
+        let speaker = tray.speaker_rect(band, Some(clock));
+        assert_eq!(speaker.max().x + tray.button_gap, clock.origin.x);
+        assert_eq!(speaker.center().y, band.center().y);
+        let alone = tray.speaker_rect(band, None);
+        assert_eq!(
+            alone.max().x + tray.button_gap,
+            tray.power_rect(band).origin.x
+        );
     }
 
     #[test]

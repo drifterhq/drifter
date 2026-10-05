@@ -53,6 +53,7 @@ impl State {
             drawer.open &= !hides[drawer.edge.index()];
         }
         self.popover = None;
+        self.sound_panel = None;
         self.tip = None;
         self.tip_of = None;
         self.dwell = None;

@@ -36,18 +36,44 @@ pub fn key(code: u32) -> Option<Key> {
     })
 }
 
+enum Job {
+    Key(Key),
+    Read,
+    Set(f64),
+    Mute,
+}
+
+pub struct Heard {
+    pub reading: Reading,
+    pub show: bool,
+}
+
 pub struct Media {
-    jobs: Sender<Key>,
+    jobs: Sender<Job>,
 }
 
 impl Media {
     pub fn press(&self, key: Key) {
-        let _ = self.jobs.send(key);
+        let _ = self.jobs.send(Job::Key(key));
+    }
+
+    pub fn read(&self) {
+        let _ = self.jobs.send(Job::Read);
+    }
+
+    pub fn set_volume(&self, level: f64) {
+        let _ = self.jobs.send(Job::Set(level.clamp(0.0, 1.0)));
+    }
+
+    pub fn toggle_mute(&self) {
+        let _ = self.jobs.send(Job::Mute);
     }
 }
 
-pub fn start() -> Result<(Media, Channel<Reading>), String> {
-    let (reading_tx, reading_rx) = loop_channel::<Reading>();
+const SINK: &str = "@DEFAULT_AUDIO_SINK@";
+
+pub fn start() -> Result<(Media, Channel<Heard>), String> {
+    let (reading_tx, reading_rx) = loop_channel::<Heard>();
     let (job_tx, job_rx) = channel();
     std::thread::Builder::new()
         .name("drifter-media".to_string())
@@ -56,8 +82,35 @@ pub fn start() -> Result<(Media, Channel<Reading>), String> {
     Ok((Media { jobs: job_tx }, reading_rx))
 }
 
-fn serve(jobs: Receiver<Key>, readings: LoopSender<Reading>) {
-    for key in jobs {
+fn serve(jobs: Receiver<Job>, readings: LoopSender<Heard>) {
+    let mut waiting: std::collections::VecDeque<Job> = std::collections::VecDeque::new();
+    loop {
+        let job = match waiting.pop_front() {
+            Some(job) => job,
+            None => match jobs.recv() {
+                Ok(job) => job,
+                Err(_) => return,
+            },
+        };
+        waiting.extend(jobs.try_iter());
+        let (key, show) = match job {
+            Job::Key(key) => (key, true),
+            Job::Set(_) if matches!(waiting.front(), Some(Job::Set(_))) => continue,
+            Job::Set(level) => {
+                let _ = Command::new("wpctl").args(["set-mute", SINK, "0"]).status();
+                let reading = volume(SINK, &["set-volume"], &format!("{level:.2}"));
+                send(&readings, reading, false);
+                continue;
+            }
+            Job::Mute => {
+                send(&readings, volume(SINK, &["set-mute"], "toggle"), false);
+                continue;
+            }
+            Job::Read => {
+                send(&readings, read_volume(SINK), false);
+                continue;
+            }
+        };
         let reading = match key {
             Key::VolumeUp => volume("@DEFAULT_AUDIO_SINK@", &["set-volume", "-l", "1.0"], "5%+"),
             Key::VolumeDown => volume("@DEFAULT_AUDIO_SINK@", &["set-volume"], "5%-"),
@@ -75,10 +128,28 @@ fn serve(jobs: Receiver<Key>, readings: LoopSender<Reading>) {
             Key::Previous => player("Previous"),
             Key::Stop => player("Stop"),
         };
-        if let Some(reading) = reading {
-            let _ = readings.send(reading);
-        }
+        send(&readings, reading, show);
     }
+}
+
+fn send(readings: &LoopSender<Heard>, reading: Option<Reading>, show: bool) {
+    if let Some(reading) = reading {
+        let _ = readings.send(Heard { reading, show });
+    }
+}
+
+fn read_volume(target: &str) -> Option<Reading> {
+    let out = Command::new("wpctl")
+        .args(["get-volume", target])
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    let (level, muted) = hud::parse_wpctl(&String::from_utf8_lossy(&out.stdout))?;
+    Some(Reading {
+        gauge: Gauge::Volume,
+        level,
+        muted,
+    })
 }
 
 fn volume(target: &str, verb: &[&str], amount: &str) -> Option<Reading> {
@@ -91,16 +162,7 @@ fn volume(target: &str, verb: &[&str], amount: &str) -> Option<Reading> {
         eprintln!("drifter: volume keys need wpctl: {error}");
         return None;
     }
-    let out = Command::new("wpctl")
-        .args(["get-volume", target])
-        .output()
-        .ok()?;
-    let (level, muted) = hud::parse_wpctl(&String::from_utf8_lossy(&out.stdout))?;
-    Some(Reading {
-        gauge: Gauge::Volume,
-        level,
-        muted,
-    })
+    read_volume(target)
 }
 
 fn brightness(step: f64) -> Option<Reading> {

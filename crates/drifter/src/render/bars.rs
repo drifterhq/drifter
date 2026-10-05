@@ -259,6 +259,20 @@ impl State {
             return;
         }
 
+        if let Some(rect) = self
+            .speaker_rect()
+            .filter(|rect| rect.contains(self.pointer))
+            && self.sound_panel.is_none()
+        {
+            let words = match self.volume {
+                Some((_, true)) => "Volume: muted".to_string(),
+                Some((level, false)) => format!("Volume: {}%", (level * 100.0).round() as i64),
+                None => "Volume".to_string(),
+            };
+            self.show_tip(&words, rect, true);
+            return;
+        }
+
         if let Some(band) = self.tray_band()
             && let Some(slot) = self.tray.icon_at(band, self.pointer, self.tray_room(band))
         {
@@ -338,6 +352,20 @@ impl State {
         let Some(band) = self.tray_band() else {
             return false;
         };
+        if self
+            .speaker_rect()
+            .is_some_and(|rect| rect.contains(self.pointer))
+        {
+            match code {
+                BTN_MIDDLE => {
+                    if let Some(media) = self.media.as_ref() {
+                        media.toggle_mute();
+                    }
+                }
+                _ => self.toggle_sound_panel(),
+            }
+            return true;
+        }
         if self.tray.on_power(band, self.pointer) {
             if code == BTN_LEFT && !had_menu {
                 let rect = self.tray.power_rect(band);
@@ -362,8 +390,202 @@ impl State {
         true
     }
 
+    pub(super) fn hear(&mut self, heard: crate::media::Heard) {
+        let reading = heard.reading;
+        if reading.gauge == drifter_core::hud::Gauge::Volume {
+            self.take_volume(reading.level.min(1.0), reading.muted);
+        }
+        if heard.show {
+            self.show_hud(reading);
+        } else {
+            self.kick_now();
+        }
+    }
+
+    fn take_volume(&mut self, level: f64, muted: bool) {
+        self.volume = Some((level, muted));
+        let key = (drifter_core::volume::waves(level, muted), muted);
+        if self.speaker.as_ref().map(|(_, held)| *held) != Some(key) {
+            let side = self.tray.button as u32;
+            let image = drifter_core::volume::paint_speaker(side, level, muted, self.tray.ink);
+            match upload(&mut self.renderer, Some(&image), "speaker") {
+                Ok(Some(buffer)) => self.speaker = Some((buffer, key)),
+                Ok(None) => {}
+                Err(error) => eprintln!("drifter: {error}"),
+            }
+        }
+        if self.sound_panel.is_some() {
+            self.paint_sound_panel();
+        }
+    }
+
+    pub(super) fn wind_the_volume(&mut self) {
+        if !self.drawers[Edge::Top.index()].visible() {
+            return;
+        }
+        let Some(media) = self.media.as_ref() else {
+            return;
+        };
+        if self
+            .volume_read
+            .is_some_and(|at| at.elapsed() < Duration::from_secs(3))
+        {
+            return;
+        }
+        self.volume_read = Some(Instant::now());
+        media.read();
+    }
+
+    pub(super) fn speaker_rect(&self) -> Option<Rect> {
+        self.speaker.as_ref()?;
+        let band = self.tray_band()?;
+        let clock = self.clock.as_ref().map(|(_, _, rect)| *rect);
+        Some(self.tray.speaker_rect(band, clock))
+    }
+
+    fn paint_sound_panel(&mut self) {
+        let Some((level, muted)) = self.volume else {
+            return;
+        };
+        let look = drifter_core::volume::Panel::default();
+        let shown = ((level * 100.0).round() as i64, muted);
+        if self
+            .sound_panel
+            .as_ref()
+            .is_some_and(|panel| panel.shown == shown)
+        {
+            return;
+        }
+        let image = look.paint(level, muted, self.font.as_ref());
+        let art = match upload(&mut self.renderer, Some(&image), "sound panel") {
+            Ok(Some(art)) => art,
+            Ok(None) => return,
+            Err(error) => {
+                eprintln!("drifter: {error}");
+                return;
+            }
+        };
+        match self.sound_panel.as_mut() {
+            Some(panel) => {
+                panel.art = art;
+                panel.shown = shown;
+            }
+            None => {
+                let Some(under) = self.speaker_rect() else {
+                    return;
+                };
+                self.sound_panel = Some(SoundPanel {
+                    rect: look.rect(under, self.screen),
+                    art,
+                    shown,
+                    held: false,
+                });
+            }
+        }
+        self.kick_now();
+    }
+
+    pub(super) fn toggle_sound_panel(&mut self) {
+        match self.sound_panel.take() {
+            Some(_) => self.kick_now(),
+            None => {
+                self.popover = None;
+                self.paint_sound_panel();
+                if let Some(media) = self.media.as_ref() {
+                    media.read();
+                }
+            }
+        }
+    }
+
+    pub(super) fn press_sound_panel(&mut self, code: u32) -> bool {
+        use drifter_core::volume::Hit;
+
+        let Some(panel) = self.sound_panel.as_ref() else {
+            return false;
+        };
+        if !panel.rect.contains(self.pointer) {
+            let on_speaker = self
+                .speaker_rect()
+                .is_some_and(|rect| rect.contains(self.pointer));
+            self.sound_panel = None;
+            self.kick_now();
+            return on_speaker;
+        }
+        if code != BTN_LEFT {
+            return true;
+        }
+        let inside = self.pointer - panel.rect.origin;
+        let look = drifter_core::volume::Panel::default();
+        match look.hit(inside) {
+            Some(Hit::Level(level)) => {
+                if let Some(panel) = self.sound_panel.as_mut() {
+                    panel.held = true;
+                }
+                self.set_volume(level);
+            }
+            Some(Hit::Mute) => {
+                if let Some(media) = self.media.as_ref() {
+                    media.toggle_mute();
+                }
+            }
+            Some(Hit::Settings) => {
+                self.sound_panel = None;
+                self.open_settings_at("sound");
+            }
+            None => {}
+        }
+        true
+    }
+
+    pub(super) fn drag_sound_panel(&mut self) -> bool {
+        let Some(panel) = self.sound_panel.as_ref().filter(|panel| panel.held) else {
+            return false;
+        };
+        let inside = self.pointer - panel.rect.origin;
+        let level = drifter_core::volume::Panel::default().level_at(inside.x);
+        self.set_volume(level);
+        true
+    }
+
+    pub(super) fn release_sound_panel(&mut self) {
+        if let Some(panel) = self.sound_panel.as_mut() {
+            panel.held = false;
+        }
+    }
+
+    fn set_volume(&mut self, level: f64) {
+        if let Some(media) = self.media.as_ref() {
+            media.set_volume(level);
+        }
+        self.take_volume(level, false);
+    }
+
+    pub(super) fn scroll_sound(&mut self, steps: f64) -> bool {
+        let over = self
+            .speaker_rect()
+            .is_some_and(|rect| rect.contains(self.pointer))
+            || self
+                .sound_panel
+                .as_ref()
+                .is_some_and(|panel| panel.rect.contains(self.pointer));
+        if !over || steps == 0.0 {
+            return over;
+        }
+        let Some((level, _)) = self.volume else {
+            return true;
+        };
+        let step = drifter_core::volume::STEP * steps.signum();
+        let wanted = ((level + step) * 20.0).round() / 20.0;
+        self.set_volume(wanted.clamp(0.0, 1.0));
+        true
+    }
+
     pub(super) fn over_own_parts(&self) -> bool {
-        self.prompt_art.is_some()
+        self.sound_panel
+            .as_ref()
+            .is_some_and(|panel| panel.rect.contains(self.pointer))
+            || self.prompt_art.is_some()
             || self
                 .card_rects()
                 .iter()
@@ -380,9 +602,10 @@ impl State {
     }
 
     pub(super) fn tray_layout(&self, band: Rect) -> (usize, bool) {
-        let stop = match self.clock.as_ref() {
-            Some((_, _, rect)) => rect.origin.x,
-            None => self.tray.power_rect(band).origin.x,
+        let stop = match (self.speaker_rect(), self.clock.as_ref()) {
+            (Some(rect), _) => rect.origin.x,
+            (None, Some((_, _, rect))) => rect.origin.x,
+            (None, None) => self.tray.power_rect(band).origin.x,
         };
         let stats = self.stats.as_ref().map(|(_, size)| size.x);
         self.tray.layout(band, stop, self.icons.len(), stats)

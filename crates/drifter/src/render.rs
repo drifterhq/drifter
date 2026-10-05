@@ -257,6 +257,13 @@ enum Grab {
     },
 }
 
+struct SoundPanel {
+    rect: Rect,
+    art: TextureBuffer<Tex>,
+    shown: (i64, bool),
+    held: bool,
+}
+
 pub struct ClientLock {
     locker: Option<smithay::wayland::session_lock::SessionLocker>,
     lock: wayland_protocols::ext::session_lock::v1::server::ext_session_lock_v1::ExtSessionLockV1,
@@ -383,6 +390,10 @@ pub struct State {
     switch: Option<Switch>,
     lock: Option<Lock>,
     client_lock: Option<ClientLock>,
+    volume: Option<(f64, bool)>,
+    volume_read: Option<Instant>,
+    speaker: Option<(TextureBuffer<Tex>, (usize, bool))>,
+    sound_panel: Option<SoundPanel>,
     lock_big: Option<Font>,
     lock_small: Option<Font>,
     verify: smithay::reexports::calloop::channel::Sender<(u64, crate::auth::Verdict)>,
@@ -557,6 +568,9 @@ impl State {
         if let Some(open) = self.popover.as_ref().filter(|_| live) {
             elements.push(Skin::Texture(element(&open.art, open.rect, 1.0)));
         }
+        if let Some(panel) = self.sound_panel.as_ref().filter(|_| live) {
+            elements.push(Skin::Texture(element(&panel.art, panel.rect, 1.0)));
+        }
         if let Some((art, rect)) = self.tip.as_ref().filter(|_| live) {
             elements.push(Skin::Texture(element(art, *rect, 1.0)));
         }
@@ -614,6 +628,9 @@ impl State {
 
         if let (Some(_), Some((_, buffer, rect))) = (self.tray_band(), self.clock.as_ref()) {
             elements.push(Skin::Texture(element(buffer, *rect, 1.0)));
+        }
+        if let (Some(rect), Some((buffer, _))) = (self.speaker_rect(), self.speaker.as_ref()) {
+            elements.push(Skin::Texture(element(buffer, rect, 1.0)));
         }
         if let (Some(band), Some(buffer)) = (self.tray_band(), self.power.as_ref()) {
             elements.push(Skin::Texture(element(
@@ -905,6 +922,7 @@ impl State {
         self.steer();
         self.wind_the_clock();
         self.wind_the_stats();
+        self.wind_the_volume();
 
         let scale = self.heads[at].scale;
         let shown: Vec<Shown> = self
@@ -1135,6 +1153,13 @@ impl State {
         if self.held_by_fullscreen().is_some() {
             return None;
         }
+        if self
+            .sound_panel
+            .as_ref()
+            .is_some_and(|panel| panel.rect.contains(self.pointer))
+        {
+            return Some(Edge::Top);
+        }
         for edge in Edge::ALL {
             if self.drawers[edge.index()].holds(
                 self.pointer,
@@ -1177,6 +1202,9 @@ impl Screen {
 
         for item in state.login.clone() {
             crate::apps::run(&item, &state.socket);
+        }
+        if let Some(media) = state.media.as_ref() {
+            media.read();
         }
         if state.autostart {
             let found = drifter_core::autostart::installed();
