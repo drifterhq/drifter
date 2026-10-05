@@ -35,18 +35,24 @@ pub struct Look {
     pub dim: [u8; 3],
 }
 
-impl Default for Look {
-    fn default() -> Self {
+impl Look {
+    pub fn themed(p: &crate::theme::Palette) -> Look {
         Look {
             size: Vec2::new(320.0, 56.0),
             lift: 120.0,
-            back: [28, 31, 40],
+            back: p.back,
             back_alpha: 0.94,
-            track: [72, 77, 94],
-            fill: [236, 238, 244],
-            ink: [236, 238, 244],
-            dim: [146, 152, 166],
+            track: p.off,
+            fill: p.ink,
+            ink: p.ink,
+            dim: p.dim,
         }
+    }
+}
+
+impl Default for Look {
+    fn default() -> Self {
+        Look::themed(&crate::theme::DARK)
     }
 }
 

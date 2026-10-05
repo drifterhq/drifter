@@ -230,8 +230,8 @@ pub struct Look {
     pub blank: [u8; 3],
 }
 
-impl Default for Look {
-    fn default() -> Self {
+impl Look {
+    pub fn themed(p: &crate::theme::Palette) -> Look {
         Look {
             width: 360.0,
             pad: 14.0,
@@ -239,12 +239,18 @@ impl Default for Look {
             gap: 10.0,
             margin: 16.0,
             radius: 14.0,
-            back: [37, 40, 50],
+            back: p.surface,
             back_alpha: 0.96,
-            ink: [236, 238, 244],
-            dim: [146, 152, 166],
-            blank: [72, 77, 94],
+            ink: p.ink,
+            dim: p.dim,
+            blank: p.off,
         }
+    }
+}
+
+impl Default for Look {
+    fn default() -> Self {
+        Look::themed(&crate::theme::DARK)
     }
 }
 

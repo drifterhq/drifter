@@ -91,10 +91,14 @@ pub(super) fn load_arrow(
     Ok((arrow, size, hotspot))
 }
 
-pub(super) fn load_skin(renderer: &mut Painter, config: &Config) -> (SkinSet, Chrome) {
+pub(super) fn load_skin(
+    renderer: &mut Painter,
+    config: &Config,
+    palette: &drifter_core::theme::Palette,
+) -> (SkinSet, Chrome) {
     let mut skin = std::collections::HashMap::new();
     let dir = config.window_dir();
-    let drawn = Chrome::default();
+    let drawn = Chrome::themed(palette);
     for name in crate::shell::skin_names() {
         let from_file = dir.as_ref().and_then(|dir| {
             drifter_core::image::load(&dir.join(&name))
@@ -114,7 +118,7 @@ pub(super) fn load_skin(renderer: &mut Painter, config: &Config) -> (SkinSet, Ch
             Err(error) => eprintln!("drifter: {error}"),
         }
     }
-    let chrome = Chrome::default();
+    let chrome = Chrome::themed(palette);
     let chrome = match skin.get("title-mid.png").zip(skin.get("edge-left.png")) {
         Some(((_, title), (_, edge))) => Chrome {
             title: title.y,
@@ -126,8 +130,13 @@ pub(super) fn load_skin(renderer: &mut Painter, config: &Config) -> (SkinSet, Ch
     (skin, chrome)
 }
 
-pub(super) fn load_dock_art(renderer: &mut Painter, config: &Config, side: u32) -> DockArt {
-    let look = Dock::default();
+pub(super) fn load_dock_art(
+    renderer: &mut Painter,
+    config: &Config,
+    side: u32,
+    palette: &drifter_core::theme::Palette,
+) -> DockArt {
+    let look = Dock::themed(palette);
     let art = config.dock_dir();
     let from_art = |name: &str| -> Option<drifter_core::Image> {
         let dir = art.as_ref()?;
@@ -183,6 +192,7 @@ pub(super) fn paint_panels(
     renderer: &mut Painter,
     width: f64,
     shapes: &[Panel; 2],
+    color: [u8; 3],
 ) -> Result<[TextureBuffer<Tex>; 2], String> {
     let mut built = Vec::new();
     for edge in Edge::ALL {
@@ -194,7 +204,7 @@ pub(super) fn paint_panels(
             edge,
             width.max(1.0) as u32,
             &shapes[edge.index()],
-            PANEL_COLOR,
+            color,
             PANEL_ALPHA,
         );
         let buffer = upload(renderer, Some(&image), what)?

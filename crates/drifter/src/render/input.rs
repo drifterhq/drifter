@@ -548,7 +548,7 @@ impl State {
         if let Some((_, rect)) = self.prompt_art.as_ref() {
             let rect = *rect;
             if code == BTN_LEFT {
-                let look = drifter_core::prompt::Look::default();
+                let look = drifter_core::prompt::Look::themed(&self.palette);
                 match look.hit(rect.size, self.pointer - rect.origin) {
                     Some(drifter_core::prompt::Press::Go) => self.prompt_submit(),
                     Some(drifter_core::prompt::Press::Cancel) => self.prompt_cancel(),

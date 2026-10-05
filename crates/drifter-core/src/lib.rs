@@ -35,6 +35,7 @@ pub mod sticky;
 pub mod switcher;
 pub mod system;
 pub mod text;
+pub mod theme;
 pub mod tiles;
 pub mod tray;
 pub mod volume;

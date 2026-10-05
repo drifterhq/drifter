@@ -8,13 +8,14 @@ use smithay::reexports::calloop::channel::{Channel, SyncSender, sync_channel};
 const WATCHER: &str = "org.kde.StatusNotifierWatcher";
 const WATCHER_PATH: &str = "/StatusNotifierWatcher";
 const ITEM: &str = "org.kde.StatusNotifierItem";
-const SYMBOLIC_INK: [u8; 3] = [222, 226, 234];
 const PATIENCE: std::time::Duration = std::time::Duration::from_secs(1);
 
+#[derive(Clone)]
 pub struct Icon {
     pub service: String,
     pub title: String,
     pub image: Image,
+    pub symbolic: bool,
 }
 
 pub enum Update {
@@ -155,15 +156,17 @@ fn read_icon(connection: &zbus::blocking::Connection, service: &str) -> Option<I
     let (name, path) = split(service);
     let proxy = zbus::blocking::Proxy::new(connection, name, path, ITEM).ok()?;
 
-    let image = pixmap(&proxy)
+    let (image, symbolic) = pixmap(&proxy)
+        .map(|image| (image, false))
         .or_else(|| named(&proxy))
-        .unwrap_or_else(placeholder);
+        .unwrap_or_else(|| (placeholder(), false));
     let title = tip(&proxy).unwrap_or_else(|| service.to_string());
 
     Some(Icon {
         service: service.to_string(),
         title,
         image,
+        symbolic,
     })
 }
 
@@ -317,7 +320,7 @@ fn pixmap(proxy: &zbus::blocking::Proxy<'_>) -> Option<Image> {
     Some(image)
 }
 
-fn named(proxy: &zbus::blocking::Proxy<'_>) -> Option<Image> {
+fn named(proxy: &zbus::blocking::Proxy<'_>) -> Option<(Image, bool)> {
     let name: String = proxy.get_property("IconName").ok()?;
     if name.is_empty() {
         return None;
@@ -325,11 +328,8 @@ fn named(proxy: &zbus::blocking::Proxy<'_>) -> Option<Image> {
     let theme: String = proxy.get_property("IconThemePath").unwrap_or_default();
     let own = (!theme.is_empty()).then(|| std::path::PathBuf::from(theme));
     let path = drifter_core::icon::find(&name, own.as_deref(), 24)?;
-    let mut image = drifter_core::image::load_sized(&path, 24).ok()?;
-    if drifter_core::icon::is_symbolic(&path) {
-        image.tint(SYMBOLIC_INK);
-    }
-    Some(image)
+    let image = drifter_core::image::load_sized(&path, 24).ok()?;
+    Some((image, drifter_core::icon::is_symbolic(&path)))
 }
 
 fn read_icons(connection: &zbus::blocking::Connection, names: &[String]) -> Vec<Icon> {

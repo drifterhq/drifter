@@ -20,8 +20,8 @@ pub struct Chrome {
     pub show_title: bool,
 }
 
-impl Default for Chrome {
-    fn default() -> Self {
+impl Chrome {
+    pub fn themed(p: &crate::theme::Palette) -> Chrome {
         Chrome {
             title: 30.0,
             edge: 4.0,
@@ -30,14 +30,20 @@ impl Default for Chrome {
             gap: 8.0,
             margin: 11.0,
             grip: 7.0,
-            frame: [30, 33, 42],
+            frame: p.back,
             frame_alpha: 242,
-            idle: [24, 26, 33],
+            idle: p.idle,
             idle_alpha: 230,
             side: Side::Left,
             order: [Button::Close, Button::Minimize, Button::Maximize],
             show_title: true,
         }
+    }
+}
+
+impl Default for Chrome {
+    fn default() -> Self {
+        Chrome::themed(&crate::theme::DARK)
     }
 }
 

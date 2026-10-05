@@ -206,13 +206,15 @@ pub fn open(
         probe.band(screen, &shapes[Edge::Top.index()])
     };
 
-    let (skin, mut chrome) = load_skin(&mut renderer, config);
+    let palette = drifter_core::theme::of(config.appearance.style);
+    let (skin, mut chrome) = load_skin(&mut renderer, config, &palette);
     chrome.follow(&config.window);
 
-    let panels = paint_panels(&mut renderer, screen.x, &shapes)?;
+    let panels = paint_panels(&mut renderer, screen.x, &shapes, palette.bar)?;
 
     let tray = Tray {
         size: config.tray.size,
+        ink: palette.ink,
         ..Tray::default()
     };
     let display: Display<State> =
@@ -280,9 +282,9 @@ pub fn open(
         }
     };
 
-    let trash_look = Dock::default();
+    let trash_look = Dock::themed(&palette);
     let side = trash_look.icon as u32;
-    let (trash, cog, spare) = load_dock_art(&mut renderer, config, side);
+    let (trash, cog, spare) = load_dock_art(&mut renderer, config, side, &palette);
     let power_image = drifter_core::tray::paint_power(tray.button as u32, tray.ink);
     let power = upload(&mut renderer, Some(&power_image), "power")?;
     let lock_big = Font::find(config.font_path(), 56.0).ok();
@@ -309,7 +311,7 @@ pub fn open(
         drifter_core::corner::paint_glow(drifter_core::corner::REACH as u32, [255, 214, 160]);
     let glow = upload(&mut renderer, Some(&glow_image), "hot corner")?;
 
-    let dock_look = Dock::default();
+    let dock_look = Dock::themed(&palette);
     let rule_image = drifter_core::Image {
         width: 1,
         height: 1,
@@ -429,7 +431,9 @@ pub fn open(
         verify: verify_tx,
         tickets: 0,
         power,
-        look: Look::default(),
+        look: Look::themed(&palette),
+        palette,
+        tray_raw: Vec::new(),
         tip: None,
         tip_of: None,
         snap: Snap::default(),

@@ -2311,8 +2311,8 @@ pub struct Look {
     pub side_scroll: f64,
 }
 
-impl Default for Look {
-    fn default() -> Self {
+impl Look {
+    pub fn themed(p: &crate::theme::Palette) -> Look {
         Look {
             sidebar: 220.0,
             item: 28.0,
@@ -2327,17 +2327,23 @@ impl Default for Look {
             reading: 56.0,
             segment: Vec2::new(84.0, 26.0),
             thumb: Vec2::new(128.0, 72.0),
-            back: [30, 32, 40],
-            side: [37, 40, 50],
-            card: [42, 45, 57],
-            rule: [58, 62, 78],
-            ink: [236, 238, 244],
-            dim: [146, 152, 166],
+            back: p.well,
+            side: p.surface,
+            card: p.card,
+            rule: p.rule,
+            ink: p.ink,
+            dim: p.dim,
             accent: [64, 128, 238],
-            off: [72, 77, 94],
-            pick: [98, 105, 128],
+            off: p.off,
+            pick: p.pick,
             side_scroll: 0.0,
         }
+    }
+}
+
+impl Default for Look {
+    fn default() -> Self {
+        Look::themed(&crate::theme::DARK)
     }
 }
 

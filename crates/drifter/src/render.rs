@@ -76,7 +76,6 @@ const LOCK_PATIENCE: Duration = Duration::from_secs(30);
 const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
 const BTN_MIDDLE: u32 = 0x112;
-const PANEL_COLOR: [u8; 3] = [16, 18, 26];
 const PANEL_ALPHA: u8 = 235;
 const TICK: Duration = Duration::from_millis(8);
 const CONFIG_WATCH: Duration = Duration::from_millis(400);
@@ -415,6 +414,8 @@ pub struct State {
     sampler: crate::stats::Sampler,
     sampled: Option<Instant>,
     icons: Vec<(String, String, TextureBuffer<Tex>)>,
+    tray_raw: Vec<crate::tray::Icon>,
+    palette: drifter_core::theme::Palette,
     popover: Option<Popover>,
     switch: Option<Switch>,
     lock: Option<Lock>,

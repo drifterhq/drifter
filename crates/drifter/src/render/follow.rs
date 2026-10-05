@@ -214,6 +214,10 @@ impl State {
         if cursor_moved {
             self.named_cursors.clear();
         }
+        let palette = drifter_core::theme::of(look.style);
+        if palette != self.palette {
+            self.recolor(config, palette);
+        }
         if paths == self.asset_paths && !cursor_moved && was.icons == look.icons {
             return;
         }
@@ -239,14 +243,14 @@ impl State {
             self.titles.clear();
         }
         if paths[2] != self.asset_paths[2] {
-            let (skin, chrome) = load_skin(&mut self.renderer, config);
+            let (skin, chrome) = load_skin(&mut self.renderer, config, &self.palette);
             self.skin = skin;
             self.chrome = chrome;
             self.chrome.follow(&config.window);
         }
         if paths[3] != self.asset_paths[3] {
             let side = self.dock.icon as u32;
-            let (trash, cog, spare) = load_dock_art(&mut self.renderer, config, side);
+            let (trash, cog, spare) = load_dock_art(&mut self.renderer, config, side, &self.palette);
             self.trash = trash;
             self.cog = cog;
             self.dock_spare = spare;
@@ -262,6 +266,58 @@ impl State {
             }
         }
         self.asset_paths = paths;
+    }
+
+    fn recolor(&mut self, config: &Config, palette: drifter_core::theme::Palette) {
+        self.palette = palette;
+        self.look = Look::themed(&palette);
+        self.popover = None;
+        self.gauge_panel = None;
+        self.tip = None;
+        self.tip_of = None;
+        self.tray.ink = palette.ink;
+        self.clock = None;
+        self.stats = None;
+        self.titles.clear();
+        let power = drifter_core::tray::paint_power(self.tray.button as u32, palette.ink);
+        match upload(&mut self.renderer, Some(&power), "power") {
+            Ok(Some(buffer)) => self.power = Some(buffer),
+            Ok(None) => {}
+            Err(error) => eprintln!("drifter: {error}"),
+        }
+        let (skin, chrome) = load_skin(&mut self.renderer, config, &palette);
+        self.skin = skin;
+        self.chrome = chrome;
+        self.chrome.follow(&config.window);
+        let side = self.dock.icon as u32;
+        let (trash, cog, spare) = load_dock_art(&mut self.renderer, config, side, &palette);
+        self.trash = trash;
+        self.cog = cog;
+        self.dock_spare = spare;
+        let dock = drifter_core::dock::Dock::themed(&palette);
+        let dot = drifter_core::dock::paint_dot((dock.icon / 9.0).max(3.0) as u32, dock.rule_ink());
+        if let Ok(Some(buffer)) = upload(&mut self.renderer, Some(&dot), "running dot") {
+            self.dot = Some(buffer);
+        }
+        let rule = drifter_core::Image {
+            width: 1,
+            height: 1,
+            rgba: vec![dock.rule[0] / 2, dock.rule[1] / 2, dock.rule[2] / 2, 128],
+        };
+        if let Ok(Some(buffer)) = upload(&mut self.renderer, Some(&rule), "dock divider") {
+            self.rule = Some(buffer);
+        }
+        self.take_icons(self.tray_raw.clone());
+        if let Some((level, muted)) = self.volume {
+            self.speaker = None;
+            self.take_volume(level, muted);
+        }
+        if let Some(level) = self.light {
+            self.sun = None;
+            self.take_light(level);
+        }
+        self.relayout(true);
+        self.kick_now();
     }
 
     pub(super) fn remember_note(&mut self, note: &drifter_core::notify::Note) {

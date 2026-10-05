@@ -73,8 +73,8 @@ pub struct Look {
     pub hover: [u8; 3],
 }
 
-impl Default for Look {
-    fn default() -> Self {
+impl Look {
+    pub fn themed(p: &crate::theme::Palette) -> Look {
         Look {
             pad: 6.0,
             item: 26.0,
@@ -82,12 +82,18 @@ impl Default for Look {
             radius: 8.0,
             least_width: 160.0,
             text: 13.0,
-            ink: [236, 238, 244],
-            dim: [128, 132, 142],
-            back: [30, 33, 42],
+            ink: p.ink,
+            dim: p.dim,
+            back: p.back,
             back_alpha: 246,
-            hover: [62, 68, 86],
+            hover: p.hover,
         }
+    }
+}
+
+impl Default for Look {
+    fn default() -> Self {
+        Look::themed(&crate::theme::DARK)
     }
 }
 

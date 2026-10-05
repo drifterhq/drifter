@@ -19,8 +19,8 @@ pub struct Look {
     pub ink: [u8; 3],
 }
 
-impl Default for Look {
-    fn default() -> Self {
+impl Look {
+    pub fn themed(p: &crate::theme::Palette) -> Look {
         Look {
             tile: 112.0,
             icon: 72.0,
@@ -28,13 +28,19 @@ impl Default for Look {
             gap: 8.0,
             title: 36.0,
             radius: 18.0,
-            back: [28, 31, 40],
+            back: p.back,
             back_alpha: 0.92,
-            pick: [255, 255, 255],
+            pick: p.shade,
             pick_alpha: 0.16,
-            blank: [72, 77, 94],
-            ink: [236, 238, 244],
+            blank: p.off,
+            ink: p.ink,
         }
+    }
+}
+
+impl Default for Look {
+    fn default() -> Self {
+        Look::themed(&crate::theme::DARK)
     }
 }
 

@@ -314,7 +314,7 @@ impl Model {
                 rows: vec![
                     Row::new(
                         Id::Style,
-                        "Apps look",
+                        "Light or dark",
                         Control::Segments {
                             options: vec!["As set", "Light", "Dark"],
                             chosen: match look.style {

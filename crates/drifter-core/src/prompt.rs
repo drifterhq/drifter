@@ -35,23 +35,29 @@ pub struct Look {
     pub bad: [u8; 3],
 }
 
-impl Default for Look {
-    fn default() -> Self {
+impl Look {
+    pub fn themed(p: &crate::theme::Palette) -> Look {
         Look {
             width: 440.0,
             pad: 24.0,
             field: 38.0,
             button: Vec2::new(130.0, 32.0),
             radius: 14.0,
-            back: [37, 40, 50],
-            well: [30, 32, 40],
-            rule: [58, 62, 78],
-            ink: [236, 238, 244],
-            dim: [146, 152, 166],
+            back: p.surface,
+            well: p.well,
+            rule: p.rule,
+            ink: p.ink,
+            dim: p.dim,
             accent: [64, 128, 238],
-            off: [72, 77, 94],
-            bad: [255, 120, 110],
+            off: p.off,
+            bad: p.alert,
         }
+    }
+}
+
+impl Default for Look {
+    fn default() -> Self {
+        Look::themed(&crate::theme::DARK)
     }
 }
 

@@ -16,31 +16,35 @@ pub struct Dock {
     pub margin: f64,
     pub divider: f64,
     pub rule: [u8; 3],
+    pub ink: [u8; 3],
     pub settings: bool,
     pub trash: bool,
 }
 
-impl Default for Dock {
-    fn default() -> Self {
+impl Dock {
+    pub fn themed(p: &crate::theme::Palette) -> Dock {
         Dock {
             icon: 44.0,
             gap: 10.0,
             margin: 16.0,
             divider: 18.0,
-            rule: [120, 126, 140],
+            rule: p.dim,
+            ink: p.glyph,
             settings: true,
             trash: true,
         }
     }
 }
 
+impl Default for Dock {
+    fn default() -> Self {
+        Dock::themed(&crate::theme::DARK)
+    }
+}
+
 impl Dock {
     pub fn rule_ink(&self) -> [u8; 3] {
-        [
-            self.rule[0].saturating_add(80),
-            self.rule[1].saturating_add(80),
-            self.rule[2].saturating_add(80),
-        ]
+        self.ink
     }
 
     fn tail(&self) -> usize {
@@ -502,6 +506,8 @@ mod tests {
     fn the_trash_ink_is_lighter_than_the_divider() {
         let dock = Dock::default();
         assert!(dock.rule_ink()[0] > dock.rule[0]);
+        let light = Dock::themed(&crate::theme::LIGHT);
+        assert!(light.rule_ink()[0] < 80, "dark glyphs on a light bar");
     }
 
     #[test]

@@ -80,8 +80,12 @@ impl State {
     pub(super) fn take_icons(&mut self, icons: Vec<crate::tray::Icon>) {
         let wanted = self.tray.icon as u32;
         self.icons.clear();
+        self.tray_raw = icons.clone();
         for icon in icons {
-            let image = icon.image.scaled(wanted, wanted);
+            let mut image = icon.image.scaled(wanted, wanted);
+            if icon.symbolic {
+                image.tint(self.palette.glyph);
+            }
             match upload(&mut self.renderer, Some(&image), "tray icon") {
                 Ok(Some(buffer)) => self.icons.push((icon.service, icon.title, buffer)),
                 Ok(None) => {}
@@ -432,7 +436,7 @@ impl State {
         }
     }
 
-    fn take_volume(&mut self, level: f64, muted: bool) {
+    pub(super) fn take_volume(&mut self, level: f64, muted: bool) {
         self.volume = Some((level, muted));
         let key = (drifter_core::volume::waves(level, muted), muted);
         if self.speaker.as_ref().map(|(_, held)| *held) != Some(key) {
@@ -449,7 +453,7 @@ impl State {
         }
     }
 
-    fn take_light(&mut self, level: f64) {
+    pub(super) fn take_light(&mut self, level: f64) {
         self.light = Some(level);
         if self.sun.is_none() {
             let image = drifter_core::volume::paint_sun(self.tray.button as u32, self.tray.ink);
@@ -543,7 +547,7 @@ impl State {
         let Some((level, muted)) = self.gauge_level(gauge) else {
             return;
         };
-        let look = drifter_core::volume::Panel::default();
+        let look = drifter_core::volume::Panel::themed(&self.palette);
         let shown = ((level * 100.0).round() as i64, muted);
         if self
             .gauge_panel
@@ -616,7 +620,7 @@ impl State {
             return true;
         }
         let inside = self.pointer - panel.rect.origin;
-        let look = drifter_core::volume::Panel::default();
+        let look = drifter_core::volume::Panel::themed(&self.palette);
         match look.hit(gauge, inside) {
             Some(Hit::Level(level)) => {
                 if let Some(panel) = self.gauge_panel.as_mut() {
@@ -647,7 +651,7 @@ impl State {
         };
         let gauge = panel.gauge;
         let inside = self.pointer - panel.rect.origin;
-        let level = drifter_core::volume::Panel::default().level_at(inside.x);
+        let level = drifter_core::volume::Panel::themed(&self.palette).level_at(inside.x);
         self.set_gauge(gauge, level);
         true
     }

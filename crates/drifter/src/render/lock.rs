@@ -5,7 +5,7 @@ impl State {
         let Some(lock) = self.lock.as_ref() else {
             return Vec::new();
         };
-        let rect = drifter_core::lock::Look::default().rect(self.screen);
+        let rect = drifter_core::lock::Look::themed(&self.palette).rect(self.screen);
         match lock.art.as_ref() {
             Some(art) => vec![Skin::Texture(element(art, rect, 1.0))],
             None => Vec::new(),
@@ -275,7 +275,7 @@ impl State {
             return;
         }
 
-        let look = drifter_core::lock::Look::default();
+        let look = drifter_core::lock::Look::themed(&self.palette);
         let words = drifter_core::lock::Words {
             clock: &key.0,
             date: &key.1,

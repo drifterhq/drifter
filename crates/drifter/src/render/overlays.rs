@@ -23,7 +23,7 @@ impl State {
                     count => drifter_core::switcher::step(0, count, back),
                 };
                 let layout =
-                    drifter_core::switcher::Look::default().layout(self.screen, order.len());
+                    drifter_core::switcher::Look::themed(&self.palette).layout(self.screen, order.len());
                 let apps: Vec<String> = order
                     .iter()
                     .filter_map(|id| self.windows.iter().find(|window| window.id == *id))
@@ -88,7 +88,7 @@ impl State {
     }
 
     pub(super) fn show_hud(&mut self, reading: drifter_core::hud::Reading) {
-        let look = drifter_core::hud::Look::default();
+        let look = drifter_core::hud::Look::themed(&self.palette);
         let image = look.paint(reading, self.font.as_ref());
         match upload(&mut self.renderer, Some(&image), "hud") {
             Ok(Some(art)) => {
@@ -222,7 +222,7 @@ impl State {
             error: pending.error.clone(),
             busy: pending.busy,
         };
-        let look = drifter_core::prompt::Look::default();
+        let look = drifter_core::prompt::Look::themed(&self.palette);
         let image = look.paint(&ask, font);
         let rect = look.rect(self.screen, &ask, font);
         match upload(&mut self.renderer, Some(&image), "password prompt") {
@@ -248,7 +248,7 @@ impl State {
             self.tell_closed(note.id, 3);
             return;
         };
-        let look = drifter_core::notify::Look::default();
+        let look = drifter_core::notify::Look::themed(&self.palette);
         let tall = look.height(&note, font);
         let image = look.paint(&note, font);
         let art = match upload(&mut self.renderer, Some(&image), "notification") {
@@ -305,7 +305,7 @@ impl State {
 
     pub(super) fn card_rects(&self) -> Vec<Rect> {
         let heights: Vec<f64> = self.cards.iter().map(|card| card.tall).collect();
-        drifter_core::notify::Look::default().stack(self.screen, &heights)
+        drifter_core::notify::Look::themed(&self.palette).stack(self.screen, &heights)
     }
 
     pub(super) fn expire_cards(&mut self, now: Instant) {

@@ -269,7 +269,7 @@ impl State {
         };
         output.set_preferred(mode);
         let screen = wanted.size();
-        let panels = paint_panels(&mut self.renderer, screen.x, &self.shapes)?;
+        let panels = paint_panels(&mut self.renderer, screen.x, &self.shapes, self.palette.bar)?;
         for window in &self.windows {
             output.enter(window.toplevel.wl_surface());
         }
@@ -504,7 +504,7 @@ impl State {
                 Some((rect.origin.x as i32, rect.origin.y as i32).into()),
             );
             if resized || repaint {
-                match paint_panels(&mut self.renderer, rect.size.x, &self.shapes) {
+                match paint_panels(&mut self.renderer, rect.size.x, &self.shapes, self.palette.bar) {
                     Ok(panels) => self.heads[index].panels = panels,
                     Err(error) => eprintln!("drifter: {error}"),
                 }

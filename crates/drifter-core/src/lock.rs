@@ -100,19 +100,25 @@ pub struct Look {
     pub step: f64,
 }
 
-impl Default for Look {
-    fn default() -> Self {
+impl Look {
+    pub fn themed(p: &crate::theme::Palette) -> Look {
         Look {
             size: Vec2::new(460.0, 270.0),
             radius: 16.0,
-            back: [22, 25, 34],
-            field: [38, 42, 56],
-            ink: [236, 238, 244],
-            dim: [128, 132, 142],
-            alert: [255, 128, 128],
+            back: p.back,
+            field: p.raised,
+            ink: p.ink,
+            dim: p.dim,
+            alert: p.alert,
             dot: 12.0,
             step: 20.0,
         }
+    }
+}
+
+impl Default for Look {
+    fn default() -> Self {
+        Look::themed(&crate::theme::DARK)
     }
 }
 

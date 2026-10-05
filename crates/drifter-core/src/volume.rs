@@ -157,21 +157,27 @@ pub struct Panel {
     pub dim: [u8; 3],
 }
 
-impl Default for Panel {
-    fn default() -> Self {
+impl Panel {
+    pub fn themed(p: &crate::theme::Palette) -> Panel {
         Panel {
             size: Vec2::new(260.0, 96.0),
             pad: 14.0,
             row: 30.0,
             radius: 10.0,
-            back: [30, 33, 42],
+            back: p.back,
             back_alpha: 0.96,
-            track: [72, 77, 94],
-            fill: [236, 238, 244],
-            button: [52, 57, 72],
-            ink: [236, 238, 244],
-            dim: [146, 152, 166],
+            track: p.off,
+            fill: p.ink,
+            button: p.raised,
+            ink: p.ink,
+            dim: p.dim,
         }
+    }
+}
+
+impl Default for Panel {
+    fn default() -> Self {
+        Panel::themed(&crate::theme::DARK)
     }
 }
 

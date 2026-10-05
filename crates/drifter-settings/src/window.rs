@@ -132,10 +132,7 @@ pub fn run() -> Result<(), String> {
     let window = shell.create_window(surface, WindowDecorations::RequestServer, &qh);
     window.set_title("Settings");
     window.set_app_id(APP);
-    let look = Look {
-        accent: accent(&model),
-        ..Look::default()
-    };
+    let look = themed(&model, 0.0);
     let least = look.least();
     window.set_min_size(Some((least.x as u32, least.y as u32)));
     window.commit();
@@ -308,6 +305,14 @@ fn read_model(config: &Config) -> Model {
         .map(|text| stats::mounts(&text))
         .unwrap_or_default();
     Model::read(config, &mounts, kernel)
+}
+
+fn themed(model: &Model, side_scroll: f64) -> Look {
+    Look {
+        accent: accent(model),
+        side_scroll,
+        ..Look::themed(&drifter_core::theme::of(model.appearance.style))
+    }
 }
 
 fn accent(model: &Model) -> [u8; 3] {
@@ -1344,7 +1349,7 @@ impl Settings {
         model.monitors = old.monitors;
         model.picked = old.picked;
         self.saved = self.model.clone();
-        self.look.accent = accent(&self.model);
+        self.look = themed(&self.model, self.look.side_scroll);
         self.load_row_icons();
         self.reload_wallpaper();
     }
@@ -1545,7 +1550,7 @@ impl Settings {
             self.icons.clear();
             self.load_row_icons();
         }
-        self.look.accent = accent(&self.model);
+        self.look = themed(&self.model, self.look.side_scroll);
     }
 
     fn save(&mut self) {
