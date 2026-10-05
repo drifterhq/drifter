@@ -589,10 +589,26 @@ impl Model {
             return vec![Group {
                 header: None,
                 rows: Vec::new(),
-                footer: Some("No Wi-Fi here. Drifter uses NetworkManager for Wi-Fi.".into()),
+                footer: Some(
+                    "Settings could not find a Wi-Fi card through NetworkManager. \
+                     If you use another Wi-Fi tool, keep using it. Your Wi-Fi works the same."
+                        .into(),
+                ),
                 thumbs: None,
             }];
         };
+        if !wifi.managed {
+            return vec![Group {
+                header: None,
+                rows: Vec::new(),
+                footer: Some(
+                    "Another tool runs this Wi-Fi card, so Settings cannot show its networks. \
+                     Your Wi-Fi still works. To manage it here, let NetworkManager run the card."
+                        .into(),
+                ),
+                thumbs: None,
+            }];
+        }
         let mut groups = vec![Group {
             header: None,
             rows: vec![Row::new(Id::WifiOn, "Wi-Fi", Control::Switch(wifi.on))],

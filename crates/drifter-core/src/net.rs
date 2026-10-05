@@ -9,6 +9,7 @@ pub struct Net {
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Wifi {
+    pub managed: bool,
     pub on: bool,
     pub nets: Vec<Net>,
 }
@@ -93,6 +94,19 @@ pub fn wifi_known(connections: &str) -> Vec<String> {
         .filter(|fields| fields.get(1).is_some_and(|kind| kind == "802-11-wireless"))
         .filter_map(|fields| fields.into_iter().next())
         .collect()
+}
+
+pub fn wifi_managed(devices: &str) -> Option<bool> {
+    let states: Vec<String> = devices
+        .lines()
+        .map(terse)
+        .filter(|fields| fields.first().is_some_and(|kind| kind == "wifi"))
+        .map(|fields| fields.get(1).cloned().unwrap_or_default())
+        .collect();
+    match states.is_empty() {
+        true => None,
+        false => Some(states.iter().any(|state| state != "unmanaged")),
+    }
 }
 
 pub fn devices(listed: &str) -> Vec<(String, String)> {
@@ -183,6 +197,14 @@ mod tests {
     fn only_wifi_connections_count_as_known() {
         let shown = "Home:802-11-wireless\nWired connection 1:802-3-ethernet\nCafe\\:Guest:802-11-wireless\n";
         assert_eq!(wifi_known(shown), ["Home", "Cafe:Guest"]);
+    }
+
+    #[test]
+    fn a_wifi_card_counts_only_when_networkmanager_runs_it() {
+        assert_eq!(wifi_managed("loopback:connected (externally)\nethernet:connected\n"), None);
+        assert_eq!(wifi_managed("wifi:unmanaged\nwifi-p2p:disconnected\n"), Some(false));
+        assert_eq!(wifi_managed("wifi:unmanaged\nwifi:disconnected\n"), Some(true));
+        assert_eq!(wifi_managed("wifi:connected\n"), Some(true));
     }
 
     #[test]

@@ -3803,6 +3803,7 @@ mod tests {
             known,
         };
         model.wifi = Some(Wifi {
+            managed: true,
             on: true,
             nets: vec![net("Home", true, true), net("Work", false, true), net("Cafe", false, false)],
         });
@@ -3816,6 +3817,10 @@ mod tests {
         assert_eq!(rows[3].detail.as_deref(), Some("Secured, strong signal"));
         model.set(Id::WifiOn, Value::Switch(false));
         assert_eq!(model.groups(Section::Network).into_iter().flat_map(|g| g.rows).count(), 1);
+        model.wifi.as_mut().unwrap().managed = false;
+        let groups = model.groups(Section::Network);
+        assert_eq!(groups.iter().flat_map(|g| &g.rows).count(), 0, "no switch for a card we do not run");
+        assert!(groups[0].footer.as_deref().is_some_and(|words| words.contains("Another tool")));
 
         let gadget = |name: &str, paired: bool, connected: bool| Gadget {
             mac: "00:11:22:33:44:55".into(),

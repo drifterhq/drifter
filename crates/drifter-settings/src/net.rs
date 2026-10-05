@@ -28,9 +28,9 @@ fn read(program: &str, args: &[&str]) -> Option<String> {
 }
 
 pub fn read_wifi() -> Option<Wifi> {
-    let devices = read("nmcli", &["-t", "-f", "TYPE", "device"])?;
-    if !devices.lines().any(|line| line.trim() == "wifi") {
-        return None;
+    let devices = read("nmcli", &["-t", "-f", "TYPE,STATE", "device"])?;
+    if !net::wifi_managed(&devices)? {
+        return Some(Wifi::default());
     }
     let on = read("nmcli", &["-t", "radio", "wifi"])?.trim() == "enabled";
     let known = read("nmcli", &["-t", "-f", "NAME,TYPE", "connection", "show"])
@@ -45,7 +45,11 @@ pub fn read_wifi() -> Option<Wifi> {
         .unwrap_or_default(),
         false => Vec::new(),
     };
-    Some(Wifi { on, nets })
+    Some(Wifi {
+        managed: true,
+        on,
+        nets,
+    })
 }
 
 pub fn rescan() {
