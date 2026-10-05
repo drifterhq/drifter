@@ -31,6 +31,7 @@ pub enum For {
     Export,
     ShotFolder,
     Wifi(usize),
+    NetInfo(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -126,6 +127,12 @@ pub enum Sheet {
         title: String,
         text: String,
     },
+    Info {
+        purpose: For,
+        title: String,
+        lines: Vec<(String, String)>,
+        scroll: f64,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -142,6 +149,7 @@ pub enum Pick {
 }
 
 const ROW: f64 = 36.0;
+const LINE: f64 = 26.0;
 
 pub fn is_font(path: &Path) -> bool {
     path.extension()
@@ -223,13 +231,23 @@ impl Sheet {
         }
     }
 
+    pub fn info(purpose: For, title: &str, lines: Vec<(String, String)>) -> Sheet {
+        Sheet::Info {
+            purpose,
+            title: title.to_string(),
+            lines,
+            scroll: 0.0,
+        }
+    }
+
     pub fn purpose(&self) -> For {
         match self {
             Sheet::Picker { purpose, .. }
             | Sheet::Files { purpose, .. }
             | Sheet::Choices { purpose, .. }
             | Sheet::Capture { purpose, .. }
-            | Sheet::Secret { purpose, .. } => *purpose,
+            | Sheet::Secret { purpose, .. }
+            | Sheet::Info { purpose, .. } => *purpose,
         }
     }
 
@@ -304,6 +322,14 @@ impl Sheet {
             Sheet::Files { entries, .. } => entries.len(),
             Sheet::Choices { items, text, .. } => matching(items, text).len(),
             Sheet::Capture { .. } | Sheet::Secret { .. } => 0,
+            Sheet::Info { lines, .. } => lines.len(),
+        }
+    }
+
+    fn row_height(&self) -> f64 {
+        match self {
+            Sheet::Info { .. } => LINE,
+            _ => ROW,
         }
     }
 
@@ -311,18 +337,20 @@ impl Sheet {
         match self {
             Sheet::Picker { scroll, .. }
             | Sheet::Files { scroll, .. }
-            | Sheet::Choices { scroll, .. } => *scroll,
+            | Sheet::Choices { scroll, .. }
+            | Sheet::Info { scroll, .. } => *scroll,
             Sheet::Capture { .. } | Sheet::Secret { .. } => 0.0,
         }
     }
 
     pub fn scroll_by(&mut self, size: Vec2, by: f64) {
         let list = frame(size, self).list;
-        let most = (self.count() as f64 * ROW - list.size.y).max(0.0);
+        let most = (self.count() as f64 * self.row_height() - list.size.y).max(0.0);
         match self {
             Sheet::Picker { scroll, .. }
             | Sheet::Files { scroll, .. }
-            | Sheet::Choices { scroll, .. } => {
+            | Sheet::Choices { scroll, .. }
+            | Sheet::Info { scroll, .. } => {
                 *scroll = (*scroll + by).clamp(0.0, most);
             }
             Sheet::Capture { .. } | Sheet::Secret { .. } => {}
@@ -353,12 +381,21 @@ impl Sheet {
             } => Some(("Use the app's icon", Pick::Default)),
             Sheet::Capture { .. } => Some(("No shortcut", Pick::Default)),
             Sheet::Secret { text, .. } => Some(("Join", Pick::Command(text.clone()))),
-            Sheet::Files { .. } | Sheet::Choices { .. } => None,
+            Sheet::Files { .. } | Sheet::Choices { .. } | Sheet::Info { .. } => None,
+        }
+    }
+
+    fn cancel_label(&self) -> &'static str {
+        match self {
+            Sheet::Info { .. } => "Close",
+            _ => "Cancel",
         }
     }
 
     fn title(&self) -> &str {
-        if let Sheet::Capture { title, .. } | Sheet::Secret { title, .. } = self {
+        if let Sheet::Capture { title, .. } | Sheet::Secret { title, .. } | Sheet::Info { title, .. } =
+            self
+        {
             return title;
         }
         match self.purpose() {
@@ -386,6 +423,7 @@ impl Sheet {
             For::Import => "Choose a settings file",
             For::Export => "Choose where to save the settings",
             For::Wifi(_) => "Join a network",
+            For::NetInfo(_) => "Network details",
         }
     }
 
@@ -618,10 +656,11 @@ impl Sheet {
                     );
                 }
             }
+            Sheet::Info { lines, scroll, .. } => paint_info(canvas, look, fonts, frame.list, lines, *scroll),
             _ => self.paint_list(canvas, look, fonts, icons, frame.list),
         }
 
-        button(canvas, look, fonts, frame.cancel, "Cancel", false);
+        button(canvas, look, fonts, frame.cancel, self.cancel_label(), false);
         if let Some((label, pick)) = self.primary() {
             let off = matches!(&pick, Pick::Command(text) if text.is_empty());
             button(canvas, look, fonts, frame.primary, label, !off);
@@ -652,7 +691,7 @@ impl Sheet {
                 .into_iter()
                 .map(|item| (item.name.clone(), None, false))
                 .collect(),
-            Sheet::Capture { .. } | Sheet::Secret { .. } => Vec::new(),
+            Sheet::Capture { .. } | Sheet::Secret { .. } | Sheet::Info { .. } => Vec::new(),
         };
         if rows.is_empty() {
             let empty = fonts.small.paint("Nothing here", look.dim);
@@ -734,6 +773,37 @@ fn search(canvas: &mut Canvas, look: &Look, fonts: &Fonts, field: Rect, text: &s
     canvas.round_rect(caret, 0.0, look.accent, 1.0);
 }
 
+fn paint_info(
+    canvas: &mut Canvas,
+    look: &Look,
+    fonts: &Fonts,
+    list: Rect,
+    lines: &[(String, String)],
+    scroll: f64,
+) {
+    canvas.round_rect(list, 8.0, look.card, 1.0);
+    let mut inside = Canvas::new(list.size.x as u32, list.size.y as u32);
+    let key_w = 150.0;
+    for (index, (key, value)) in lines.iter().enumerate() {
+        let top = index as f64 * LINE - scroll;
+        if top + LINE < 0.0 || top > list.size.y {
+            continue;
+        }
+        if value.is_empty() {
+            let text = fonts.small.paint(key, look.accent);
+            let at = Vec2::new(12.0, top + LINE - f64::from(text.height) - 4.0);
+            inside.stamp(&text, at, 1.0);
+            continue;
+        }
+        let label = fonts.small.paint(&fit_left(fonts.small, key, key_w - 20.0), look.dim);
+        inside.stamp(&label, Vec2::new(12.0, top + (LINE - f64::from(label.height)) / 2.0), 1.0);
+        let room = list.size.x - key_w - 12.0;
+        let text = fonts.small.paint(&fit_left(fonts.small, value, room), look.ink);
+        inside.stamp(&text, Vec2::new(key_w, top + (LINE - f64::from(text.height)) / 2.0), 1.0);
+    }
+    canvas.stamp(&inside.image, list.origin, 1.0);
+}
+
 fn button(canvas: &mut Canvas, look: &Look, fonts: &Fonts, rect: Rect, label: &str, main: bool) {
     let color = if main { look.accent } else { look.off };
     canvas.round_rect(rect, 7.0, color, 1.0);
@@ -791,7 +861,10 @@ fn frame(size: Vec2, sheet: &Sheet) -> Frame {
             Vec2::new(56.0, 28.0),
         )
     });
-    let top = card.origin.y + 90.0;
+    let top = match sheet {
+        Sheet::Info { .. } => card.origin.y + 54.0,
+        _ => card.origin.y + 90.0,
+    };
     let list = Rect::new(
         Vec2::new(inner_x, top),
         Vec2::new(inner_w, bar - 12.0 - top),

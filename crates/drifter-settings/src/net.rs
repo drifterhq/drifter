@@ -52,6 +52,55 @@ pub fn read_wifi() -> Option<Wifi> {
     })
 }
 
+pub fn details(net: &net::Net) -> Vec<(String, String)> {
+    let list = read(
+        "nmcli",
+        &["-t", "-f", net::AP_FIELDS, "device", "wifi", "list", "--rescan", "no"],
+    )
+    .unwrap_or_default();
+    let aps = net::access_points(&list, &net.ssid);
+    let card = read("nmcli", &["-t", "-f", "DEVICE,TYPE", "device"])
+        .and_then(|text| {
+            text.lines()
+                .map(net::terse)
+                .find(|fields| fields.get(1).is_some_and(|kind| kind == "wifi"))
+                .and_then(|fields| fields.into_iter().next())
+        })
+        .unwrap_or_default();
+    let dbm = match card.is_empty() {
+        true => Vec::new(),
+        false => read("iw", &["dev", &card, "scan", "dump"])
+            .map(|dump| net::scan_dbm(&dump))
+            .unwrap_or_default(),
+    };
+    let link = (net.active && !card.is_empty()).then(|| net::Link {
+        device: read(
+            "nmcli",
+            &[
+                "-t",
+                "-f",
+                "GENERAL.HWADDR,IP4.ADDRESS,IP4.GATEWAY,IP4.DNS,IP6.ADDRESS,IP6.GATEWAY,IP6.DNS",
+                "device",
+                "show",
+                &card,
+            ],
+        )
+        .map(|text| net::shown(&text))
+        .unwrap_or_default(),
+        dbm: std::fs::read_to_string("/proc/net/wireless")
+            .ok()
+            .and_then(|text| net::link_dbm(&text, &card)),
+        bitrate: read("iw", &["dev", &card, "link"]).and_then(|text| {
+            text.lines()
+                .find_map(|line| line.trim().strip_prefix("tx bitrate:"))
+                .map(|rate| rate.split_whitespace().take(2).collect::<Vec<_>>().join(" "))
+                .filter(|rate| !rate.is_empty())
+        }),
+        card: card.clone(),
+    });
+    net::details(net, &aps, &dbm, link.as_ref())
+}
+
 pub fn rescan() {
     let _ = Command::new("nmcli")
         .args(["device", "wifi", "rescan"])

@@ -734,6 +734,13 @@ impl Settings {
                 }
                 None => self.save(),
             },
+            Some(Hit::Open(Id::Net(at))) => {
+                if let Some(net) = self.model.wifi.as_ref().and_then(|wifi| wifi.nets.get(at)) {
+                    let lines = crate::net::details(net);
+                    self.sheet = Some(Sheet::info(For::NetInfo(at), &net.ssid, lines));
+                }
+            }
+            Some(Hit::Open(_)) => return,
             Some(Hit::Monitor(at)) => {
                 self.model.pick_monitor(at);
                 let (zoom, offset) = self.look.monitor_map(self.view(), self.scroll, &self.model);

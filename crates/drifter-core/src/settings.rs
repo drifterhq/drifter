@@ -2171,6 +2171,7 @@ pub struct Row {
     pub enabled: bool,
     pub icon: Option<String>,
     pub faint: bool,
+    pub opens: bool,
 }
 
 impl Row {
@@ -2183,7 +2184,13 @@ impl Row {
             enabled: true,
             icon: None,
             faint: false,
+            opens: false,
         }
+    }
+
+    fn opens(mut self) -> Row {
+        self.opens = true;
+        self
     }
 
     fn detail(mut self, detail: &str) -> Row {
@@ -2222,6 +2229,7 @@ pub enum Hit {
     Section(Section),
     Change(Id, Value),
     Press(Id, usize),
+    Open(Id),
     Picture(usize),
     Monitor(usize),
 }
@@ -2596,7 +2604,8 @@ impl Look {
                         .mark_rects(*rect, marks)
                         .iter()
                         .position(|mark| mark.contains(pointer))
-                        .map(|at| Hit::Press(row.id, at)),
+                        .map(|at| Hit::Press(row.id, at))
+                        .or_else(|| row.opens.then_some(Hit::Open(row.id))),
                     Control::Swatches { colors, .. } => self
                         .swatch_rects(*rect, colors.len())
                         .iter()
@@ -3813,6 +3822,15 @@ mod tests {
         assert_eq!(model.press(Id::Net(2), 0), Some(Ask::Net(NetAsk::Join(2))));
         let rows: Vec<Row> = model.groups(Section::Network).into_iter().flat_map(|g| g.rows).collect();
         assert_eq!(rows.len(), 4);
+        let look = Look::default();
+        let groups = model.groups(Section::Network);
+        let row = look.place(SIZE, Section::Network, &groups, 0.0)[1].rows[1];
+        let name = Vec2::new(row.origin.x + 30.0, row.center().y);
+        assert_eq!(look.hit(SIZE, Section::Network, &model, 0.0, name), Some(Hit::Open(Id::Net(1))));
+        let join = look.mark_rects(row, &[Mark::Text("Join"), Mark::Text("Forget")])[0].center();
+        assert_eq!(look.hit(SIZE, Section::Network, &model, 0.0, join), Some(Hit::Press(Id::Net(1), 0)));
+        let switch = look.place(SIZE, Section::Network, &groups, 0.0)[0].rows[0];
+        assert_ne!(look.hit(SIZE, Section::Network, &model, 0.0, switch.center()), Some(Hit::Open(Id::WifiOn)));
         assert_eq!(rows[1].detail.as_deref(), Some("Connected"));
         assert_eq!(rows[3].detail.as_deref(), Some("Secured, strong signal"));
         model.set(Id::WifiOn, Value::Switch(false));

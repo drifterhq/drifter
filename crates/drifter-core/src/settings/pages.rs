@@ -645,14 +645,20 @@ impl Model {
                         (false, true) => vec![Mark::Text("Join"), Mark::Text("Forget")],
                         (false, false) => vec![Mark::Text("Join")],
                     };
-                    Row::new(Id::Net(at), &net.ssid, Control::Buttons(marks)).detail(&detail)
+                    Row::new(Id::Net(at), &net.ssid, Control::Buttons(marks))
+                        .detail(&detail)
+                        .opens()
                 })
                 .collect();
             groups.push(Group {
                 header: Some("Networks"),
-                footer: rows
-                    .is_empty()
-                    .then(|| "No networks in range.".to_string()),
+                footer: Some(
+                    match rows.is_empty() {
+                        true => "No networks in range.",
+                        false => "Click a network name to see its details.",
+                    }
+                    .to_string(),
+                ),
                 rows,
                 thumbs: None,
             });
