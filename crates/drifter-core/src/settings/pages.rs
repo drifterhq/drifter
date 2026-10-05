@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-use super::{Control, Group, Id, Mark, Model, PROFILES, Row, Value, drop_key, file_name, put};
+use super::{
+    Control, Group, Id, Mark, Model, NetAsk, PROFILES, Row, Value, drop_key, file_name, put,
+};
 use crate::config::{
     ShotFormat,
     Accent, CORNER_SIZE, CURSOR_SIZES, FASTEST, LONGEST_NOTE, Lid, Modifier, PAN_SPEED, PowerKey,
@@ -542,6 +544,134 @@ impl Model {
         ]
     }
 
+    pub(super) fn wifi_groups(&self) -> Vec<Group> {
+        let Some(wifi) = &self.wifi else {
+            return vec![Group {
+                header: None,
+                rows: Vec::new(),
+                footer: Some("No Wi-Fi here. Drifter uses NetworkManager for Wi-Fi.".into()),
+                thumbs: None,
+            }];
+        };
+        let mut groups = vec![Group {
+            header: None,
+            rows: vec![Row::new(Id::WifiOn, "Wi-Fi", Control::Switch(wifi.on))],
+            footer: self.net_note.clone(),
+            thumbs: None,
+        }];
+        if wifi.on {
+            let rows: Vec<Row> = wifi
+                .nets
+                .iter()
+                .enumerate()
+                .map(|(at, net)| {
+                    let detail = match net.active {
+                        true => "Connected".to_string(),
+                        false => {
+                            let mut words = Vec::new();
+                            if net.known {
+                                words.push("Saved".to_string());
+                            }
+                            words.push(match net.secure {
+                                true => "secured".to_string(),
+                                false => "open".to_string(),
+                            });
+                            words.push(format!("{} signal", crate::net::bars(net.signal)));
+                            let mut detail = words.join(", ");
+                            if let Some(first) = detail.get_mut(0..1) {
+                                first.make_ascii_uppercase();
+                            }
+                            detail
+                        }
+                    };
+                    let marks = match (net.active, net.known) {
+                        (true, _) => vec![Mark::Text("Leave")],
+                        (false, true) => vec![Mark::Text("Join"), Mark::Text("Forget")],
+                        (false, false) => vec![Mark::Text("Join")],
+                    };
+                    Row::new(Id::Net(at), &net.ssid, Control::Buttons(marks)).detail(&detail)
+                })
+                .collect();
+            groups.push(Group {
+                header: Some("Networks"),
+                footer: rows
+                    .is_empty()
+                    .then(|| "No networks in range.".to_string()),
+                rows,
+                thumbs: None,
+            });
+        }
+        groups
+    }
+
+    pub(super) fn blue_groups(&self) -> Vec<Group> {
+        let Some(blue) = &self.blue else {
+            return vec![Group {
+                header: None,
+                rows: Vec::new(),
+                footer: Some("No Bluetooth adapter found.".into()),
+                thumbs: None,
+            }];
+        };
+        let mut groups = vec![Group {
+            header: None,
+            rows: vec![Row::new(Id::BlueOn, "Bluetooth", Control::Switch(blue.on))],
+            footer: self.net_note.clone(),
+            thumbs: None,
+        }];
+        if !blue.on {
+            return groups;
+        }
+        let row = |at: usize, gadget: &crate::net::Gadget| {
+            let (marks, detail) = match (gadget.paired, gadget.connected) {
+                (true, true) => (vec![Mark::Text("Disconnect")], "Connected"),
+                (true, false) => (vec![Mark::Text("Connect"), Mark::Text("Remove")], "Not connected"),
+                (false, _) => (vec![Mark::Text("Pair")], "Not paired"),
+            };
+            Row::new(Id::Gadget(at), &gadget.name, Control::Buttons(marks)).detail(detail)
+        };
+        let mine: Vec<Row> = blue
+            .gadgets
+            .iter()
+            .enumerate()
+            .filter(|(_, gadget)| gadget.paired)
+            .map(|(at, gadget)| row(at, gadget))
+            .collect();
+        if !mine.is_empty() {
+            groups.push(Group {
+                header: Some("My devices"),
+                rows: mine,
+                footer: None,
+                thumbs: None,
+            });
+        }
+        let search = match blue.searching {
+            true => Row::new(Id::BlueSearch, "Searching", Control::Buttons(Vec::new()))
+                .detail("Put the device in pairing mode"),
+            false => Row::new(
+                Id::BlueSearch,
+                "Find devices",
+                Control::Buttons(vec![Mark::Text("Search")]),
+            )
+            .detail("Looks for ten seconds"),
+        };
+        let mut nearby = vec![search];
+        nearby.extend(
+            blue.gadgets
+                .iter()
+                .enumerate()
+                .filter(|(_, gadget)| !gadget.paired)
+                .map(|(at, gadget)| row(at, gadget)),
+        );
+        groups.push(Group {
+            header: Some("Nearby"),
+            rows: nearby,
+            footer: None,
+            thumbs: None,
+        });
+        groups
+    }
+
     pub(super) fn access_groups(&self) -> Vec<Group> {
         let access = &self.access;
         vec![
@@ -798,6 +928,16 @@ impl Model {
 
     pub(super) fn set_more(&mut self, id: Id, value: Value) {
         match (id, value) {
+            (Id::WifiOn, Value::Switch(on)) => {
+                if let Some(wifi) = self.wifi.as_mut() {
+                    wifi.on = on;
+                }
+            }
+            (Id::BlueOn, Value::Switch(on)) => {
+                if let Some(blue) = self.blue.as_mut() {
+                    blue.on = on;
+                }
+            }
             (Id::LargeText, Value::Switch(on)) => self.access.large_text = on,
             (Id::HighContrast, Value::Switch(on)) => self.access.high_contrast = on,
             (Id::ReduceMotion, Value::Switch(on)) => self.access.reduce_motion = on,
@@ -898,6 +1038,27 @@ impl Model {
 
     pub(super) fn press_more(&mut self, id: Id, index: usize) -> Option<Ask> {
         match (id, index) {
+            (Id::Net(at), index) => {
+                let net = self.wifi.as_ref()?.nets.get(at)?;
+                return Some(Ask::Net(match (net.active, index) {
+                    (true, _) => NetAsk::Leave(at),
+                    (false, 0) => NetAsk::Join(at),
+                    (false, _) => NetAsk::Forget(at),
+                }));
+            }
+            (Id::BlueSearch, _) => {
+                let blue = self.blue.as_ref()?;
+                return (!blue.searching).then_some(Ask::Net(NetAsk::Search));
+            }
+            (Id::Gadget(at), index) => {
+                let gadget = self.blue.as_ref()?.gadgets.get(at)?;
+                return Some(Ask::Net(match (gadget.paired, gadget.connected, index) {
+                    (false, _, _) => NetAsk::Pair(at),
+                    (true, true, _) => NetAsk::Disconnect(at),
+                    (true, false, 0) => NetAsk::Connect(at),
+                    (true, false, _) => NetAsk::Remove(at),
+                }));
+            }
             (Id::ShotFolder, 0) => return Some(Ask::Files(For::ShotFolder)),
             (Id::ShotFolder, _) => self.shots.folder = None,
             (Id::Variant, _) => return Some(Ask::Choose(For::Variant)),

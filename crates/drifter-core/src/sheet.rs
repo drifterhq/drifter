@@ -30,6 +30,7 @@ pub enum For {
     Import,
     Export,
     ShotFolder,
+    Wifi(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -120,6 +121,11 @@ pub enum Sheet {
         now: String,
         note: Option<String>,
     },
+    Secret {
+        purpose: For,
+        title: String,
+        text: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -209,12 +215,21 @@ impl Sheet {
         }
     }
 
+    pub fn secret(purpose: For, title: &str) -> Sheet {
+        Sheet::Secret {
+            purpose,
+            title: title.to_string(),
+            text: String::new(),
+        }
+    }
+
     pub fn purpose(&self) -> For {
         match self {
             Sheet::Picker { purpose, .. }
             | Sheet::Files { purpose, .. }
             | Sheet::Choices { purpose, .. }
-            | Sheet::Capture { purpose, .. } => *purpose,
+            | Sheet::Capture { purpose, .. }
+            | Sheet::Secret { purpose, .. } => *purpose,
         }
     }
 
@@ -231,6 +246,7 @@ impl Sheet {
                 tab: Tab::Command,
                 ..
             } | Sheet::Choices { .. }
+                | Sheet::Secret { .. }
         )
     }
 
@@ -245,6 +261,7 @@ impl Sheet {
                 *scroll = 0.0;
                 Some(text)
             }
+            Sheet::Secret { text, .. } => Some(text),
             _ => None,
         }
     }
@@ -271,6 +288,7 @@ impl Sheet {
             Sheet::Choices { items, text, .. } => matching(items, text)
                 .first()
                 .map(|item| Pick::Choice(item.code.clone())),
+            Sheet::Secret { text, .. } if !text.is_empty() => Some(Pick::Command(text.clone())),
             _ => None,
         }
     }
@@ -285,7 +303,7 @@ impl Sheet {
             Sheet::Picker { .. } => 0,
             Sheet::Files { entries, .. } => entries.len(),
             Sheet::Choices { items, text, .. } => matching(items, text).len(),
-            Sheet::Capture { .. } => 0,
+            Sheet::Capture { .. } | Sheet::Secret { .. } => 0,
         }
     }
 
@@ -294,7 +312,7 @@ impl Sheet {
             Sheet::Picker { scroll, .. }
             | Sheet::Files { scroll, .. }
             | Sheet::Choices { scroll, .. } => *scroll,
-            Sheet::Capture { .. } => 0.0,
+            Sheet::Capture { .. } | Sheet::Secret { .. } => 0.0,
         }
     }
 
@@ -307,7 +325,7 @@ impl Sheet {
             | Sheet::Choices { scroll, .. } => {
                 *scroll = (*scroll + by).clamp(0.0, most);
             }
-            Sheet::Capture { .. } => {}
+            Sheet::Capture { .. } | Sheet::Secret { .. } => {}
         }
     }
 
@@ -334,12 +352,13 @@ impl Sheet {
                 ..
             } => Some(("Use the app's icon", Pick::Default)),
             Sheet::Capture { .. } => Some(("No shortcut", Pick::Default)),
+            Sheet::Secret { text, .. } => Some(("Join", Pick::Command(text.clone()))),
             Sheet::Files { .. } | Sheet::Choices { .. } => None,
         }
     }
 
     fn title(&self) -> &str {
-        if let Sheet::Capture { title, .. } = self {
+        if let Sheet::Capture { title, .. } | Sheet::Secret { title, .. } = self {
             return title;
         }
         match self.purpose() {
@@ -366,6 +385,7 @@ impl Sheet {
             For::Shortcut(_) => "Press the new shortcut",
             For::Import => "Choose a settings file",
             For::Export => "Choose where to save the settings",
+            For::Wifi(_) => "Join a network",
         }
     }
 
@@ -524,6 +544,48 @@ impl Sheet {
                 search(canvas, look, fonts, frame.field, text);
                 self.paint_list(canvas, look, fonts, icons, frame.list);
             }
+            Sheet::Secret { text, .. } => {
+                let field = frame.field;
+                canvas.round_rect(field, 7.0, look.rule, 1.0);
+                canvas.round_rect(
+                    Rect::new(
+                        field.origin + Vec2::splat(1.0),
+                        field.size - Vec2::splat(2.0),
+                    ),
+                    6.0,
+                    look.back,
+                    1.0,
+                );
+                let dots = "•".repeat(text.chars().count());
+                let (shown, ink) = match text.is_empty() {
+                    true => ("Password", look.dim),
+                    false => (dots.as_str(), look.ink),
+                };
+                let room = field.size.x - 24.0;
+                let painted = fonts.body.paint(&fit_left(fonts.body, shown, room), ink);
+                let at = Vec2::new(
+                    field.origin.x + 12.0,
+                    field.center().y - f64::from(painted.height) / 2.0,
+                );
+                canvas.stamp(&painted, at, 1.0);
+                let caret_x = match text.is_empty() {
+                    true => at.x,
+                    false => at.x + f64::from(painted.width) + 1.0,
+                };
+                let caret = Rect::new(
+                    Vec2::new(caret_x, field.center().y - 9.0),
+                    Vec2::new(1.5, 18.0),
+                );
+                canvas.round_rect(caret, 0.0, look.accent, 1.0);
+                let note = fonts
+                    .small
+                    .paint("Type the network password, then press Enter.", look.dim);
+                canvas.stamp(
+                    &note,
+                    field.origin + Vec2::new(4.0, field.size.y + 10.0),
+                    1.0,
+                );
+            }
             Sheet::Capture { now, note, .. } => {
                 let list = frame.list;
                 canvas.round_rect(list, 8.0, look.card, 1.0);
@@ -590,7 +652,7 @@ impl Sheet {
                 .into_iter()
                 .map(|item| (item.name.clone(), None, false))
                 .collect(),
-            Sheet::Capture { .. } => Vec::new(),
+            Sheet::Capture { .. } | Sheet::Secret { .. } => Vec::new(),
         };
         if rows.is_empty() {
             let empty = fonts.small.paint("Nothing here", look.dim);
@@ -706,7 +768,10 @@ struct Frame {
 
 fn frame(size: Vec2, sheet: &Sheet) -> Frame {
     let wide = (size.x - 60.0).clamp(300.0, 500.0);
-    let tall = (size.y - 60.0).clamp(300.0, 500.0);
+    let tall = match sheet {
+        Sheet::Secret { .. } => 240.0,
+        _ => (size.y - 60.0).clamp(300.0, 500.0),
+    };
     let card = Rect::new(
         ((size - Vec2::new(wide, tall)) / 2.0).round(),
         Vec2::new(wide, tall),
@@ -760,6 +825,19 @@ mod tests {
     use super::*;
 
     const SIZE: Vec2 = Vec2::new(860.0, 620.0);
+
+    #[test]
+    fn a_password_sheet_keeps_what_is_typed_and_joins_on_enter() {
+        let mut sheet = Sheet::secret(For::Wifi(2), "Join DrifterNet");
+        assert!(sheet.typing());
+        assert_eq!(sheet.enter(), None, "an empty password does nothing");
+        sheet.type_text("drift pass\n");
+        sheet.backspace();
+        sheet.type_text("1");
+        assert_eq!(sheet.enter(), Some(Pick::Command("drift pas1".to_string())));
+        assert_eq!(sheet.purpose(), For::Wifi(2));
+        assert_eq!(sheet.title(), "Join DrifterNet");
+    }
 
     fn apps() -> Vec<App> {
         (0..30)

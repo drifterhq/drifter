@@ -56,6 +56,9 @@ pub struct Settings {
     keyboard: Option<wl_keyboard::WlKeyboard>,
     mods: Modifiers,
     chores: LoopSender<Option<String>>,
+    net_done: LoopSender<(bool, Result<(), String>)>,
+    searching: bool,
+    net_ticks: u32,
     history_seen: Option<std::time::SystemTime>,
     size: (u32, u32),
     exit: bool,
@@ -157,6 +160,23 @@ pub fn run() -> Result<(), String> {
         })
         .map_err(|e| format!("cannot watch the thumbnails: {e}"))?;
     let loads = loaders(done_tx);
+    let (net_done, net_back) = loop_channel::<(bool, Result<(), String>)>();
+    events
+        .handle()
+        .insert_source(net_back, |event, _, settings: &mut Settings| {
+            if let ChannelEvent::Msg((search, result)) = event {
+                if search {
+                    settings.searching = false;
+                }
+                settings.model.net_note = result.err();
+                settings.read_net();
+                let shown = matches!(settings.section, Section::Network | Section::Bluetooth);
+                if shown && settings.sheet.is_none() {
+                    settings.draw();
+                }
+            }
+        })
+        .map_err(|e| format!("cannot watch the network changes: {e}"))?;
     let (chores, chores_done) = loop_channel::<Option<String>>();
     events
         .handle()
@@ -195,6 +215,9 @@ pub fn run() -> Result<(), String> {
         keyboard: None,
         mods: Modifiers::default(),
         chores,
+        net_done,
+        searching: false,
+        net_ticks: 0,
         history_seen: None,
         size: START,
         exit: false,
@@ -681,6 +704,7 @@ impl Settings {
                     self.sheet = Some(Sheet::capture(at, &title, &now));
                 }
                 Some(Ask::Reset) => self.reset_all(),
+                Some(Ask::Net(ask)) => self.net_ask(ask),
                 Some(Ask::Forget) => {
                     if let Err(error) = std::fs::remove_file(history_path())
                         && error.kind() != std::io::ErrorKind::NotFound
@@ -740,6 +764,16 @@ impl Settings {
                     self.draw();
                 }
             }
+            Section::Network | Section::Bluetooth => {
+                self.net_ticks += 1;
+                if self.net_ticks % 3 == 0 {
+                    let (wifi, blue) = (self.model.wifi.clone(), self.model.blue.clone());
+                    self.read_net();
+                    if wifi != self.model.wifi || blue != self.model.blue {
+                        self.draw();
+                    }
+                }
+            }
             Section::Power => {
                 let cells = read_cells();
                 let profile = read_profile();
@@ -794,7 +828,106 @@ impl Settings {
                 (self.model.zone, self.model.ntp) = time.clone();
                 (self.saved.zone, self.saved.ntp) = time;
             }
+            Section::Network => {
+                self.model.net_note = None;
+                self.read_net();
+                let done = self.net_done.clone();
+                let _ = std::thread::Builder::new()
+                    .name("settings-rescan".to_string())
+                    .spawn(move || {
+                        crate::net::rescan();
+                        std::thread::sleep(std::time::Duration::from_secs(3));
+                        let _ = done.send((false, Ok(())));
+                    });
+            }
+            Section::Bluetooth => {
+                self.model.net_note = None;
+                self.read_net();
+            }
             _ => {}
+        }
+    }
+
+    pub fn read_net(&mut self) {
+        let wifi = crate::net::read_wifi();
+        let blue = crate::net::read_blue(self.searching);
+        self.model.wifi = wifi.clone();
+        self.saved.wifi = wifi;
+        self.model.blue = blue.clone();
+        self.saved.blue = blue;
+    }
+
+    fn net_job(&mut self, job: crate::net::Job, note: String) {
+        let search = matches!(job, crate::net::Job::Search);
+        if search {
+            self.searching = true;
+            if let Some(blue) = self.model.blue.as_mut() {
+                blue.searching = true;
+            }
+        }
+        self.model.net_note = Some(note);
+        let done = self.net_done.clone();
+        let spawned = std::thread::Builder::new()
+            .name("settings-net".to_string())
+            .spawn(move || {
+                let _ = done.send((search, crate::net::run(job)));
+            });
+        if let Err(error) = spawned {
+            self.searching = false;
+            self.model.net_note = Some(format!("Cannot start: {error}"));
+        }
+    }
+
+    fn net_ask(&mut self, ask: drifter_core::settings::NetAsk) {
+        use crate::net::Job;
+        use drifter_core::settings::NetAsk;
+
+        let net = |at: usize| self.model.wifi.as_ref().and_then(|wifi| wifi.nets.get(at).cloned());
+        let gadget = |at: usize| self.model.blue.as_ref().and_then(|blue| blue.gadgets.get(at).cloned());
+        match ask {
+            NetAsk::Join(at) => {
+                let Some(net) = net(at) else {
+                    return;
+                };
+                if net.secure && !net.known {
+                    self.sheet = Some(Sheet::secret(For::Wifi(at), &format!("Join {}", net.ssid)));
+                    return;
+                }
+                let note = format!("Joining {}…", net.ssid);
+                self.net_job(
+                    Job::Join {
+                        ssid: net.ssid,
+                        password: None,
+                        known: net.known,
+                    },
+                    note,
+                );
+            }
+            NetAsk::Leave(at) => {
+                if let Some(net) = net(at) {
+                    let note = format!("Leaving {}…", net.ssid);
+                    self.net_job(Job::Leave(net.ssid), note);
+                }
+            }
+            NetAsk::Forget(at) => {
+                if let Some(net) = net(at) {
+                    let note = format!("Forgetting {}…", net.ssid);
+                    self.net_job(Job::Forget(net.ssid), note);
+                }
+            }
+            NetAsk::Search => self.net_job(Job::Search, "Searching for ten seconds…".to_string()),
+            NetAsk::Pair(at) | NetAsk::Connect(at) | NetAsk::Disconnect(at) | NetAsk::Remove(at) => {
+                let Some(gadget) = gadget(at) else {
+                    return;
+                };
+                let (job, verb) = match ask {
+                    NetAsk::Pair(_) => (Job::Pair(gadget.mac), "Pairing with"),
+                    NetAsk::Connect(_) => (Job::Connect(gadget.mac), "Connecting to"),
+                    NetAsk::Disconnect(_) => (Job::Disconnect(gadget.mac), "Disconnecting"),
+                    _ => (Job::Remove(gadget.mac), "Removing"),
+                };
+                self.net_job(job, format!("{verb} {}…", gadget.name));
+            }
         }
     }
 
@@ -865,6 +998,23 @@ impl Settings {
                 };
                 if let Some(id) = id {
                     self.finish_add(purpose, Launch::App(id));
+                }
+            }
+            Pick::Command(text) if matches!(purpose, For::Wifi(_)) => {
+                self.sheet = None;
+                let For::Wifi(at) = purpose else {
+                    return;
+                };
+                if let Some(net) = self.model.wifi.as_ref().and_then(|wifi| wifi.nets.get(at).cloned()) {
+                    let note = format!("Joining {}…", net.ssid);
+                    self.net_job(
+                        crate::net::Job::Join {
+                            ssid: net.ssid,
+                            password: Some(text),
+                            known: false,
+                        },
+                        note,
+                    );
                 }
             }
             Pick::Command(text) if !text.is_empty() => {
@@ -1244,6 +1394,24 @@ impl Settings {
 
     fn apply_live(&mut self) {
         let before = self.saved.clone();
+        let wifi_on = self.model.wifi.as_ref().map(|wifi| wifi.on);
+        if wifi_on.is_some() && wifi_on != before.wifi.as_ref().map(|wifi| wifi.on) {
+            let on = wifi_on.unwrap_or(false);
+            let note = match on {
+                true => "Turning Wi-Fi on…",
+                false => "Turning Wi-Fi off…",
+            };
+            self.net_job(crate::net::Job::WifiPower(on), note.to_string());
+        }
+        let blue_on = self.model.blue.as_ref().map(|blue| blue.on);
+        if blue_on.is_some() && blue_on != before.blue.as_ref().map(|blue| blue.on) {
+            let on = blue_on.unwrap_or(false);
+            let note = match on {
+                true => "Turning Bluetooth on…",
+                false => "Turning Bluetooth off…",
+            };
+            self.net_job(crate::net::Job::BluePower(on), note.to_string());
+        }
         if let Some(now) = self.model.profile.as_ref()
             && before.profile.as_ref().is_some_and(|was| was.now != now.now)
         {

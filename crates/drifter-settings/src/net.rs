@@ -1,0 +1,166 @@
+use std::io::Write;
+use std::process::{Command, Stdio};
+
+use drifter_core::net::{self, Blue, Wifi};
+
+pub enum Job {
+    WifiPower(bool),
+    Join { ssid: String, password: Option<String>, known: bool },
+    Leave(String),
+    Forget(String),
+    BluePower(bool),
+    Search,
+    Pair(String),
+    Connect(String),
+    Disconnect(String),
+    Remove(String),
+}
+
+fn read(program: &str, args: &[&str]) -> Option<String> {
+    Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+pub fn read_wifi() -> Option<Wifi> {
+    let devices = read("nmcli", &["-t", "-f", "TYPE", "device"])?;
+    if !devices.lines().any(|line| line.trim() == "wifi") {
+        return None;
+    }
+    let on = read("nmcli", &["-t", "radio", "wifi"])?.trim() == "enabled";
+    let known = read("nmcli", &["-t", "-f", "NAME,TYPE", "connection", "show"])
+        .map(|text| net::wifi_known(&text))
+        .unwrap_or_default();
+    let nets = match on {
+        true => read(
+            "nmcli",
+            &["-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "device", "wifi", "list", "--rescan", "no"],
+        )
+        .map(|text| net::wifi_nets(&text, &known))
+        .unwrap_or_default(),
+        false => Vec::new(),
+    };
+    Some(Wifi { on, nets })
+}
+
+pub fn rescan() {
+    let _ = Command::new("nmcli")
+        .args(["device", "wifi", "rescan"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
+pub fn read_blue(searching: bool) -> Option<Blue> {
+    let on = net::powered(&read("bluetoothctl", &["show"])?)?;
+    let gadgets = match on {
+        true => net::gadgets(
+            &read("bluetoothctl", &["devices"]).unwrap_or_default(),
+            &read("bluetoothctl", &["devices", "Paired"]).unwrap_or_default(),
+            &read("bluetoothctl", &["devices", "Connected"]).unwrap_or_default(),
+        ),
+        false => Vec::new(),
+    };
+    Some(Blue {
+        on,
+        gadgets,
+        searching,
+    })
+}
+
+fn said(out: &std::process::Output) -> String {
+    let text = String::from_utf8_lossy(&out.stderr).to_string()
+        + &String::from_utf8_lossy(&out.stdout);
+    let line = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .find(|line| line.starts_with("Error") || line.starts_with("Failed"))
+        .or_else(|| text.lines().map(str::trim).rfind(|line| !line.is_empty()))
+        .unwrap_or("it did not work")
+        .to_string();
+    line.trim_start_matches("Error: ").to_string()
+}
+
+fn run_one(program: &str, args: &[&str], typed: Option<&str>) -> Result<String, String> {
+    let mut child = Command::new(program)
+        .args(args)
+        .stdin(match typed {
+            Some(_) => Stdio::piped(),
+            None => Stdio::null(),
+        })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("{program} did not run: {error}"))?;
+    if let (Some(typed), Some(mut stdin)) = (typed, child.stdin.take()) {
+        let _ = writeln!(stdin, "{typed}");
+    }
+    let out = child
+        .wait_with_output()
+        .map_err(|error| format!("{program} did not finish: {error}"))?;
+    let text = String::from_utf8_lossy(&out.stdout).to_string();
+    let failed = text.lines().any(|line| line.trim_start().starts_with("Failed"));
+    match out.status.success() && !failed {
+        true => Ok(text),
+        false => Err(said(&out)),
+    }
+}
+
+pub fn run(job: Job) -> Result<(), String> {
+    let switch = |on: bool| if on { "on" } else { "off" };
+    match job {
+        Job::WifiPower(on) => run_one("nmcli", &["radio", "wifi", switch(on)], None).map(drop),
+        Job::Join {
+            ssid,
+            known: true,
+            password: None,
+        } => run_one("nmcli", &["connection", "up", "id", &ssid], None).map(drop),
+        Job::Join { ssid, password, .. } => match password {
+            Some(password) => run_one(
+                "nmcli",
+                &["--ask", "device", "wifi", "connect", &ssid],
+                Some(&password),
+            )
+            .map(drop),
+            None => run_one("nmcli", &["device", "wifi", "connect", &ssid], None).map(drop),
+        },
+        Job::Leave(ssid) => run_one("nmcli", &["connection", "down", "id", &ssid], None).map(drop),
+        Job::Forget(ssid) => {
+            run_one("nmcli", &["connection", "delete", "id", &ssid], None).map(drop)
+        }
+        Job::BluePower(on) => run_one("bluetoothctl", &["power", switch(on)], None).map(drop),
+        Job::Search => {
+            run_one("bluetoothctl", &["--timeout", "10", "scan", "on"], None).map(drop)
+        }
+        Job::Pair(mac) => {
+            let tried = run_one(
+                "bluetoothctl",
+                &["--agent", "NoInputNoOutput", "--timeout", "20", "pair", &mac],
+                None,
+            );
+            let paired = read("bluetoothctl", &["info", &mac])
+                .is_some_and(|info| info.lines().any(|line| line.trim() == "Paired: yes"));
+            if !paired {
+                return Err(match tried {
+                    Err(error) => error,
+                    Ok(_) => "It did not pair. Put it in pairing mode and try again.".to_string(),
+                });
+            }
+            run_one("bluetoothctl", &["trust", &mac], None)?;
+            let _ = run_one("bluetoothctl", &["--timeout", "10", "connect", &mac], None);
+            Ok(())
+        }
+        Job::Connect(mac) => {
+            run_one("bluetoothctl", &["--timeout", "10", "connect", &mac], None).map(drop)
+        }
+        Job::Disconnect(mac) => run_one("bluetoothctl", &["disconnect", &mac], None).map(drop),
+        Job::Remove(mac) => run_one("bluetoothctl", &["remove", &mac], None).map(drop),
+    }
+}

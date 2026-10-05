@@ -16,6 +16,7 @@ pub mod keyboard;
 pub mod lock;
 pub mod menu;
 pub mod mode;
+pub mod net;
 pub mod motion;
 pub mod night;
 pub mod notify;

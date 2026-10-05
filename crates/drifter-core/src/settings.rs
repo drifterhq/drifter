@@ -35,6 +35,8 @@ pub enum Section {
     Dock,
     TopBar,
     Notifications,
+    Network,
+    Bluetooth,
     Sound,
     Keyboard,
     Mouse,
@@ -50,7 +52,7 @@ pub enum Section {
 }
 
 impl Section {
-    pub const ALL: [Section; 20] = [
+    pub const ALL: [Section; 22] = [
         Section::Desktop,
         Section::Displays,
         Section::Wallpaper,
@@ -59,6 +61,8 @@ impl Section {
         Section::Dock,
         Section::TopBar,
         Section::Notifications,
+        Section::Network,
+        Section::Bluetooth,
         Section::Sound,
         Section::Keyboard,
         Section::Mouse,
@@ -83,6 +87,8 @@ impl Section {
             Section::Dock => "Dock",
             Section::TopBar => "Top Bar",
             Section::Notifications => "Notifications",
+            Section::Network => "Wi-Fi",
+            Section::Bluetooth => "Bluetooth",
             Section::Sound => "Sound",
             Section::Keyboard => "Keyboard",
             Section::Mouse => "Mouse",
@@ -108,6 +114,8 @@ impl Section {
             Section::Dock => "apps pinned trash bottom bar",
             Section::TopBar => "clock tray cpu memory battery disk",
             Section::Notifications => "alerts do not disturb history",
+            Section::Network => "wifi wireless network internet password join",
+            Section::Bluetooth => "bluetooth pair headphones speaker mouse keyboard devices",
             Section::Sound => "audio volume speaker headphones microphone mute",
             Section::Keyboard => "layout typing repeat caps compose",
             Section::Mouse => "pointer speed scroll buttons",
@@ -149,6 +157,8 @@ impl Section {
             Section::Dock => [120, 128, 146],
             Section::TopBar => [240, 140, 50],
             Section::Notifications => [226, 64, 72],
+            Section::Network => [40, 130, 230],
+            Section::Bluetooth => [30, 100, 210],
             Section::Sound => [230, 70, 130],
             Section::Keyboard => [150, 110, 220],
             Section::Mouse => [110, 120, 200],
@@ -167,6 +177,7 @@ impl Section {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ask {
+    Net(NetAsk),
     Pick(For),
     Files(For),
     Choose(For),
@@ -274,6 +285,21 @@ pub struct Model {
     pub shots: crate::config::Shots,
     pub profile: Option<Profiles>,
     pub cells: Vec<(String, String)>,
+    pub wifi: Option<crate::net::Wifi>,
+    pub blue: Option<crate::net::Blue>,
+    pub net_note: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NetAsk {
+    Join(usize),
+    Leave(usize),
+    Forget(usize),
+    Search,
+    Pair(usize),
+    Connect(usize),
+    Disconnect(usize),
+    Remove(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -420,6 +446,9 @@ impl Model {
             shots: config.screenshots.clone(),
             profile: None,
             cells: Vec::new(),
+            wifi: None,
+            blue: None,
+            net_note: None,
             keys: config.keys.clone(),
             variants: crate::keyboard::variants(&config.keyboard.layout),
             recent: Vec::new(),
@@ -1006,6 +1035,8 @@ impl Model {
             Section::Sound => self.sound_groups(),
             Section::Shortcuts => self.shortcut_groups(),
             Section::Access => self.access_groups(),
+            Section::Network => self.wifi_groups(),
+            Section::Bluetooth => self.blue_groups(),
             Section::Power => self.power_groups(),
             Section::Time => self.time_groups(),
             Section::About => self.about_groups(),
@@ -1995,6 +2026,11 @@ pub enum Id {
     Tap,
     ThreeTap,
     Swipe,
+    WifiOn,
+    Net(usize),
+    BlueOn,
+    BlueSearch,
+    Gadget(usize),
     LargeText,
     HighContrast,
     ReduceMotion,
@@ -3240,6 +3276,36 @@ fn paint_glyph(canvas: &mut Canvas, section: Section, icon: Rect) {
                 canvas.circle(o + Vec2::new(x, 11.0), 1.5, dot, 1.0);
             }
         }
+        Section::Network => {
+            for (at, tall) in [(0.0, 4.0), (1.0, 8.0), (2.0, 12.0)] {
+                canvas.round_rect(r(5.0 + at * 4.5, 17.0 - tall, 3.0, tall), 1.0, white, 1.0);
+            }
+        }
+        Section::Bluetooth => {
+            canvas.round_rect(r(10.0, 3.0, 2.0, 16.0), 1.0, white, 1.0);
+            canvas.triangle(
+                [o + Vec2::new(11.0, 3.0), o + Vec2::new(16.0, 7.5), o + Vec2::new(11.0, 11.0)],
+                white,
+                1.0,
+            );
+            canvas.triangle(
+                [o + Vec2::new(11.0, 11.0), o + Vec2::new(16.0, 14.5), o + Vec2::new(11.0, 19.0)],
+                white,
+                1.0,
+            );
+            canvas.triangle(
+                [o + Vec2::new(11.0, 4.5), o + Vec2::new(14.0, 7.5), o + Vec2::new(11.0, 9.5)],
+                section.tint(),
+                1.0,
+            );
+            canvas.triangle(
+                [o + Vec2::new(11.0, 12.5), o + Vec2::new(14.0, 14.5), o + Vec2::new(11.0, 17.5)],
+                section.tint(),
+                1.0,
+            );
+            canvas.round_rect(r(6.0, 6.5, 5.5, 1.6), 0.8, white, 1.0);
+            canvas.round_rect(r(6.0, 14.0, 5.5, 1.6), 0.8, white, 1.0);
+        }
         Section::Access => {
             canvas.circle(o + Vec2::new(11.0, 5.0), 2.0, white, 1.0);
             canvas.round_rect(r(4.0, 8.0, 14.0, 2.0), 1.0, white, 1.0);
@@ -3708,6 +3774,57 @@ mod tests {
         assert_eq!(model.profile.as_ref().unwrap().now, "power-saver");
         model.cells = vec![("Charge".into(), "80%, charging".into())];
         assert!(rows(&model).contains(&Id::Battery));
+    }
+
+    #[test]
+    fn the_network_rows_ask_for_the_right_action() {
+        use crate::net::{Blue, Gadget, Net, Wifi};
+        let mut model = model(&Config::default());
+        assert_eq!(model.press(Id::Net(0), 0), None, "no wifi, nothing to press");
+        let net = |ssid: &str, active: bool, known: bool| Net {
+            ssid: ssid.into(),
+            signal: 80,
+            secure: true,
+            active,
+            known,
+        };
+        model.wifi = Some(Wifi {
+            on: true,
+            nets: vec![net("Home", true, true), net("Work", false, true), net("Cafe", false, false)],
+        });
+        assert_eq!(model.press(Id::Net(0), 0), Some(Ask::Net(NetAsk::Leave(0))));
+        assert_eq!(model.press(Id::Net(1), 0), Some(Ask::Net(NetAsk::Join(1))));
+        assert_eq!(model.press(Id::Net(1), 1), Some(Ask::Net(NetAsk::Forget(1))));
+        assert_eq!(model.press(Id::Net(2), 0), Some(Ask::Net(NetAsk::Join(2))));
+        let rows: Vec<Row> = model.groups(Section::Network).into_iter().flat_map(|g| g.rows).collect();
+        assert_eq!(rows.len(), 4);
+        assert_eq!(rows[1].detail.as_deref(), Some("Connected"));
+        assert_eq!(rows[3].detail.as_deref(), Some("Secured, strong signal"));
+        model.set(Id::WifiOn, Value::Switch(false));
+        assert_eq!(model.groups(Section::Network).into_iter().flat_map(|g| g.rows).count(), 1);
+
+        let gadget = |name: &str, paired: bool, connected: bool| Gadget {
+            mac: "00:11:22:33:44:55".into(),
+            name: name.into(),
+            paired,
+            connected,
+        };
+        model.blue = Some(Blue {
+            on: true,
+            gadgets: vec![gadget("Buds", true, true), gadget("Mouse", true, false), gadget("Pad", false, false)],
+            searching: false,
+        });
+        assert_eq!(model.press(Id::Gadget(0), 0), Some(Ask::Net(NetAsk::Disconnect(0))));
+        assert_eq!(model.press(Id::Gadget(1), 0), Some(Ask::Net(NetAsk::Connect(1))));
+        assert_eq!(model.press(Id::Gadget(1), 1), Some(Ask::Net(NetAsk::Remove(1))));
+        assert_eq!(model.press(Id::Gadget(2), 0), Some(Ask::Net(NetAsk::Pair(2))));
+        assert_eq!(model.press(Id::BlueSearch, 0), Some(Ask::Net(NetAsk::Search)));
+        model.blue.as_mut().unwrap().searching = true;
+        assert_eq!(model.press(Id::BlueSearch, 0), None, "one search at a time");
+        let groups = model.groups(Section::Bluetooth);
+        assert_eq!(groups[1].header, Some("My devices"));
+        assert_eq!(groups[1].rows.len(), 2);
+        assert_eq!(groups[2].rows.len(), 2, "the search row and the unpaired pad");
     }
 
     #[test]
