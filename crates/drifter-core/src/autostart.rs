@@ -87,6 +87,7 @@ pub fn read(
     let (mut name, mut exec, mut icon, mut kind) = (None, None, None, None);
     let (mut try_exec, mut only, mut not) = (None, None, None);
     let mut on = true;
+    let mut systemd = false;
     for line in text.lines() {
         let line = line.trim();
         if line.starts_with('[') {
@@ -110,6 +111,7 @@ pub fn read(
             "NotShowIn" => not = Some(value),
             "Hidden" if value == "true" => on = false,
             "X-GNOME-Autostart-enabled" if value == "false" => on = false,
+            "X-GNOME-HiddenUnderSystemd" if value == "true" => systemd = true,
             _ => {}
         }
     }
@@ -118,7 +120,10 @@ pub fn read(
             .filter(|each| !each.is_empty())
             .any(|each| desktops.iter().any(|desk| desk.eq_ignore_ascii_case(each)))
     };
-    if only.as_deref().is_some_and(|list| !named(list)) || not.as_deref().is_some_and(named) {
+    if only.as_deref().is_some_and(|list| !named(list))
+        || not.as_deref().is_some_and(named)
+        || systemd
+    {
         return None;
     }
     if kind.as_deref().is_some_and(|kind| kind != "Application") {
@@ -360,6 +365,15 @@ mod tests {
             let text = format!("[Desktop Entry]\nName=A\nExec={exec}\n");
             assert_eq!(entry(&text), None, "{exec}");
         }
+    }
+
+    #[test]
+    fn entries_that_systemd_starts_are_left_out() {
+        let text =
+            "[Desktop Entry]\nName=P\nExec=start-pulseaudio-x11\nX-GNOME-HiddenUnderSystemd=true\n";
+        assert_eq!(entry(text), None);
+        let plain = "[Desktop Entry]\nName=P\nExec=p\nX-GNOME-HiddenUnderSystemd=false\n";
+        assert!(entry(plain).is_some());
     }
 
     #[test]
