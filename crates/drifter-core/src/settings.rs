@@ -184,6 +184,8 @@ pub struct Model {
     pub lock_after: u64,
     pub screen_off: u64,
     pub login: Vec<Launch>,
+    pub autostart: bool,
+    pub autostarts: Vec<crate::autostart::Entry>,
     pub dock: Vec<Launch>,
     pub shows: [bool; 5],
     pub defaults: [Option<Launch>; 3],
@@ -306,6 +308,8 @@ impl Model {
             lock_after: config.lock.after,
             screen_off: config.lock.screen_off,
             login: config.login.start.clone(),
+            autostart: config.login.autostart,
+            autostarts: Vec::new(),
             dock: config.dock.pinned.clone(),
             shows: [
                 config.dock.files,
@@ -862,12 +866,38 @@ impl Model {
                     )
                     .faint(),
                 );
-                vec![Group {
-                    header: Some("Start when Drifter starts"),
-                    rows,
-                    footer: Some("They start in this order, and again after a crash.".into()),
-                    thumbs: None,
-                }]
+                let mut found = vec![
+                    Row::new(
+                        Id::Autostart,
+                        "Start autostart apps",
+                        Control::Switch(self.autostart),
+                    )
+                    .detail("Apps that ask to start with every desktop"),
+                ];
+                for (at, entry) in self.autostarts.iter().enumerate() {
+                    let mut row = Row::new(Id::AutoEntry(at), &entry.name, Control::Switch(entry.on))
+                        .detail(&entry.exec)
+                        .enabled(self.autostart);
+                    row.icon = Some(format!("icon:{}", entry.icon.as_deref().unwrap_or(&entry.id)));
+                    found.push(row);
+                }
+                vec![
+                    Group {
+                        header: Some("Start when Drifter starts"),
+                        rows,
+                        footer: Some("They start in this order, and again after a crash.".into()),
+                        thumbs: None,
+                    },
+                    Group {
+                        header: Some("Autostart"),
+                        rows: found,
+                        footer: Some(match self.autostarts.is_empty() {
+                            true => "No app asks to start. Apps put a file in /etc/xdg/autostart to ask.".into(),
+                            false => "From ~/.config/autostart and /etc/xdg/autostart. A login item above wins over the same app here.".into(),
+                        }),
+                        thumbs: None,
+                    },
+                ]
             }
         }
     }
@@ -1220,6 +1250,12 @@ impl Model {
             (Id::Cpu, Value::Switch(on)) => self.cpu = on,
             (Id::Ram, Value::Switch(on)) => self.ram = on,
             (Id::Battery, Value::Switch(on)) => self.battery = on,
+            (Id::Autostart, Value::Switch(on)) => self.autostart = on,
+            (Id::AutoEntry(at), Value::Switch(on)) => {
+                if let Some(entry) = self.autostarts.get_mut(at) {
+                    entry.on = on;
+                }
+            }
             (Id::Disk(index), Value::Switch(on)) => {
                 if let Some(disk) = self.disks.get_mut(index) {
                     disk.on = on;
@@ -1476,6 +1512,14 @@ impl Model {
         if self.login != before.login {
             put(&mut doc, "login", "start", launches(&self.login));
         }
+        if self.autostart != before.autostart {
+            put(
+                &mut doc,
+                "login",
+                "autostart",
+                toml_edit::Value::from(self.autostart),
+            );
+        }
         if self.dock != before.dock {
             put(&mut doc, "dock", "pinned", launches(&self.dock));
         }
@@ -1637,6 +1681,8 @@ pub enum Id {
     Rotation,
     Login(usize),
     LoginAdd,
+    Autostart,
+    AutoEntry(usize),
     Dock(usize),
     DockAdd,
     DockShow(usize),
@@ -3174,6 +3220,31 @@ mod tests {
             ]
         );
         back.validate().unwrap();
+    }
+
+    #[test]
+    fn autostart_switches_flip_entries_and_write_the_login_table() {
+        let mut before = model(&Config::default());
+        before.autostarts = vec![crate::autostart::Entry {
+            id: "nm-applet".into(),
+            name: "Network".into(),
+            exec: "nm-applet".into(),
+            icon: Some("nm-device-wireless".into()),
+            on: true,
+        }];
+        let rows = &before.groups(Section::Login)[1].rows;
+        assert_eq!(rows[0].control, Control::Switch(true));
+        assert_eq!(rows[1].icon.as_deref(), Some("icon:nm-device-wireless"));
+
+        let mut after = before.clone();
+        after.set(Id::AutoEntry(0), Value::Switch(false));
+        assert!(!after.autostarts[0].on);
+        assert_eq!(after.write(&before, "").unwrap(), "");
+
+        after.set(Id::Autostart, Value::Switch(false));
+        assert!(!after.groups(Section::Login)[1].rows[1].enabled);
+        let back = Config::parse(&after.write(&before, "").unwrap()).unwrap();
+        assert!(!back.login.autostart);
     }
 
     #[test]

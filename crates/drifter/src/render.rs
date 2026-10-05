@@ -387,6 +387,7 @@ pub struct State {
     screen_off: u64,
     dark: bool,
     login: Vec<drifter_core::Launch>,
+    autostart: bool,
     paper: Paper,
     paper_tx: smithay::reexports::calloop::channel::Sender<(
         PathBuf,
@@ -1146,6 +1147,15 @@ impl Screen {
 
         for item in state.login.clone() {
             crate::apps::run(&item, &state.socket);
+        }
+        if state.autostart {
+            let found = drifter_core::autostart::installed();
+            for entry in drifter_core::autostart::to_start(&found, &state.login) {
+                match entry.argv() {
+                    Some(argv) => crate::apps::launch(&argv, &state.socket),
+                    None => eprintln!("drifter: cannot read the autostart line {:?}", entry.exec),
+                }
+            }
         }
         if let (Some(error), Some(id)) = (
             crate::CONFIG_ERROR.get(),

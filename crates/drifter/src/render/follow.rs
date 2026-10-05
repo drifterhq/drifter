@@ -267,6 +267,7 @@ impl State {
         self.lock_after = config.lock.after;
         self.screen_off = config.lock.screen_off;
         self.login = config.login.start.clone();
+        self.autostart = config.login.autostart;
         let paper = Paper::from(config);
         if paper.set != self.paper.set {
             match paper.set.clone() {

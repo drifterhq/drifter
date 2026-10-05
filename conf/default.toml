@@ -200,6 +200,12 @@ screen_off = 10
 # Started each time Drifter starts, in this order. Same forms as the dock.
 start = []
 
+# Also start the apps that ask to start with every desktop, from
+# ~/.config/autostart and /etc/xdg/autostart. The network and Bluetooth
+# icons come from here, when nm-applet and blueman are installed.
+# Settings > Login Items turns each one on or off.
+autostart = true
+
 [tray]
 # strftime. %a weekday, %b month, %d day, %I hour on 12, %H hour on 24,
 # %M minute, %S second, %p AM or PM.

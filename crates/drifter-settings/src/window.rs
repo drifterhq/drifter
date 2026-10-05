@@ -100,6 +100,7 @@ pub fn run() -> Result<(), String> {
     drifter_core::icon::set_theme(config.appearance.icons.clone());
     let mut model = read_model(&config);
     model.sound = read_sound();
+    model.autostarts = drifter_core::autostart::installed();
     (model.zone, model.ntp) = read_time();
     model.about = system::about(std::env::var("DRIFTER_RENDERER").ok().as_deref(), &path);
     read_recent(&mut model);
@@ -438,7 +439,10 @@ impl Settings {
         } else if let Some(file) = key.strip_prefix("file:") {
             PathBuf::from(file)
         } else {
-            icon_file(key.strip_prefix("cmd:")?)?
+            let name = key
+                .strip_prefix("cmd:")
+                .or_else(|| key.strip_prefix("icon:"))?;
+            icon_file(name)?
         };
         icon_image(&path)
     }
@@ -461,6 +465,12 @@ impl Settings {
             .chain(&self.model.dock)
             .chain(&chosen)
             .map(Model::icon_key)
+            .chain(
+                self.model
+                    .groups(Section::Login)
+                    .into_iter()
+                    .flat_map(|group| group.rows.into_iter().filter_map(|row| row.icon)),
+            )
             .collect();
         for key in keys {
             self.want_icon(key);
@@ -994,6 +1004,25 @@ impl Settings {
         }
         if fresh {
             self.model.sound = read_sound();
+        }
+
+        if self.model.autostarts != before.autostarts {
+            let (user, system) = (
+                drifter_core::autostart::user_dir(),
+                drifter_core::autostart::system_dirs(),
+            );
+            for (now, was) in self.model.autostarts.iter().zip(&before.autostarts) {
+                if now.on != was.on
+                    && let Err(error) =
+                        drifter_core::autostart::set_on(&user, &system, &now.id, now.on)
+                {
+                    eprintln!(
+                        "drifter-settings: cannot change autostart {}: {error}",
+                        now.id
+                    );
+                }
+            }
+            self.model.autostarts = drifter_core::autostart::installed();
         }
 
         let mut asks: Vec<Vec<String>> = Vec::new();

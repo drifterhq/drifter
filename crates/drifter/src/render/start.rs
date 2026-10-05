@@ -427,6 +427,7 @@ pub fn open(
         screen_off: config.lock.screen_off,
         dark: false,
         login: config.login.start.clone(),
+        autostart: config.login.autostart,
         paper: Paper::from(config),
         paper_tx,
         shot_tx,

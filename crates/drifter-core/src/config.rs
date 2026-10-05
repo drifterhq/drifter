@@ -213,11 +213,22 @@ impl AppsConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LoginConfig {
     #[serde(default)]
     pub start: Vec<Launch>,
+    #[serde(default = "yes")]
+    pub autostart: bool,
+}
+
+impl Default for LoginConfig {
+    fn default() -> Self {
+        LoginConfig {
+            start: Vec::new(),
+            autostart: true,
+        }
+    }
 }
 
 fn default_screens() -> u32 {
@@ -1464,6 +1475,23 @@ mod tests {
         assert_eq!(item.name(), "foot");
         assert_eq!(config.login.start.len(), 2);
         config.validate().unwrap();
+    }
+
+    #[test]
+    fn autostart_is_on_unless_the_config_turns_it_off() {
+        assert!(Config::default().login.autostart);
+        assert!(
+            Config::parse("[login]\nstart = []\n")
+                .unwrap()
+                .login
+                .autostart
+        );
+        assert!(
+            !Config::parse("[login]\nautostart = false\n")
+                .unwrap()
+                .login
+                .autostart
+        );
     }
 
     #[test]
