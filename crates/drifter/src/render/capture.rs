@@ -167,6 +167,25 @@ impl State {
             .map_err(|_| "a screen copy was interrupted".to_string())
     }
 
+    pub(super) fn copy_into(
+        &mut self,
+        dmabuf: &mut smithay::backend::allocator::dmabuf::Dmabuf,
+        elements: &[Shown],
+        cursor: bool,
+    ) -> Result<(), String> {
+        use smithay::backend::allocator::Buffer;
+
+        let refused = match self.draw_into(dmabuf, elements, cursor) {
+            Ok(()) => return Ok(()),
+            Err(error) => error,
+        };
+        if !crate::screencopy::by_hand(dmabuf.format().modifier) {
+            return Err(refused);
+        }
+        let bytes = self.capture(elements, cursor)?;
+        crate::screencopy::write_dmabuf(dmabuf, self.physical(), &bytes)
+    }
+
     pub(super) fn serve_copies(&mut self, elements: &[Shown], changed: bool) {
         if self.copies.is_empty() {
             return;
@@ -189,7 +208,7 @@ impl State {
         for copy in ready {
             if let Ok(dmabuf) = smithay::wayland::dmabuf::get_dmabuf(&copy.buffer) {
                 let mut dmabuf = dmabuf.clone();
-                match self.draw_into(&mut dmabuf, elements, copy.cursor) {
+                match self.copy_into(&mut dmabuf, elements, copy.cursor) {
                     Ok(()) => crate::screencopy::done(&copy),
                     Err(error) => {
                         eprintln!("drifter: {error}");

@@ -1156,3 +1156,106 @@ fn a_smaller_world_pulls_windows_back_inside() {
     stop.store(true, Ordering::Relaxed);
     let _ = client.join();
 }
+
+fn shared_dmabuf(
+    width: u32,
+    height: u32,
+    modifier: smithay::backend::allocator::Modifier,
+) -> (smithay::backend::allocator::dmabuf::Dmabuf, std::fs::File) {
+    use smithay::backend::allocator::Fourcc;
+    use smithay::backend::allocator::dmabuf::{Dmabuf, DmabufFlags};
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+
+    #[repr(C)]
+    struct UdmabufCreate {
+        memfd: u32,
+        flags: u32,
+        offset: u64,
+        size: u64,
+    }
+    const UDMABUF_CREATE: libc::c_ulong = 0x4018_7542;
+
+    let size = (width * height * 4) as usize;
+    let page = 4096;
+    let size = size.div_ceil(page) * page;
+    let memfd = unsafe { libc::memfd_create(c"drifter-copy".as_ptr(), libc::MFD_ALLOW_SEALING) };
+    assert!(memfd >= 0, "memfd_create works");
+    let memory = unsafe { std::fs::File::from_raw_fd(memfd) };
+    memory.set_len(size as u64).unwrap();
+    unsafe { libc::fcntl(memfd, libc::F_ADD_SEALS, libc::F_SEAL_SHRINK) };
+    let device = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/udmabuf")
+        .expect("/dev/udmabuf opens; the test needs it to make a dmabuf");
+    let mut create = UdmabufCreate {
+        memfd: memfd as u32,
+        flags: 1,
+        offset: 0,
+        size: size as u64,
+    };
+    let fd = unsafe { libc::ioctl(device.as_raw_fd(), UDMABUF_CREATE, &mut create) };
+    assert!(fd >= 0, "udmabuf makes a dmabuf");
+    let mut builder = Dmabuf::builder(
+        (width as i32, height as i32),
+        Fourcc::Xrgb8888,
+        modifier,
+        DmabufFlags::empty(),
+    );
+    builder.add_plane(unsafe { OwnedFd::from_raw_fd(fd) }, 0, 0, width * 4);
+    (builder.build().expect("a dmabuf"), memory)
+}
+
+#[test]
+fn pixman_copies_the_screen_into_a_dmabuf_it_cannot_bind() {
+    use std::io::Read;
+
+    let mut run = start("dmabuf", &Config::default(), None);
+    let (stop, client) = red_window(&mut run);
+    let expected = run.shot("dmabuf-expected");
+    let state = &mut run.screen.state;
+    let shown: Vec<Shown> = state
+        .elements()
+        .into_iter()
+        .map(|piece| RescaleRenderElement::from_element(piece, (0, 0).into(), 1.0))
+        .collect();
+
+    let (mut dmabuf, mut memory) = shared_dmabuf(
+        SIZE.0,
+        SIZE.1,
+        smithay::backend::allocator::Modifier::Invalid,
+    );
+    assert!(
+        state.draw_into(&mut dmabuf, &shown, false).is_err(),
+        "pixman refuses a dmabuf with an implicit modifier"
+    );
+    state
+        .copy_into(&mut dmabuf, &shown, false)
+        .expect("the copy falls back to writing the dmabuf by hand");
+    let mut bytes = Vec::new();
+    memory.read_to_end(&mut bytes).unwrap();
+    let mut wrong = 0;
+    for y in (0..SIZE.1).step_by(7) {
+        for x in (0..SIZE.0).step_by(7) {
+            let at = ((y * SIZE.0 + x) * 4) as usize;
+            let got = [bytes[at + 2], bytes[at + 1], bytes[at], 255];
+            if !alike(got, pixel(&expected, x, y)) {
+                wrong += 1;
+            }
+        }
+    }
+    assert_eq!(wrong, 0, "the dmabuf holds the screen");
+    assert!(red_box(&expected).is_some(), "the screen shows the red window");
+
+    let (mut tiled, _memory) = shared_dmabuf(
+        SIZE.0,
+        SIZE.1,
+        smithay::backend::allocator::Modifier::I915_x_tiled,
+    );
+    assert!(
+        state.copy_into(&mut tiled, &shown, false).is_err(),
+        "a tiled dmabuf is refused, not filled with a scrambled picture"
+    );
+    stop.store(true, Ordering::Relaxed);
+    let _ = client.join();
+}

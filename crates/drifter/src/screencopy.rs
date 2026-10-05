@@ -1,4 +1,6 @@
 use drifter_core::{Rect, Vec2};
+use smithay::backend::allocator::dmabuf::{Dmabuf, DmabufMappingMode, DmabufSyncFlags};
+use smithay::backend::allocator::{Buffer, Fourcc as DrmFourcc, Modifier as DrmModifier};
 use smithay::reexports::wayland_protocols_wlr::screencopy::v1::server::zwlr_screencopy_frame_v1::{
     self, ZwlrScreencopyFrameV1,
 };
@@ -104,7 +106,7 @@ impl Dispatch<ZwlrScreencopyManagerV1, ()> for State {
             let whole = region == screen;
             if whole {
                 frame.linux_dmabuf(
-                    smithay::reexports::drm::buffer::DrmFourcc::Xrgb8888 as u32,
+                    DrmFourcc::Xrgb8888 as u32,
                     width,
                     height,
                 );
@@ -165,23 +167,63 @@ pub fn fill(copy: &Copy, screen: Vec2, rgba: &[u8]) -> Result<(), String> {
             return Err("the client's buffer does not match the frame".to_string());
         }
         let out = unsafe { std::slice::from_raw_parts_mut(ptr.add(offset), stride * height) };
-        let left = region.origin.x as usize;
-        let top = region.origin.y as usize;
-        for row in 0..height {
-            let from = ((top + row) * full_w + left) * 4;
-            let to = row * stride;
-            for x in 0..width {
-                let pixel = &rgba[from + x * 4..from + x * 4 + 4];
-                let at = to + x * 4;
-                out[at] = pixel[2];
-                out[at + 1] = pixel[1];
-                out[at + 2] = pixel[0];
-                out[at + 3] = 255;
-            }
-        }
+        write_rows(out, stride, region, full_w, rgba);
         Ok(())
     })
     .map_err(|error| format!("the client's buffer cannot be written: {error:?}"))?
+}
+
+pub fn write_rows(out: &mut [u8], stride: usize, region: Rect, full_w: usize, rgba: &[u8]) {
+    let (width, height) = (region.size.x as usize, region.size.y as usize);
+    let left = region.origin.x as usize;
+    let top = region.origin.y as usize;
+    for row in 0..height {
+        let from = ((top + row) * full_w + left) * 4;
+        let to = row * stride;
+        for x in 0..width {
+            let pixel = &rgba[from + x * 4..from + x * 4 + 4];
+            let at = to + x * 4;
+            out[at] = pixel[2];
+            out[at + 1] = pixel[1];
+            out[at + 2] = pixel[0];
+            out[at + 3] = 255;
+        }
+    }
+}
+
+pub fn by_hand(modifier: DrmModifier) -> bool {
+    matches!(modifier, DrmModifier::Linear | DrmModifier::Invalid)
+}
+
+pub fn write_dmabuf(dmabuf: &Dmabuf, screen: Vec2, rgba: &[u8]) -> Result<(), String> {
+    let format = dmabuf.format();
+    if !by_hand(format.modifier) {
+        return Err(format!(
+            "a screen copy buffer is tiled ({:?}) and pixman cannot draw into it",
+            format.modifier
+        ));
+    }
+    if !matches!(format.code, DrmFourcc::Xrgb8888 | DrmFourcc::Argb8888) || dmabuf.num_planes() != 1 {
+        return Err(format!("a screen copy buffer has the format {:?}", format.code));
+    }
+    let size = dmabuf.size();
+    let (width, height) = (size.w as usize, size.h as usize);
+    if (width as f64, height as f64) != (screen.x, screen.y) {
+        return Err("a screen copy buffer is not the size of the screen".to_string());
+    }
+    let stride = dmabuf.strides().next().unwrap_or(0) as usize;
+    let mapping = dmabuf
+        .map_plane(0, DmabufMappingMode::WRITE)
+        .map_err(|error| format!("cannot map a screen copy buffer: {error}"))?;
+    if stride < width * 4 || mapping.length() < stride * height {
+        return Err("a screen copy buffer is smaller than the screen".to_string());
+    }
+    let _ = dmabuf.sync_plane(0, DmabufSyncFlags::START | DmabufSyncFlags::WRITE);
+    let out = unsafe { std::slice::from_raw_parts_mut(mapping.ptr().cast::<u8>(), stride * height) };
+    let whole = Rect::new(Vec2::ZERO, screen);
+    write_rows(out, stride, whole, width, rgba);
+    let _ = dmabuf.sync_plane(0, DmabufSyncFlags::END | DmabufSyncFlags::WRITE);
+    Ok(())
 }
 
 pub fn done(copy: &Copy) {
