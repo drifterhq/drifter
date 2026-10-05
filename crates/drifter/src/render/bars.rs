@@ -298,9 +298,9 @@ impl State {
         }
 
         if let Some(band) = self.tray_band()
-            && let Some(slot) = self.tray.icon_at(band, self.pointer, self.tray_room(band))
+            && let Some(slot) = self.tray_icon_at(band)
         {
-            let rect = self.tray.icon_rect(band, slot);
+            let rect = self.tray_icon_rect(band, slot);
             let text = self.icons[slot].1.clone();
             self.show_tip(&text, rect, true);
             return;
@@ -328,7 +328,7 @@ impl State {
 
     pub(super) fn open_context(&mut self) -> bool {
         if let Some(band) = self.tray_band()
-            && let Some(slot) = self.tray.icon_at(band, self.pointer, self.tray_room(band))
+            && let Some(slot) = self.tray_icon_at(band)
         {
             let service = self.icons[slot].0.clone();
             if let Some(bus) = self.tray_bus.as_ref() {
@@ -402,7 +402,7 @@ impl State {
             }
             return true;
         }
-        let Some(slot) = self.tray.icon_at(band, self.pointer, self.tray_room(band)) else {
+        let Some(slot) = self.tray_icon_at(band) else {
             return false;
         };
         let click = match code {
@@ -714,18 +714,30 @@ impl State {
                 .is_some_and(|open| open.rect.contains(self.pointer))
     }
 
-    pub(super) fn tray_room(&self, band: Rect) -> usize {
-        self.tray_layout(band).0
+    pub(super) fn tray_layout(&self, band: Rect) -> (usize, bool) {
+        let stats = self.stats.as_ref().map(|(_, size)| size.x);
+        self.tray
+            .layout(band, self.tray_right(band), self.icons.len(), stats)
     }
 
-    pub(super) fn tray_layout(&self, band: Rect) -> (usize, bool) {
-        let stop = match (self.sun_rect(), self.speaker_rect(), self.clock.as_ref()) {
+    fn tray_right(&self, band: Rect) -> f64 {
+        match (self.sun_rect(), self.speaker_rect(), self.clock.as_ref()) {
             (Some(rect), _, _) | (None, Some(rect), _) => rect.origin.x,
             (None, None, Some((_, _, rect))) => rect.origin.x,
             (None, None, None) => self.tray.power_rect(band).origin.x,
-        };
-        let stats = self.stats.as_ref().map(|(_, size)| size.x);
-        self.tray.layout(band, stop, self.icons.len(), stats)
+        }
+    }
+
+    pub(super) fn tray_icon_rect(&self, band: Rect, slot: usize) -> Rect {
+        let shown = self.tray_layout(band).0;
+        self.tray
+            .icon_rect(band, self.tray_right(band), shown, slot)
+    }
+
+    pub(super) fn tray_icon_at(&self, band: Rect) -> Option<usize> {
+        let shown = self.tray_layout(band).0;
+        self.tray
+            .icon_at(band, self.tray_right(band), self.pointer, shown)
     }
 
     pub(super) fn over_drawer(&self) -> bool {

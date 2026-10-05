@@ -47,11 +47,9 @@ impl State {
             return;
         }
         let size = self.tunables.hot_corner_size;
-        let on_tray = self.tray_band().is_some_and(|band| {
-            self.tray
-                .icon_at(band, self.pointer, self.tray_room(band))
-                .is_some()
-        });
+        let on_tray = self
+            .tray_band()
+            .is_some_and(|band| self.tray_icon_at(band).is_some());
         let in_corner =
             self.pointer.x < size && self.pointer.y < size && !on_tray && self.popover.is_none();
 

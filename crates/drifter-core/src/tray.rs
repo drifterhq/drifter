@@ -62,46 +62,39 @@ impl Tray {
         self.power_rect(band).contains(pointer)
     }
 
-    pub fn icon_rect(&self, band: Rect, slot: usize) -> Rect {
+    pub fn icon_rect(&self, band: Rect, right: f64, shown: usize, slot: usize) -> Rect {
         let step = self.icon + self.gap;
-        let x = band.origin.x + self.margin + step * slot as f64;
+        let from_right = shown.saturating_sub(slot + 1) as f64;
+        let x = right - self.button_gap - self.icon - step * from_right;
         let size = Vec2::splat(self.icon);
         Rect::new(Vec2::new(x, self.centered(band, size.y)), size)
     }
 
-    pub fn room(&self, band: Rect, before: f64) -> usize {
-        (0..)
-            .take_while(|slot| self.icon_rect(band, *slot).max().x + self.gap <= before)
-            .count()
+    pub fn room(&self, left: f64, right: f64) -> usize {
+        let step = self.icon + self.gap;
+        let space = right - self.button_gap - left + self.gap;
+        (space / step).floor().max(0.0) as usize
     }
 
-    pub fn stats_rect(&self, band: Rect, icons: usize, text: Vec2) -> Rect {
-        let x = match icons {
-            0 => band.origin.x + self.margin,
-            shown => self.icon_rect(band, shown - 1).max().x + self.gap,
-        };
+    pub fn stats_rect(&self, band: Rect, text: Vec2) -> Rect {
+        let x = band.origin.x + self.margin;
         Rect::new(Vec2::new(x, self.centered(band, text.y)), text)
     }
 
-    pub fn layout(
-        &self,
-        band: Rect,
-        before: f64,
-        icons: usize,
-        stats: Option<f64>,
-    ) -> (usize, bool) {
+    pub fn layout(&self, band: Rect, right: f64, icons: usize, stats: Option<f64>) -> (usize, bool) {
+        let left = band.origin.x + self.margin;
+        let alone = icons.min(self.room(left, right));
         if let Some(width) = stats {
-            let shown = icons.min(self.room(band, before - width - self.gap));
-            let rect = self.stats_rect(band, shown, Vec2::new(width, 0.0));
-            if rect.max().x + self.gap <= before {
+            let shown = icons.min(self.room(left + width + self.gap, right));
+            if shown == alone {
                 return (shown, true);
             }
         }
-        (icons.min(self.room(band, before)), false)
+        (alone, false)
     }
 
-    pub fn icon_at(&self, band: Rect, pointer: Vec2, count: usize) -> Option<usize> {
-        (0..count).find(|slot| self.icon_rect(band, *slot).contains(pointer))
+    pub fn icon_at(&self, band: Rect, right: f64, pointer: Vec2, shown: usize) -> Option<usize> {
+        (0..shown).find(|slot| self.icon_rect(band, right, shown, *slot).contains(pointer))
     }
 
     fn centered(&self, band: Rect, height: f64) -> f64 {
@@ -172,19 +165,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn icons_stop_short_of_the_clock() {
-        let tray = Tray::default();
-        let band = Rect::new(Vec2::ZERO, Vec2::new(400.0, 36.0));
-        let clock = tray.clock_rect(band, Vec2::new(200.0, 14.0));
-        let room = tray.room(band, clock.origin.x);
-        assert!(room > 0);
-        let last = tray.icon_rect(band, room - 1);
-        assert!(last.max().x + tray.gap <= clock.origin.x);
-        let next = tray.icon_rect(band, room);
-        assert!(next.max().x + tray.gap > clock.origin.x);
-    }
-
-    #[test]
     fn the_speaker_sits_left_of_the_clock_or_the_power_button() {
         let tray = Tray::default();
         let band = band();
@@ -200,18 +180,29 @@ mod tests {
     }
 
     #[test]
-    fn the_stats_sit_at_the_margin_with_no_icons() {
+    fn the_stats_sit_at_the_left_margin() {
         let tray = Tray::default();
-        let rect = tray.stats_rect(band(), 0, Vec2::new(200.0, 14.0));
+        let rect = tray.stats_rect(band(), Vec2::new(200.0, 14.0));
         assert_eq!(rect.origin.x, tray.margin);
         assert_eq!(rect.center().y, band().center().y);
     }
 
     #[test]
-    fn the_stats_sit_one_gap_right_of_the_last_icon() {
+    fn the_last_icon_ends_one_button_gap_left_of_the_right_edge() {
         let tray = Tray::default();
-        let rect = tray.stats_rect(band(), 3, Vec2::new(200.0, 14.0));
-        assert_eq!(rect.origin.x, tray.icon_rect(band(), 2).max().x + tray.gap);
+        let right = 1500.0;
+        let last = tray.icon_rect(band(), right, 3, 2);
+        assert_eq!(last.max().x + tray.button_gap, right);
+        assert_eq!(last.size, Vec2::splat(tray.icon));
+        assert_eq!(last.center().y, band().center().y);
+    }
+
+    #[test]
+    fn the_icons_run_left_to_right_with_an_even_gap() {
+        let tray = Tray::default();
+        let at = |slot| tray.icon_rect(band(), 1500.0, 3, slot);
+        assert_eq!(at(1).origin.x - at(0).max().x, tray.gap);
+        assert_eq!(at(2).origin.x - at(1).max().x, tray.gap);
     }
 
     #[test]
@@ -222,31 +213,39 @@ mod tests {
     }
 
     #[test]
-    fn icons_give_up_room_to_the_stats() {
+    fn the_stats_give_way_to_the_icons() {
         let tray = Tray::default();
-        let before = 400.0;
-        let alone = tray.layout(band(), before, 50, None).0;
-        let (shown, stats) = tray.layout(band(), before, 50, Some(200.0));
-        assert!(stats);
-        assert!(shown < alone);
-        let rect = tray.stats_rect(band(), shown, Vec2::new(200.0, 14.0));
-        assert!(rect.max().x + tray.gap <= before);
+        let right = 400.0;
+        let alone = tray.layout(band(), right, 50, None).0;
+        assert_eq!(tray.layout(band(), right, 50, Some(200.0)), (alone, false));
+        let few = tray.layout(band(), right, 2, Some(200.0));
+        assert_eq!(few, (2, true));
+        let stats = tray.stats_rect(band(), Vec2::new(200.0, 14.0));
+        assert!(stats.max().x + tray.gap <= tray.icon_rect(band(), right, 2, 0).origin.x);
     }
 
     #[test]
-    fn the_stats_hide_before_they_reach_the_clock() {
+    fn icons_never_cross_the_left_margin() {
         let tray = Tray::default();
-        let (shown, stats) = tray.layout(band(), 150.0, 2, Some(200.0));
-        assert!(!stats);
-        assert_eq!(shown, tray.room(band(), 150.0).min(2));
+        let right = 300.0;
+        let (shown, _) = tray.layout(band(), right, 50, None);
+        assert!(shown > 0);
+        assert!(tray.icon_rect(band(), right, shown, 0).origin.x >= tray.margin);
+        assert!(tray.icon_rect(band(), right, shown + 1, 0).origin.x < tray.margin);
+        assert_eq!(tray.room(tray.margin, 10.0), 0);
     }
 
     #[test]
-    fn no_room_means_no_icons() {
+    fn a_click_finds_the_icon_under_it_and_nothing_in_a_gap() {
         let tray = Tray::default();
-        let band = Rect::new(Vec2::ZERO, Vec2::new(400.0, 36.0));
-        assert_eq!(tray.room(band, 10.0), 0);
+        let second = tray.icon_rect(band(), 1500.0, 3, 1);
+        assert_eq!(tray.icon_at(band(), 1500.0, second.center(), 3), Some(1));
+        let gap = Vec2::new(second.max().x + 2.0, band().center().y);
+        assert_eq!(tray.icon_at(band(), 1500.0, gap, 3), None);
+        let left = Vec2::new(second.origin.x - 200.0, band().center().y);
+        assert_eq!(tray.icon_at(band(), 1500.0, left, 3), None);
     }
+
     use chrono::{FixedOffset, TimeZone};
 
     fn at(hour: u32, minute: u32, second: u32) -> DateTime<FixedOffset> {
@@ -303,59 +302,6 @@ mod tests {
     #[test]
     fn plain_text_in_the_format_is_kept() {
         assert_eq!(stamp(&at(9, 0, 0), "it is %I%p").unwrap(), "it is 09AM");
-    }
-
-    #[test]
-    fn the_icons_start_at_the_left_edge() {
-        let tray = Tray::default();
-        let first = tray.icon_rect(band(), 0);
-        assert_eq!(first.origin.x, tray.margin);
-        assert_eq!(first.size, Vec2::splat(tray.icon));
-    }
-
-    #[test]
-    fn the_icons_grow_to_the_right_with_an_even_gap() {
-        let tray = Tray::default();
-        let first = tray.icon_rect(band(), 0);
-        let second = tray.icon_rect(band(), 1);
-        let third = tray.icon_rect(band(), 2);
-        assert_eq!(second.origin.x - first.max().x, tray.gap);
-        assert_eq!(third.origin.x - second.max().x, tray.gap);
-    }
-
-    #[test]
-    fn the_icons_are_centered_in_the_band_like_the_clock() {
-        let tray = Tray::default();
-        let icon = tray.icon_rect(band(), 3);
-        assert_eq!(icon.center().y, band().center().y);
-    }
-
-    #[test]
-    fn a_click_finds_the_icon_under_it() {
-        let tray = Tray::default();
-        let second = tray.icon_rect(band(), 1);
-        assert_eq!(tray.icon_at(band(), second.center(), 3), Some(1));
-    }
-
-    #[test]
-    fn a_click_in_the_gap_hits_nothing() {
-        let tray = Tray::default();
-        let gap = Vec2::new(tray.icon_rect(band(), 0).max().x + 2.0, band().center().y);
-        assert_eq!(tray.icon_at(band(), gap, 3), None);
-    }
-
-    #[test]
-    fn a_click_past_the_last_icon_hits_nothing() {
-        let tray = Tray::default();
-        let beyond = tray.icon_rect(band(), 5).center();
-        assert_eq!(tray.icon_at(band(), beyond, 3), None);
-    }
-
-    #[test]
-    fn the_icons_never_reach_the_clock() {
-        let tray = Tray::default();
-        let clock = tray.clock_rect(band(), Vec2::new(240.0, 20.0));
-        assert!(tray.icon_rect(band(), 0).max().x < clock.origin.x);
     }
 
     #[test]

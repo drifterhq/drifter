@@ -681,14 +681,14 @@ impl State {
             if let (true, Some((buffer, size))) = (stats, self.stats.as_ref()) {
                 elements.push(Skin::Texture(element(
                     buffer,
-                    self.tray.stats_rect(band, room, *size),
+                    self.tray.stats_rect(band, *size),
                     1.0,
                 )));
             }
             for (slot, (_, _, buffer)) in self.icons.iter().take(room).enumerate() {
                 elements.push(Skin::Texture(element(
                     buffer,
-                    self.tray.icon_rect(band, slot),
+                    self.tray_icon_rect(band, slot),
                     1.0,
                 )));
             }
