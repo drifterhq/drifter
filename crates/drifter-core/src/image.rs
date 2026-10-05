@@ -192,6 +192,8 @@ pub fn draw_svg(bytes: &[u8], want: u32) -> Result<Image, String> {
     render_svg(&tree, want.max(1) as f32 / longest)
 }
 
+pub const SVG_PIXELS: f64 = 5120.0 * 2880.0;
+
 fn cover_svg(bytes: &[u8], width: f64, height: f64) -> Result<Image, String> {
     if width <= 0.0 || height <= 0.0 {
         return draw_svg(bytes, SVG_SIZE);
@@ -201,8 +203,10 @@ fn cover_svg(bytes: &[u8], width: f64, height: f64) -> Result<Image, String> {
     if size.width() <= 0.0 || size.height() <= 0.0 {
         return Err("the svg has no size".to_string());
     }
-    let scale = (width / f64::from(size.width())).max(height / f64::from(size.height()));
-    render_svg(&tree, scale as f32)
+    let (w, h) = (f64::from(size.width()), f64::from(size.height()));
+    let cover = (width / w).max(height / h);
+    let most = (SVG_PIXELS / (w * h)).sqrt();
+    render_svg(&tree, cover.min(most) as f32)
 }
 
 fn svg_tree(bytes: &[u8]) -> Result<resvg::usvg::Tree, String> {
@@ -461,10 +465,13 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("wall.svg");
         std::fs::write(&path, SQUARE).unwrap();
-        let wide = load_covering(&path, 4000.0, 1000.0).unwrap();
-        assert_eq!((wide.width, wide.height), (4000, 2000));
-        let tall = load_covering(&path, 1000.0, 3000.0).unwrap();
-        assert_eq!((tall.width, tall.height), (6000, 3000));
+        let wide = load_covering(&path, 2000.0, 500.0).unwrap();
+        assert_eq!((wide.width, wide.height), (2000, 1000));
+        let tall = load_covering(&path, 500.0, 1500.0).unwrap();
+        assert_eq!((tall.width, tall.height), (3000, 1500));
+        let world = load_covering(&path, 21600.0, 14400.0).unwrap();
+        assert!(f64::from(world.width) * f64::from(world.height) <= SVG_PIXELS + 10_000.0);
+        assert!(world.width.abs_diff(world.height * 2) <= 2, "a capped svg keeps its shape");
         assert_eq!(load_covering(&path, 0.0, 0.0).unwrap().width, SVG_SIZE);
         let png = dir.join("wall.png");
         write_png(&png, 3, 2, png::ColorType::Rgba, &[255; 24]);
