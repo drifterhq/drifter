@@ -465,6 +465,7 @@ pub fn open(
         shot_wanted: false,
         drawers: [Drawer::new(Edge::Top), Drawer::new(Edge::Bottom)],
         tunables,
+        note_folders: std::collections::HashMap::new(),
         access: config.access,
         sticky: drifter_core::sticky::Sticky::default(),
         shots: config.screenshots.clone(),
@@ -613,6 +614,23 @@ pub fn open(
                 .map_err(|e| format!("cannot watch logind: {e}"))?;
         }
         Err(error) if live => eprintln!("drifter: no lock on sleep or on request: {error}"),
+        Err(_) => {}
+    }
+
+    match live
+        .then(crate::disks::start)
+        .unwrap_or(Err(String::new()))
+    {
+        Ok(events) => {
+            handle
+                .insert_source(events, |event, _, state: &mut State| {
+                    if let ChannelEvent::Msg(event) = event {
+                        state.disk_event(event);
+                    }
+                })
+                .map_err(|e| format!("cannot watch disks: {e}"))?;
+        }
+        Err(error) if live => eprintln!("drifter: plugged in disks are not opened: {error}"),
         Err(_) => {}
     }
 

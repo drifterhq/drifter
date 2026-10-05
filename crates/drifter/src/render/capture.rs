@@ -279,12 +279,43 @@ impl State {
         }
     }
 
+    pub(super) fn disk_event(&mut self, event: crate::disks::Event) {
+        let Some(id) = self.notes_bus.as_ref().map(|bus| bus.next_id()) else {
+            return;
+        };
+        let (summary, body) = match event {
+            crate::disks::Event::Mounted { name, folder } => {
+                self.note_folders.insert(id, PathBuf::from(&folder));
+                (format!("{name} is ready"), format!("Click to open {folder}"))
+            }
+            crate::disks::Event::Failed { name, error } => {
+                (format!("{name} did not open"), error)
+            }
+        };
+        self.show_note(drifter_core::notify::Note {
+            id,
+            app: "Drifter".to_string(),
+            summary,
+            body,
+            actions: Vec::new(),
+            expire: Some(drifter_core::notify::DEFAULT_MS),
+            asked: -1,
+            critical: false,
+            icon: None,
+        });
+    }
+
     pub(super) fn shot_saved(&mut self, saved: Result<PathBuf, String>) {
         let Some(id) = self.notes_bus.as_ref().map(|bus| bus.next_id()) else {
             return;
         };
         let (summary, body) = match saved {
-            Ok(path) => ("Screenshot saved".to_string(), path.display().to_string()),
+            Ok(path) => {
+                if let Some(folder) = path.parent() {
+                    self.note_folders.insert(id, folder.to_path_buf());
+                }
+                ("Screenshot saved".to_string(), path.display().to_string())
+            }
             Err(error) => ("No screenshot".to_string(), error),
         };
         self.show_note(drifter_core::notify::Note {

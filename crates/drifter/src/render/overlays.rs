@@ -337,7 +337,15 @@ impl State {
             return false;
         };
         let id = self.cards[at].note.id;
-        if code == BTN_LEFT
+        if let Some(folder) = self.note_folders.remove(&id)
+            && code == BTN_LEFT
+        {
+            crate::apps::open_folder(
+                &folder.to_string_lossy(),
+                self.apps_chosen.files.as_ref(),
+                &self.socket,
+            );
+        } else if code == BTN_LEFT
             && let (Some(key), Some(bus)) = (
                 self.cards[at].note.default_action(),
                 self.notes_bus.as_ref(),

@@ -4,6 +4,7 @@ pub mod config;
 pub mod corner;
 pub mod cursor;
 pub mod desktop;
+pub mod disks;
 pub mod dock;
 pub mod drawer;
 pub mod exec;

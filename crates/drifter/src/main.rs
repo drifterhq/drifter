@@ -12,6 +12,8 @@ mod clipboard;
 #[cfg(target_os = "linux")]
 mod cursors;
 #[cfg(target_os = "linux")]
+mod disks;
+#[cfg(target_os = "linux")]
 mod logind;
 #[cfg(target_os = "linux")]
 mod media;

@@ -449,6 +449,7 @@ pub struct State {
     hud: Option<(TextureBuffer<Tex>, Rect, Instant)>,
     drawers: [Drawer; 2],
     tunables: Tunables,
+    note_folders: std::collections::HashMap<u32, PathBuf>,
     access: drifter_core::Access,
     sticky: drifter_core::sticky::Sticky,
     shots: drifter_core::Shots,
