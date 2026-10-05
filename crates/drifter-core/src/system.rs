@@ -91,6 +91,64 @@ pub fn parse_status(text: &str) -> (Vec<Device>, Vec<Device>) {
     (outputs, inputs)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Backlight {
+    pub name: String,
+    pub now: u32,
+    pub most: u32,
+}
+
+impl Backlight {
+    pub fn level(&self) -> f64 {
+        f64::from(self.now) / f64::from(self.most.max(1))
+    }
+
+    pub fn raw(&self, level: f64) -> u32 {
+        let most = self.most.max(1);
+        ((level.clamp(0.0, 1.0) * f64::from(most)).round() as u32).clamp(1, most)
+    }
+
+    pub fn step(&self, step: f64) -> u32 {
+        let most = self.most.max(1);
+        let stride = ((f64::from(most) * step.abs()).round() as u32).max(1);
+        match step > 0.0 {
+            true => self.now.saturating_add(stride).min(most),
+            false => self.now.saturating_sub(stride).max(1),
+        }
+    }
+}
+
+pub fn backlight_in(root: &Path) -> Option<Backlight> {
+    let rank = |kind: &str| match kind.trim() {
+        "firmware" => 0,
+        "platform" => 1,
+        _ => 2,
+    };
+    let mut found: Vec<(u8, Backlight)> = std::fs::read_dir(root)
+        .ok()?
+        .flatten()
+        .filter_map(|folder| {
+            let read = |file: &str| std::fs::read_to_string(folder.path().join(file)).ok();
+            let number = |file: &str| read(file)?.trim().parse::<u32>().ok();
+            let most = number("max_brightness").filter(|most| *most > 0)?;
+            Some((
+                rank(&read("type").unwrap_or_default()),
+                Backlight {
+                    name: folder.file_name().to_string_lossy().into_owned(),
+                    now: number("brightness")?.min(most),
+                    most,
+                },
+            ))
+        })
+        .collect();
+    found.sort_by(|a, b| (a.0, &a.1.name).cmp(&(b.0, &b.1.name)));
+    found.into_iter().next().map(|(_, light)| light)
+}
+
+pub fn backlight() -> Option<Backlight> {
+    backlight_in(Path::new("/sys/class/backlight"))
+}
+
 pub fn zone_choices(table: &str) -> Vec<Choice> {
     let mut zones: Vec<&str> = table
         .lines()
@@ -180,6 +238,46 @@ pub fn about(renderer: Option<&str>, config: &Path) -> Vec<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn light(root: &Path, name: &str, kind: &str, now: &str, most: &str) {
+        let dir = root.join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("type"), kind).unwrap();
+        std::fs::write(dir.join("brightness"), now).unwrap();
+        std::fs::write(dir.join("max_brightness"), most).unwrap();
+    }
+
+    #[test]
+    fn the_firmware_backlight_wins_over_a_raw_one() {
+        let root = std::env::temp_dir().join(format!("drifter-backlight-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        light(&root, "intel_backlight", "raw\n", "600\n", "1200\n");
+        light(&root, "acpi_video0", "firmware\n", "5\n", "10\n");
+        light(&root, "broken", "firmware\n", "5\n", "0\n");
+        let found = backlight_in(&root).unwrap();
+        assert_eq!(found.name, "acpi_video0");
+        assert_eq!(found.level(), 0.5);
+        std::fs::remove_dir_all(root.join("acpi_video0")).unwrap();
+        assert_eq!(backlight_in(&root).unwrap().name, "intel_backlight");
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(backlight_in(&root), None);
+    }
+
+    #[test]
+    fn brightness_never_goes_fully_dark() {
+        let light = Backlight {
+            name: "x".into(),
+            now: 3,
+            most: 937,
+        };
+        assert_eq!(light.raw(0.0), 1);
+        assert_eq!(light.raw(1.0), 937);
+        assert_eq!(light.raw(0.5), 469);
+        assert_eq!(light.step(-0.05), 1);
+        assert_eq!(light.step(0.05), 50);
+        let full = Backlight { now: 930, ..light };
+        assert_eq!(full.step(0.05), 937);
+    }
 
     const STATUS: &str = "PipeWire 'pipewire-0' [1.2.7, me@box, cookie:1]
  └─ Clients:

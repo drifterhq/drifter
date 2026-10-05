@@ -21,6 +21,7 @@ use crate::text::Font;
 pub const WORLD_LEAST: u32 = 2;
 pub const WORLD_MOST: u32 = 10;
 pub const UNITS: [u64; 3] = [1, 60, 3600];
+pub const BRIGHTNESS_LEAST: f64 = 5.0;
 
 mod pages;
 
@@ -211,6 +212,7 @@ pub struct Model {
     pub recent: Vec<Recent>,
     pub now: u64,
     pub sound: Sound,
+    pub brightness: Option<f64>,
     pub zone: String,
     pub ntp: Option<bool>,
     pub about: Vec<(String, String)>,
@@ -350,6 +352,7 @@ impl Model {
             recent: Vec::new(),
             now: 0,
             sound: Sound::default(),
+            brightness: None,
             zone: String::new(),
             ntp: None,
             about: Vec::new(),
@@ -795,6 +798,7 @@ impl Model {
             Section::Touchpad => self.touchpad_groups(),
             Section::Displays => {
                 let mut groups = self.display_groups();
+                groups.extend(self.brightness_group());
                 groups.extend(self.night_groups());
                 groups
             }
@@ -900,6 +904,29 @@ impl Model {
                 ]
             }
         }
+    }
+
+    fn brightness_group(&self) -> Option<Group> {
+        let level = self.brightness?;
+        Some(Group {
+            header: Some("Brightness"),
+            rows: vec![
+                Row::new(
+                    Id::Brightness,
+                    "Brightness",
+                    Control::Slider {
+                        least: BRIGHTNESS_LEAST,
+                        most: 100.0,
+                        value: (level * 100.0).round().max(BRIGHTNESS_LEAST),
+                        unit: "%",
+                        zero: None,
+                    },
+                )
+                .detail("The built-in screen"),
+            ],
+            footer: Some("The brightness keys work everywhere.".into()),
+            thumbs: None,
+        })
     }
 
     fn night_groups(&self) -> Vec<Group> {
@@ -1173,6 +1200,11 @@ impl Model {
                 self.screen_off = n.round().clamp(0.0, 60.0) as u64
             }
             (Id::NightOn, Value::Switch(on)) => self.night.on = on,
+            (Id::Brightness, Value::Number(n)) => {
+                if self.brightness.is_some() {
+                    self.brightness = Some(n.round().clamp(BRIGHTNESS_LEAST, 100.0) / 100.0);
+                }
+            }
             (Id::Warmth, Value::Number(n)) => {
                 let (least, most) = (crate::night::WARMEST, crate::night::PLAIN);
                 self.night.warmth =
@@ -1698,6 +1730,7 @@ pub enum Id {
     MonitorName,
     Scale,
     Turn,
+    Brightness,
     Picture,
     Variant,
     Caps,
@@ -3220,6 +3253,29 @@ mod tests {
             ]
         );
         back.validate().unwrap();
+    }
+
+    #[test]
+    fn brightness_shows_only_with_a_backlight_and_stays_off_the_config() {
+        let mut model = model(&Config::default());
+        let has = |model: &Model| {
+            model
+                .groups(Section::Displays)
+                .iter()
+                .any(|group| group.rows.iter().any(|row| row.id == Id::Brightness))
+        };
+        assert!(!has(&model));
+        model.set(Id::Brightness, Value::Number(50.0));
+        assert_eq!(model.brightness, None);
+
+        model.brightness = Some(0.4);
+        assert!(has(&model));
+        let before = model.clone();
+        model.set(Id::Brightness, Value::Number(0.0));
+        assert_eq!(model.brightness, Some(0.05));
+        model.set(Id::Brightness, Value::Number(72.4));
+        assert_eq!(model.brightness, Some(0.72));
+        assert_eq!(model.write(&before, "").unwrap(), "");
     }
 
     #[test]

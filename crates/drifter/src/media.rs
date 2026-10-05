@@ -103,59 +103,31 @@ fn volume(target: &str, verb: &[&str], amount: &str) -> Option<Reading> {
     })
 }
 
-fn backlight() -> Option<(String, u32, u32)> {
-    let rank = |kind: &str| match kind.trim() {
-        "firmware" => 0,
-        "platform" => 1,
-        _ => 2,
-    };
-    let mut found: Vec<(u8, String, u32, u32)> = std::fs::read_dir("/sys/class/backlight")
-        .ok()?
-        .flatten()
-        .filter_map(|folder| {
-            let read = |file: &str| std::fs::read_to_string(folder.path().join(file)).ok();
-            let number = |file: &str| read(file)?.trim().parse::<u32>().ok();
-            Some((
-                rank(&read("type").unwrap_or_default()),
-                folder.file_name().to_string_lossy().into_owned(),
-                number("brightness")?,
-                number("max_brightness")?,
-            ))
-        })
-        .collect();
-    found.sort();
-    found
-        .into_iter()
-        .next()
-        .map(|(_, name, now, most)| (name, now, most))
-}
-
 fn brightness(step: f64) -> Option<Reading> {
-    let (name, now, most) = backlight()?;
-    let most = most.max(1);
-    let stride = ((f64::from(most) * step.abs()).round() as u32).max(1);
-    let value = match step > 0.0 {
-        true => now.saturating_add(stride).min(most),
-        false => now.saturating_sub(stride).max(1),
-    };
-    let wanted = f64::from(value) / f64::from(most);
-    let bus = zbus::blocking::Connection::system().ok()?;
-    let sent = bus.call_method(
-        Some("org.freedesktop.login1"),
-        "/org/freedesktop/login1/session/auto",
-        Some("org.freedesktop.login1.Session"),
-        "SetBrightness",
-        &("backlight", name.as_str(), value),
-    );
-    if let Err(error) = sent {
+    let light = drifter_core::system::backlight()?;
+    let value = light.step(step);
+    if let Err(error) = set_brightness(&light.name, value) {
         eprintln!("drifter: cannot set the brightness: {error}");
         return None;
     }
     Some(Reading {
         gauge: Gauge::Brightness,
-        level: wanted,
+        level: f64::from(value) / f64::from(light.most.max(1)),
         muted: false,
     })
+}
+
+fn set_brightness(name: &str, value: u32) -> Result<(), String> {
+    let bus = zbus::blocking::Connection::system().map_err(|error| error.to_string())?;
+    bus.call_method(
+        Some("org.freedesktop.login1"),
+        "/org/freedesktop/login1/session/auto",
+        Some("org.freedesktop.login1.Session"),
+        "SetBrightness",
+        &("backlight", name, value),
+    )
+    .map(|_| ())
+    .map_err(|error| error.to_string())
 }
 
 fn player(method: &str) -> Option<Reading> {

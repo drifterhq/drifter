@@ -101,6 +101,7 @@ pub fn run() -> Result<(), String> {
     let mut model = read_model(&config);
     model.sound = read_sound();
     model.autostarts = drifter_core::autostart::installed();
+    model.brightness = read_brightness();
     (model.zone, model.ntp) = read_time();
     model.about = system::about(std::env::var("DRIFTER_RENDERER").ok().as_deref(), &path);
     read_recent(&mut model);
@@ -317,6 +318,41 @@ fn read_sound() -> Sound {
         muted,
         mic: mic.min(1.0),
         mic_muted,
+    }
+}
+
+fn read_brightness() -> Option<f64> {
+    system::backlight().map(|light| light.level())
+}
+
+fn set_brightness(level: f64) {
+    let Some(light) = system::backlight() else {
+        return;
+    };
+    let raw = light.raw(level).to_string();
+    let path = "/org/freedesktop/login1/session/auto";
+    let args = [
+        "call",
+        "org.freedesktop.login1",
+        path,
+        "org.freedesktop.login1.Session",
+        "SetBrightness",
+        "ssu",
+        "backlight",
+        &light.name,
+        &raw,
+    ];
+    match std::process::Command::new("busctl")
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .output()
+    {
+        Ok(out) if out.status.success() => {}
+        Ok(out) => eprintln!(
+            "drifter-settings: cannot set the brightness: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ),
+        Err(error) => eprintln!("drifter-settings: brightness needs busctl: {error}"),
     }
 }
 
@@ -656,6 +692,18 @@ impl Settings {
                     self.draw();
                 }
             }
+            Section::Displays => {
+                let level = read_brightness();
+                let near = match (level, self.model.brightness) {
+                    (Some(now), Some(shown)) => (now - shown).abs() < 0.015,
+                    (now, shown) => now.is_none() && shown.is_none(),
+                };
+                if !near {
+                    self.model.brightness = level;
+                    self.saved.brightness = level;
+                    self.draw();
+                }
+            }
             _ => {}
         }
     }
@@ -669,6 +717,10 @@ impl Settings {
             Section::Notifications => {
                 read_recent(&mut self.model);
                 self.saved.recent = self.model.recent.clone();
+            }
+            Section::Displays => {
+                self.model.brightness = read_brightness();
+                self.saved.brightness = self.model.brightness;
             }
             Section::Time => {
                 let time = read_time();
@@ -1004,6 +1056,12 @@ impl Settings {
         }
         if fresh {
             self.model.sound = read_sound();
+        }
+
+        if let Some(level) = self.model.brightness
+            && self.model.brightness != before.brightness
+        {
+            set_brightness(level);
         }
 
         if self.model.autostarts != before.autostarts {
