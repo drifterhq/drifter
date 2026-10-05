@@ -31,6 +31,22 @@ pub fn program_of(line: &str) -> Option<String> {
         .map(|name| name.to_string_lossy().into_owned())
 }
 
+const BUILT_IN: [&str; 9] = [
+    "lxpolkit",
+    "dunst",
+    "mako",
+    "xfce4-notifyd",
+    "lxqt-notificationd",
+    "notification-daemon",
+    "notify-osd",
+    "xscreensaver",
+    "light-locker",
+];
+
+pub fn built_in(program: &str) -> bool {
+    program.contains("polkit") || program.contains("policykit") || BUILT_IN.contains(&program)
+}
+
 pub fn user_dir() -> PathBuf {
     std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
@@ -112,6 +128,9 @@ pub fn read(
         return None;
     }
     let exec = exec.filter(|exec| !exec.trim().is_empty())?;
+    if program_of(&exec).is_none_or(|program| built_in(&program)) {
+        return None;
+    }
     Some(Entry {
         id: id.to_string(),
         name: name.unwrap_or_else(|| id.to_string()),
@@ -327,6 +346,20 @@ mod tests {
         );
         assert_eq!(entry("[Desktop Entry]\nName=T\n"), None);
         assert_eq!(entry("[Desktop Entry]\nName=L\nExec=l\nType=Link\n"), None);
+    }
+
+    #[test]
+    fn jobs_drifter_does_itself_are_left_out() {
+        for exec in [
+            "lxpolkit",
+            "/usr/lib/policykit-1-gnome/polkit-gnome-authentication-agent-1",
+            "lxqt-policykit-agent",
+            "dunst",
+            "xscreensaver -no-splash",
+        ] {
+            let text = format!("[Desktop Entry]\nName=A\nExec={exec}\n");
+            assert_eq!(entry(&text), None, "{exec}");
+        }
     }
 
     #[test]
