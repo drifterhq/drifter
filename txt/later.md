@@ -9,35 +9,26 @@ Work that is not yet done, after the 2026-10-01 daily-driver list. Done items le
 - A `.deb` built with cargo-deb. It installs drifter, drifter-settings and drifter-session, the wayland-sessions entry, /etc/pam.d/drifter, the portal configs, and the art, fonts and default config in /usr/share/drifter. Depends: pipewire, wireplumber, xdg-desktop-portal-wlr, libseat. Recommends: network-manager-gnome, blueman.
 - A signed apt repo on GitHub Pages, so `apt install drifter` and `apt upgrade` work.
 - Ship xwayland-satellite in the repo if trixie does not have it, so X11 apps work.
-- Default login apps. `[login] start` in conf/default.toml is empty. Start `nm-applet --indicator` and `blueman-applet` when they are installed.
 
 ## Soon
 
-- WiFi and Bluetooth pages in Settings, over D-Bus to NetworkManager and BlueZ. Then the default config stops starting nm-applet and blueman.
-- Read the XDG autostart folders, ~/.config/autostart and /etc/xdg/autostart. Today only the `[login] start` list runs.
+- WiFi and Bluetooth pages in Settings, over D-Bus to NetworkManager and BlueZ. nm-applet and blueman now come in through XDG autostart.
 - USB disk automount through udisks.
 
 ## Settings gaps
 
 From the 2026-10-02 audit. WiFi and Bluetooth are under Soon.
 
-- Brightness under Displays, through the backlight in /sys/class/backlight. Do this first: it is small, and laptops need it.
 - Refresh rate under Displays, from the modes each monitor offers.
 - Mirror mode under Displays. Today monitors only sit side by side.
 - An Accessibility page: large text, high contrast, reduce motion and sticky keys.
 - A power profile under Power, saver or performance, through power-profiles-daemon. Battery details there too.
 - A Users page to change your password.
 - Screenshot options: the save folder and the file format.
-- A search box in the sidebar. There are 19 pages.
-- Reset all settings, and import or export the config.
 
 ## Wayland protocols
 
-- ext-session-lock, so swaylock and other lockers work.
-- ext-idle-notify, so swayidle and other idle daemons work.
-- foreign-toplevel, so external taskbars and docks see windows.
-- keyboard-shortcuts-inhibit, so VMs and remote desktops can take keys like Super.
-- virtual-keyboard, for on-screen keyboards and wtype.
+- wlr-foreign-toplevel-management, so waybar and docks can focus, close and minimize windows. The read-only ext list is done.
 - wlr-output-management, for kanshi and wlr-randr.
 - linux-drm-syncobj, presentation-time and tearing-control, against stutter in games and video. NVIDIA needs syncobj most.
 - xdg-foreign, xdg-dialog, security-context and single-pixel-buffer. Portals and Flatpak use these.
