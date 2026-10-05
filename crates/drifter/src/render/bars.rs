@@ -661,7 +661,7 @@ impl State {
         let image = self
             .font
             .as_ref()
-            .map(|font| font.paint(&reading, tray.ink))
+            .map(|font| font.paint_even_digits(&reading, tray.ink))
             .expect("the font was there a moment ago");
         let rect = tray.clock_rect(band, image.size());
         match upload(&mut self.renderer, Some(&image), "clock") {

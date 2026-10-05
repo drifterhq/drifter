@@ -63,17 +63,40 @@ impl Font {
     }
 
     pub fn width_of(&self, text: &str) -> f64 {
-        text.chars()
-            .map(|glyph| f64::from(self.inner.metrics(glyph, self.px).advance_width))
-            .sum()
+        self.width_with(text, None)
     }
 
     pub fn measure(&self, text: &str) -> Vec2 {
         Vec2::new(self.width_of(text), self.line_height())
     }
 
+    fn digit_cell(&self) -> f64 {
+        ('0'..='9')
+            .map(|digit| f64::from(self.inner.metrics(digit, self.px).advance_width))
+            .fold(0.0, f64::max)
+    }
+
+    fn advance(&self, glyph: char, cell: Option<f64>) -> f64 {
+        match cell {
+            Some(cell) if glyph.is_ascii_digit() => cell,
+            _ => f64::from(self.inner.metrics(glyph, self.px).advance_width),
+        }
+    }
+
+    fn width_with(&self, text: &str, cell: Option<f64>) -> f64 {
+        text.chars().map(|glyph| self.advance(glyph, cell)).sum()
+    }
+
     pub fn paint(&self, text: &str, color: [u8; 3]) -> Image {
-        let size = self.measure(text);
+        self.paint_with(text, color, None)
+    }
+
+    pub fn paint_even_digits(&self, text: &str, color: [u8; 3]) -> Image {
+        self.paint_with(text, color, Some(self.digit_cell()))
+    }
+
+    fn paint_with(&self, text: &str, color: [u8; 3], cell: Option<f64>) -> Image {
+        let size = Vec2::new(self.width_with(text, cell), self.line_height());
         let width = size.x.ceil().max(1.0) as u32;
         let height = size.y.ceil().max(1.0) as u32;
         let mut rgba = vec![0u8; (width as usize) * (height as usize) * 4];
@@ -82,7 +105,9 @@ impl Font {
 
         for glyph in text.chars() {
             let (metrics, coverage) = self.inner.rasterize(glyph, self.px);
-            let left = pen + f64::from(metrics.xmin);
+            let room = self.advance(glyph, cell);
+            let centering = (room - f64::from(metrics.advance_width)) / 2.0;
+            let left = pen + centering + f64::from(metrics.xmin);
             let top = baseline - f64::from(metrics.height as i32 + metrics.ymin);
 
             for row in 0..metrics.height {
@@ -110,7 +135,7 @@ impl Font {
                 }
             }
 
-            pen += f64::from(metrics.advance_width);
+            pen += room;
         }
 
         Image {
@@ -131,6 +156,21 @@ mod tests {
 
     fn font() -> Font {
         Font::find(None, 22.0).expect("this machine has no usable font")
+    }
+
+    #[test]
+    fn even_digits_keep_a_clock_the_same_width() {
+        let work_sans = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fonts/WorkSans.ttf");
+        let font = Font::load(&work_sans, 22.0).expect("the repo ships Work Sans");
+        let narrow = font.paint_even_digits("11:11", [255, 255, 255]);
+        let wide = font.paint_even_digits("10:08", [255, 255, 255]);
+        assert_eq!(narrow.width, wide.width);
+        assert_ne!(
+            font.paint("11:11", [255, 255, 255]).width,
+            font.paint("10:08", [255, 255, 255]).width,
+            "this font has uneven digits, so the test means something"
+        );
+        assert!(opaque(&narrow) > 0);
     }
 
     fn opaque(image: &Image) -> usize {
