@@ -411,6 +411,7 @@ pub fn open(
         popover: None,
         switch: None,
         lock: None,
+        client_lock: None,
         lock_big,
         lock_small,
         verify: verify_tx,

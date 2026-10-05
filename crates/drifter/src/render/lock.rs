@@ -13,9 +13,6 @@ impl State {
     }
 
     pub(super) fn lock_now(&mut self) -> bool {
-        use smithay::input::pointer::MotionEvent;
-        use smithay::utils::SERIAL_COUNTER;
-
         if self.lock.is_some() {
             return true;
         }
@@ -26,6 +23,32 @@ impl State {
                 return false;
             }
         };
+
+        let refocus = self.hush();
+        self.lock = Some(Lock {
+            pad: Pad::new(),
+            note: Note::Ask,
+            checking: None,
+            ticket: None,
+            art: None,
+            rect: Rect::new(Vec2::ZERO, Vec2::ZERO),
+            shown: (String::new(), String::new(), usize::MAX, Note::Ask),
+            user,
+            refocus,
+        });
+        if let Some(marker) = lock_marker() {
+            let _ = std::fs::write(marker, b"");
+        }
+        self.paint_lock();
+        self.kick();
+        true
+    }
+
+    fn hush(
+        &mut self,
+    ) -> Option<smithay::reexports::wayland_server::protocol::wl_surface::WlSurface> {
+        use smithay::input::pointer::MotionEvent;
+        use smithay::utils::SERIAL_COUNTER;
 
         self.dismiss_popups();
         self.popover = None;
@@ -66,24 +89,178 @@ impl State {
             },
         );
         pointer.frame(self);
+        refocus
+    }
 
-        self.lock = Some(Lock {
-            pad: Pad::new(),
-            note: Note::Ask,
-            checking: None,
-            ticket: None,
-            art: None,
-            rect: Rect::new(Vec2::ZERO, Vec2::ZERO),
-            shown: (String::new(), String::new(), usize::MAX, Note::Ask),
-            user,
+    pub fn client_locks(&mut self, locker: smithay::wayland::session_lock::SessionLocker) {
+        use smithay::reexports::wayland_server::Resource;
+
+        if self
+            .client_lock
+            .as_ref()
+            .is_some_and(|held| held.lock.is_alive())
+        {
+            return;
+        }
+        let refocus = match self.client_lock.take() {
+            Some(old) => old.refocus,
+            None => self.hush(),
+        };
+        let lock = locker.ext_session_lock().clone();
+        self.client_lock = Some(ClientLock {
+            locker: Some(locker),
+            lock,
+            surfaces: Vec::new(),
             refocus,
         });
+        self.kick();
+    }
+
+    pub fn client_lock_surface(
+        &mut self,
+        surface: smithay::wayland::session_lock::LockSurface,
+        output: smithay::reexports::wayland_server::protocol::wl_output::WlOutput,
+    ) {
+        let Some(held) = self.client_lock.as_mut() else {
+            return;
+        };
+        let size = self
+            .heads
+            .iter()
+            .enumerate()
+            .find(|(_, head)| head.output.owns(&output))
+            .map(|(index, head)| match index == self.at {
+                true => self.screen,
+                false => head.screen,
+            })
+            .unwrap_or(self.screen);
+        surface.with_pending_state(|state| {
+            state.size = Some((size.x.round() as u32, size.y.round() as u32).into());
+        });
+        surface.send_configure();
+        held.surfaces.push((surface, output));
+        self.focus_client_lock();
+        self.kick();
+    }
+
+    pub fn client_unlocks(&mut self) {
+        use smithay::reexports::wayland_server::Resource;
+        use smithay::utils::SERIAL_COUNTER;
+
+        let Some(held) = self.client_lock.take() else {
+            return;
+        };
+        if self.lock.is_none()
+            && let Some(marker) = lock_marker()
+        {
+            let _ = std::fs::remove_file(marker);
+        }
+        let keyboard = self.wayland.keyboard.clone();
+        let back = match self.lock.as_mut() {
+            Some(own) => {
+                own.refocus = own.refocus.take().or(held.refocus);
+                None
+            }
+            None => held.refocus.filter(|surface| surface.is_alive()),
+        };
+        keyboard.set_focus(self, back, SERIAL_COUNTER.next_serial());
+        self.last = Instant::now();
+        self.kick();
+    }
+
+    pub(super) fn check_client_lock(&mut self) {
+        use smithay::reexports::wayland_server::Resource;
+
+        let Some(held) = self.client_lock.as_ref() else {
+            return;
+        };
+        if held.lock.is_alive() {
+            return;
+        }
+        eprintln!("drifter: the screen locker quit without unlocking, so Drifter locks instead");
+        let refocus = self.client_lock.take().and_then(|held| held.refocus);
+        self.wayland.extras.session_lock =
+            smithay::wayland::session_lock::SessionLockManagerState::new::<State, _>(
+                &self.wayland.handle,
+                |_| false,
+            );
+        self.lock_now();
+        if let Some(own) = self.lock.as_mut() {
+            own.refocus = own.refocus.take().or(refocus);
+        }
+    }
+
+    pub(super) fn confirm_client_lock(&mut self) {
+        let Some(locker) = self
+            .client_lock
+            .as_mut()
+            .and_then(|held| held.locker.take())
+        else {
+            return;
+        };
+        locker.lock();
         if let Some(marker) = lock_marker() {
             let _ = std::fs::write(marker, b"");
         }
-        self.paint_lock();
-        self.kick();
-        true
+    }
+
+    pub(super) fn focus_client_lock(&mut self) {
+        use smithay::utils::SERIAL_COUNTER;
+
+        let Some(surface) = self.client_lock_here(self.hand) else {
+            return;
+        };
+        let keyboard = self.wayland.keyboard.clone();
+        if keyboard.current_focus().as_ref() != Some(&surface) {
+            keyboard.set_focus(self, Some(surface), SERIAL_COUNTER.next_serial());
+        }
+    }
+
+    fn client_lock_here(
+        &self,
+        index: usize,
+    ) -> Option<smithay::reexports::wayland_server::protocol::wl_surface::WlSurface> {
+        let held = self.client_lock.as_ref()?;
+        let output = match index == self.at {
+            true => &self.output,
+            false => &self.heads.get(index)?.output,
+        };
+        let alive = || held.surfaces.iter().filter(|(surface, _)| surface.alive());
+        let (mine, _) = alive()
+            .find(|(_, wl)| output.owns(wl))
+            .or_else(|| alive().next())?;
+        Some(mine.wl_surface().clone())
+    }
+
+    pub(super) fn client_lock_hit(&self) -> Option<Hit> {
+        let surface = self.client_lock_here(self.at)?;
+        let world = self.in_world(self.pointer);
+        Some(Hit {
+            index: None,
+            layer: true,
+            surface,
+            origin: world - self.pointer,
+            popup: false,
+        })
+    }
+
+    pub(super) fn client_lock_elements(&mut self, elements: &mut Vec<Skin>) {
+        let Some(surface) = self.client_lock_here(self.at) else {
+            return;
+        };
+        let anchor = smithay::utils::Point::<i32, smithay::utils::Physical>::from((0, 0));
+        let bare: Vec<WaylandSurfaceRenderElement<Painter>> = render_elements_from_surface_tree(
+            &mut self.renderer,
+            &surface,
+            anchor,
+            1.0,
+            1.0,
+            Kind::Unspecified,
+        );
+        elements.extend(
+            bare.into_iter()
+                .map(|piece| Skin::Client(RescaleRenderElement::from_element(piece, anchor, 1.0))),
+        );
     }
 
     pub(super) fn paint_lock(&mut self) {

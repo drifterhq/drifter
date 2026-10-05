@@ -22,6 +22,9 @@ use smithay::wayland::idle_notify::{IdleNotifierHandler, IdleNotifierState};
 use smithay::wayland::keyboard_shortcuts_inhibit::{
     KeyboardShortcutsInhibitHandler, KeyboardShortcutsInhibitState, KeyboardShortcutsInhibitor,
 };
+use smithay::wayland::session_lock::{
+    LockSurface, SessionLockHandler, SessionLockManagerState, SessionLocker,
+};
 use smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState;
 use smithay::wayland::input_method::{
     InputMethodHandler, InputMethodManagerState, PopupSurface as ImePopup,
@@ -55,7 +58,8 @@ use smithay::{
     delegate_input_method_manager, delegate_layer_shell, delegate_pointer_constraints,
     delegate_primary_selection, delegate_relative_pointer, delegate_text_input_manager,
     delegate_viewporter, delegate_xdg_activation, delegate_foreign_toplevel_list,
-    delegate_idle_notify, delegate_keyboard_shortcuts_inhibit, delegate_virtual_keyboard_manager,
+    delegate_idle_notify, delegate_keyboard_shortcuts_inhibit, delegate_session_lock,
+    delegate_virtual_keyboard_manager,
 };
 
 use crate::render::State;
@@ -72,6 +76,7 @@ pub struct Extras {
     pub idle: IdleNotifierState<State>,
     pub toplevels: ForeignToplevelListState,
     pub shortcuts: KeyboardShortcutsInhibitState,
+    pub session_lock: SessionLockManagerState,
     _virtual_keyboard: VirtualKeyboardManagerState,
     _outputs: OutputManagerState,
     _viewporter: ViewporterState,
@@ -94,6 +99,7 @@ pub fn start(
         idle: IdleNotifierState::new(handle, events),
         toplevels: ForeignToplevelListState::new::<State>(handle),
         shortcuts: KeyboardShortcutsInhibitState::new::<State>(handle),
+        session_lock: SessionLockManagerState::new::<State, _>(handle, |_| true),
         _virtual_keyboard: VirtualKeyboardManagerState::new::<State, _>(handle, |_| true),
         dmabuf: DmabufState::new(),
         dmabuf_global: None,
@@ -249,6 +255,24 @@ impl KeyboardShortcutsInhibitHandler for State {
     }
 }
 
+impl SessionLockHandler for State {
+    fn lock_state(&mut self) -> &mut SessionLockManagerState {
+        &mut self.wayland.extras.session_lock
+    }
+
+    fn lock(&mut self, confirmation: SessionLocker) {
+        self.client_locks(confirmation);
+    }
+
+    fn unlock(&mut self) {
+        self.client_unlocks();
+    }
+
+    fn new_surface(&mut self, surface: LockSurface, output: WlOutput) {
+        self.client_lock_surface(surface, output);
+    }
+}
+
 pub fn list_toplevel(
     state: &mut ForeignToplevelListState,
     held: &mut Option<ForeignToplevelHandle>,
@@ -381,3 +405,4 @@ delegate_idle_notify!(State);
 delegate_foreign_toplevel_list!(State);
 delegate_keyboard_shortcuts_inhibit!(State);
 delegate_virtual_keyboard_manager!(State);
+delegate_session_lock!(State);

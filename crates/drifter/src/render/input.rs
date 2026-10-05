@@ -114,6 +114,9 @@ impl State {
     pub(super) fn surface_under(&self) -> Option<Hit> {
         use smithay::wayland::shell::wlr_layer::Layer;
 
+        if self.client_lock.is_some() {
+            return self.client_lock_hit();
+        }
         if let Some(hit) = self.layer_hit(&[Layer::Overlay, Layer::Top]) {
             return Some(hit);
         }
@@ -634,7 +637,7 @@ impl State {
                         None => FilterResult::Forward,
                     };
                 }
-                if state.shortcuts_inhibited() {
+                if state.shortcuts_inhibited() || state.client_lock.is_some() {
                     return FilterResult::Forward;
                 }
                 let mut names: Vec<String> = keysym
@@ -723,6 +726,10 @@ impl State {
                 return;
             }
             _ => {}
+        }
+        if self.client_lock.is_some() {
+            self.client_locked_input(event);
+            return;
         }
         if self.lock.is_none()
             && !self.prompts.is_empty()
@@ -852,6 +859,58 @@ impl State {
                     }
                 }
                 self.tell_keyboard(&event);
+            }
+            _ => {}
+        }
+    }
+
+    fn client_locked_input(&mut self, event: InputEvent<LibinputInputBackend>) {
+        use smithay::backend::input::Event;
+        use smithay::input::pointer::ButtonEvent;
+        use smithay::utils::SERIAL_COUNTER;
+
+        self.focus_client_lock();
+        let edge = self.screen - Vec2::splat(1.0);
+        match event {
+            InputEvent::PointerMotion { event } => {
+                let delta = Vec2::new(event.delta_x(), event.delta_y());
+                self.pointer = (self.pointer + delta).clamp(Vec2::ZERO, edge);
+                self.tell_pointer(event.time_msec());
+            }
+            InputEvent::PointerMotionAbsolute { event } => {
+                let x = event.x_transformed(self.screen.x as i32);
+                let y = event.y_transformed(self.screen.y as i32);
+                self.pointer = Vec2::new(x, y).clamp(Vec2::ZERO, edge);
+                self.tell_pointer(event.time_msec());
+            }
+            InputEvent::PointerButton { event } => {
+                let pointer = self.wayland.pointer.clone();
+                pointer.button(
+                    self,
+                    &ButtonEvent {
+                        button: event.button_code(),
+                        state: event.state(),
+                        serial: SERIAL_COUNTER.next_serial(),
+                        time: event.time_msec(),
+                    },
+                );
+                pointer.frame(self);
+            }
+            InputEvent::PointerAxis { event } => self.tell_axis(&event),
+            InputEvent::Keyboard { event } => self.tell_keyboard(&event),
+            InputEvent::DeviceAdded { mut device } => {
+                use smithay::reexports::input::DeviceCapability;
+                if is_touchpad(&device) {
+                    set_up_touchpad(&mut device, &self.touch, self.mouse.left_handed);
+                    self.touchpads.push(device.clone());
+                } else if device.has_capability(DeviceCapability::Pointer) {
+                    set_up_mouse(&mut device, &self.mouse);
+                    self.mice.push(device.clone());
+                }
+            }
+            InputEvent::DeviceRemoved { device } => {
+                self.touchpads.retain(|pad| *pad != device);
+                self.mice.retain(|mouse| *mouse != device);
             }
             _ => {}
         }

@@ -21,6 +21,7 @@ use smithay_client_toolkit::{
     delegate_xdg_window, registry_handlers,
 };
 use wayland_client::globals::{GlobalListContents, registry_queue_init};
+use wayland_client::protocol::wl_compositor;
 use wayland_client::protocol::{wl_output, wl_shm, wl_surface};
 use wayland_client::protocol::{wl_registry, wl_seat};
 use wayland_client::{Connection, QueueHandle};
@@ -28,6 +29,11 @@ use wayland_client::{Dispatch, Proxy, delegate_noop, event_created_child};
 use wayland_protocols::ext::foreign_toplevel_list::v1::client::{
     ext_foreign_toplevel_handle_v1::{self, ExtForeignToplevelHandleV1},
     ext_foreign_toplevel_list_v1::{self, ExtForeignToplevelListV1},
+};
+use wayland_protocols::ext::session_lock::v1::client::{
+    ext_session_lock_manager_v1::ExtSessionLockManagerV1,
+    ext_session_lock_surface_v1::{self, ExtSessionLockSurfaceV1},
+    ext_session_lock_v1::{self, ExtSessionLockV1},
 };
 use wayland_protocols::wp::keyboard_shortcuts_inhibit::zv1::client::{
     zwp_keyboard_shortcuts_inhibit_manager_v1::ZwpKeyboardShortcutsInhibitManagerV1,
@@ -925,6 +931,199 @@ fn a_window_that_inhibits_shortcuts_keeps_them_while_focused() {
     let mut run = start("no-inhibit", &Config::default(), None);
     let (stop, client) = red_window(&mut run);
     assert!(!run.screen.state.shortcuts_inhibited());
+    stop.store(true, Ordering::Relaxed);
+    let _ = client.join();
+}
+
+struct Locker {
+    shm: Shm,
+    pool: SlotPool,
+    surface: wl_surface::WlSurface,
+    locked: Arc<AtomicBool>,
+}
+
+impl ShmHandler for Locker {
+    fn shm_state(&mut self) -> &mut Shm {
+        &mut self.shm
+    }
+}
+
+delegate_shm!(Locker);
+delegate_noop!(Locker: ignore wl_compositor::WlCompositor);
+delegate_noop!(Locker: ignore wl_surface::WlSurface);
+delegate_noop!(Locker: ignore wl_output::WlOutput);
+delegate_noop!(Locker: ExtSessionLockManagerV1);
+
+impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for Locker {
+    fn event(
+        _: &mut Self,
+        _: &wl_registry::WlRegistry,
+        _: wl_registry::Event,
+        _: &GlobalListContents,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+impl Dispatch<ExtSessionLockV1, ()> for Locker {
+    fn event(
+        state: &mut Self,
+        _: &ExtSessionLockV1,
+        event: ext_session_lock_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let ext_session_lock_v1::Event::Locked = event {
+            state.locked.store(true, Ordering::Relaxed);
+        }
+    }
+}
+
+impl Dispatch<ExtSessionLockSurfaceV1, ()> for Locker {
+    fn event(
+        state: &mut Self,
+        lock_surface: &ExtSessionLockSurfaceV1,
+        event: ext_session_lock_surface_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        let ext_session_lock_surface_v1::Event::Configure {
+            serial,
+            width,
+            height,
+        } = event
+        else {
+            return;
+        };
+        lock_surface.ack_configure(serial);
+        let Ok((buffer, canvas)) = state.pool.create_buffer(
+            width as i32,
+            height as i32,
+            width as i32 * 4,
+            wl_shm::Format::Argb8888,
+        ) else {
+            return;
+        };
+        for pixel in canvas.as_chunks_mut::<4>().0 {
+            *pixel = [0, 255, 0, 255];
+        }
+        state
+            .surface
+            .damage_buffer(0, 0, width as i32, height as i32);
+        if buffer.attach_to(&state.surface).is_ok() {
+            state.surface.commit();
+        }
+    }
+}
+
+fn run_locker(locked: Arc<AtomicBool>, unlock: Arc<AtomicBool>, quit: Arc<AtomicBool>) {
+    let connection = Connection::connect_to_env().expect("the locker connects");
+    let (globals, mut queue) = registry_queue_init::<Locker>(&connection).expect("a registry");
+    let qh = queue.handle();
+    let compositor: wl_compositor::WlCompositor =
+        globals.bind(&qh, 1..=4, ()).expect("wl_compositor");
+    let output: wl_output::WlOutput = globals.bind(&qh, 1..=1, ()).expect("wl_output");
+    let manager: ExtSessionLockManagerV1 = globals
+        .bind(&qh, 1..=1, ())
+        .expect("ext_session_lock_manager_v1");
+    let shm = Shm::bind(&globals, &qh).expect("wl_shm");
+    let pool = SlotPool::new((SIZE.0 * SIZE.1 * 4) as usize, &shm).expect("shared memory");
+    let surface = compositor.create_surface(&qh, ());
+    let lock = manager.lock(&qh, ());
+    let _lock_surface = lock.get_lock_surface(&surface, &output, &qh, ());
+    let mut locker = Locker {
+        shm,
+        pool,
+        surface,
+        locked,
+    };
+    let mut unlocked = false;
+    while !quit.load(Ordering::Relaxed) {
+        if !unlocked && unlock.load(Ordering::Relaxed) {
+            lock.unlock_and_destroy();
+            unlocked = true;
+        }
+        let _ = connection.flush();
+        if let Some(guard) = connection.prepare_read() {
+            let _ = guard.read();
+        }
+        let _ = queue.dispatch_pending(&mut locker);
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+fn green(image: &Image) -> bool {
+    pixel(image, SIZE.0 / 4, SIZE.1 / 4) == [0, 255, 0, 255]
+}
+
+#[test]
+fn a_screen_locker_covers_everything_until_it_unlocks() {
+    let mut run = start("session-lock", &Config::default(), None);
+    let (stop, client) = red_window(&mut run);
+    let (locked, unlock, quit) = (
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(AtomicBool::new(false)),
+    );
+    let locker = {
+        let (locked, unlock, quit) = (locked.clone(), unlock.clone(), quit.clone());
+        std::thread::spawn(move || run_locker(locked, unlock, quit))
+    };
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline && !locked.load(Ordering::Relaxed) {
+        run.screen
+            .events
+            .dispatch(Some(Duration::from_millis(10)), &mut run.screen.state)
+            .unwrap();
+    }
+    assert!(
+        locked.load(Ordering::Relaxed),
+        "the locker hears that the screen is locked"
+    );
+    let started = Instant::now();
+    pump(&mut run.screen, |_| {
+        started.elapsed() > Duration::from_millis(300)
+    });
+    let shot = run.shot("locked");
+    assert!(green(&shot), "the lock surface fills the screen");
+    assert_eq!(red_box(&shot), None, "no window shows through the lock");
+    let focus = run.screen.state.wayland.keyboard.current_focus();
+    let lock_surface = run
+        .screen
+        .state
+        .client_lock
+        .as_ref()
+        .and_then(|held| held.surfaces.first())
+        .map(|(surface, _)| surface.wl_surface().clone());
+    assert!(
+        focus.is_some() && focus == lock_surface,
+        "keys go to the locker"
+    );
+
+    unlock.store(true, Ordering::Relaxed);
+    pump(&mut run.screen, |state| state.client_lock.is_none());
+    assert!(
+        run.screen.state.client_lock.is_none(),
+        "the locker unlocked"
+    );
+    let started = Instant::now();
+    pump(&mut run.screen, |_| {
+        started.elapsed() > Duration::from_millis(300)
+    });
+    let shot = run.shot("unlocked");
+    assert!(!green(&shot), "the lock is gone");
+    assert!(red_box(&shot).is_some(), "the window is back");
+    assert!(
+        run.screen.state.lock.is_none(),
+        "a clean unlock leaves no lock behind"
+    );
+
+    quit.store(true, Ordering::Relaxed);
+    let _ = locker.join();
     stop.store(true, Ordering::Relaxed);
     let _ = client.join();
 }

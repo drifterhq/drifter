@@ -257,6 +257,16 @@ enum Grab {
     },
 }
 
+pub struct ClientLock {
+    locker: Option<smithay::wayland::session_lock::SessionLocker>,
+    lock: wayland_protocols::ext::session_lock::v1::server::ext_session_lock_v1::ExtSessionLockV1,
+    surfaces: Vec<(
+        smithay::wayland::session_lock::LockSurface,
+        smithay::reexports::wayland_server::protocol::wl_output::WlOutput,
+    )>,
+    refocus: Option<smithay::reexports::wayland_server::protocol::wl_surface::WlSurface>,
+}
+
 struct Lock {
     pad: Pad,
     note: Note,
@@ -372,6 +382,7 @@ pub struct State {
     popover: Option<Popover>,
     switch: Option<Switch>,
     lock: Option<Lock>,
+    client_lock: Option<ClientLock>,
     lock_big: Option<Font>,
     lock_small: Option<Font>,
     verify: smithay::reexports::calloop::channel::Sender<(u64, crate::auth::Verdict)>,
@@ -475,6 +486,15 @@ impl State {
 
     fn elements(&mut self) -> Vec<Skin> {
         let live = self.at == self.hand;
+        if self.client_lock.is_some() {
+            let mut elements = match live {
+                true => self.cursor_elements(),
+                false => Vec::new(),
+            };
+            self.cursor_count = elements.len();
+            self.client_lock_elements(&mut elements);
+            return elements;
+        }
         if self.lock.is_some() {
             self.cursor_count = 0;
             return self.lock_elements();
@@ -846,6 +866,7 @@ impl State {
         self.expire_cards(now);
         self.wind_titles();
         self.paint_lock();
+        self.check_client_lock();
 
         let mut drew = false;
         for index in 0..self.heads.len() {
@@ -865,6 +886,7 @@ impl State {
         }
 
         if drew {
+            self.confirm_client_lock();
             self.tell_clients();
         } else {
             self.frames_later();
@@ -976,6 +998,11 @@ impl State {
         }
         if let smithay::input::pointer::CursorImageStatus::Surface(surface) = &self.cursor_status {
             crate::shell::send_frame(surface, now);
+        }
+        if let Some(held) = self.client_lock.as_ref() {
+            for (surface, _) in &held.surfaces {
+                crate::shell::send_frame(surface.wl_surface(), now);
+            }
         }
         if let Some(display) = self.display.as_mut() {
             let _ = display.flush_clients();
