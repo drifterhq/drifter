@@ -5,31 +5,36 @@ Work that is not yet done, after the 2026-10-01 daily-driver list. Done items le
 ## Must, before daily use
 
 - Run Drifter on bare metal: the RTX 5060 box on the proprietary NVIDIA driver. Check smoothness, real input, the touchpad, monitor hotplug, VT switching and the night light, which the VM cannot show. Fix what breaks. Nothing here has run outside the VM. The card is Blackwell, so it likely needs driver 570 or newer, from trixie backports or NVIDIA's own repo.
-- Screen sharing on pixman. Pixman only binds linear dmabufs. If the portal hands Drifter a GPU-tiled buffer, the copy fails. Test a share with no GPU, and fall back to a shared memory copy when the bind fails.
-- A `.deb` built with cargo-deb. It installs drifter, drifter-settings and drifter-session, the wayland-sessions entry, /etc/pam.d/drifter, the portal configs, and the art, fonts and default config in /usr/share/drifter. Depends: pipewire, wireplumber, xdg-desktop-portal-wlr, libseat. Recommends: network-manager-gnome, blueman.
-- A signed apt repo on GitHub Pages, so `apt install drifter` and `apt upgrade` work.
+- A signed apt repo on GitHub Pages, so `apt install drifter` and `apt upgrade` work. The `.deb` itself is done: `scripts/build-deb.sh`.
 - Ship xwayland-satellite in the repo if trixie does not have it, so X11 apps work.
 
-## Soon
+## Check on the Pixelbook
 
-- WiFi and Bluetooth pages in Settings, over D-Bus to NetworkManager and BlueZ. nm-applet and blueman now come in through XDG autostart.
-- USB disk automount through udisks.
+The 2026-10-05 night-two work ran only on the VM, with fake radios.
+
+- Wi-Fi page on a real card: join with a password, leave, forget, the switch.
+- Bluetooth page with a real device: search, pair, connect, remove.
+- Refresh rate and resolution on eDP-1, and wlr-randr and kanshi there.
+- A real USB stick: it opens and the note opens the folder.
+- Sticky keys, reduce motion and large text in daily use.
+
+## Gaps found 2026-10-05
+
+- Bluetooth pairing that needs a PIN or a passkey, like keyboards and phones, needs an agent. Blueman's applet is one. Settings pairs Just Works devices by itself.
+- The Wi-Fi page has no hidden networks and no enterprise (802.1X) networks.
+- Pixman writes a screen copy by hand only into a linear or implicit-modifier dmabuf. An explicitly tiled one still fails.
+- wlr-output-management changes last until the config is next saved or reloaded. Flipped transforms are refused. Adaptive sync is not offered.
+- The hot corner frames all windows. With one window that fits at zoom 1 it does not zoom out at all.
 
 ## Settings gaps
 
-From the 2026-10-02 audit. WiFi and Bluetooth are under Soon.
+From the 2026-10-02 audit.
 
-- Refresh rate under Displays, from the modes each monitor offers.
 - Mirror mode under Displays. Today monitors only sit side by side.
-- An Accessibility page: large text, high contrast, reduce motion and sticky keys.
-- A power profile under Power, saver or performance, through power-profiles-daemon. Battery details there too.
 - A Users page to change your password.
-- Screenshot options: the save folder and the file format.
 
 ## Wayland protocols
 
-- wlr-foreign-toplevel-management, so waybar and docks can focus, close and minimize windows. The read-only ext list is done.
-- wlr-output-management, for kanshi and wlr-randr.
 - linux-drm-syncobj, presentation-time and tearing-control, against stutter in games and video. NVIDIA needs syncobj most.
 - xdg-foreign, xdg-dialog, security-context and single-pixel-buffer. Portals and Flatpak use these.
 
@@ -41,6 +46,4 @@ From the 2026-10-02 audit. WiFi and Bluetooth are under Soon.
 
 ## Deferred
 
-- Saved camera presets. A coordinate plus a zoom level, bound to a keyboard shortcut and optionally a launcher button.
-- Moving windows directly in the overview.
 - A subtle grid or coordinate system shown when zoomed out.
