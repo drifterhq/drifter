@@ -40,6 +40,7 @@ enum Job {
     Key(Key),
     Read,
     Set(f64),
+    Light(f64),
     Mute,
 }
 
@@ -63,6 +64,10 @@ impl Media {
 
     pub fn set_volume(&self, level: f64) {
         let _ = self.jobs.send(Job::Set(level.clamp(0.0, 1.0)));
+    }
+
+    pub fn set_brightness(&self, level: f64) {
+        let _ = self.jobs.send(Job::Light(level.clamp(0.0, 1.0)));
     }
 
     pub fn toggle_mute(&self) {
@@ -100,6 +105,11 @@ fn serve(jobs: Receiver<Job>, readings: LoopSender<Heard>) {
                 let _ = Command::new("wpctl").args(["set-mute", SINK, "0"]).status();
                 let reading = volume(SINK, &["set-volume"], &format!("{level:.2}"));
                 send(&readings, reading, false);
+                continue;
+            }
+            Job::Light(_) if matches!(waiting.front(), Some(Job::Light(_))) => continue,
+            Job::Light(level) => {
+                send(&readings, light_at(level), false);
                 continue;
             }
             Job::Mute => {
@@ -168,6 +178,20 @@ fn volume(target: &str, verb: &[&str], amount: &str) -> Option<Reading> {
 fn brightness(step: f64) -> Option<Reading> {
     let light = drifter_core::system::backlight()?;
     let value = light.step(step);
+    if let Err(error) = set_brightness(&light.name, value) {
+        eprintln!("drifter: cannot set the brightness: {error}");
+        return None;
+    }
+    Some(Reading {
+        gauge: Gauge::Brightness,
+        level: f64::from(value) / f64::from(light.most.max(1)),
+        muted: false,
+    })
+}
+
+fn light_at(level: f64) -> Option<Reading> {
+    let light = drifter_core::system::backlight()?;
+    let value = light.raw(level);
     if let Err(error) = set_brightness(&light.name, value) {
         eprintln!("drifter: cannot set the brightness: {error}");
         return None;

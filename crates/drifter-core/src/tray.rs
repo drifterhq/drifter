@@ -52,6 +52,12 @@ impl Tray {
         Rect::new(Vec2::new(x, self.centered(band, size.y)), size)
     }
 
+    pub fn left_of(&self, band: Rect, right: f64) -> Rect {
+        let size = Vec2::splat(self.button);
+        let x = right - self.button_gap - size.x;
+        Rect::new(Vec2::new(x, self.centered(band, size.y)), size)
+    }
+
     pub fn on_power(&self, band: Rect, pointer: Vec2) -> bool {
         self.power_rect(band).contains(pointer)
     }

@@ -1,4 +1,5 @@
 use crate::geom::{Rect, Vec2};
+use crate::hud::Gauge;
 use crate::image::Image;
 use crate::paint::Canvas;
 use crate::text::Font;
@@ -51,6 +52,43 @@ pub fn paint_speaker(side: u32, level: f64, muted: bool, color: [u8; 3]) -> Imag
         }
     }
     canvas.image
+}
+
+pub fn paint_sun(side: u32, color: [u8; 3]) -> Image {
+    let side = side.max(8);
+    let size = f64::from(side);
+    let mut canvas = Canvas::new(side, side);
+    let center = Vec2::splat(size / 2.0);
+    canvas.circle(center, size * 0.2, color, 1.0);
+    let thick = (size * 0.085).max(1.2);
+    for ray in 0..8 {
+        let angle = f64::from(ray) * std::f64::consts::FRAC_PI_4;
+        let way = Vec2::new(angle.cos(), angle.sin());
+        segment(
+            &mut canvas.image,
+            center + way * (size * 0.32),
+            center + way * (size * 0.45),
+            thick,
+            color,
+        );
+    }
+    canvas.image
+}
+
+fn segment(image: &mut Image, from: Vec2, to: Vec2, thick: f64, color: [u8; 3]) {
+    let along = to - from;
+    let long = along.length().max(0.001);
+    for y in 0..image.height {
+        for x in 0..image.width {
+            let p = Vec2::new(f64::from(x) + 0.5, f64::from(y) + 0.5) - from;
+            let t = ((p.x * along.x + p.y * along.y) / (long * long)).clamp(0.0, 1.0);
+            let away = (p - along * t).length();
+            let ink = (thick / 2.0 - away + 0.5).clamp(0.0, 1.0);
+            if ink > 0.0 {
+                put(image, x, y, color, ink);
+            }
+        }
+    }
 }
 
 fn put(image: &mut Image, x: u32, y: u32, color: [u8; 3], ink: f64) {
@@ -159,18 +197,24 @@ impl Panel {
         )
     }
 
-    pub fn buttons(&self) -> [Rect; 2] {
+    pub fn buttons(&self, gauge: Gauge) -> Vec<(Rect, Hit)> {
         let top = self.pad + self.row + 10.0;
         let gap = 8.0;
-        let width = (self.size.x - self.pad * 2.0 - gap) / 2.0;
         let tall = self.size.y - top - self.pad;
-        [
-            Rect::new(Vec2::new(self.pad, top), Vec2::new(width, tall)),
-            Rect::new(
-                Vec2::new(self.pad + width + gap, top),
-                Vec2::new(width, tall),
-            ),
-        ]
+        let whole = self.size.x - self.pad * 2.0;
+        match gauge {
+            Gauge::Volume => {
+                let width = (whole - gap) / 2.0;
+                vec![
+                    (Rect::new(Vec2::new(self.pad, top), Vec2::new(width, tall)), Hit::Mute),
+                    (
+                        Rect::new(Vec2::new(self.pad + width + gap, top), Vec2::new(width, tall)),
+                        Hit::Settings,
+                    ),
+                ]
+            }
+            _ => vec![(Rect::new(Vec2::new(self.pad, top), Vec2::new(whole, tall)), Hit::Settings)],
+        }
     }
 
     pub fn level_at(&self, x: f64) -> f64 {
@@ -179,7 +223,7 @@ impl Panel {
         (along.clamp(0.0, 1.0) * 100.0).round() / 100.0
     }
 
-    pub fn hit(&self, inside: Vec2) -> Option<Hit> {
+    pub fn hit(&self, gauge: Gauge, inside: Vec2) -> Option<Hit> {
         let track = self.track();
         let grab = Rect::new(
             track.origin - Vec2::new(10.0, 12.0),
@@ -188,23 +232,22 @@ impl Panel {
         if grab.contains(inside) {
             return Some(Hit::Level(self.level_at(inside.x)));
         }
-        let [mute, settings] = self.buttons();
-        if mute.contains(inside) {
-            return Some(Hit::Mute);
-        }
-        if settings.contains(inside) {
-            return Some(Hit::Settings);
-        }
-        None
+        self.buttons(gauge)
+            .into_iter()
+            .find(|(rect, _)| rect.contains(inside))
+            .map(|(_, hit)| hit)
     }
 
-    pub fn paint(&self, level: f64, muted: bool, font: Option<&Font>) -> Image {
+    pub fn paint(&self, gauge: Gauge, level: f64, muted: bool, font: Option<&Font>) -> Image {
         let mut canvas = Canvas::new(self.size.x as u32, self.size.y as u32);
         let all = Rect::new(Vec2::ZERO, self.size);
         canvas.round_rect(all, self.radius, self.back, self.back_alpha);
 
         let icon = self.icon();
-        let glyph = paint_speaker(icon.size.x as u32, level, muted, self.ink);
+        let glyph = match gauge {
+            Gauge::Brightness => paint_sun(icon.size.x as u32, self.ink),
+            _ => paint_speaker(icon.size.x as u32, level, muted, self.ink),
+        };
         canvas.stamp(&glyph, icon.origin, 1.0);
 
         let track = self.track();
@@ -217,9 +260,10 @@ impl Panel {
         canvas.circle(knob + Vec2::new(0.0, 1.0), 8.5, [0, 0, 0], 0.3);
         canvas.circle(knob, 8.0, [255, 255, 255], 1.0);
 
-        let [mute, settings] = self.buttons();
-        canvas.round_rect(mute, 7.0, self.button, 1.0);
-        canvas.round_rect(settings, 7.0, self.button, 1.0);
+        let buttons = self.buttons(gauge);
+        for (rect, _) in &buttons {
+            canvas.round_rect(*rect, 7.0, self.button, 1.0);
+        }
 
         if let Some(font) = font {
             let words = format!("{}%", (level * 100.0).round() as i64);
@@ -229,10 +273,13 @@ impl Panel {
                 track.center().y - f64::from(reading.height) / 2.0,
             );
             canvas.stamp(&reading, at, 1.0);
-            for (rect, label) in [
-                (mute, if muted { "Unmute" } else { "Mute" }),
-                (settings, "Sound Settings"),
-            ] {
+            for (rect, hit) in buttons {
+                let label = match (hit, gauge) {
+                    (Hit::Mute, _) if muted => "Unmute",
+                    (Hit::Mute, _) => "Mute",
+                    (_, Gauge::Brightness) => "Display Settings",
+                    _ => "Sound Settings",
+                };
                 let text = font.paint(label, self.ink);
                 canvas.stamp(&text, rect.center() - text.size() / 2.0, 1.0);
             }
@@ -289,21 +336,37 @@ mod tests {
     fn the_track_sets_the_level_from_end_to_end() {
         let panel = Panel::default();
         let track = panel.track();
-        let at = |x: f64| panel.hit(Vec2::new(x, track.center().y));
+        let at = |x: f64| panel.hit(Gauge::Volume, Vec2::new(x, track.center().y));
         assert_eq!(at(track.origin.x - 5.0), Some(Hit::Level(0.0)));
         assert_eq!(at(track.max().x + 5.0), Some(Hit::Level(1.0)));
         assert_eq!(at(track.center().x), Some(Hit::Level(0.5)));
-        let [mute, settings] = panel.buttons();
-        assert_eq!(panel.hit(mute.center()), Some(Hit::Mute));
-        assert_eq!(panel.hit(settings.center()), Some(Hit::Settings));
-        assert_eq!(panel.hit(Vec2::new(2.0, 2.0)), None);
+        let buttons = panel.buttons(Gauge::Volume);
+        assert_eq!(panel.hit(Gauge::Volume, buttons[0].0.center()), Some(Hit::Mute));
+        assert_eq!(panel.hit(Gauge::Volume, buttons[1].0.center()), Some(Hit::Settings));
+        assert_eq!(panel.hit(Gauge::Volume, Vec2::new(2.0, 2.0)), None);
+        let light = panel.buttons(Gauge::Brightness);
+        assert_eq!(light.len(), 1, "brightness has no mute");
+        assert_eq!(panel.hit(Gauge::Brightness, buttons[0].0.center()), Some(Hit::Settings));
+        assert_eq!(
+            panel.hit(Gauge::Brightness, Vec2::new(track.center().x, track.center().y)),
+            Some(Hit::Level(0.5))
+        );
+    }
+
+    #[test]
+    fn the_sun_has_a_middle_and_rays() {
+        let sun = paint_sun(36, [255; 3]);
+        let at = |x: u32, y: u32| sun.rgba[((y * sun.width + x) * 4 + 3) as usize];
+        assert!(at(18, 18) > 200, "the middle is solid");
+        assert!(at(18, 2) > 100, "a ray reaches up");
+        assert!(at(18, 9) < 50, "a gap between the middle and the ray");
     }
 
     #[test]
     fn the_buttons_sit_inside_the_panel_below_the_track() {
         let panel = Panel::default();
         let whole = Rect::new(Vec2::ZERO, panel.size);
-        for button in panel.buttons() {
+        for (button, _) in panel.buttons(Gauge::Volume).into_iter().chain(panel.buttons(Gauge::Brightness)) {
             assert!(button.origin.y > panel.track().max().y + 8.0);
             assert!(button.max().x <= whole.max().x && button.max().y <= whole.max().y);
             assert!(button.size.y >= 24.0, "a button is big enough to hit");

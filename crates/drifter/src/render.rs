@@ -271,7 +271,8 @@ enum Grab {
     },
 }
 
-struct SoundPanel {
+struct GaugePanel {
+    gauge: drifter_core::hud::Gauge,
     rect: Rect,
     art: TextureBuffer<Tex>,
     shown: (i64, bool),
@@ -416,7 +417,10 @@ pub struct State {
     volume: Option<(f64, bool)>,
     volume_read: Option<Instant>,
     speaker: Option<(TextureBuffer<Tex>, (usize, bool))>,
-    sound_panel: Option<SoundPanel>,
+    light: Option<f64>,
+    light_read: Option<Instant>,
+    sun: Option<TextureBuffer<Tex>>,
+    gauge_panel: Option<GaugePanel>,
     lock_big: Option<Font>,
     lock_small: Option<Font>,
     verify: smithay::reexports::calloop::channel::Sender<(u64, crate::auth::Verdict)>,
@@ -598,7 +602,7 @@ impl State {
         if let Some(open) = self.popover.as_ref().filter(|_| live) {
             elements.push(Skin::Texture(element(&open.art, open.rect, 1.0)));
         }
-        if let Some(panel) = self.sound_panel.as_ref().filter(|_| live) {
+        if let Some(panel) = self.gauge_panel.as_ref().filter(|_| live) {
             elements.push(Skin::Texture(element(&panel.art, panel.rect, 1.0)));
         }
         if let Some((art, rect)) = self.tip.as_ref().filter(|_| live) {
@@ -660,6 +664,9 @@ impl State {
             elements.push(Skin::Texture(element(buffer, *rect, 1.0)));
         }
         if let (Some(rect), Some((buffer, _))) = (self.speaker_rect(), self.speaker.as_ref()) {
+            elements.push(Skin::Texture(element(buffer, rect, 1.0)));
+        }
+        if let (Some(rect), Some(buffer)) = (self.sun_rect(), self.sun.as_ref()) {
             elements.push(Skin::Texture(element(buffer, rect, 1.0)));
         }
         if let (Some(band), Some(buffer)) = (self.tray_band(), self.power.as_ref()) {
@@ -953,6 +960,7 @@ impl State {
         self.wind_the_clock();
         self.wind_the_stats();
         self.wind_the_volume();
+        self.wind_the_light();
 
         let scale = self.heads[at].scale;
         let shown: Vec<Shown> = self
@@ -1185,7 +1193,7 @@ impl State {
             return None;
         }
         if self
-            .sound_panel
+            .gauge_panel
             .as_ref()
             .is_some_and(|panel| panel.rect.contains(self.pointer))
         {

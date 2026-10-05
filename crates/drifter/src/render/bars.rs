@@ -1,4 +1,5 @@
 use super::*;
+use drifter_core::hud::Gauge;
 
 impl State {
     pub(super) fn dock_band(&self) -> Option<Rect> {
@@ -274,12 +275,23 @@ impl State {
         if let Some(rect) = self
             .speaker_rect()
             .filter(|rect| rect.contains(self.pointer))
-            && self.sound_panel.is_none()
+            && self.gauge_panel.is_none()
         {
             let words = match self.volume {
                 Some((_, true)) => "Volume: muted".to_string(),
                 Some((level, false)) => format!("Volume: {}%", (level * 100.0).round() as i64),
                 None => "Volume".to_string(),
+            };
+            self.show_tip(&words, rect, true);
+            return;
+        }
+
+        if let Some(rect) = self.sun_rect().filter(|rect| rect.contains(self.pointer))
+            && self.gauge_panel.is_none()
+        {
+            let words = match self.light {
+                Some(level) => format!("Brightness: {}%", (level * 100.0).round() as i64),
+                None => "Brightness".to_string(),
             };
             self.show_tip(&words, rect, true);
             return;
@@ -374,8 +386,12 @@ impl State {
                         media.toggle_mute();
                     }
                 }
-                _ => self.toggle_sound_panel(),
+                _ => self.toggle_gauge_panel(Gauge::Volume),
             }
+            return true;
+        }
+        if self.sun_rect().is_some_and(|rect| rect.contains(self.pointer)) {
+            self.toggle_gauge_panel(Gauge::Brightness);
             return true;
         }
         if self.tray.on_power(band, self.pointer) {
@@ -404,8 +420,10 @@ impl State {
 
     pub(super) fn hear(&mut self, heard: crate::media::Heard) {
         let reading = heard.reading;
-        if reading.gauge == drifter_core::hud::Gauge::Volume {
-            self.take_volume(reading.level.min(1.0), reading.muted);
+        match reading.gauge {
+            Gauge::Volume => self.take_volume(reading.level.min(1.0), reading.muted),
+            Gauge::Brightness => self.take_light(reading.level.min(1.0)),
+            Gauge::Microphone => {}
         }
         if heard.show {
             self.show_hud(reading);
@@ -426,8 +444,74 @@ impl State {
                 Err(error) => eprintln!("drifter: {error}"),
             }
         }
-        if self.sound_panel.is_some() {
-            self.paint_sound_panel();
+        if self.gauge_panel.as_ref().is_some_and(|panel| panel.gauge == Gauge::Volume) {
+            self.paint_gauge_panel(Gauge::Volume);
+        }
+    }
+
+    fn take_light(&mut self, level: f64) {
+        self.light = Some(level);
+        if self.sun.is_none() {
+            let image = drifter_core::volume::paint_sun(self.tray.button as u32, self.tray.ink);
+            match upload(&mut self.renderer, Some(&image), "sun") {
+                Ok(Some(buffer)) => self.sun = Some(buffer),
+                Ok(None) => {}
+                Err(error) => eprintln!("drifter: {error}"),
+            }
+        }
+        if self.gauge_panel.as_ref().is_some_and(|panel| panel.gauge == Gauge::Brightness) {
+            self.paint_gauge_panel(Gauge::Brightness);
+        }
+    }
+
+    pub(super) fn wind_the_light(&mut self) {
+        if !self.drawers[Edge::Top.index()].visible() {
+            return;
+        }
+        if self
+            .light_read
+            .is_some_and(|at| at.elapsed() < Duration::from_secs(3))
+        {
+            return;
+        }
+        self.light_read = Some(Instant::now());
+        match drifter_core::system::backlight() {
+            Some(light) => {
+                if self.light != Some(light.level()) {
+                    self.take_light(light.level());
+                }
+            }
+            None => {
+                self.light = None;
+                self.sun = None;
+            }
+        }
+    }
+
+    pub(super) fn sun_rect(&self) -> Option<Rect> {
+        self.sun.as_ref()?;
+        self.light?;
+        let band = self.tray_band()?;
+        let right = self
+            .speaker_rect()
+            .or_else(|| self.clock.as_ref().map(|(_, _, rect)| *rect))
+            .unwrap_or_else(|| self.tray.power_rect(band))
+            .origin
+            .x;
+        Some(self.tray.left_of(band, right))
+    }
+
+    fn gauge_rect(&self, gauge: Gauge) -> Option<Rect> {
+        match gauge {
+            Gauge::Brightness => self.sun_rect(),
+            _ => self.speaker_rect(),
+        }
+    }
+
+    fn gauge_level(&self, gauge: Gauge) -> Option<(f64, bool)> {
+        match gauge {
+            Gauge::Brightness => self.light.map(|level| (level, false)),
+            _ => self.volume,
         }
     }
 
@@ -455,20 +539,20 @@ impl State {
         Some(self.tray.speaker_rect(band, clock))
     }
 
-    fn paint_sound_panel(&mut self) {
-        let Some((level, muted)) = self.volume else {
+    fn paint_gauge_panel(&mut self, gauge: Gauge) {
+        let Some((level, muted)) = self.gauge_level(gauge) else {
             return;
         };
         let look = drifter_core::volume::Panel::default();
         let shown = ((level * 100.0).round() as i64, muted);
         if self
-            .sound_panel
+            .gauge_panel
             .as_ref()
-            .is_some_and(|panel| panel.shown == shown)
+            .is_some_and(|panel| panel.shown == shown && panel.gauge == gauge)
         {
             return;
         }
-        let image = look.paint(level, muted, self.font.as_ref());
+        let image = look.paint(gauge, level, muted, self.font.as_ref());
         let art = match upload(&mut self.renderer, Some(&image), "sound panel") {
             Ok(Some(art)) => art,
             Ok(None) => return,
@@ -477,16 +561,17 @@ impl State {
                 return;
             }
         };
-        match self.sound_panel.as_mut() {
+        match self.gauge_panel.as_mut().filter(|panel| panel.gauge == gauge) {
             Some(panel) => {
                 panel.art = art;
                 panel.shown = shown;
             }
             None => {
-                let Some(under) = self.speaker_rect() else {
+                let Some(under) = self.gauge_rect(gauge) else {
                     return;
                 };
-                self.sound_panel = Some(SoundPanel {
+                self.gauge_panel = Some(GaugePanel {
+                    gauge,
                     rect: look.rect(under, self.screen),
                     art,
                     shown,
@@ -497,44 +582,47 @@ impl State {
         self.kick_now();
     }
 
-    pub(super) fn toggle_sound_panel(&mut self) {
-        match self.sound_panel.take() {
-            Some(_) => self.kick_now(),
-            None => {
+    pub(super) fn toggle_gauge_panel(&mut self, gauge: Gauge) {
+        match self.gauge_panel.take() {
+            Some(panel) if panel.gauge == gauge => self.kick_now(),
+            _ => {
                 self.popover = None;
-                self.paint_sound_panel();
-                if let Some(media) = self.media.as_ref() {
+                self.paint_gauge_panel(gauge);
+                if gauge == Gauge::Volume
+                    && let Some(media) = self.media.as_ref()
+                {
                     media.read();
                 }
             }
         }
     }
 
-    pub(super) fn press_sound_panel(&mut self, code: u32) -> bool {
+    pub(super) fn press_gauge_panel(&mut self, code: u32) -> bool {
         use drifter_core::volume::Hit;
 
-        let Some(panel) = self.sound_panel.as_ref() else {
+        let Some(panel) = self.gauge_panel.as_ref() else {
             return false;
         };
+        let gauge = panel.gauge;
         if !panel.rect.contains(self.pointer) {
-            let on_speaker = self
-                .speaker_rect()
+            let on_button = self
+                .gauge_rect(gauge)
                 .is_some_and(|rect| rect.contains(self.pointer));
-            self.sound_panel = None;
+            self.gauge_panel = None;
             self.kick_now();
-            return on_speaker;
+            return on_button;
         }
         if code != BTN_LEFT {
             return true;
         }
         let inside = self.pointer - panel.rect.origin;
         let look = drifter_core::volume::Panel::default();
-        match look.hit(inside) {
+        match look.hit(gauge, inside) {
             Some(Hit::Level(level)) => {
-                if let Some(panel) = self.sound_panel.as_mut() {
+                if let Some(panel) = self.gauge_panel.as_mut() {
                     panel.held = true;
                 }
-                self.set_volume(level);
+                self.set_gauge(gauge, level);
             }
             Some(Hit::Mute) => {
                 if let Some(media) = self.media.as_ref() {
@@ -542,27 +630,44 @@ impl State {
                 }
             }
             Some(Hit::Settings) => {
-                self.sound_panel = None;
-                self.open_settings_at("sound");
+                self.gauge_panel = None;
+                self.open_settings_at(match gauge {
+                    Gauge::Brightness => "displays",
+                    _ => "sound",
+                });
             }
             None => {}
         }
         true
     }
 
-    pub(super) fn drag_sound_panel(&mut self) -> bool {
-        let Some(panel) = self.sound_panel.as_ref().filter(|panel| panel.held) else {
+    pub(super) fn drag_gauge_panel(&mut self) -> bool {
+        let Some(panel) = self.gauge_panel.as_ref().filter(|panel| panel.held) else {
             return false;
         };
+        let gauge = panel.gauge;
         let inside = self.pointer - panel.rect.origin;
         let level = drifter_core::volume::Panel::default().level_at(inside.x);
-        self.set_volume(level);
+        self.set_gauge(gauge, level);
         true
     }
 
-    pub(super) fn release_sound_panel(&mut self) {
-        if let Some(panel) = self.sound_panel.as_mut() {
+    pub(super) fn release_gauge_panel(&mut self) {
+        if let Some(panel) = self.gauge_panel.as_mut() {
             panel.held = false;
+        }
+    }
+
+    fn set_gauge(&mut self, gauge: Gauge, level: f64) {
+        match gauge {
+            Gauge::Brightness => {
+                let level = level.max(0.05);
+                if let Some(media) = self.media.as_ref() {
+                    media.set_brightness(level);
+                }
+                self.take_light(level);
+            }
+            _ => self.set_volume(level),
         }
     }
 
@@ -573,28 +678,28 @@ impl State {
         self.take_volume(level, false);
     }
 
-    pub(super) fn scroll_sound(&mut self, steps: f64) -> bool {
-        let over = self
-            .speaker_rect()
-            .is_some_and(|rect| rect.contains(self.pointer))
-            || self
-                .sound_panel
-                .as_ref()
-                .is_some_and(|panel| panel.rect.contains(self.pointer));
-        if !over || steps == 0.0 {
-            return over;
+    pub(super) fn scroll_gauges(&mut self, steps: f64) -> bool {
+        let on = |rect: Option<Rect>| rect.is_some_and(|rect| rect.contains(self.pointer));
+        let gauge = match self.gauge_panel.as_ref() {
+            Some(panel) if panel.rect.contains(self.pointer) => panel.gauge,
+            _ if on(self.speaker_rect()) => Gauge::Volume,
+            _ if on(self.sun_rect()) => Gauge::Brightness,
+            _ => return false,
+        };
+        if steps == 0.0 {
+            return true;
         }
-        let Some((level, _)) = self.volume else {
+        let Some((level, _)) = self.gauge_level(gauge) else {
             return true;
         };
         let step = drifter_core::volume::STEP * steps.signum();
         let wanted = ((level + step) * 20.0).round() / 20.0;
-        self.set_volume(wanted.clamp(0.0, 1.0));
+        self.set_gauge(gauge, wanted.clamp(0.0, 1.0));
         true
     }
 
     pub(super) fn over_own_parts(&self) -> bool {
-        self.sound_panel
+        self.gauge_panel
             .as_ref()
             .is_some_and(|panel| panel.rect.contains(self.pointer))
             || self.prompt_art.is_some()
@@ -614,10 +719,10 @@ impl State {
     }
 
     pub(super) fn tray_layout(&self, band: Rect) -> (usize, bool) {
-        let stop = match (self.speaker_rect(), self.clock.as_ref()) {
-            (Some(rect), _) => rect.origin.x,
-            (None, Some((_, _, rect))) => rect.origin.x,
-            (None, None) => self.tray.power_rect(band).origin.x,
+        let stop = match (self.sun_rect(), self.speaker_rect(), self.clock.as_ref()) {
+            (Some(rect), _, _) | (None, Some(rect), _) => rect.origin.x,
+            (None, None, Some((_, _, rect))) => rect.origin.x,
+            (None, None, None) => self.tray.power_rect(band).origin.x,
         };
         let stats = self.stats.as_ref().map(|(_, size)| size.x);
         self.tray.layout(band, stop, self.icons.len(), stats)
