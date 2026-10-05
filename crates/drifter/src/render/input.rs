@@ -693,10 +693,27 @@ impl State {
                     let free_shift = *action == Action::Switch && !combo.mods.shift;
                     combo.matches(mods, &names, free_shift)
                 });
-                match found {
-                    Some((action, _)) => {
+                if let Some((action, _)) = found {
+                    state.swallowed.push(code);
+                    return FilterResult::Intercept(Shortcut::Do(*action, held.shift));
+                }
+                if let Some((slot, _)) = state
+                    .place_saves
+                    .iter()
+                    .find(|(_, combo)| combo.matches(mods, &names, false))
+                {
+                    state.swallowed.push(code);
+                    return FilterResult::Intercept(Shortcut::SavePlace(*slot));
+                }
+                let place = state.places.iter().position(|(_, combo)| {
+                    combo
+                        .as_ref()
+                        .is_some_and(|combo| combo.matches(mods, &names, false))
+                });
+                match place {
+                    Some(at) => {
                         state.swallowed.push(code);
-                        FilterResult::Intercept(Shortcut::Do(*action, held.shift))
+                        FilterResult::Intercept(Shortcut::Place(at))
                     }
                     None => FilterResult::Forward,
                 }
@@ -704,6 +721,9 @@ impl State {
         );
         match shortcut {
             Some(Shortcut::Do(action, shift)) => self.run_shortcut(action, shift),
+            Some(Shortcut::Place(at)) if self.lock.is_none() => self.go_to_place(at),
+            Some(Shortcut::SavePlace(slot)) if self.lock.is_none() => self.save_place(slot),
+            Some(Shortcut::Place(_) | Shortcut::SavePlace(_)) => {}
             Some(Shortcut::Vt(vt)) => self.change_vt(vt),
             Some(Shortcut::Media(key)) => {
                 if let Some(media) = self.media.as_ref() {

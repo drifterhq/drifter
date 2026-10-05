@@ -285,6 +285,7 @@ pub struct Model {
     pub shots: crate::config::Shots,
     pub profile: Option<Profiles>,
     pub cells: Vec<(String, String)>,
+    pub places: Vec<crate::place::Place>,
     pub wifi: Option<crate::net::Wifi>,
     pub blue: Option<crate::net::Blue>,
     pub net_note: Option<String>,
@@ -446,6 +447,7 @@ impl Model {
             shots: config.screenshots.clone(),
             profile: None,
             cells: Vec::new(),
+            places: config.place.clone(),
             wifi: None,
             blue: None,
             net_note: None,
@@ -859,6 +861,7 @@ impl Model {
                     ),
                     thumbs: None,
                 }];
+                groups.push(self.place_group());
                 groups.extend(self.motion_groups());
                 groups
             }
@@ -1826,6 +1829,16 @@ impl Model {
                 }
             }
         }
+        if self.places != before.places {
+            let mut list = toml_edit::ArrayOfTables::new();
+            for place in &self.places {
+                list.push(crate::place::table(place));
+            }
+            doc.remove("place");
+            if !list.is_empty() {
+                doc.insert("place", toml_edit::Item::ArrayOfTables(list));
+            }
+        }
         let monitors = self.monitor_entries();
         if monitors != before.monitor_entries() {
             let mut list = toml_edit::ArrayOfTables::new();
@@ -2026,6 +2039,7 @@ pub enum Id {
     Tap,
     ThreeTap,
     Swipe,
+    Place(usize),
     WifiOn,
     Net(usize),
     BlueOn,
@@ -3825,6 +3839,36 @@ mod tests {
         assert_eq!(groups[1].header, Some("My devices"));
         assert_eq!(groups[1].rows.len(), 2);
         assert_eq!(groups[2].rows.len(), 2, "the search row and the unpaired pad");
+    }
+
+    #[test]
+    fn a_place_can_go_in_the_dock_and_be_removed() {
+        let text = "[[place]]\nname = \"Place 1\"\nx = 10.0\ny = 20.0\nzoom = 0.5\nkey = \"camera+1\"\n\n[[place]]\nname = \"Place 2\"\nx = 30.0\ny = 40.0\nzoom = 1.0\n";
+        let before = model(&config(text));
+        assert_eq!(before.places.len(), 2);
+        let row = before
+            .groups(Section::Desktop)
+            .into_iter()
+            .flat_map(|group| group.rows)
+            .find(|row| row.id == Id::Place(0))
+            .unwrap();
+        assert_eq!(row.detail.as_deref(), Some("Camera key + 1, zoom 50%"));
+
+        let mut after = before.clone();
+        after.press(Id::Place(0), 0);
+        let out = after.write(&before, text).unwrap();
+        let back = Config::parse(&out).unwrap();
+        back.validate().unwrap();
+        assert_eq!(back.dock.pinned.len(), 1);
+        assert_eq!(back.dock.pinned[0].command(), Some("drifter:place Place 1"));
+
+        let mut later = model(&back);
+        later.press(Id::Place(0), 1);
+        let out = later.write(&model(&back), &out).unwrap();
+        let back = Config::parse(&out).unwrap();
+        assert_eq!(back.place.len(), 1);
+        assert_eq!(back.place[0].name, "Place 2");
+        assert!(back.dock.pinned.is_empty(), "removing a place takes its dock button too");
     }
 
     #[test]

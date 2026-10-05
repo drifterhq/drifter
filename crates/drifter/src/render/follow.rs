@@ -63,6 +63,103 @@ impl State {
             .unwrap_or_default();
     }
 
+    pub(super) fn set_places(
+        &mut self,
+        places: &[drifter_core::place::Place],
+        camera: drifter_core::Modifier,
+    ) {
+        use drifter_core::place;
+        use drifter_core::shortcut::Combo;
+        let resolve = |text: &str| Combo::parse(text).ok().flatten().map(|combo| combo.resolve(camera));
+        self.places = places
+            .iter()
+            .map(|each| (each.clone(), each.key.as_deref().and_then(resolve)))
+            .collect();
+        self.place_saves = (1..=place::SLOTS)
+            .filter_map(|slot| resolve(&place::save_key(slot)).map(|combo| (slot, combo)))
+            .collect();
+    }
+
+    pub(super) fn go_to_place(&mut self, at: usize) {
+        let Some((place, _)) = self.places.get(at) else {
+            return;
+        };
+        let target = Camera::new(Vec2::new(place.x, place.y), place.zoom);
+        self.fly_to(target);
+        self.kick_now();
+    }
+
+    pub(super) fn go_to_named_place(&mut self, name: &str) -> bool {
+        match self.places.iter().position(|(place, _)| place.name == name) {
+            Some(at) => {
+                self.go_to_place(at);
+                true
+            }
+            None => false,
+        }
+    }
+
+    pub(super) fn save_place(&mut self, slot: usize) {
+        use drifter_core::place::{self, Place};
+        let name = place::slot_name(slot);
+        let key = self
+            .places
+            .iter()
+            .find(|(each, _)| each.name == name)
+            .map(|(each, _)| each.key.clone())
+            .unwrap_or_else(|| Some(place::go_key(slot)));
+        let saved = Place {
+            name: name.clone(),
+            x: self.camera.center.x,
+            y: self.camera.center.y,
+            zoom: self.camera.zoom,
+            key,
+        };
+        let path = self.config_path.clone();
+        let written = std::fs::read_to_string(&path)
+            .or_else(|error| match error.kind() {
+                std::io::ErrorKind::NotFound => Ok(String::new()),
+                _ => Err(error),
+            })
+            .map_err(|error| format!("cannot read {}: {error}", path.display()))
+            .and_then(|text| place::store(&text, &saved))
+            .and_then(|text| {
+                let fresh = path.with_extension("toml.new");
+                std::fs::write(&fresh, text)
+                    .and_then(|()| std::fs::rename(&fresh, &path))
+                    .map_err(|error| format!("cannot write {}: {error}", path.display()))
+            });
+        let (summary, body) = match written {
+            Ok(()) => {
+                match self.places.iter_mut().find(|(each, _)| each.name == name) {
+                    Some((each, _)) => *each = saved,
+                    None => {
+                        let combo = drifter_core::shortcut::Combo::parse(&place::go_key(slot))
+                            .ok()
+                            .flatten()
+                            .map(|combo| combo.resolve(self.holds));
+                        self.places.push((saved, combo));
+                    }
+                }
+                (format!("{name} saved"), format!("The camera key and {slot} come back here."))
+            }
+            Err(error) => (format!("{name} not saved"), error),
+        };
+        if let Some(id) = self.notes_bus.as_ref().map(|bus| bus.next_id()) {
+            self.show_note(drifter_core::notify::Note {
+                id,
+                app: "Drifter".to_string(),
+                summary,
+                body,
+                actions: Vec::new(),
+                expire: Some(drifter_core::notify::DEFAULT_MS),
+                asked: -1,
+                critical: false,
+                icon: None,
+            });
+        }
+    }
+
     pub(super) fn run_shortcut(&mut self, action: drifter_core::shortcut::Action, shift: bool) {
         use drifter_core::desktop::Role;
         use drifter_core::shortcut::Action;
@@ -261,6 +358,7 @@ impl State {
         self.power_rules = config.power;
         self.notify = config.notify;
         self.set_shortcuts(&config.keys, config.input.modifier);
+        self.set_places(&config.place, config.input.modifier);
         self.follow_looks(config);
 
         let heights = [config.drawers.top, config.drawers.bottom];

@@ -465,6 +465,8 @@ pub fn open(
         shot_wanted: false,
         drawers: [Drawer::new(Edge::Top), Drawer::new(Edge::Bottom)],
         tunables,
+        places: Vec::new(),
+        place_saves: Vec::new(),
         note_folders: std::collections::HashMap::new(),
         access: config.access,
         sticky: drifter_core::sticky::Sticky::default(),
@@ -485,6 +487,7 @@ pub fn open(
 
     let mut state = state;
     state.set_shortcuts(&config.keys, config.input.modifier);
+    state.set_places(&config.place, config.input.modifier);
     match live {
         true => state.scan_heads(),
         false => state.add_offscreen_head(virtual_size)?,

@@ -1554,3 +1554,42 @@ fn sticky_keys_hold_a_tapped_ctrl_for_the_next_key() {
     assert!(!ctrl(state), "only the next key gets ctrl");
     state.key_in(C, false, 10);
 }
+
+#[test]
+fn a_place_is_saved_with_the_keys_and_flown_back_to() {
+    const SUPER: u32 = 133;
+    const SHIFT: u32 = 50;
+    const THREE: u32 = 12;
+    let mut run = start("places", &Config::default(), None);
+    let folder = run.folder.clone();
+    let state = &mut run.screen.state;
+    state.config_path = folder.join("drifter.toml");
+    std::fs::write(&state.config_path, "[lock]\nafter = 9\n").unwrap();
+
+    let here = Camera::new(Vec2::new(5000.0, 3000.0), 0.5);
+    look_at(state, here);
+    for (code, pressed) in [(SUPER, true), (SHIFT, true), (THREE, true), (THREE, false), (SHIFT, false), (SUPER, false)] {
+        state.key_in(code, pressed, 1);
+    }
+    let saved = Config::load_from(&state.config_path).unwrap();
+    assert_eq!(saved.lock.after, 9, "the rest of the config stays");
+    assert_eq!(saved.place.len(), 1);
+    assert_eq!(saved.place[0].name, "Place 3");
+    assert_eq!((saved.place[0].x, saved.place[0].y, saved.place[0].zoom), (5000.0, 3000.0, 0.5));
+
+    look_at(state, Camera::new(Vec2::new(9000.0, 6000.0), 1.0));
+    for (code, pressed) in [(SUPER, true), (THREE, true), (THREE, false), (SUPER, false)] {
+        state.key_in(code, pressed, 2);
+    }
+    assert!(state.flight.is_some(), "the camera flies to the place");
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while state.flight.is_some() && Instant::now() < deadline {
+        state.steer();
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        (state.camera.center - here.center).length() < 1.0 && (state.camera.zoom - 0.5).abs() < 1e-6,
+        "the camera is back at the place: {:?}",
+        state.camera
+    );
+}

@@ -28,7 +28,19 @@ impl State {
 
         match slot {
             Slot::Pinned(index) => {
-                crate::apps::run(&self.pinned[index].0, &self.socket);
+                let place = self.pinned[index]
+                    .0
+                    .command()
+                    .and_then(drifter_core::place::from_dock)
+                    .map(str::to_string);
+                match place {
+                    Some(name) => {
+                        if !self.go_to_named_place(&name) {
+                            eprintln!("drifter: the dock names a place that is gone: {name}");
+                        }
+                    }
+                    None => crate::apps::run(&self.pinned[index].0, &self.socket),
+                }
             }
             Slot::Settings => self.open_settings(),
             Slot::Trash => {

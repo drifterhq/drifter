@@ -21,6 +21,7 @@ pub mod motion;
 pub mod night;
 pub mod notify;
 pub mod paint;
+pub mod place;
 pub mod power;
 pub mod prompt;
 pub mod screens;

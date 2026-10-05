@@ -196,6 +196,8 @@ struct Switch {
 
 enum Shortcut {
     Do(drifter_core::shortcut::Action, bool),
+    Place(usize),
+    SavePlace(usize),
     Media(crate::media::Key),
     Vt(i32),
     Swallow,
@@ -449,6 +451,8 @@ pub struct State {
     hud: Option<(TextureBuffer<Tex>, Rect, Instant)>,
     drawers: [Drawer; 2],
     tunables: Tunables,
+    places: Vec<(drifter_core::place::Place, Option<drifter_core::shortcut::Combo>)>,
+    place_saves: Vec<(usize, drifter_core::shortcut::Combo)>,
     note_folders: std::collections::HashMap<u32, PathBuf>,
     access: drifter_core::Access,
     sticky: drifter_core::sticky::Sticky,

@@ -918,6 +918,8 @@ pub struct Config {
     #[serde(default)]
     pub monitor: Vec<crate::screens::MonitorConfig>,
     #[serde(default)]
+    pub place: Vec<crate::place::Place>,
+    #[serde(default)]
     pub access: Access,
     #[serde(default)]
     pub screenshots: Shots,
@@ -1365,6 +1367,9 @@ impl Config {
         }
         for metric in &self.tray.metrics {
             crate::stats::Metric::parse(metric).map_err(ConfigError::Invalid)?;
+        }
+        for place in &self.place {
+            place.check().map_err(ConfigError::Invalid)?;
         }
         for (index, monitor) in self.monitor.iter().enumerate() {
             monitor.check().map_err(ConfigError::Invalid)?;

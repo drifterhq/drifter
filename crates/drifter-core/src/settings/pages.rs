@@ -20,6 +20,14 @@ pub const ASSETS: [(&str, &str, &str); 4] = [
     ("dock", "Dock art", "Drawn by Drifter"),
 ];
 
+pub fn place_button(name: &str) -> crate::config::Launch {
+    crate::config::Launch::Full {
+        app: None,
+        command: Some(crate::place::dock_command(name)),
+        icon: None,
+    }
+}
+
 pub const ASSET_FOR: [For; 4] = [For::Pointer, For::Font, For::WindowArt, For::DockArt];
 
 const SLEEP_MOST: f64 = 120.0;
@@ -544,6 +552,38 @@ impl Model {
         ]
     }
 
+    pub(super) fn place_group(&self) -> Group {
+        let rows = self
+            .places
+            .iter()
+            .enumerate()
+            .map(|(at, place)| {
+                let key = place
+                    .key
+                    .as_deref()
+                    .and_then(|key| Combo::parse(key).ok().flatten())
+                    .map(|combo| combo.shown())
+                    .unwrap_or_else(|| "No key".to_string());
+                let detail = format!("{key}, zoom {}%", (place.zoom * 100.0).round());
+                let docked = self.dock.contains(&place_button(&place.name));
+                let marks = match docked {
+                    true => vec![Mark::Text("Undock"), Mark::Minus],
+                    false => vec![Mark::Text("Dock"), Mark::Minus],
+                };
+                Row::new(Id::Place(at), &place.name, Control::Buttons(marks)).detail(&detail)
+            })
+            .collect();
+        Group {
+            header: Some("Places"),
+            rows,
+            footer: Some(
+                "Save the view with the camera key, Shift and a number from 1 to 9. The camera key and that number fly back to it."
+                    .into(),
+            ),
+            thumbs: None,
+        }
+    }
+
     pub(super) fn wifi_groups(&self) -> Vec<Group> {
         let Some(wifi) = &self.wifi else {
             return vec![Group {
@@ -1058,6 +1098,20 @@ impl Model {
                     (true, false, 0) => NetAsk::Connect(at),
                     (true, false, _) => NetAsk::Remove(at),
                 }));
+            }
+            (Id::Place(at), 0) if at < self.places.len() => {
+                let button = place_button(&self.places[at].name);
+                match self.dock.iter().position(|each| *each == button) {
+                    Some(found) => {
+                        self.dock.remove(found);
+                    }
+                    None => self.dock.push(button),
+                }
+            }
+            (Id::Place(at), _) if at < self.places.len() => {
+                let gone = self.places.remove(at);
+                let button = place_button(&gone.name);
+                self.dock.retain(|each| *each != button);
             }
             (Id::ShotFolder, 0) => return Some(Ask::Files(For::ShotFolder)),
             (Id::ShotFolder, _) => self.shots.folder = None,
