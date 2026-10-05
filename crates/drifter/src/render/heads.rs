@@ -176,7 +176,12 @@ impl State {
             })
             .collect();
         let want = (info.interface() == connector::Interface::Virtual).then_some(self.virtual_size);
-        let picked = mode::select(&modes, want)
+        let chosen = self
+            .monitors
+            .iter()
+            .find(|monitor| monitor.name == name)
+            .and_then(|monitor| monitor.mode.clone());
+        let picked = mode::pick(&modes, chosen.as_deref(), want)
             .ok_or_else(|| format!("connector {name} offered no usable mode"))?;
         let drm_mode = *info
             .modes()
@@ -288,6 +293,8 @@ impl State {
             place: Vec2::ZERO,
             camera: Camera::at_work_zoom(self.world / 2.0),
             flight: None,
+            modes: info.modes().to_vec(),
+            fit: want,
             drawers: [Drawer::new(Edge::Top), Drawer::new(Edge::Bottom)],
             screen,
             panels,
@@ -318,6 +325,33 @@ impl State {
             .filter(|(_, info)| {
                 info.state() == connector::State::Connected && !info.modes().is_empty()
             })
+            .collect();
+        let named = |info: &connector::Info| {
+            format!("{}-{}", info.interface().as_str(), info.interface_id())
+        };
+        let wanted_on = |name: &str| {
+            self.monitors
+                .iter()
+                .find(|monitor| monitor.name == name)
+                .is_none_or(|monitor| monitor.enabled)
+        };
+        let any_on = connected.iter().any(|(_, info)| wanted_on(&named(info)));
+        self.plugs = connected
+            .iter()
+            .map(|(_, info)| {
+                let name = named(info);
+                let (mm_w, mm_h) = info.size().unwrap_or((0, 0));
+                Plug {
+                    on: !any_on || wanted_on(&name),
+                    modes: core_modes(info.modes()),
+                    millimeters: (mm_w, mm_h),
+                    name,
+                }
+            })
+            .collect();
+        let connected: Vec<(connector::Handle, connector::Info)> = connected
+            .into_iter()
+            .filter(|(_, info)| !any_on || wanted_on(&named(info)))
             .collect();
 
         self.stash();
@@ -378,10 +412,67 @@ impl State {
         }
     }
 
+    pub(super) fn wants_rescan(&self) -> bool {
+        self.plugs.iter().any(|plug| {
+            let on = self
+                .monitors
+                .iter()
+                .find(|monitor| monitor.name == plug.name)
+                .is_none_or(|monitor| monitor.enabled);
+            on != plug.on
+        })
+    }
+
+    fn follow_modes(&mut self) {
+        for head in &mut self.heads {
+            if head.modes.is_empty() {
+                continue;
+            }
+            let chosen = self
+                .monitors
+                .iter()
+                .find(|monitor| monitor.name == head.name)
+                .and_then(|monitor| monitor.mode.clone());
+            let Some(picked) = mode::pick(&core_modes(&head.modes), chosen.as_deref(), head.fit)
+            else {
+                continue;
+            };
+            let now = (head.mode.size.w as u32, head.mode.size.h as u32, head.mode.refresh as u32);
+            if (picked.width, picked.height, picked.refresh_mhz) == now {
+                continue;
+            }
+            let Some(drm_mode) = head.modes.iter().copied().find(|m| {
+                let (w, h) = m.size();
+                (u32::from(w), u32::from(h), m.vrefresh() * 1000)
+                    == (picked.width, picked.height, picked.refresh_mhz)
+            }) else {
+                continue;
+            };
+            if let Err(error) = head.compositor.use_mode(drm_mode) {
+                eprintln!("drifter: {} cannot use {}: {error}", head.name, picked.text());
+                continue;
+            }
+            let (width, height) = drm_mode.size();
+            head.mode = smithay::output::Mode {
+                size: (i32::from(width), i32::from(height)).into(),
+                refresh: (drm_mode.vrefresh() * 1000) as i32,
+            };
+            head.pixels = Vec2::new(f64::from(width), f64::from(height));
+            head.compositor.set_output_mode_source(OutputModeSource::Static {
+                size: head.mode.size,
+                scale: Scale::from(1.0),
+                transform: turn(head.rotate),
+            });
+            head.compositor.reset_buffers();
+            println!("screen      {} now {}", head.name, picked.text());
+        }
+    }
+
     pub(super) fn relayout(&mut self, repaint: bool) {
         if self.heads.is_empty() {
             return;
         }
+        self.follow_modes();
         self.stash();
         let wanted: Vec<drifter_core::screens::Head> = self
             .heads
@@ -442,6 +533,102 @@ impl State {
         let edge = (self.screen - Vec2::splat(1.0)).max(Vec2::ZERO);
         self.pointer = self.pointer.clamp(Vec2::ZERO, edge);
         self.tell_scales();
+        self.sync_wlr_outputs(false);
+    }
+
+    pub(super) fn seen_outputs(&self) -> Vec<crate::wlr_output::Seen> {
+        let mode_of = |head: &Head| {
+            Mode::new(
+                head.mode.size.w as u32,
+                head.mode.size.h as u32,
+                head.mode.refresh as u32,
+                false,
+            )
+        };
+        let from_head = |head: &Head, modes: Vec<Mode>, millimeters: (u32, u32)| {
+            let now = mode_of(head);
+            let current = modes
+                .iter()
+                .copied()
+                .find(|mode| (mode.width, mode.height, mode.refresh_mhz) == (now.width, now.height, now.refresh_mhz));
+            crate::wlr_output::Seen {
+                name: head.name.clone(),
+                millimeters: (millimeters.0 as i32, millimeters.1 as i32),
+                current,
+                modes,
+                enabled: true,
+                position: (head.place.x as i32, head.place.y as i32),
+                rotate: head.rotate,
+                scale: head.scale,
+            }
+        };
+        let mut seen = Vec::new();
+        for plug in &self.plugs {
+            match self.heads.iter().find(|head| head.name == plug.name) {
+                Some(head) => seen.push(from_head(head, plug.modes.clone(), plug.millimeters)),
+                None => {
+                    let own = self.monitors.iter().find(|each| each.name == plug.name);
+                    seen.push(crate::wlr_output::Seen {
+                        name: plug.name.clone(),
+                        millimeters: (plug.millimeters.0 as i32, plug.millimeters.1 as i32),
+                        modes: plug.modes.clone(),
+                        current: None,
+                        enabled: false,
+                        position: (0, 0),
+                        rotate: own.map(|each| each.rotate).unwrap_or(0),
+                        scale: own.map(|each| each.scale).unwrap_or(1.0),
+                    });
+                }
+            }
+        }
+        for head in &self.heads {
+            if !self.plugs.iter().any(|plug| plug.name == head.name) {
+                let mut only = mode_of(head);
+                only.preferred = true;
+                seen.push(from_head(head, vec![only], (0, 0)));
+            }
+        }
+        seen
+    }
+
+    pub fn sync_wlr_outputs(&mut self, force: bool) {
+        let seen = self.seen_outputs();
+        let display = self.wayland.handle.clone();
+        self.wayland.extras.wlr_outputs.sync(&display, seen, force);
+    }
+
+    pub fn configure_outputs(
+        &mut self,
+        serial: u32,
+        changes: &[crate::wlr_output::Change],
+        only_test: bool,
+    ) -> crate::wlr_output::Answer {
+        use crate::wlr_output::Answer;
+
+        if serial != self.wayland.extras.wlr_outputs.serial {
+            return Answer::Stale;
+        }
+        let changes: Vec<(String, Option<crate::wlr_output::Want>)> = changes
+            .iter()
+            .map(|(name, want)| (name.clone(), want.as_ref().map(|want| want.lock().unwrap().clone())))
+            .collect();
+        let planned = match crate::wlr_output::plan(&self.monitors, &self.seen_outputs(), &changes) {
+            Ok(planned) => planned,
+            Err(error) => {
+                eprintln!("drifter: an output change was refused: {error}");
+                return Answer::Refused;
+            }
+        };
+        if only_test {
+            return Answer::Done;
+        }
+        self.monitors = planned;
+        match self.wants_rescan() {
+            true => self.scan_heads(),
+            false => self.relayout(false),
+        }
+        self.kick_now();
+        Answer::Done
     }
 }
 
@@ -469,6 +656,22 @@ pub(super) fn pick_crtc(
         }
     }
     None
+}
+
+pub(super) fn core_modes(modes: &[smithay::reexports::drm::control::Mode]) -> Vec<Mode> {
+    modes
+        .iter()
+        .map(|m| {
+            let (w, h) = m.size();
+            Mode::new(
+                u32::from(w),
+                u32::from(h),
+                m.vrefresh() * 1000,
+                m.mode_type()
+                    .contains(smithay::reexports::drm::control::ModeTypeFlags::PREFERRED),
+            )
+        })
+        .collect()
 }
 
 pub(super) fn turn(rotate: u32) -> Transform {

@@ -91,6 +91,8 @@ pub struct Extras {
     _screencopy: smithay::reexports::wayland_server::backend::GlobalId,
     pub wlr_toplevels: crate::wlr_toplevel::Toplevels,
     _wlr_toplevel_global: smithay::reexports::wayland_server::backend::GlobalId,
+    pub wlr_outputs: crate::wlr_output::Outputs,
+    _wlr_output_global: smithay::reexports::wayland_server::backend::GlobalId,
 }
 
 pub fn start(
@@ -122,6 +124,8 @@ pub fn start(
         _screencopy: crate::screencopy::global(handle),
         wlr_toplevels: crate::wlr_toplevel::Toplevels::default(),
         _wlr_toplevel_global: crate::wlr_toplevel::global(handle),
+        wlr_outputs: crate::wlr_output::Outputs::default(),
+        _wlr_output_global: crate::wlr_output::global(handle),
     }
 }
 

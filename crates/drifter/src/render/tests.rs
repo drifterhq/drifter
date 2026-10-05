@@ -1474,3 +1474,56 @@ fn a_taskbar_sees_windows_and_can_minimize_raise_maximize_and_close_them() {
     stop.store(true, Ordering::Relaxed);
     let _ = client.join();
 }
+
+fn run_tool(run: &mut Run, program: &str, args: &[&str]) -> (bool, String) {
+    let child = std::process::Command::new(program)
+        .args(args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn();
+    let mut child = child.unwrap_or_else(|error| panic!("{program} runs: {error}"));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        assert!(Instant::now() < deadline, "{program} finishes");
+        run.screen
+            .events
+            .dispatch(Some(Duration::from_millis(10)), &mut run.screen.state)
+            .unwrap();
+    };
+    let output = child.wait_with_output().unwrap();
+    let text = String::from_utf8_lossy(&output.stdout).to_string()
+        + &String::from_utf8_lossy(&output.stderr);
+    (status.success(), text)
+}
+
+#[test]
+fn wlr_randr_lists_and_changes_the_screen() {
+    let mut run = start("randr", &Config::default(), None);
+    let name = run.screen.state.heads[0].name.clone();
+
+    let (ok, listed) = run_tool(&mut run, "wlr-randr", &[]);
+    assert!(ok, "wlr-randr lists the heads: {listed}");
+    assert!(listed.contains(&name), "the head is named: {listed}");
+    assert!(listed.contains("800x600"), "the mode is listed: {listed}");
+    assert!(listed.contains("Enabled: yes"), "the head is on: {listed}");
+
+    let (ok, said) = run_tool(&mut run, "wlr-randr", &["--output", &name, "--scale", "2", "--transform", "90"]);
+    assert!(ok, "wlr-randr changes the head: {said}");
+    let head = &run.screen.state.heads[0];
+    assert_eq!((head.scale, head.rotate), (2.0, 90));
+    assert_eq!(head.screen, Vec2::new(300.0, 400.0), "a turned head at scale 2 is 300 x 400");
+
+    let (ok, listed) = run_tool(&mut run, "wlr-randr", &[]);
+    assert!(ok && listed.contains("Scale: 2.0") && listed.contains("Transform: 90"), "{listed}");
+
+    let (ok, said) = run_tool(&mut run, "wlr-randr", &["--output", &name, "--off"]);
+    assert!(!ok, "the last head cannot be turned off: {said}");
+    assert_eq!(run.screen.state.heads.len(), 1);
+
+    let (ok, said) = run_tool(&mut run, "wlr-randr", &["--output", &name, "--transform", "flipped"]);
+    assert!(!ok, "a flipped head is refused: {said}");
+    assert_eq!(run.screen.state.heads[0].rotate, 90);
+}

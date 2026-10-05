@@ -40,6 +40,8 @@ mod stats;
 #[cfg(target_os = "linux")]
 mod tray;
 #[cfg(target_os = "linux")]
+mod wlr_output;
+#[cfg(target_os = "linux")]
 mod wlr_toplevel;
 
 #[cfg(target_os = "linux")]

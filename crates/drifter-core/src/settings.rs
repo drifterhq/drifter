@@ -98,7 +98,7 @@ impl Section {
     fn words(self) -> &'static str {
         match self {
             Section::Desktop => "world workspace zoom pan hot corner camera",
-            Section::Displays => "monitor screen scale rotation brightness night light warm",
+            Section::Displays => "monitor screen scale rotation resolution refresh rate hz mode brightness night light warm",
             Section::Wallpaper => "background picture image photo",
             Section::Appearance => "theme dark light accent color icons cursor font",
             Section::Window => "title bar buttons close minimize maximize",
@@ -184,6 +184,10 @@ pub struct Monitor {
     pub scale: f64,
     pub rotate: u32,
     pub place: Vec2,
+    pub mode: Option<String>,
+    pub enabled: bool,
+    pub modes: Vec<crate::mode::Mode>,
+    pub current: Option<crate::mode::Mode>,
 }
 
 impl Monitor {
@@ -443,18 +447,99 @@ impl Model {
             .map(|(name, pixels)| Head::new(name, *pixels, &config))
             .collect();
         let rects = screens::arrange(&heads, &config);
+        let old = std::mem::take(&mut self.monitors);
         self.monitors = heads
             .into_iter()
             .zip(rects)
-            .map(|(head, rect)| Monitor {
-                name: head.name,
-                pixels: head.pixels,
-                scale: head.scale,
-                rotate: head.rotate,
-                place: rect.origin,
+            .map(|(head, rect)| {
+                let own = config.iter().find(|each| each.name == head.name);
+                let kept = old.iter().find(|each| each.name == head.name);
+                Monitor {
+                    mode: own.and_then(|each| each.mode.clone()),
+                    enabled: own.is_none_or(|each| each.enabled),
+                    modes: kept.map(|each| each.modes.clone()).unwrap_or_default(),
+                    current: kept.and_then(|each| each.current),
+                    name: head.name,
+                    pixels: head.pixels,
+                    scale: head.scale,
+                    rotate: head.rotate,
+                    place: rect.origin,
+                }
             })
             .collect();
         self.picked = self.picked.min(self.monitors.len().saturating_sub(1));
+    }
+
+    pub fn see_modes(&mut self, name: &str, modes: &[crate::mode::Mode], current: Option<crate::mode::Mode>) {
+        if let Some(monitor) = self.monitors.iter_mut().find(|each| each.name == name) {
+            monitor.modes = crate::mode::choices(modes);
+            monitor.current = current;
+        }
+    }
+
+    fn shown_mode(monitor: &Monitor) -> Option<crate::mode::Mode> {
+        let fallback = monitor.current.map(|mode| (mode.width, mode.height));
+        match &monitor.mode {
+            Some(_) => crate::mode::pick(&monitor.modes, monitor.mode.as_deref(), fallback),
+            None => monitor
+                .current
+                .or_else(|| crate::mode::select(&monitor.modes, None)),
+        }
+    }
+
+    fn step_mode(&mut self, size: bool, up: bool) {
+        let Some(monitor) = self.monitors.get_mut(self.picked) else {
+            return;
+        };
+        let Some(now) = Model::shown_mode(monitor) else {
+            return;
+        };
+        let next = match size {
+            true => {
+                let mut sizes: Vec<(u32, u32)> = Vec::new();
+                for mode in &monitor.modes {
+                    if !sizes.contains(&(mode.width, mode.height)) {
+                        sizes.push((mode.width, mode.height));
+                    }
+                }
+                let at = sizes.iter().position(|each| *each == (now.width, now.height));
+                let to = match (at, up) {
+                    (Some(at), true) => at.checked_sub(1),
+                    (Some(at), false) => Some(at + 1).filter(|to| *to < sizes.len()),
+                    (None, _) => None,
+                };
+                to.and_then(|to| {
+                    let (w, h) = sizes[to];
+                    monitor
+                        .modes
+                        .iter()
+                        .filter(|mode| (mode.width, mode.height) == (w, h))
+                        .min_by_key(|mode| mode.refresh_mhz.abs_diff(now.refresh_mhz))
+                        .copied()
+                })
+            }
+            false => {
+                let mut rates: Vec<crate::mode::Mode> = monitor
+                    .modes
+                    .iter()
+                    .filter(|mode| (mode.width, mode.height) == (now.width, now.height))
+                    .copied()
+                    .collect();
+                rates.sort_by_key(|mode| mode.refresh_mhz);
+                let at = rates.iter().position(|mode| mode.refresh_mhz == now.refresh_mhz);
+                let to = match (at, up) {
+                    (Some(at), true) => Some(at + 1).filter(|to| *to < rates.len()),
+                    (Some(at), false) => at.checked_sub(1),
+                    (None, _) => None,
+                };
+                to.map(|to| rates[to])
+            }
+        };
+        if let Some(next) = next {
+            monitor.mode = Some(next.text());
+            monitor.pixels = Vec2::new(f64::from(next.width), f64::from(next.height));
+            self.tidy_monitor();
+        }
     }
 
     pub fn monitor_rects(&self) -> Vec<Rect> {
@@ -477,6 +562,8 @@ impl Model {
                 rotate: monitor.rotate,
                 x: Some(rect.origin.x as i64),
                 y: Some(rect.origin.y as i64),
+                mode: monitor.mode.clone(),
+                enabled: monitor.enabled,
             })
             .collect();
         for kept in &self.monitor_config {
@@ -507,6 +594,36 @@ impl Model {
             let here = self.monitors[at].place;
             self.move_monitor(at, here);
         }
+    }
+
+    fn mode_rows(&self, monitor: &Monitor) -> Vec<Row> {
+        let mut rows = Vec::new();
+        if let Some(now) = Model::shown_mode(monitor) {
+            let marks = vec![Mark::Minus, Mark::Plus];
+            rows.push(
+                Row::new(Id::Resolution, "Resolution", Control::Buttons(marks.clone()))
+                    .detail(&format!("{} × {}", now.width, now.height)),
+            );
+            let hertz = f64::from(now.refresh_mhz) / 1000.0;
+            let rate = match now.refresh_mhz % 1000 {
+                0 => format!("{} Hz", now.refresh_mhz / 1000),
+                _ => format!("{hertz:.2} Hz"),
+            };
+            rows.push(Row::new(Id::Refresh, "Refresh rate", Control::Buttons(marks)).detail(&rate));
+        }
+        if self.monitors.len() > 1 {
+            let others_on = self
+                .monitors
+                .iter()
+                .any(|each| each.name != monitor.name && each.enabled);
+            let mut row = Row::new(Id::MonitorOn, "Use this monitor", Control::Switch(monitor.enabled));
+            if !others_on {
+                row = row.detail("The last monitor in use stays on");
+                row.enabled = false;
+            }
+            rows.push(row);
+        }
+        rows
     }
 
     fn step_scale(&mut self, up: bool) {
@@ -563,7 +680,10 @@ impl Model {
                             .unwrap_or(0),
                     },
                 ),
-            ],
+            ]
+            .into_iter()
+            .chain(self.mode_rows(monitor))
+            .collect(),
             footer: Some(match self.monitors.len() {
                 1 => "Plug in another monitor to arrange them side by side.".into(),
                 _ => {
@@ -1336,6 +1456,19 @@ impl Model {
                 }
             }
             (Id::Swipe, Value::Switch(on)) => self.touchpad.swipe = on,
+            (Id::MonitorOn, Value::Switch(on)) => {
+                let picked = self.picked;
+                let others_on = self
+                    .monitors
+                    .iter()
+                    .enumerate()
+                    .any(|(at, each)| at != picked && each.enabled);
+                if let Some(monitor) = self.monitors.get_mut(picked)
+                    && (on || others_on)
+                {
+                    monitor.enabled = on;
+                }
+            }
             (Id::Turn, Value::Choice(n)) => {
                 if let Some(monitor) = self.monitors.get_mut(self.picked) {
                     monitor.rotate = screens::TURNS[n.min(3)];
@@ -1393,6 +1526,8 @@ impl Model {
             (Id::Custom, _) => self.custom = None,
             (Id::Scale, 0) => self.step_scale(false),
             (Id::Scale, 1) => self.step_scale(true),
+            (Id::Resolution, at) => self.step_mode(true, at == 1),
+            (Id::Refresh, at) => self.step_mode(false, at == 1),
             (id, index) => return self.press_more(id, index),
         }
         None
@@ -1646,6 +1781,12 @@ impl Model {
                     table.insert("x", toml_edit::value(x));
                     table.insert("y", toml_edit::value(y));
                 }
+                if let Some(mode) = &monitor.mode {
+                    table.insert("mode", toml_edit::value(mode.as_str()));
+                }
+                if !monitor.enabled {
+                    table.insert("enabled", toml_edit::value(false));
+                }
                 list.push(table);
             }
             doc.remove("monitor");
@@ -1831,6 +1972,9 @@ pub enum Id {
     MonitorName,
     Scale,
     Turn,
+    Resolution,
+    Refresh,
+    MonitorOn,
     Brightness,
     Picture,
     Variant,
@@ -3420,6 +3564,53 @@ mod tests {
         assert_eq!(back.monitor[2].name, "DP-9");
         assert_eq!(back.monitor[2].scale, 2.0);
         assert!(out.contains("modifier = \"ctrl\""));
+    }
+
+    #[test]
+    fn the_displays_page_writes_the_mode_and_turns_a_monitor_off() {
+        use crate::mode::Mode;
+        let text = "[[monitor]]\nname = \"eDP-1\"\nmode = \"1920x1080@60\"\n";
+        let mut before = model(&config(text));
+        let found = [
+            ("eDP-1".to_string(), Vec2::new(1920.0, 1080.0)),
+            ("HDMI-A-1".to_string(), Vec2::new(1920.0, 1080.0)),
+        ];
+        before.see_monitors(&found);
+        let modes = [
+            Mode::new(1920, 1080, 60_000, true),
+            Mode::new(1920, 1080, 144_000, false),
+            Mode::new(1280, 720, 60_000, false),
+        ];
+        before.see_modes("eDP-1", &modes, Some(modes[0]));
+        before.see_modes("HDMI-A-1", &modes, Some(modes[0]));
+        assert_eq!(before.write(&before, text).unwrap(), text);
+
+        let mut after = before.clone();
+        after.press(Id::Refresh, 1);
+        assert_eq!(after.monitors[0].mode.as_deref(), Some("1920x1080@144"));
+        after.press(Id::Refresh, 1);
+        assert_eq!(after.monitors[0].mode.as_deref(), Some("1920x1080@144"), "the top rate stops");
+        after.press(Id::Resolution, 0);
+        assert_eq!(after.monitors[0].mode.as_deref(), Some("1280x720@60"));
+        assert_eq!(after.monitors[0].pixels, Vec2::new(1280.0, 720.0));
+        after.press(Id::Resolution, 1);
+        assert_eq!(after.monitors[0].mode.as_deref(), Some("1920x1080@60"));
+        after.press(Id::Refresh, 1);
+        after.pick_monitor(1);
+        after.set(Id::MonitorOn, Value::Switch(false));
+        after.pick_monitor(0);
+        after.set(Id::MonitorOn, Value::Switch(false));
+        assert!(after.monitors[0].enabled, "the last monitor in use stays on");
+
+        let out = after.write(&before, text).unwrap();
+        let back = Config::parse(&out).unwrap();
+        back.validate().unwrap();
+        let laptop = back.monitor.iter().find(|m| m.name == "eDP-1").unwrap();
+        assert_eq!(laptop.mode.as_deref(), Some("1920x1080@144"));
+        assert!(laptop.enabled);
+        let side = back.monitor.iter().find(|m| m.name == "HDMI-A-1").unwrap();
+        assert!(!side.enabled);
+        assert!(!out.contains("enabled = true"));
     }
 
     #[test]

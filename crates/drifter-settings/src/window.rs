@@ -44,7 +44,8 @@ const ICON: u32 = 22;
 const LOADERS: usize = 3;
 const WATCH: std::time::Duration = std::time::Duration::from_secs(1);
 
-struct Settings {
+pub struct Settings {
+    pub heads: crate::heads::Heads,
     registry: RegistryState,
     seats: SeatState,
     outputs: OutputState,
@@ -183,6 +184,7 @@ pub fn run() -> Result<(), String> {
     let mut settings = Settings {
         registry: RegistryState::new(&globals),
         seats: SeatState::new(&globals, &qh),
+        heads: crate::heads::Heads::bind(&globals, &qh),
         outputs: OutputState::new(&globals, &qh),
         shm,
         pool,
@@ -876,7 +878,27 @@ impl Settings {
             .map(small);
     }
 
+    pub fn heads_changed(&mut self) {
+        self.read_monitors(None);
+    }
+
     fn read_monitors(&mut self, gone: Option<&wl_output::WlOutput>) {
+        if let Some(found) = self.heads.found() {
+            let named: Vec<(String, Vec2)> = found
+                .iter()
+                .map(|head| (head.name.clone(), head.pixels))
+                .collect();
+            for model in [&mut self.model, &mut self.saved] {
+                model.see_monitors(&named);
+                for head in &found {
+                    model.see_modes(&head.name, &head.modes, head.current);
+                }
+            }
+            if self.section == drifter_core::settings::Section::Displays && self.sheet.is_none() {
+                self.draw();
+            }
+            return;
+        }
         let found: Vec<(String, Vec2)> = self
             .outputs
             .outputs()

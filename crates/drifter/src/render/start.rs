@@ -374,6 +374,7 @@ pub fn open(
         monitors: config.monitor.clone(),
         screens_wide: (config.workspace.width, config.workspace.height),
         heads: Vec::new(),
+        plugs: Vec::new(),
         at: 0,
         hand: 0,
         libinput: wired.as_ref().map(|(libinput, _, _)| libinput.clone()),

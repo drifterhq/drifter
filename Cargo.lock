@@ -462,6 +462,7 @@ dependencies = [
  "drifter-core",
  "smithay-client-toolkit",
  "wayland-client",
+ "wayland-protocols-wlr",
 ]
 
 [[package]]

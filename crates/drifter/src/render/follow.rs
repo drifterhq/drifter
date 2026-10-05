@@ -258,7 +258,10 @@ impl State {
                 repaint = true;
             }
         }
-        self.relayout(repaint);
+        match self.wants_rescan() {
+            true => self.scan_heads(),
+            false => self.relayout(repaint),
+        }
 
         if self.tray.size != config.tray.size {
             self.tray.size = config.tray.size;

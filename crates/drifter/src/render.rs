@@ -143,6 +143,8 @@ struct Head {
     place: Vec2,
     camera: Camera,
     flight: Option<(Flight, Instant)>,
+    modes: Vec<smithay::reexports::drm::control::Mode>,
+    fit: Option<(u32, u32)>,
     drawers: [Drawer; 2],
     screen: Vec2,
     panels: [TextureBuffer<Tex>; 2],
@@ -294,6 +296,14 @@ struct Hit {
     popup: bool,
 }
 
+#[derive(Clone)]
+pub struct Plug {
+    pub name: String,
+    pub modes: Vec<drifter_core::mode::Mode>,
+    pub millimeters: (u32, u32),
+    pub on: bool,
+}
+
 enum LockKey {
     Vt(i32),
     Letter(char),
@@ -356,6 +366,7 @@ pub struct State {
     monitors: Vec<drifter_core::screens::MonitorConfig>,
     screens_wide: (u32, u32),
     heads: Vec<Head>,
+    plugs: Vec<Plug>,
     at: usize,
     hand: usize,
     libinput: Option<Libinput>,

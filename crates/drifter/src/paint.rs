@@ -129,6 +129,11 @@ impl Scanout {
         each!(self, compositor => compositor.reset_buffers(), screen => screen.drawn = false)
     }
 
+    pub fn use_mode(&mut self, mode: smithay::reexports::drm::control::Mode) -> Result<(), String> {
+        each!(self, compositor => compositor.use_mode(mode).map_err(|e| e.to_string()),
+            _screen => Err("an offscreen head has one mode".to_string()))
+    }
+
     pub fn set_output_mode_source(&mut self, source: OutputModeSource) {
         each!(self, compositor => compositor.set_output_mode_source(source),
         screen => {

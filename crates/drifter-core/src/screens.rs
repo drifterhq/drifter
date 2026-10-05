@@ -19,10 +19,32 @@ pub struct MonitorConfig {
     pub x: Option<i64>,
     #[serde(default)]
     pub y: Option<i64>,
+    #[serde(default)]
+    pub mode: Option<String>,
+    #[serde(default = "yes")]
+    pub enabled: bool,
 }
 
 fn one() -> f64 {
     1.0
+}
+
+fn yes() -> bool {
+    true
+}
+
+impl MonitorConfig {
+    pub fn named(name: &str) -> MonitorConfig {
+        MonitorConfig {
+            name: name.to_string(),
+            scale: 1.0,
+            rotate: 0,
+            x: None,
+            y: None,
+            mode: None,
+            enabled: true,
+        }
+    }
 }
 
 impl MonitorConfig {
@@ -38,6 +60,14 @@ impl MonitorConfig {
         }
         if !TURNS.contains(&self.rotate) {
             return Err(format!("monitor {} rotate is 0, 90, 180 or 270", self.name));
+        }
+        if let Some(mode) = &self.mode
+            && crate::mode::parse(mode).is_none()
+        {
+            return Err(format!(
+                "monitor {} mode {mode:?} should look like 1920x1080@60",
+                self.name
+            ));
         }
         Ok(())
     }
@@ -292,6 +322,8 @@ mod tests {
             rotate,
             x: at.map(|(x, _)| x),
             y: at.map(|(_, y)| y),
+            mode: None,
+            enabled: true,
         }
     }
 

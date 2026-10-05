@@ -41,6 +41,8 @@ impl State {
             place: Vec2::ZERO,
             camera: Camera::at_work_zoom(self.world / 2.0),
             flight: None,
+            modes: Vec::new(),
+            fit: None,
             drawers: [Drawer::new(Edge::Top), Drawer::new(Edge::Bottom)],
             screen: pixels,
             panels,
