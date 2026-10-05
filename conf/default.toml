@@ -14,7 +14,7 @@ wallpaper = "../img/wallpaper.jpeg"
 # fixed    one screen. Stays put at every zoom.
 # pan      world sized. Moves and zooms with the world.
 # parallax any size between those two. Moves slower than the world.
-wallpaper_mode = "fixed"
+wallpaper_mode = "parallax"
 
 # A folder of PNG and JPEG pictures. The settings window shows them to pick
 # from. With wallpaper_every above 0, Drifter moves to another picture from

@@ -11,8 +11,8 @@ use crate::shortcut::{Action, Combo};
 #[serde(rename_all = "lowercase")]
 pub enum WallpaperMode {
     Fixed,
-    #[default]
     Pan,
+    #[default]
     Parallax,
 }
 
@@ -1792,13 +1792,14 @@ mod tests {
     }
 
     #[test]
-    fn defaults_are_nine_by_nine_and_pan() {
+    fn defaults_are_nine_by_nine_and_parallax() {
         let config = Config::default();
         assert_eq!(config.workspace.width, 9);
         assert_eq!(config.workspace.height, 9);
         let file = Config::parse(include_str!("../../../conf/default.toml")).unwrap();
         assert_eq!((file.workspace.width, file.workspace.height), (9, 9));
-        assert_eq!(config.workspace.wallpaper_mode, WallpaperMode::Pan);
+        assert_eq!(config.workspace.wallpaper_mode, WallpaperMode::Parallax);
+        assert_eq!(file.workspace.wallpaper_mode, WallpaperMode::Parallax);
         assert_eq!(config.input.modifier, Modifier::Super);
     }
 
