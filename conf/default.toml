@@ -10,9 +10,9 @@ height = 9
 # PNG or JPEG. Drifter reads the format from the first bytes of the file.
 # If the file is missing, Drifter logs it and runs with no wallpaper.
 # A .livepaper file holds 24 pictures, one for each hour of the day. Give
-# just its name to find it in ~/.local/share/drifter/livepapers or
-# /usr/share/drifter/livepapers. If it is not there, Drifter shows
-# ../img/wallpaper.jpeg instead.
+# just its name to find it in ~/.local/share/drifter/livepapers, then in
+# ../livepapers, then in /usr/share/drifter/livepapers. If it is in none of
+# them, Drifter shows ../img/wallpaper.jpeg instead.
 wallpaper = "bloom.livepaper"
 
 # fixed    one screen. Stays put at every zoom.

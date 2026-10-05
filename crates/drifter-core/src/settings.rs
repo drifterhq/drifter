@@ -428,7 +428,7 @@ impl Model {
                 .wallpaper_folder()
                 .map(|folder| crate::wallpaper::pictures(&clean(folder)))
                 .unwrap_or_default(),
-            livepapers: crate::livepaper::installed(&Config::livepaper_folders())
+            livepapers: crate::livepaper::installed(&config.livepaper_folders())
                 .into_iter()
                 .map(clean)
                 .collect(),

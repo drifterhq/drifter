@@ -1207,13 +1207,15 @@ impl Config {
 
     pub fn wallpaper_path(&self) -> Option<PathBuf> {
         let asked = self.workspace.wallpaper.as_deref()?;
-        Some(resolve_picture(asked, &Self::livepaper_folders(), |path| {
+        Some(resolve_picture(asked, &self.livepaper_folders(), |path| {
             self.beside(path)
         }))
     }
 
-    pub fn livepaper_folders() -> Vec<PathBuf> {
-        crate::livepaper::folders(&Self::data_dir())
+    pub fn livepaper_folders(&self) -> Vec<PathBuf> {
+        let mut folders = crate::livepaper::folders(&Self::data_dir());
+        folders.insert(1, self.beside(Path::new("../livepapers")));
+        folders
     }
 
     pub fn state_dir() -> PathBuf {
