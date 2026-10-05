@@ -52,6 +52,13 @@ pub fn read_wifi() -> Option<Wifi> {
     })
 }
 
+fn iw() -> &'static str {
+    ["/usr/sbin/iw", "/sbin/iw"]
+        .into_iter()
+        .find(|path| std::path::Path::new(path).is_file())
+        .unwrap_or("iw")
+}
+
 pub fn details(net: &net::Net) -> Vec<(String, String)> {
     let list = read(
         "nmcli",
@@ -69,7 +76,7 @@ pub fn details(net: &net::Net) -> Vec<(String, String)> {
         .unwrap_or_default();
     let dbm = match card.is_empty() {
         true => Vec::new(),
-        false => read("iw", &["dev", &card, "scan", "dump"])
+        false => read(iw(), &["dev", &card, "scan", "dump"])
             .map(|dump| net::scan_dbm(&dump))
             .unwrap_or_default(),
     };
@@ -90,7 +97,7 @@ pub fn details(net: &net::Net) -> Vec<(String, String)> {
         dbm: std::fs::read_to_string("/proc/net/wireless")
             .ok()
             .and_then(|text| net::link_dbm(&text, &card)),
-        bitrate: read("iw", &["dev", &card, "link"]).and_then(|text| {
+        bitrate: read(iw(), &["dev", &card, "link"]).and_then(|text| {
             text.lines()
                 .find_map(|line| line.trim().strip_prefix("tx bitrate:"))
                 .map(|rate| rate.split_whitespace().take(2).collect::<Vec<_>>().join(" "))
