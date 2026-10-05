@@ -53,6 +53,29 @@ pub fn from_dock(command: &str) -> Option<&str> {
     command.strip_prefix(DOCK_PREFIX).map(str::trim).filter(|name| !name.is_empty())
 }
 
+pub fn icon(side: u32) -> crate::Image {
+    use crate::{Rect, Vec2};
+    let mut canvas = crate::paint::Canvas::new(side, side);
+    let s = f64::from(side);
+    let unit = s / 24.0;
+    let tile = [52, 168, 140];
+    let white = [255, 255, 255];
+    canvas.round_rect(Rect::new(Vec2::splat(unit), Vec2::splat(s - 2.0 * unit)), 5.0 * unit, tile, 1.0);
+    let middle = Vec2::splat(s / 2.0);
+    canvas.circle(middle, 6.5 * unit, white, 1.0);
+    canvas.circle(middle, 4.8 * unit, tile, 1.0);
+    canvas.circle(middle, 2.2 * unit, white, 1.0);
+    for (offset, size) in [
+        (Vec2::new(-0.6, -9.5), Vec2::new(1.2, 3.5)),
+        (Vec2::new(-0.6, 6.0), Vec2::new(1.2, 3.5)),
+        (Vec2::new(-9.5, -0.6), Vec2::new(3.5, 1.2)),
+        (Vec2::new(6.0, -0.6), Vec2::new(3.5, 1.2)),
+    ] {
+        canvas.round_rect(Rect::new(middle + offset * unit, size * unit), 0.4 * unit, white, 1.0);
+    }
+    canvas.image
+}
+
 pub fn table(place: &Place) -> toml_edit::Table {
     let mut table = toml_edit::Table::new();
     table.insert("name", toml_edit::value(place.name.as_str()));
@@ -130,6 +153,12 @@ mod tests {
         assert_eq!(from_dock(&command), Some("Place 4"));
         assert_eq!(from_dock("foot -e htop"), None);
         assert_eq!(from_dock(DOCK_PREFIX), None);
+        let button = crate::config::Launch::Full {
+            app: None,
+            command: Some(command),
+            icon: None,
+        };
+        assert_eq!(button.name(), "Place 4", "the dock tip names the place");
     }
 
     #[test]

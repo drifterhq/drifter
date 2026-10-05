@@ -577,7 +577,7 @@ impl Model {
             header: Some("Places"),
             rows,
             footer: Some(
-                "Save the view with the camera key, Shift and a number from 1 to 9. The camera key and that number fly back to it."
+                "Camera key + Shift + 1 to 9 saves this view. Camera key + 1 to 9 flies back."
                     .into(),
             ),
             thumbs: None,

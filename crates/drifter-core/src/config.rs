@@ -105,6 +105,9 @@ impl Launch {
     pub fn name(&self) -> String {
         match (self.app(), self.command()) {
             (Some(app), _) => app.to_string(),
+            (None, Some(command)) if crate::place::from_dock(command).is_some() => {
+                crate::place::from_dock(command).unwrap_or_default().to_string()
+            }
             (None, Some(command)) => crate::exec::words(command)
                 .and_then(|words| words.into_iter().next())
                 .unwrap_or_default(),

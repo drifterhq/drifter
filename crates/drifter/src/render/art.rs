@@ -24,6 +24,12 @@ pub(super) fn dock_items(
             .map(|path| config.beside(path))
             .or_else(|| item.app().and_then(crate::apps::find).and_then(|e| e.icon))
             .or_else(|| crate::apps::icon_file(&item.name()));
+        let marked = item
+            .command()
+            .and_then(drifter_core::place::from_dock)
+            .is_some()
+            && item.icon().is_none();
+        let path = path.filter(|_| !marked);
         let art = path
             .and_then(|path| match drifter_core::image::load_sized(&path, side) {
                 Ok(image) => Some(image),
@@ -33,6 +39,7 @@ pub(super) fn dock_items(
                 }
             })
             .map(|image| image.scaled(side, side))
+            .or_else(|| marked.then(|| drifter_core::place::icon(side)))
             .or_else(|| spare.cloned());
         let buffer = match art {
             Some(image) => upload(renderer, Some(&image), "dock icon")?,
