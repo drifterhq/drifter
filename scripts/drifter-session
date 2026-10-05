@@ -3,6 +3,7 @@
 here=$(cd "$(dirname "$0")/.." && pwd)
 bin=$here/target/release/drifter
 [ -x "$bin" ] || bin=$here/target/debug/drifter
+[ -x "$bin" ] || bin=$here/bin/drifter
 
 state=${XDG_STATE_HOME:-$HOME/.local/state}/drifter
 mkdir -p "$state"

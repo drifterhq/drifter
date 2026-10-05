@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=Drifter
+Comment=A desktop that is a camera over one large world
+Exec=/usr/bin/drifter-session
+Type=Application
+DesktopNames=drifter

@@ -1077,7 +1077,8 @@ impl Settings {
     }
 
     fn reset_all(&mut self) {
-        let defaults = self.path.with_file_name(drifter_core::config::DEFAULTS);
+        let defaults = Config::defaults(&self.path)
+            .unwrap_or_else(|| self.path.with_file_name(drifter_core::config::DEFAULTS));
         let note = match std::fs::read_to_string(&defaults) {
             Ok(text) => match drifter_core::settings::replace_config(&self.path, &text) {
                 Ok(backup) => format!("Back to the defaults. The old file is {}", backup.display()),

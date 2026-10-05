@@ -973,6 +973,7 @@ impl Tunables {
 }
 
 pub const DEFAULTS: &str = "default.toml";
+pub const SHARED: &str = "/usr/share/drifter/conf";
 pub const LONGEST_LOCK: u64 = 7 * 24 * 60;
 pub const LONGEST_ROTATION: u64 = 366 * 24 * 3600;
 
@@ -985,6 +986,32 @@ pub fn choose_config(
         .into_iter()
         .find(|path| exists(path))
         .unwrap_or(xdg)
+}
+
+pub fn defaults_for(path: &Path, shared: &Path, exists: impl Fn(&Path) -> bool) -> Option<PathBuf> {
+    [path.with_file_name(DEFAULTS), shared.join(DEFAULTS)]
+        .into_iter()
+        .find(|candidate| exists(candidate))
+}
+
+pub fn resolve_beside(
+    base: &Path,
+    shared: &Path,
+    path: &Path,
+    exists: impl Fn(&Path) -> bool,
+) -> PathBuf {
+    if path.is_absolute() {
+        return path.to_path_buf();
+    }
+    let near = base.join(path);
+    if exists(&near) {
+        return near;
+    }
+    let packaged = shared.join(path);
+    if exists(&packaged) {
+        return packaged;
+    }
+    near
 }
 
 pub fn repo_config(exe: &Path) -> Vec<PathBuf> {
@@ -1056,10 +1083,23 @@ impl Config {
         })
     }
 
+    pub fn defaults(path: &Path) -> Option<PathBuf> {
+        defaults_for(path, Path::new(SHARED), |candidate| candidate.is_file())
+    }
+
     pub fn first_run(path: &Path) -> std::io::Result<bool> {
-        let defaults = path.with_file_name(DEFAULTS);
-        if path.exists() || !defaults.is_file() {
+        Config::first_run_from(path, Path::new(SHARED))
+    }
+
+    pub fn first_run_from(path: &Path, shared: &Path) -> std::io::Result<bool> {
+        if path.exists() {
             return Ok(false);
+        }
+        let Some(defaults) = defaults_for(path, shared, |candidate| candidate.is_file()) else {
+            return Ok(false);
+        };
+        if let Some(folder) = path.parent() {
+            std::fs::create_dir_all(folder)?;
         }
         std::fs::copy(&defaults, path)?;
         Ok(true)
@@ -1070,10 +1110,9 @@ impl Config {
     }
 
     pub fn beside(&self, path: &Path) -> PathBuf {
-        if path.is_absolute() {
-            return path.to_path_buf();
-        }
-        self.base.join(path)
+        resolve_beside(&self.base, Path::new(SHARED), path, |candidate| {
+            candidate.exists()
+        })
     }
 
     pub fn wallpaper_path(&self) -> Option<PathBuf> {
@@ -1341,6 +1380,47 @@ mod tests {
             config.beside(Path::new("../img/cursor.png")),
             PathBuf::from("/home/dh/src/drifter/conf/../img/cursor.png")
         );
+    }
+
+    #[test]
+    fn a_relative_path_missing_beside_the_config_is_read_from_the_package() {
+        let home = Path::new("/home/dh/.config/drifter");
+        let shared = Path::new("/usr/share/drifter/conf");
+        let packaged = PathBuf::from("/usr/share/drifter/conf/../img/cursor.png");
+        let chosen = resolve_beside(home, shared, Path::new("../img/cursor.png"), |p| {
+            p == packaged
+        });
+        assert_eq!(chosen, packaged);
+        let mine = home.join("../img/cursor.png");
+        let chosen = resolve_beside(home, shared, Path::new("../img/cursor.png"), |p| {
+            p == mine || p == packaged
+        });
+        assert_eq!(chosen, mine);
+        let chosen = resolve_beside(home, shared, Path::new("../img/cursor.png"), |_| false);
+        assert_eq!(chosen, mine);
+    }
+
+    #[test]
+    fn the_first_run_falls_back_to_the_packaged_defaults() {
+        let folder = std::env::temp_dir().join(format!("drifter-shared-{}", std::process::id()));
+        let shared = folder.join("share");
+        std::fs::create_dir_all(&shared).unwrap();
+        std::fs::write(shared.join(DEFAULTS), "[lock]\nafter = 7\n").unwrap();
+        let path = folder.join("home").join("drifter.toml");
+        assert!(Config::first_run_from(&path, &shared).unwrap());
+        assert_eq!(Config::load_from(&path).unwrap().lock.after, 7);
+        std::fs::remove_dir_all(&folder).unwrap();
+    }
+
+    #[test]
+    fn the_defaults_beside_the_config_win_over_the_packaged_ones() {
+        let path = Path::new("/home/dh/src/drifter/conf/drifter.toml");
+        let shared = Path::new("/usr/share/drifter/conf");
+        let found = defaults_for(path, shared, |_| true);
+        assert_eq!(found, Some(PathBuf::from("/home/dh/src/drifter/conf/default.toml")));
+        let found = defaults_for(path, shared, |p| p.starts_with("/usr"));
+        assert_eq!(found, Some(PathBuf::from("/usr/share/drifter/conf/default.toml")));
+        assert_eq!(defaults_for(path, shared, |_| false), None);
     }
 
     #[test]
