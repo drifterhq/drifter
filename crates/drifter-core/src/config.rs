@@ -232,7 +232,7 @@ impl Default for LoginConfig {
 }
 
 fn default_screens() -> u32 {
-    3
+    9
 }
 
 impl Default for Workspace {
@@ -1605,10 +1605,12 @@ mod tests {
     }
 
     #[test]
-    fn defaults_are_three_by_three_and_pan() {
+    fn defaults_are_nine_by_nine_and_pan() {
         let config = Config::default();
-        assert_eq!(config.workspace.width, 3);
-        assert_eq!(config.workspace.height, 3);
+        assert_eq!(config.workspace.width, 9);
+        assert_eq!(config.workspace.height, 9);
+        let file = Config::parse(include_str!("../../../conf/default.toml")).unwrap();
+        assert_eq!((file.workspace.width, file.workspace.height), (9, 9));
         assert_eq!(config.workspace.wallpaper_mode, WallpaperMode::Pan);
         assert_eq!(config.input.modifier, Modifier::Super);
     }

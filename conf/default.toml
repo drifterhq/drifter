@@ -2,10 +2,10 @@
 # Relative paths start from this file. Absolute paths are used as written.
 
 [workspace]
-# World size, counted in screens.
-# 3 by 3 on a 1080p screen gives 5760 x 3240 px.
-width = 3
-height = 3
+# World size, counted in screens. Drifter starts with the view at the center.
+# 9 by 9 on a 1080p screen gives 17280 x 9720 px.
+width = 9
+height = 9
 
 # PNG or JPEG. Drifter reads the format from the first bytes of the file.
 # If the file is missing, Drifter logs it and runs with no wallpaper.
