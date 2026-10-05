@@ -95,6 +95,30 @@ impl Section {
         }
     }
 
+    fn words(self) -> &'static str {
+        match self {
+            Section::Desktop => "world workspace zoom pan hot corner camera",
+            Section::Displays => "monitor screen scale rotation brightness night light warm",
+            Section::Wallpaper => "background picture image photo",
+            Section::Appearance => "theme dark light accent color icons cursor font",
+            Section::Window => "title bar buttons close minimize maximize",
+            Section::Dock => "apps pinned trash bottom bar",
+            Section::TopBar => "clock tray cpu memory battery disk",
+            Section::Notifications => "alerts do not disturb history",
+            Section::Sound => "audio volume speaker headphones microphone mute",
+            Section::Keyboard => "layout typing repeat caps compose",
+            Section::Mouse => "pointer speed scroll buttons",
+            Section::Touchpad => "trackpad tap swipe scroll gestures",
+            Section::Shortcuts => "keys hotkeys keybindings",
+            Section::Power => "sleep suspend lid battery shutdown",
+            Section::Lock => "password idle screen off",
+            Section::Time => "clock zone ntp date",
+            Section::Login => "startup autostart apps",
+            Section::Apps => "browser terminal file manager",
+            Section::About => "system version computer reset import export",
+        }
+    }
+
     pub fn from_word(word: &str) -> Option<Section> {
         let wanted: String = word
             .chars()
@@ -143,6 +167,7 @@ pub enum Ask {
     Choose(For),
     Capture(usize),
     Forget,
+    Reset,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -233,6 +258,9 @@ pub struct Model {
     pub ntp: Option<bool>,
     pub about: Vec<(String, String)>,
     pub time_error: Option<String>,
+    pub query: String,
+    pub confirm_reset: bool,
+    pub file_note: Option<String>,
 }
 
 impl Model {
@@ -373,6 +401,9 @@ impl Model {
             ntp: None,
             about: Vec::new(),
             time_error: None,
+            query: String::new(),
+            confirm_reset: false,
+            file_note: None,
         }
         .mark_custom(&config.tray.format)
     }
@@ -382,6 +413,27 @@ impl Model {
             self.custom = Some(format.to_string());
         }
         self
+    }
+
+    pub fn shown(&self) -> Vec<Section> {
+        let query = self.query.trim().to_lowercase();
+        if query.is_empty() {
+            return Section::ALL.to_vec();
+        }
+        Section::ALL
+            .into_iter()
+            .filter(|section| {
+                let mut said = vec![section.name().to_string(), section.words().to_string()];
+                for group in self.groups(*section) {
+                    said.extend(group.header.map(str::to_string));
+                    said.extend(group.footer);
+                    said.extend(group.rows.into_iter().map(|row| row.label));
+                }
+                query
+                    .split_whitespace()
+                    .all(|word| said.iter().any(|text| text.to_lowercase().contains(word)))
+            })
+            .collect()
     }
 
     pub fn see_monitors(&mut self, found: &[(String, Vec2)]) {
@@ -1314,6 +1366,9 @@ impl Model {
     }
 
     pub fn press(&mut self, id: Id, index: usize) -> Option<Ask> {
+        if id != Id::ResetAll {
+            self.confirm_reset = false;
+        }
         match (id, index) {
             (Id::Order(slot), 0) if slot > 0 && slot < 3 => self.order.swap(slot, slot - 1),
             (Id::Order(slot), 1) if slot < 2 => self.order.swap(slot, slot + 1),
@@ -1616,6 +1671,36 @@ impl Model {
     }
 }
 
+pub fn export_path(folder: &std::path::Path, taken: impl Fn(&std::path::Path) -> bool) -> PathBuf {
+    let first = folder.join("drifter.toml");
+    if !taken(&first) {
+        return first;
+    }
+    (2..)
+        .map(|n| folder.join(format!("drifter-{n}.toml")))
+        .find(|path| !taken(path))
+        .unwrap_or(first)
+}
+
+pub fn check_import(text: &str) -> Result<(), String> {
+    let config =
+        Config::parse(text).map_err(|error| format!("not a Drifter settings file: {error}"))?;
+    config
+        .validate()
+        .map_err(|error| format!("the file has a mistake: {error}"))
+}
+
+pub fn replace_config(path: &std::path::Path, text: &str) -> std::io::Result<PathBuf> {
+    let backup = path.with_extension("toml.bak");
+    if path.exists() {
+        std::fs::copy(path, &backup)?;
+    }
+    let fresh = path.with_extension("toml.new");
+    std::fs::write(&fresh, text)?;
+    std::fs::rename(&fresh, path)?;
+    Ok(backup)
+}
+
 fn file_name(path: Option<&std::path::Path>, none: &str) -> String {
     path.and_then(|path| path.file_name())
         .map(|name| name.to_string_lossy().into_owned())
@@ -1790,6 +1875,9 @@ pub enum Id {
     Zone,
     AutoTime,
     Info(usize),
+    Export,
+    Import,
+    ResetAll,
 }
 
 const SHOWS: [&str; 5] = [
@@ -1903,6 +1991,7 @@ pub struct Group {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Hit {
+    Search,
     Section(Section),
     Change(Id, Value),
     Press(Id, usize),
@@ -1989,7 +2078,7 @@ pub struct Placed {
     pub footer: Option<Rect>,
 }
 
-const SIDE_TOP: f64 = 52.0;
+const SIDE_TOP: f64 = 86.0;
 const THUMB_GAP: f64 = 10.0;
 const THUMB_PAD: f64 = 14.0;
 
@@ -2006,6 +2095,10 @@ impl Look {
             ),
             Vec2::new(self.sidebar - 20.0, self.item),
         )
+    }
+
+    pub fn search_rect(&self) -> Rect {
+        Rect::new(Vec2::new(12.0, 44.0), Vec2::new(self.sidebar - 24.0, 28.0))
     }
 
     pub fn side_most(&self, height: f64) -> f64 {
@@ -2225,10 +2318,14 @@ impl Look {
         pointer: Vec2,
     ) -> Option<Hit> {
         if pointer.x < self.sidebar {
+            if self.search_rect().contains(pointer) {
+                return Some(Hit::Search);
+            }
             if pointer.y < SIDE_TOP - 6.0 {
                 return None;
             }
-            return Section::ALL
+            return model
+                .shown()
                 .iter()
                 .enumerate()
                 .find(|(index, _)| self.item_rect(*index).contains(pointer))
@@ -2387,7 +2484,8 @@ impl Look {
         canvas.round_rect(side, 0.0, self.side, 1.0);
         let edge = Rect::new(Vec2::new(self.sidebar - 1.0, 0.0), Vec2::new(1.0, size.y));
         canvas.round_rect(edge, 0.0, self.rule, 1.0);
-        for (index, each) in Section::ALL.iter().enumerate() {
+        let shown = model.shown();
+        for (index, each) in shown.iter().enumerate() {
             let rect = self.item_rect(index);
             if rect.max().y < SIDE_TOP - 6.0 || rect.origin.y > size.y {
                 continue;
@@ -2411,7 +2509,25 @@ impl Look {
         let top = Rect::new(Vec2::ZERO, Vec2::new(self.sidebar - 1.0, SIDE_TOP - 6.0));
         canvas.round_rect(top, 0.0, self.side, 1.0);
         let heading = fonts.small.paint("Settings", self.dim);
-        canvas.stamp(&heading, Vec2::new(22.0, 24.0), 1.0);
+        canvas.stamp(&heading, Vec2::new(22.0, 18.0), 1.0);
+        let field = self.search_rect();
+        canvas.round_rect(field, 7.0, self.back, 1.0);
+        let (words, ink) = match model.query.is_empty() {
+            true => ("Search".to_string(), self.dim),
+            false => (format!("{}|", model.query), self.ink),
+        };
+        let text = fonts
+            .body
+            .paint(&fit(fonts.body, &words, field.size.x - 20.0), ink);
+        let at = Vec2::new(
+            field.origin.x + 10.0,
+            field.center().y - f64::from(text.height) / 2.0,
+        );
+        canvas.stamp(&text, at, 1.0);
+        if shown.is_empty() {
+            let none = fonts.small.paint("Nothing matches", self.dim);
+            canvas.stamp(&none, Vec2::new(22.0, SIDE_TOP + 6.0), 1.0);
+        }
 
         if let Some(sheet) = art.sheet {
             sheet.paint(&mut canvas, self, fonts, art.icons);
@@ -2997,6 +3113,78 @@ mod tests {
 
     fn config(text: &str) -> Config {
         Config::parse(text).unwrap()
+    }
+
+    #[test]
+    fn search_finds_pages_by_name_rows_and_plain_words() {
+        let mut model = model(&Config::default());
+        assert_eq!(model.shown().len(), Section::ALL.len());
+        model.query = "volume".into();
+        assert!(model.shown().contains(&Section::Sound));
+        model.query = "BRIGHTNESS".into();
+        assert_eq!(model.shown(), [Section::Displays]);
+        model.query = "tap to click".into();
+        assert_eq!(model.shown(), [Section::Touchpad]);
+        model.query = "zzzz".into();
+        assert!(model.shown().is_empty());
+    }
+
+    #[test]
+    fn the_sidebar_lists_only_the_matches_in_order() {
+        let mut model = model(&Config::default());
+        model.query = "wallpaper".into();
+        let look = Look::default();
+        let size = look.least();
+        let first = look.item_rect(0).center();
+        assert_eq!(
+            look.hit(size, Section::Desktop, &model, 0.0, first),
+            Some(Hit::Section(model.shown()[0]))
+        );
+        let search = look.search_rect().center();
+        assert_eq!(
+            look.hit(size, Section::Desktop, &model, 0.0, search),
+            Some(Hit::Search)
+        );
+        let past = look.item_rect(model.shown().len()).center();
+        assert_eq!(look.hit(size, Section::Desktop, &model, 0.0, past), None);
+    }
+
+    #[test]
+    fn reset_asks_twice_and_any_other_press_cancels() {
+        let mut model = model(&Config::default());
+        assert_eq!(model.press(Id::ResetAll, 0), None);
+        assert!(model.confirm_reset);
+        model.press(Id::Custom, 0);
+        assert!(!model.confirm_reset);
+        model.press(Id::ResetAll, 0);
+        assert_eq!(model.press(Id::ResetAll, 0), Some(Ask::Reset));
+        assert!(!model.confirm_reset);
+        assert_eq!(model.press(Id::Export, 0), Some(Ask::Files(For::Export)));
+        assert_eq!(model.press(Id::Import, 0), Some(Ask::Files(For::Import)));
+    }
+
+    #[test]
+    fn export_never_writes_over_a_file_and_import_checks_first() {
+        let folder = std::path::Path::new("/x");
+        assert_eq!(export_path(folder, |_| false), folder.join("drifter.toml"));
+        let taken = |path: &std::path::Path| !path.ends_with("drifter-3.toml");
+        assert_eq!(export_path(folder, taken), folder.join("drifter-3.toml"));
+        assert!(check_import(include_str!("../../../conf/default.toml")).is_ok());
+        assert!(check_import("[workspace]\nwidth = \"wide\"\n").is_err());
+        assert!(check_import("[login]\nstart = [{ icon = \"x\" }]\n").is_err());
+    }
+
+    #[test]
+    fn replacing_the_config_keeps_a_backup() {
+        let dir = std::env::temp_dir().join(format!("drifter-replace-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("drifter.toml");
+        std::fs::write(&path, "old").unwrap();
+        let backup = replace_config(&path, "new").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new");
+        assert_eq!(std::fs::read_to_string(&backup).unwrap(), "old");
+        assert_eq!(backup, dir.join("drifter.toml.bak"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

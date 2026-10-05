@@ -626,17 +626,52 @@ impl Model {
     }
 
     pub(super) fn about_groups(&self) -> Vec<Group> {
-        vec![Group {
-            header: None,
-            rows: self
-                .about
-                .iter()
-                .enumerate()
-                .map(|(at, (key, value))| Row::new(Id::Info(at), key, Control::Note(value.clone())))
-                .collect(),
-            footer: None,
-            thumbs: None,
-        }]
+        let reset = match self.confirm_reset {
+            true => "Click to confirm",
+            false => "Reset",
+        };
+        vec![
+            Group {
+                header: None,
+                rows: self
+                    .about
+                    .iter()
+                    .enumerate()
+                    .map(|(at, (key, value))| {
+                        Row::new(Id::Info(at), key, Control::Note(value.clone()))
+                    })
+                    .collect(),
+                footer: None,
+                thumbs: None,
+            },
+            Group {
+                header: Some("Settings file"),
+                rows: vec![
+                    Row::new(
+                        Id::Export,
+                        "Export settings",
+                        Control::Buttons(vec![Mark::Text("Export")]),
+                    )
+                    .detail("Save a copy of your settings to a folder"),
+                    Row::new(
+                        Id::Import,
+                        "Import settings",
+                        Control::Buttons(vec![Mark::Text("Import")]),
+                    )
+                    .detail("Use a settings file you saved before"),
+                    Row::new(
+                        Id::ResetAll,
+                        "Reset all settings",
+                        Control::Buttons(vec![Mark::Text(reset)]),
+                    )
+                    .detail("Go back to the defaults. The old file is kept as a backup"),
+                ],
+                footer: Some(self.file_note.clone().unwrap_or_else(|| {
+                    "Import and reset keep the old file as drifter.toml.bak.".into()
+                })),
+                thumbs: None,
+            },
+        ]
     }
 
     pub(super) fn set_more(&mut self, id: Id, value: Value) {
@@ -735,6 +770,13 @@ impl Model {
             (Id::Output, _) => return Some(Ask::Choose(For::Output)),
             (Id::Input, _) => return Some(Ask::Choose(For::Input)),
             (Id::Zone, _) => return Some(Ask::Choose(For::Zone)),
+            (Id::Export, _) => return Some(Ask::Files(For::Export)),
+            (Id::Import, _) => return Some(Ask::Files(For::Import)),
+            (Id::ResetAll, _) if self.confirm_reset => {
+                self.confirm_reset = false;
+                return Some(Ask::Reset);
+            }
+            (Id::ResetAll, _) => self.confirm_reset = true,
             _ => {}
         }
         None

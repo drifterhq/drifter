@@ -599,12 +599,8 @@ impl Settings {
             .look
             .hit(self.view(), self.section, &self.model, self.scroll, self.at);
         match hit {
-            Some(Hit::Section(section)) => {
-                self.section = section;
-                self.scroll = 0.0;
-                self.refresh(section);
-                self.want_thumbs();
-            }
+            Some(Hit::Search) => {}
+            Some(Hit::Section(section)) => self.go_to(section),
             Some(Hit::Change(id, value)) => {
                 self.model.set(id, value);
                 if let Value::Number(_) = value {
@@ -628,6 +624,7 @@ impl Settings {
                     let (title, now) = self.model.shortcut_name(at);
                     self.sheet = Some(Sheet::capture(at, &title, &now));
                 }
+                Some(Ask::Reset) => self.reset_all(),
                 Some(Ask::Forget) => {
                     if let Err(error) = std::fs::remove_file(history_path())
                         && error.kind() != std::io::ErrorKind::NotFound
@@ -807,6 +804,14 @@ impl Settings {
             }
             Pick::Command(_) => {}
             Pick::Into(folder) => self.sheet = Some(Sheet::files(purpose, folder)),
+            Pick::Folder(folder) if purpose == For::Export => {
+                self.sheet = None;
+                self.export(&folder);
+            }
+            Pick::File(file) if purpose == For::Import => {
+                self.sheet = None;
+                self.import(&file);
+            }
             Pick::Folder(folder) => {
                 match purpose {
                     For::Folder => self.model.choose_folder(folder),
@@ -1002,6 +1007,114 @@ impl Settings {
         self.draw();
     }
 
+    fn go_to(&mut self, section: Section) {
+        self.section = section;
+        self.scroll = 0.0;
+        self.refresh(section);
+        self.want_thumbs();
+    }
+
+    fn search_key(&mut self, event: &KeyEvent) {
+        let before = self.model.query.clone();
+        match event.keysym {
+            Keysym::Escape => self.model.query.clear(),
+            Keysym::BackSpace => {
+                self.model.query.pop();
+            }
+            Keysym::Return | Keysym::KP_Enter => {
+                if let Some(first) = self.model.shown().first().copied() {
+                    self.go_to(first);
+                }
+                self.draw();
+                return;
+            }
+            _ => match event.utf8.as_deref() {
+                Some(text) if !text.chars().any(char::is_control) && !self.mods.ctrl => {
+                    self.model.query.push_str(text)
+                }
+                _ => return,
+            },
+        }
+        if self.model.query == before {
+            return;
+        }
+        self.saved.query = self.model.query.clone();
+        self.look.side_scroll = 0.0;
+        let shown = self.model.shown();
+        if !shown.contains(&self.section)
+            && let Some(first) = shown.first().copied()
+        {
+            self.go_to(first);
+        }
+        self.draw();
+    }
+
+    fn reload(&mut self) {
+        let config = match Config::load_from(&self.path) {
+            Ok(config) => config,
+            Err(error) => {
+                self.model.file_note = Some(error.to_string());
+                return;
+            }
+        };
+        let old = std::mem::replace(&mut self.model, read_model(&config));
+        let model = &mut self.model;
+        model.sound = old.sound;
+        model.brightness = old.brightness;
+        model.zone = old.zone;
+        model.ntp = old.ntp;
+        model.about = old.about;
+        model.recent = old.recent;
+        model.autostarts = old.autostarts;
+        model.names = old.names;
+        model.query = old.query;
+        model.monitors = old.monitors;
+        model.picked = old.picked;
+        self.saved = self.model.clone();
+        self.look.accent = accent(&self.model);
+        self.load_row_icons();
+        self.reload_wallpaper();
+    }
+
+    fn reset_all(&mut self) {
+        let defaults = self.path.with_file_name(drifter_core::config::DEFAULTS);
+        let note = match std::fs::read_to_string(&defaults) {
+            Ok(text) => match drifter_core::settings::replace_config(&self.path, &text) {
+                Ok(backup) => format!("Back to the defaults. The old file is {}", backup.display()),
+                Err(error) => format!("Cannot reset: {error}"),
+            },
+            Err(error) => format!(
+                "Cannot read the defaults in {}: {error}",
+                defaults.display()
+            ),
+        };
+        self.reload();
+        self.model.file_note = Some(note);
+    }
+
+    fn import(&mut self, file: &Path) {
+        let note = match std::fs::read_to_string(file) {
+            Err(error) => format!("Cannot read {}: {error}", file.display()),
+            Ok(text) => match drifter_core::settings::check_import(&text) {
+                Err(error) => format!("Not imported: {error}"),
+                Ok(()) => match drifter_core::settings::replace_config(&self.path, &text) {
+                    Ok(backup) => format!("Imported. The old file is {}", backup.display()),
+                    Err(error) => format!("Cannot import: {error}"),
+                },
+            },
+        };
+        self.reload();
+        self.model.file_note = Some(note);
+    }
+
+    fn export(&mut self, folder: &Path) {
+        let target = drifter_core::settings::export_path(folder, |path| path.exists());
+        self.model.file_note = Some(match std::fs::copy(&self.path, &target) {
+            Ok(_) => format!("Saved to {}", target.display()),
+            Err(error) => format!("Cannot save to {}: {error}", target.display()),
+        });
+    }
+
     fn key(&mut self, event: &KeyEvent) {
         if let Some(Sheet::Capture {
             purpose: For::Shortcut(at),
@@ -1012,6 +1125,7 @@ impl Settings {
             return;
         }
         let Some(sheet) = self.sheet.as_mut() else {
+            self.search_key(event);
             return;
         };
         match event.keysym {

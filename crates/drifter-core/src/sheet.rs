@@ -27,6 +27,8 @@ pub enum For {
     Input,
     Zone,
     Shortcut(usize),
+    Import,
+    Export,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,13 +63,15 @@ pub enum Kind {
     Folders,
     Pictures,
     Fonts,
+    Configs,
 }
 
 impl For {
     fn kind(self) -> Kind {
         match self {
-            For::Folder | For::WindowArt | For::DockArt => Kind::Folders,
+            For::Folder | For::WindowArt | For::DockArt | For::Export => Kind::Folders,
             For::Font => Kind::Fonts,
+            For::Import => Kind::Configs,
             _ => Kind::Pictures,
         }
     }
@@ -154,6 +158,7 @@ pub fn entries(folder: &Path, kind: Kind) -> Vec<Entry> {
                     Kind::Folders => false,
                     Kind::Pictures => crate::wallpaper::is_picture(&path),
                     Kind::Fonts => is_font(&path),
+                    Kind::Configs => path.extension().is_some_and(|ext| ext == "toml"),
                 };
             wanted.then_some(Entry { name, path, folder })
         })
@@ -317,6 +322,11 @@ impl Sheet {
                 ..
             } => Some(("Choose this folder", Pick::Folder(folder.clone()))),
             Sheet::Files {
+                purpose: For::Export,
+                folder,
+                ..
+            } => Some(("Save here", Pick::Folder(folder.clone()))),
+            Sheet::Files {
                 purpose: For::DockIcon(_),
                 ..
             } => Some(("Use the app's icon", Pick::Default)),
@@ -350,6 +360,8 @@ impl Sheet {
             For::Input => "Choose a microphone",
             For::Zone => "Choose a time zone",
             For::Shortcut(_) => "Press the new shortcut",
+            For::Import => "Choose a settings file",
+            For::Export => "Choose where to save the settings",
         }
     }
 
