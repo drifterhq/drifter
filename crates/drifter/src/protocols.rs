@@ -14,7 +14,15 @@ use smithay::wayland::dmabuf::{DmabufGlobal, DmabufHandler, DmabufState, ImportN
 use smithay::wayland::fractional_scale::{
     FractionalScaleHandler, FractionalScaleManagerState, with_fractional_scale,
 };
+use smithay::wayland::foreign_toplevel_list::{
+    ForeignToplevelHandle, ForeignToplevelListHandler, ForeignToplevelListState,
+};
 use smithay::wayland::idle_inhibit::{IdleInhibitHandler, IdleInhibitManagerState};
+use smithay::wayland::idle_notify::{IdleNotifierHandler, IdleNotifierState};
+use smithay::wayland::keyboard_shortcuts_inhibit::{
+    KeyboardShortcutsInhibitHandler, KeyboardShortcutsInhibitState, KeyboardShortcutsInhibitor,
+};
+use smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState;
 use smithay::wayland::input_method::{
     InputMethodHandler, InputMethodManagerState, PopupSurface as ImePopup,
 };
@@ -46,7 +54,8 @@ use smithay::{
     delegate_cursor_shape, delegate_dmabuf, delegate_kde_decoration, delegate_fractional_scale, delegate_idle_inhibit,
     delegate_input_method_manager, delegate_layer_shell, delegate_pointer_constraints,
     delegate_primary_selection, delegate_relative_pointer, delegate_text_input_manager,
-    delegate_viewporter, delegate_xdg_activation,
+    delegate_viewporter, delegate_xdg_activation, delegate_foreign_toplevel_list,
+    delegate_idle_notify, delegate_keyboard_shortcuts_inhibit, delegate_virtual_keyboard_manager,
 };
 
 use crate::render::State;
@@ -60,6 +69,10 @@ pub struct Extras {
     pub activation: XdgActivationState,
     pub layers: WlrLayerShellState,
     pub inhibitors: Vec<WlSurface>,
+    pub idle: IdleNotifierState<State>,
+    pub toplevels: ForeignToplevelListState,
+    pub shortcuts: KeyboardShortcutsInhibitState,
+    _virtual_keyboard: VirtualKeyboardManagerState,
     _outputs: OutputManagerState,
     _viewporter: ViewporterState,
     _fractional: FractionalScaleManagerState,
@@ -73,8 +86,15 @@ pub struct Extras {
     _screencopy: smithay::reexports::wayland_server::backend::GlobalId,
 }
 
-pub fn start(handle: &DisplayHandle) -> Extras {
+pub fn start(
+    handle: &DisplayHandle,
+    events: smithay::reexports::calloop::LoopHandle<'static, State>,
+) -> Extras {
     Extras {
+        idle: IdleNotifierState::new(handle, events),
+        toplevels: ForeignToplevelListState::new::<State>(handle),
+        shortcuts: KeyboardShortcutsInhibitState::new::<State>(handle),
+        _virtual_keyboard: VirtualKeyboardManagerState::new::<State, _>(handle, |_| true),
         dmabuf: DmabufState::new(),
         dmabuf_global: None,
         primary: PrimarySelectionState::new::<State>(handle),
@@ -196,13 +216,61 @@ impl IdleInhibitHandler for State {
         if !held.contains(&surface) {
             held.push(surface);
         }
+        self.wayland.extras.idle.set_is_inhibited(true);
     }
 
     fn uninhibit(&mut self, surface: WlSurface) {
-        self.wayland
-            .extras
-            .inhibitors
-            .retain(|held| held != &surface);
+        let extras = &mut self.wayland.extras;
+        extras.inhibitors.retain(|held| held != &surface);
+        let still = !extras.inhibitors.is_empty();
+        extras.idle.set_is_inhibited(still);
+    }
+}
+
+impl IdleNotifierHandler for State {
+    fn idle_notifier_state(&mut self) -> &mut IdleNotifierState<Self> {
+        &mut self.wayland.extras.idle
+    }
+}
+
+impl ForeignToplevelListHandler for State {
+    fn foreign_toplevel_list_state(&mut self) -> &mut ForeignToplevelListState {
+        &mut self.wayland.extras.toplevels
+    }
+}
+
+impl KeyboardShortcutsInhibitHandler for State {
+    fn keyboard_shortcuts_inhibit_state(&mut self) -> &mut KeyboardShortcutsInhibitState {
+        &mut self.wayland.extras.shortcuts
+    }
+
+    fn new_inhibitor(&mut self, inhibitor: KeyboardShortcutsInhibitor) {
+        inhibitor.activate();
+    }
+}
+
+pub fn list_toplevel(
+    state: &mut ForeignToplevelListState,
+    held: &mut Option<ForeignToplevelHandle>,
+    title: &str,
+    app: &str,
+) {
+    match held {
+        None => *held = Some(state.new_toplevel::<State>(title, app)),
+        Some(handle) => {
+            let mut changed = false;
+            if handle.title() != title {
+                handle.send_title(title);
+                changed = true;
+            }
+            if handle.app_id() != app {
+                handle.send_app_id(app);
+                changed = true;
+            }
+            if changed {
+                handle.send_done();
+            }
+        }
     }
 }
 
@@ -309,3 +377,7 @@ delegate_input_method_manager!(State);
 delegate_cursor_shape!(State);
 delegate_layer_shell!(State);
 delegate_kde_decoration!(State);
+delegate_idle_notify!(State);
+delegate_foreign_toplevel_list!(State);
+delegate_keyboard_shortcuts_inhibit!(State);
+delegate_virtual_keyboard_manager!(State);

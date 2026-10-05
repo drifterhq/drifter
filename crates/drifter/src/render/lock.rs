@@ -133,6 +133,10 @@ impl State {
         if event.state() != KeyState::Pressed {
             return;
         }
+        if let LockKey::Vt(vt) = key {
+            self.change_vt(vt);
+            return;
+        }
         let Some(lock) = self.lock.as_mut() else {
             return;
         };
@@ -174,9 +178,18 @@ impl State {
                     let _ = sender.send((ticket, verdict));
                 });
             }
-            LockKey::Other => {}
+            LockKey::Other | LockKey::Vt(_) => {}
         }
         self.paint_lock();
+    }
+
+    pub(super) fn change_vt(&mut self, vt: i32) {
+        let Some(session) = self.vt.as_mut() else {
+            return;
+        };
+        if let Err(error) = session.change_vt(vt) {
+            eprintln!("drifter: cannot switch to terminal {vt}: {error}");
+        }
     }
 
     pub(super) fn read_key(
@@ -195,6 +208,9 @@ impl State {
             event.time_msec(),
             |_, _, handle| {
                 let symbol = handle.modified_sym();
+                if let Some(vt) = drifter_core::shortcut::vt_number(symbol.raw()) {
+                    return FilterResult::Intercept(LockKey::Vt(vt));
+                }
                 let key = match symbol.raw() {
                     keysyms::KEY_Return | keysyms::KEY_KP_Enter => LockKey::Enter,
                     keysyms::KEY_BackSpace => LockKey::Back,

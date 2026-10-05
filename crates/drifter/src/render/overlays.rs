@@ -200,6 +200,10 @@ impl State {
                 self.prompt_cancel();
                 return;
             }
+            LockKey::Vt(vt) => {
+                self.change_vt(vt);
+                return;
+            }
             LockKey::Other => return,
         }
         self.paint_prompt();

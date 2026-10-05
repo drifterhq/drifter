@@ -134,6 +134,7 @@ pub fn open(
     let mut gbm = None;
     let mut render_node = None;
     let mut wired = None;
+    let vt = seat.as_ref().map(|seat| seat.session.clone());
     if let Some(seat) = seat {
         path = seat.card.to_path_buf();
         let fd = seat
@@ -212,7 +213,7 @@ pub fn open(
     };
     let display: Display<State> =
         Display::new().map_err(|e| format!("cannot start the wayland display: {e}"))?;
-    let mut wayland = crate::shell::start(&display, &config.keyboard)?;
+    let mut wayland = crate::shell::start(&display, &config.keyboard, events.handle())?;
     {
         use smithay::backend::renderer::ImportDma;
         use smithay::wayland::dmabuf::DmabufFeedbackBuilder;
@@ -428,6 +429,7 @@ pub fn open(
         dark: false,
         login: config.login.start.clone(),
         autostart: config.login.autostart,
+        vt,
         paper: Paper::from(config),
         paper_tx,
         shot_tx,

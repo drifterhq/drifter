@@ -61,6 +61,7 @@ pub struct Window {
     pub wants_full: bool,
     pub motion: Option<drifter_core::motion::Motion>,
     pub going: bool,
+    pub listed: Option<smithay::wayland::foreign_toplevel_list::ForeignToplevelHandle>,
 }
 
 #[derive(Default)]
@@ -212,6 +213,7 @@ impl XdgShellHandler for State {
             wants_full: false,
             motion: Some(start),
             going: false,
+            listed: None,
         });
     }
 
@@ -401,7 +403,11 @@ pub fn xkb(keys: &drifter_core::Keyboard) -> smithay::input::keyboard::XkbConfig
     }
 }
 
-pub fn start(display: &Display<State>, keys: &drifter_core::Keyboard) -> Result<Wayland, String> {
+pub fn start(
+    display: &Display<State>,
+    keys: &drifter_core::Keyboard,
+    events: smithay::reexports::calloop::LoopHandle<'static, State>,
+) -> Result<Wayland, String> {
     let handle = display.handle();
     let compositor = CompositorState::new::<State>(&handle);
     let xdg = XdgShellState::new::<State>(&handle);
@@ -423,7 +429,7 @@ pub fn start(display: &Display<State>, keys: &drifter_core::Keyboard) -> Result<
     let pointer = seat.add_pointer();
     let data_device = DataDeviceState::new::<State>(&handle);
     smithay::wayland::shell::xdg::decoration::XdgDecorationState::new::<State>(&handle);
-    let extras = crate::protocols::start(&handle);
+    let extras = crate::protocols::start(&handle, events);
 
     Ok(Wayland {
         handle,

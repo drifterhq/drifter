@@ -195,6 +195,7 @@ struct Switch {
 enum Shortcut {
     Do(drifter_core::shortcut::Action, bool),
     Media(crate::media::Key),
+    Vt(i32),
     Swallow,
 }
 
@@ -277,6 +278,7 @@ struct Hit {
 }
 
 enum LockKey {
+    Vt(i32),
     Letter(char),
     Enter,
     Back,
@@ -388,6 +390,7 @@ pub struct State {
     dark: bool,
     login: Vec<drifter_core::Launch>,
     autostart: bool,
+    vt: Option<LibSeatSession>,
     paper: Paper,
     paper_tx: smithay::reexports::calloop::channel::Sender<(
         PathBuf,

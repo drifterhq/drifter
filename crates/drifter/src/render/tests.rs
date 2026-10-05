@@ -20,9 +20,19 @@ use smithay_client_toolkit::{
     delegate_compositor, delegate_output, delegate_registry, delegate_shm, delegate_xdg_shell,
     delegate_xdg_window, registry_handlers,
 };
-use wayland_client::globals::registry_queue_init;
+use wayland_client::globals::{GlobalListContents, registry_queue_init};
 use wayland_client::protocol::{wl_output, wl_shm, wl_surface};
+use wayland_client::protocol::{wl_registry, wl_seat};
 use wayland_client::{Connection, QueueHandle};
+use wayland_client::{Dispatch, Proxy, delegate_noop, event_created_child};
+use wayland_protocols::ext::foreign_toplevel_list::v1::client::{
+    ext_foreign_toplevel_handle_v1::{self, ExtForeignToplevelHandleV1},
+    ext_foreign_toplevel_list_v1::{self, ExtForeignToplevelListV1},
+};
+use wayland_protocols::wp::keyboard_shortcuts_inhibit::zv1::client::{
+    zwp_keyboard_shortcuts_inhibit_manager_v1::ZwpKeyboardShortcutsInhibitManagerV1,
+    zwp_keyboard_shortcuts_inhibitor_v1::ZwpKeyboardShortcutsInhibitorV1,
+};
 
 use super::{Grab, RescaleRenderElement, Screen, Shown, State};
 
@@ -39,6 +49,7 @@ struct Client {
     pool: SlotPool,
     window: Window,
     painted: bool,
+    _inhibitor: Option<ZwpKeyboardShortcutsInhibitorV1>,
 }
 
 impl Client {
@@ -142,8 +153,11 @@ delegate_shm!(Client);
 delegate_xdg_shell!(Client);
 delegate_xdg_window!(Client);
 delegate_registry!(Client);
+delegate_noop!(Client: ignore wl_seat::WlSeat);
+delegate_noop!(Client: ZwpKeyboardShortcutsInhibitManagerV1);
+delegate_noop!(Client: ignore ZwpKeyboardShortcutsInhibitorV1);
 
-fn run_client(stop: Arc<AtomicBool>) {
+fn run_client_with(stop: Arc<AtomicBool>, inhibit: bool) {
     let connection = Connection::connect_to_env().expect("the test client connects");
     let (globals, mut queue) = registry_queue_init(&connection).expect("a registry");
     let qh = queue.handle();
@@ -155,6 +169,13 @@ fn run_client(stop: Arc<AtomicBool>) {
     window.set_title("red");
     window.set_app_id("drifter-test-red");
     window.commit();
+    let inhibitor = inhibit.then(|| {
+        let seat: wl_seat::WlSeat = globals.bind(&qh, 1..=1, ()).expect("wl_seat");
+        let manager: ZwpKeyboardShortcutsInhibitManagerV1 = globals
+            .bind(&qh, 1..=1, ())
+            .expect("the shortcut inhibit manager");
+        manager.inhibit_shortcuts(window.wl_surface(), &seat, &qh, ())
+    });
     let pool = SlotPool::new((PAINT.0 * PAINT.1 * 4) as usize, &shm).expect("shared memory");
     let mut client = Client {
         registry: RegistryState::new(&globals),
@@ -163,6 +184,7 @@ fn run_client(stop: Arc<AtomicBool>) {
         pool,
         window,
         painted: false,
+        _inhibitor: inhibitor,
     };
     while !stop.load(Ordering::Relaxed) {
         let _ = connection.flush();
@@ -209,10 +231,14 @@ fn start(name: &str, config: &Config, wallpaper: Option<Image>) -> Run {
 }
 
 fn red_window(run: &mut Run) -> (Arc<AtomicBool>, std::thread::JoinHandle<()>) {
+    red_window_with(run, false)
+}
+
+fn red_window_with(run: &mut Run, inhibit: bool) -> (Arc<AtomicBool>, std::thread::JoinHandle<()>) {
     let stop = Arc::new(AtomicBool::new(false));
     let client = {
         let stop = stop.clone();
-        std::thread::spawn(move || run_client(stop))
+        std::thread::spawn(move || run_client_with(stop, inhibit))
     };
     pump(&mut run.screen, |state| {
         state
@@ -727,4 +753,178 @@ fn a_bar_that_does_not_hide_stays_on_screen() {
         run.screen.state.drawers[bottom].open,
         "the pinned bar hid with the top bar"
     );
+}
+
+#[derive(Default)]
+struct Listed {
+    title: String,
+    app: String,
+    done: bool,
+    closed: bool,
+}
+
+#[derive(Default)]
+struct Lister {
+    seen: Vec<(ExtForeignToplevelHandleV1, Listed)>,
+}
+
+impl Lister {
+    fn entry(&mut self, handle: &ExtForeignToplevelHandleV1) -> &mut Listed {
+        let at = match self.seen.iter().position(|(each, _)| each == handle) {
+            Some(at) => at,
+            None => {
+                self.seen.push((handle.clone(), Listed::default()));
+                self.seen.len() - 1
+            }
+        };
+        &mut self.seen[at].1
+    }
+}
+
+impl Dispatch<wl_registry::WlRegistry, GlobalListContents> for Lister {
+    fn event(
+        _: &mut Self,
+        _: &wl_registry::WlRegistry,
+        _: wl_registry::Event,
+        _: &GlobalListContents,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+    }
+}
+
+impl Dispatch<ExtForeignToplevelListV1, ()> for Lister {
+    fn event(
+        state: &mut Self,
+        _: &ExtForeignToplevelListV1,
+        event: ext_foreign_toplevel_list_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let ext_foreign_toplevel_list_v1::Event::Toplevel { toplevel } = event {
+            state.entry(&toplevel);
+        }
+    }
+
+    event_created_child!(Lister, ExtForeignToplevelListV1, [
+        ext_foreign_toplevel_list_v1::EVT_TOPLEVEL_OPCODE => (ExtForeignToplevelHandleV1, ()),
+    ]);
+}
+
+impl Dispatch<ExtForeignToplevelHandleV1, ()> for Lister {
+    fn event(
+        state: &mut Self,
+        handle: &ExtForeignToplevelHandleV1,
+        event: ext_foreign_toplevel_handle_v1::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        let entry = state.entry(handle);
+        match event {
+            ext_foreign_toplevel_handle_v1::Event::Title { title } => entry.title = title,
+            ext_foreign_toplevel_handle_v1::Event::AppId { app_id } => entry.app = app_id,
+            ext_foreign_toplevel_handle_v1::Event::Done => entry.done = true,
+            ext_foreign_toplevel_handle_v1::Event::Closed => entry.closed = true,
+            _ => {}
+        }
+    }
+}
+
+fn list_windows(report: Arc<Mutex<Vec<(String, String, bool, bool)>>>, stop: Arc<AtomicBool>) {
+    let connection = Connection::connect_to_env().expect("the lister connects");
+    let (globals, mut queue) = registry_queue_init::<Lister>(&connection).expect("a registry");
+    let qh = queue.handle();
+    let _list: ExtForeignToplevelListV1 = globals
+        .bind(&qh, 1..=1, ())
+        .expect("ext_foreign_toplevel_list_v1");
+    let mut lister = Lister::default();
+    while !stop.load(Ordering::Relaxed) {
+        let _ = connection.flush();
+        if let Some(guard) = connection.prepare_read() {
+            let _ = guard.read();
+        }
+        let _ = queue.dispatch_pending(&mut lister);
+        *report.lock().unwrap() = lister
+            .seen
+            .iter()
+            .map(|(handle, seen)| {
+                let _ = handle.id();
+                (seen.title.clone(), seen.app.clone(), seen.done, seen.closed)
+            })
+            .collect();
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[test]
+fn other_apps_see_each_window_come_and_go() {
+    let mut run = start("toplevels", &Config::default(), None);
+    let report = Arc::new(Mutex::new(Vec::new()));
+    let watching = Arc::new(AtomicBool::new(false));
+    let lister = {
+        let (report, watching) = (report.clone(), watching.clone());
+        std::thread::spawn(move || list_windows(report, watching))
+    };
+    let (stop, client) = red_window(&mut run);
+
+    let seen =
+        |report: &Arc<Mutex<Vec<(String, String, bool, bool)>>>| report.lock().unwrap().clone();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while Instant::now() < deadline && !seen(&report).iter().any(|entry| entry.2) {
+        run.screen
+            .events
+            .dispatch(Some(Duration::from_millis(10)), &mut run.screen.state)
+            .unwrap();
+    }
+    assert_eq!(
+        seen(&report),
+        [(
+            "red".to_string(),
+            "drifter-test-red".to_string(),
+            true,
+            false
+        )],
+        "the list names the window by its title and app id"
+    );
+
+    stop.store(true, Ordering::Relaxed);
+    let _ = client.join();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while Instant::now() < deadline && !seen(&report).iter().any(|entry| entry.3) {
+        run.screen
+            .events
+            .dispatch(Some(Duration::from_millis(10)), &mut run.screen.state)
+            .unwrap();
+    }
+    assert!(
+        seen(&report).iter().all(|entry| entry.3),
+        "a window that is gone is closed in the list: {:?}",
+        seen(&report)
+    );
+    watching.store(true, Ordering::Relaxed);
+    let _ = lister.join();
+}
+
+#[test]
+fn a_window_that_inhibits_shortcuts_keeps_them_while_focused() {
+    let mut run = start("inhibit", &Config::default(), None);
+    let (stop, client) = red_window_with(&mut run, true);
+    pump(&mut run.screen, |state| state.shortcuts_inhibited());
+    assert!(
+        run.screen.state.shortcuts_inhibited(),
+        "the focused window holds the shortcuts"
+    );
+    stop.store(true, Ordering::Relaxed);
+    let _ = client.join();
+    pump(&mut run.screen, |state| !state.shortcuts_inhibited());
+    assert!(!run.screen.state.shortcuts_inhibited());
+    drop(run);
+
+    let mut run = start("no-inhibit", &Config::default(), None);
+    let (stop, client) = red_window(&mut run);
+    assert!(!run.screen.state.shortcuts_inhibited());
+    stop.store(true, Ordering::Relaxed);
+    let _ = client.join();
 }

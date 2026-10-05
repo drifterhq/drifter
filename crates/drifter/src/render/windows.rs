@@ -472,6 +472,12 @@ impl State {
         if let Some(title) = title {
             window.title = title;
         }
+        crate::protocols::list_toplevel(
+            &mut self.wayland.extras.toplevels,
+            &mut window.listed,
+            &window.title,
+            &window.app,
+        );
 
         if window.placed && (window.touched || !grew || window.born.elapsed() > SETTLING) {
             return;
@@ -687,6 +693,9 @@ impl State {
             return;
         };
         let window = self.windows.remove(index);
+        if let Some(listed) = window.listed.as_ref() {
+            self.wayland.extras.toplevels.remove_toplevel(listed);
+        }
         let id = window.id;
         match self.grab {
             Grab::Move { id: held, .. } | Grab::Resize { id: held, .. } if held == id => {

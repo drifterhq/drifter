@@ -32,3 +32,4 @@ async-channel = "2"
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 smithay-client-toolkit = { version = "0.19", default-features = false, features = ["calloop"] }
 wayland-client = "0.31"
+wayland-protocols = { version = "0.32.13", default-features = false, features = ["client", "unstable", "staging"] }

@@ -222,6 +222,15 @@ impl Combo {
     }
 }
 
+const FIRST_VT: u32 = 0x1008_fe01;
+const LAST_VT: u32 = 0x1008_fe0c;
+
+pub fn vt_number(keysym: u32) -> Option<i32> {
+    (FIRST_VT..=LAST_VT)
+        .contains(&keysym)
+        .then(|| (keysym - FIRST_VT + 1) as i32)
+}
+
 pub fn keysym_word(name: &str) -> String {
     match name.strip_prefix("XF86XK_") {
         Some(rest) => format!("XF86{rest}"),
@@ -245,6 +254,15 @@ pub fn pretty(key: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn ctrl_alt_f_keys_name_their_terminal() {
+        assert_eq!(vt_number(0x1008_fe01), Some(1));
+        assert_eq!(vt_number(0x1008_fe0c), Some(12));
+        assert_eq!(vt_number(0x1008_fe0d), None);
+        assert_eq!(vt_number(0x1008_fe00), None);
+        assert_eq!(vt_number(0xffbe), None);
+    }
+
     use super::*;
 
     #[test]

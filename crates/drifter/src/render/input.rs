@@ -613,6 +613,12 @@ impl State {
             time,
             |state, held, keysym| {
                 use drifter_core::shortcut::{Action, Mods, keysym_word};
+                if let Some(vt) = drifter_core::shortcut::vt_number(keysym.modified_sym().raw())
+                    && pressed
+                {
+                    state.swallowed.push(code);
+                    return FilterResult::Intercept(Shortcut::Vt(vt));
+                }
                 if let Some(key) = crate::media::key(code) {
                     return FilterResult::Intercept(match pressed {
                         true => Shortcut::Media(key),
@@ -627,6 +633,9 @@ impl State {
                         }
                         None => FilterResult::Forward,
                     };
+                }
+                if state.shortcuts_inhibited() {
+                    return FilterResult::Forward;
                 }
                 let mut names: Vec<String> = keysym
                     .modified_syms()
@@ -662,6 +671,7 @@ impl State {
         );
         match shortcut {
             Some(Shortcut::Do(action, shift)) => self.run_shortcut(action, shift),
+            Some(Shortcut::Vt(vt)) => self.change_vt(vt),
             Some(Shortcut::Media(key)) => {
                 if let Some(media) = self.media.as_ref() {
                     media.press(key);
@@ -678,8 +688,23 @@ impl State {
         }
     }
 
+    pub(super) fn shortcuts_inhibited(&self) -> bool {
+        use smithay::wayland::keyboard_shortcuts_inhibit::KeyboardShortcutsInhibitorSeat;
+        self.wayland
+            .keyboard
+            .current_focus()
+            .and_then(|surface| {
+                self.wayland
+                    ._seat
+                    .keyboard_shortcuts_inhibitor_for_surface(&surface)
+            })
+            .is_some_and(|inhibitor| inhibitor.is_active())
+    }
+
     pub(super) fn input(&mut self, event: InputEvent<LibinputInputBackend>) {
         self.last_input = Instant::now();
+        let seat = self.wayland._seat.clone();
+        self.wayland.extras.idle.notify_activity(&seat);
         self.slept = false;
         self.wake();
         match &event {
@@ -820,7 +845,7 @@ impl State {
             InputEvent::GestureSwipeEnd { .. } => self.fingers = 0,
             InputEvent::Keyboard { event } => {
                 let code = event.key_code().raw();
-                if self.holds.holds(code) {
+                if self.holds.holds(code) && !self.shortcuts_inhibited() {
                     self.modifier = event.state() == KeyState::Pressed;
                     if self.modifier {
                         self.corner_since = None;
