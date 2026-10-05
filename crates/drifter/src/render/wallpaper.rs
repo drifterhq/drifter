@@ -130,7 +130,7 @@ impl State {
             rest.open = true;
             rest.advance(Duration::from_secs(1), Duration::from_millis(1));
             let origin = rest.rect(self.screen, &shape).origin;
-            let mut image = drifter_core::drawer::paint(
+            let mut image = drifter_core::drawer::paint_flat(
                 edge,
                 self.screen.x.max(1.0) as u32,
                 &shape,
@@ -138,6 +138,7 @@ impl State {
                 veil,
             );
             self.frosted(&mut image, origin, f64::from(veil) / 255.0);
+            drifter_core::drawer::shadow(&mut image, edge, &shape);
             match upload(&mut self.renderer, Some(&image), "frosted drawer") {
                 Ok(Some(buffer)) => built.push(buffer),
                 _ => return,

@@ -187,10 +187,33 @@ fn shade(depth: f64, shadow: f64) -> f64 {
         return 1.0;
     }
     let sink = 1.0 - (depth.max(0.0) / shadow);
-    1.0 - 0.55 * sink * sink
+    1.0 - 0.8 * sink * sink
 }
 
 pub fn paint(edge: Edge, width: u32, panel: &Panel, color: [u8; 3], alpha: u8) -> Image {
+    let mut image = paint_flat(edge, width, panel, color, alpha);
+    shadow(&mut image, edge, panel);
+    image
+}
+
+pub fn shadow(image: &mut Image, edge: Edge, panel: &Panel) {
+    let w = f64::from(image.width);
+    for y in 0..image.height {
+        let py = f64::from(y) + 0.5;
+        for x in 0..image.width {
+            let lit = shade(depth(edge, f64::from(x) + 0.5, py, w, panel), panel.shadow);
+            if lit >= 1.0 {
+                continue;
+            }
+            let index = ((y * image.width + x) * 4) as usize;
+            for channel in &mut image.rgba[index..index + 3] {
+                *channel = (f64::from(*channel) * lit).round() as u8;
+            }
+        }
+    }
+}
+
+pub fn paint_flat(edge: Edge, width: u32, panel: &Panel, color: [u8; 3], alpha: u8) -> Image {
     let height = panel.texture_height().round().max(1.0) as u32;
     let mut rgba = vec![0u8; (width as usize) * (height as usize) * 4];
     let a = f64::from(alpha) / 255.0;
@@ -206,11 +229,10 @@ pub fn paint(edge: Edge, width: u32, panel: &Panel, color: [u8; 3], alpha: u8) -
                 continue;
             }
 
-            let lit = shade(into_panel, panel.shadow);
             let pixel_alpha = a * coverage;
             let index = ((y as usize) * (width as usize) + x as usize) * 4;
             for (channel, value) in color.iter().enumerate() {
-                rgba[index + channel] = (f64::from(*value) * lit * pixel_alpha)
+                rgba[index + channel] = (f64::from(*value) * pixel_alpha)
                     .round()
                     .clamp(0.0, 255.0) as u8;
             }
