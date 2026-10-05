@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 
-use super::{Control, Group, Id, Mark, Model, Row, Value, drop_key, file_name, put};
+use super::{Control, Group, Id, Mark, Model, PROFILES, Row, Value, drop_key, file_name, put};
 use crate::config::{
+    ShotFormat,
     Accent, CORNER_SIZE, CURSOR_SIZES, FASTEST, LONGEST_NOTE, Lid, Modifier, PAN_SPEED, PowerKey,
     REPEAT_DELAY, REPEAT_RATE, SLIDE_MS, Style, WAIT_MS,
 };
@@ -528,17 +529,138 @@ impl Model {
                 Row::new(Id::Shortcut(at), action.label(), Control::Buttons(marks)).detail(&shown)
             })
             .collect();
-        vec![Group {
-            header: None,
-            rows,
-            footer: Some(
-                "Hold Shift with the window switch to go back. Media keys always work.".into(),
-            ),
+        vec![
+            Group {
+                header: None,
+                rows,
+                footer: Some(
+                    "Hold Shift with the window switch to go back. Media keys always work.".into(),
+                ),
+                thumbs: None,
+            },
+            self.shot_group(),
+        ]
+    }
+
+    pub(super) fn access_groups(&self) -> Vec<Group> {
+        let access = &self.access;
+        vec![
+            Group {
+                header: Some("Seeing"),
+                rows: vec![
+                    Row::new(Id::LargeText, "Large text", Control::Switch(access.large_text))
+                        .detail("Text in apps is a quarter bigger"),
+                    Row::new(Id::HighContrast, "High contrast", Control::Switch(access.high_contrast))
+                        .detail("Apps use stronger edges and colors"),
+                ],
+                footer: None,
+                thumbs: None,
+            },
+            Group {
+                header: Some("Moving"),
+                rows: vec![
+                    Row::new(Id::ReduceMotion, "Reduce motion", Control::Switch(access.reduce_motion))
+                        .detail("The camera, bars and windows jump instead of sliding"),
+                ],
+                footer: None,
+                thumbs: None,
+            },
+            Group {
+                header: Some("Typing"),
+                rows: vec![
+                    Row::new(Id::StickyKeys, "Sticky keys", Control::Switch(access.sticky_keys))
+                        .detail("Tap Shift, Ctrl, Alt or Super, then a key"),
+                ],
+                footer: Some(
+                    "With sticky keys, tap a key like Ctrl twice to keep it held. Tap it again to let go."
+                        .into(),
+                ),
+                thumbs: None,
+            },
+        ]
+    }
+
+    fn shot_group(&self) -> Group {
+        let folder = match self.shots.folder.as_deref() {
+            Some(folder) if !folder.trim().is_empty() => folder.to_string(),
+            _ => "Pictures/Screenshots in your home folder".to_string(),
+        };
+        let marks = match self.shots.folder.is_some() {
+            true => vec![Mark::Text("Choose"), Mark::Text("Reset")],
+            false => vec![Mark::Text("Choose")],
+        };
+        Group {
+            header: Some("Screenshots"),
+            rows: vec![
+                Row::new(Id::ShotFolder, "Save to", Control::Buttons(marks)).detail(&folder),
+                Row::new(
+                    Id::ShotFormat,
+                    "Format",
+                    Control::Segments {
+                        options: vec!["PNG", "JPEG"],
+                        chosen: match self.shots.format {
+                            ShotFormat::Png => 0,
+                            ShotFormat::Jpeg => 1,
+                        },
+                    },
+                )
+                .detail("PNG keeps every pixel. JPEG files are smaller"),
+            ],
+            footer: None,
             thumbs: None,
-        }]
+        }
+    }
+
+    fn power_extras(&self) -> Vec<Group> {
+        let mut groups = Vec::new();
+        if let Some(profiles) = &self.profile {
+            let offered: Vec<(&str, &'static str)> = PROFILES
+                .iter()
+                .filter(|(name, _)| profiles.offered.iter().any(|each| each == name))
+                .copied()
+                .collect();
+            if offered.len() > 1 {
+                groups.push(Group {
+                    header: Some("Performance"),
+                    rows: vec![Row::new(
+                        Id::Profile,
+                        "Power mode",
+                        Control::Segments {
+                            options: offered.iter().map(|(_, label)| *label).collect(),
+                            chosen: offered
+                                .iter()
+                                .position(|(name, _)| *name == profiles.now)
+                                .unwrap_or(0),
+                        },
+                    )
+                    .detail("Saver runs cooler and longer on battery")],
+                    footer: None,
+                    thumbs: None,
+                });
+            }
+        }
+        if !self.cells.is_empty() {
+            groups.push(Group {
+                header: Some("Battery"),
+                rows: self
+                    .cells
+                    .iter()
+                    .map(|(key, value)| Row::new(Id::Battery, key, Control::Note(value.clone())))
+                    .collect(),
+                footer: None,
+                thumbs: None,
+            });
+        }
+        groups
     }
 
     pub(super) fn power_groups(&self) -> Vec<Group> {
+        let mut groups = self.power_groups_base();
+        groups.extend(self.power_extras());
+        groups
+    }
+
+    fn power_groups_base(&self) -> Vec<Group> {
         let power = &self.power;
         vec![Group {
             header: None,
@@ -676,6 +798,28 @@ impl Model {
 
     pub(super) fn set_more(&mut self, id: Id, value: Value) {
         match (id, value) {
+            (Id::LargeText, Value::Switch(on)) => self.access.large_text = on,
+            (Id::HighContrast, Value::Switch(on)) => self.access.high_contrast = on,
+            (Id::ReduceMotion, Value::Switch(on)) => self.access.reduce_motion = on,
+            (Id::StickyKeys, Value::Switch(on)) => self.access.sticky_keys = on,
+            (Id::ShotFormat, Value::Choice(n)) => {
+                self.shots.format = match n {
+                    0 => ShotFormat::Png,
+                    _ => ShotFormat::Jpeg,
+                }
+            }
+            (Id::Profile, Value::Choice(n)) => {
+                if let Some(profiles) = self.profile.as_mut() {
+                    let offered: Vec<&str> = PROFILES
+                        .iter()
+                        .map(|(name, _)| *name)
+                        .filter(|name| profiles.offered.iter().any(|each| each == name))
+                        .collect();
+                    if let Some(name) = offered.get(n) {
+                        profiles.now = name.to_string();
+                    }
+                }
+            }
             (Id::Caps, Value::Choice(n)) => {
                 self.keyboard.options = keyboard::set_caps(&self.keyboard.options, n)
             }
@@ -754,6 +898,8 @@ impl Model {
 
     pub(super) fn press_more(&mut self, id: Id, index: usize) -> Option<Ask> {
         match (id, index) {
+            (Id::ShotFolder, 0) => return Some(Ask::Files(For::ShotFolder)),
+            (Id::ShotFolder, _) => self.shots.folder = None,
             (Id::Variant, _) => return Some(Ask::Choose(For::Variant)),
             (Id::IconTheme, 0) => return Some(Ask::Choose(For::IconTheme)),
             (Id::IconTheme, _) => self.appearance.icons = None,
@@ -803,6 +949,16 @@ impl Model {
             }
             _ => {}
         }
+    }
+
+    pub fn choose_shot_folder(&mut self, folder: PathBuf) {
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        let shown = match home.as_ref().and_then(|home| folder.strip_prefix(home).ok()) {
+            Some(rest) if rest.as_os_str().is_empty() => "~".to_string(),
+            Some(rest) => format!("~/{}", rest.display()),
+            None => folder.display().to_string(),
+        };
+        self.shots.folder = Some(shown);
     }
 
     pub fn choose_file(&mut self, purpose: For, path: PathBuf) {
@@ -950,6 +1106,33 @@ impl Model {
         }
         if power.button != was.button {
             put(doc, "power", "button", word(button_word(power.button)));
+        }
+
+        let (access, was) = (&self.access, &before.access);
+        for (key, now, then) in [
+            ("large_text", access.large_text, was.large_text),
+            ("high_contrast", access.high_contrast, was.high_contrast),
+            ("reduce_motion", access.reduce_motion, was.reduce_motion),
+            ("sticky_keys", access.sticky_keys, was.sticky_keys),
+        ] {
+            if now != then {
+                put(doc, "access", key, flag(now));
+            }
+        }
+
+        let (shots, was) = (&self.shots, &before.shots);
+        if shots.folder != was.folder {
+            match &shots.folder {
+                Some(folder) => put(doc, "screenshots", "folder", word(folder)),
+                None => drop_key(doc, "screenshots", "folder"),
+            }
+        }
+        if shots.format != was.format {
+            let format = match shots.format {
+                ShotFormat::Png => "png",
+                ShotFormat::Jpeg => "jpeg",
+            };
+            put(doc, "screenshots", "format", word(format));
         }
 
         let (notify, was) = (&self.notify, &before.notify);

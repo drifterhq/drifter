@@ -176,6 +176,58 @@ pub fn read_cell(
     }
 }
 
+pub fn battery_rows(read: impl Fn(&str) -> Option<String>) -> Vec<(String, String)> {
+    let number = |key: &str| read(key).and_then(|text| text.trim().parse::<f64>().ok());
+    if read("type").as_deref().map(str::trim) != Some("Battery") {
+        return Vec::new();
+    }
+    let pair = |energy: &str, charge: &str| number(energy).or_else(|| number(charge));
+    let now = pair("energy_now", "charge_now");
+    let full = pair("energy_full", "charge_full");
+    let design = pair("energy_full_design", "charge_full_design");
+    let rate = pair("power_now", "current_now").filter(|rate| *rate > 0.0);
+    let percent = match (now, full) {
+        (Some(now), Some(full)) if full > 0.0 => Some((now / full * 100.0).clamp(0.0, 100.0)),
+        _ => number("capacity"),
+    };
+    let Some(percent) = percent else {
+        return Vec::new();
+    };
+    let status = read("status").unwrap_or_default();
+    let state = match status.trim() {
+        "Charging" => "charging",
+        "Full" => "full",
+        "Not charging" => "plugged in, not charging",
+        _ => "on battery",
+    };
+    let mut rows = vec![("Charge".to_string(), format!("{}%, {state}", percent.round()))];
+    if let (Some(rate), Some(now), Some(full)) = (rate, now, full) {
+        let hours = match status.trim() {
+            "Charging" => Some((full - now).max(0.0) / rate),
+            "Discharging" => Some(now / rate),
+            _ => None,
+        };
+        if let Some(hours) = hours.filter(|hours| *hours < 48.0) {
+            let minutes = (hours * 60.0).round() as u64;
+            let label = match status.trim() {
+                "Charging" => "Full in",
+                _ => "Time left",
+            };
+            rows.push((label.to_string(), format!("{}:{:02}", minutes / 60, minutes % 60)));
+        }
+    }
+    if let (Some(full), Some(design)) = (full, design)
+        && design > 0.0
+    {
+        let health = (full / design * 100.0).round().min(100.0);
+        rows.push(("Health".to_string(), format!("{health}% of new")));
+    }
+    if let Some(cycles) = number("cycle_count").filter(|cycles| *cycles > 0.0) {
+        rows.push(("Charge cycles".to_string(), format!("{cycles}")));
+    }
+    rows
+}
+
 pub fn battery(cells: &[Cell]) -> Option<(&'static str, u8)> {
     let full: u64 = cells.iter().map(|cell| cell.full).sum();
     if full == 0 {
@@ -248,6 +300,59 @@ fn percent(part: u64, whole: u64) -> u8 {
 
 #[cfg(test)]
 mod tests {
+    use super::battery_rows;
+
+    fn supply(pairs: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<String> {
+        move |key| {
+            pairs
+                .iter()
+                .find(|(each, _)| *each == key)
+                .map(|(_, value)| format!("{value}\n"))
+        }
+    }
+
+    #[test]
+    fn the_battery_rows_tell_charge_time_and_health() {
+        let rows = battery_rows(supply(&[
+            ("type", "Battery"),
+            ("status", "Discharging"),
+            ("energy_now", "30000000"),
+            ("energy_full", "40000000"),
+            ("energy_full_design", "50000000"),
+            ("power_now", "10000000"),
+            ("cycle_count", "212"),
+        ]));
+        assert_eq!(
+            rows,
+            [
+                ("Charge".to_string(), "75%, on battery".to_string()),
+                ("Time left".to_string(), "3:00".to_string()),
+                ("Health".to_string(), "80% of new".to_string()),
+                ("Charge cycles".to_string(), "212".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_charging_battery_says_when_it_is_full() {
+        let rows = battery_rows(supply(&[
+            ("type", "Battery"),
+            ("status", "Charging"),
+            ("charge_now", "2000"),
+            ("charge_full", "4000"),
+            ("current_now", "1000"),
+        ]));
+        assert_eq!(rows[0].1, "50%, charging");
+        assert_eq!(rows[1], ("Full in".to_string(), "2:00".to_string()));
+    }
+
+    #[test]
+    fn mains_power_and_a_bare_capacity_are_handled() {
+        assert!(battery_rows(supply(&[("type", "Mains"), ("online", "1")])).is_empty());
+        let rows = battery_rows(supply(&[("type", "Battery"), ("capacity", "64"), ("status", "Full")]));
+        assert_eq!(rows, [("Charge".to_string(), "64%, full".to_string())]);
+    }
+
     #[test]
     fn batteries_add_up_by_energy_and_charging_shows_in_the_label() {
         let one = read_cell(

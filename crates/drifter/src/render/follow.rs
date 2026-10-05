@@ -238,7 +238,21 @@ impl State {
             }
         }
         let pinned = self.tunables.bar_hides;
-        self.tunables = Tunables::from(&config.motion);
+        self.tunables = match config.access.reduce_motion {
+            true => Tunables::from(&config.motion).still(),
+            false => Tunables::from(&config.motion),
+        };
+        if self.access.sticky_keys && !config.access.sticky_keys {
+            let time = self.clock_ms();
+            for (code, pressed) in self.sticky.clear() {
+                self.feed_key(code, pressed, time);
+            }
+        }
+        if self.access != config.access {
+            tell_access(Some(&self.access), &config.access);
+        }
+        self.access = config.access;
+        self.shots = config.screenshots.clone();
         for edge in Edge::ALL {
             if !pinned[edge.index()] && self.tunables.bar_hides[edge.index()] {
                 self.set(edge, false);
@@ -321,6 +335,53 @@ pub(super) fn config_stamp(path: &Path) -> Option<(std::time::SystemTime, u64, u
 pub(super) fn cursor_env(look: &drifter_core::Appearance) {
     crate::apps::set_env("XCURSOR_THEME", look.cursor_theme.clone());
     crate::apps::set_env("XCURSOR_SIZE", Some(look.cursor_size.to_string()));
+}
+
+pub(super) fn tell_access(was: Option<&drifter_core::Access>, now: &drifter_core::Access) {
+    let mut sets: Vec<(&'static str, &'static str, String)> = Vec::new();
+    const FACE: &str = "org.gnome.desktop.interface";
+    const A11Y: &str = "org.gnome.desktop.a11y.interface";
+    let moved = |pick: fn(&drifter_core::Access) -> bool| match was {
+        Some(was) => pick(was) != pick(now),
+        None => pick(now),
+    };
+    if moved(|access| access.large_text) {
+        let factor = match now.large_text {
+            true => drifter_core::config::LARGE_TEXT,
+            false => 1.0,
+        };
+        sets.push((FACE, "text-scaling-factor", format!("{factor}")));
+    }
+    if moved(|access| access.reduce_motion) {
+        sets.push((FACE, "enable-animations", (!now.reduce_motion).to_string()));
+    }
+    if moved(|access| access.high_contrast) {
+        sets.push((A11Y, "high-contrast", now.high_contrast.to_string()));
+    }
+    if sets.is_empty() {
+        return;
+    }
+    let spawned = std::thread::Builder::new()
+        .name("drifter-access".to_string())
+        .spawn(move || {
+            for (schema, key, value) in sets {
+                let ran = std::process::Command::new("gsettings")
+                    .args(["set", schema, key, &value])
+                    .stderr(std::process::Stdio::null())
+                    .status();
+                match ran {
+                    Ok(status) if status.success() => {}
+                    Ok(_) => eprintln!("drifter: gsettings has no {schema} {key} here"),
+                    Err(error) => {
+                        eprintln!("drifter: apps keep their settings, gsettings did not run: {error}");
+                        return;
+                    }
+                }
+            }
+        });
+    if let Err(error) = spawned {
+        eprintln!("drifter: cannot tell apps about accessibility: {error}");
+    }
 }
 
 pub(super) fn tell_gnome(was: Option<&drifter_core::Appearance>, look: &drifter_core::Appearance) {

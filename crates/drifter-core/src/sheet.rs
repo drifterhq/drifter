@@ -29,6 +29,7 @@ pub enum For {
     Shortcut(usize),
     Import,
     Export,
+    ShotFolder,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,7 +70,9 @@ pub enum Kind {
 impl For {
     fn kind(self) -> Kind {
         match self {
-            For::Folder | For::WindowArt | For::DockArt | For::Export => Kind::Folders,
+            For::Folder | For::WindowArt | For::DockArt | For::Export | For::ShotFolder => {
+                Kind::Folders
+            }
             For::Font => Kind::Fonts,
             For::Import => Kind::Configs,
             _ => Kind::Pictures,
@@ -343,6 +346,7 @@ impl Sheet {
             For::Login => "Start at login",
             For::Dock => "Add to the dock",
             For::Folder => "Choose a wallpaper folder",
+            For::ShotFolder => "Choose where screenshots go",
             For::DockIcon(_) => "Choose an icon",
             For::Default(crate::desktop::Role::Files) => "Choose the file manager",
             For::Default(crate::desktop::Role::Terminal) => "Choose the terminal",

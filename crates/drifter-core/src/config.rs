@@ -917,8 +917,66 @@ pub struct Config {
     pub assets: Assets,
     #[serde(default)]
     pub monitor: Vec<crate::screens::MonitorConfig>,
+    #[serde(default)]
+    pub access: Access,
+    #[serde(default)]
+    pub screenshots: Shots,
     #[serde(skip)]
     base: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct Access {
+    #[serde(default)]
+    pub large_text: bool,
+    #[serde(default)]
+    pub high_contrast: bool,
+    #[serde(default)]
+    pub reduce_motion: bool,
+    #[serde(default)]
+    pub sticky_keys: bool,
+}
+
+pub const LARGE_TEXT: f64 = 1.25;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ShotFormat {
+    #[default]
+    Png,
+    Jpeg,
+}
+
+impl ShotFormat {
+    pub fn extension(self) -> &'static str {
+        match self {
+            ShotFormat::Png => "png",
+            ShotFormat::Jpeg => "jpg",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct Shots {
+    #[serde(default)]
+    pub folder: Option<String>,
+    #[serde(default)]
+    pub format: ShotFormat,
+}
+
+impl Shots {
+    pub fn folder_in(&self, home: &Path) -> PathBuf {
+        match self.folder.as_deref().map(str::trim) {
+            Some("") | None => home.join("Pictures/Screenshots"),
+            Some(folder) => match folder.strip_prefix("~/") {
+                Some(rest) => home.join(rest),
+                None if folder == "~" => home.to_path_buf(),
+                None => PathBuf::from(folder),
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -955,6 +1013,14 @@ impl Default for Tunables {
 }
 
 impl Tunables {
+    pub fn still(self) -> Tunables {
+        Tunables {
+            drawer_anim: Duration::ZERO,
+            camera_anim: Duration::ZERO,
+            ..self
+        }
+    }
+
     pub fn from(motion: &Motion) -> Tunables {
         let ms = |n: u32| Duration::from_millis(u64::from(n));
         Tunables {
@@ -1421,6 +1487,39 @@ mod tests {
         let found = defaults_for(path, shared, |p| p.starts_with("/usr"));
         assert_eq!(found, Some(PathBuf::from("/usr/share/drifter/conf/default.toml")));
         assert_eq!(defaults_for(path, shared, |_| false), None);
+    }
+
+    #[test]
+    fn access_is_off_until_the_config_turns_it_on() {
+        let config = Config::parse("").unwrap();
+        assert_eq!(config.access, Access::default());
+        assert!(!config.access.sticky_keys);
+        let config = Config::parse("[access]\nreduce_motion = true\nsticky_keys = true\n").unwrap();
+        assert!(config.access.reduce_motion && config.access.sticky_keys);
+        assert!(!config.access.large_text);
+        assert!(Config::parse("[access]\nbig = true\n").is_err());
+    }
+
+    #[test]
+    fn reduced_motion_makes_the_camera_and_bars_jump() {
+        let still = Tunables::default().still();
+        assert_eq!(still.camera_anim, Duration::ZERO);
+        assert_eq!(still.drawer_anim, Duration::ZERO);
+        assert_eq!(still.hot_corner_dwell, Tunables::default().hot_corner_dwell);
+    }
+
+    #[test]
+    fn screenshots_go_to_pictures_unless_the_config_says_where() {
+        let home = Path::new("/home/dh");
+        let config = Config::parse("").unwrap();
+        assert_eq!(config.screenshots.folder_in(home), PathBuf::from("/home/dh/Pictures/Screenshots"));
+        assert_eq!(config.screenshots.format, ShotFormat::Png);
+        let config = Config::parse("[screenshots]\nfolder = \"~/Desktop\"\nformat = \"jpeg\"\n").unwrap();
+        assert_eq!(config.screenshots.folder_in(home), PathBuf::from("/home/dh/Desktop"));
+        assert_eq!(config.screenshots.format.extension(), "jpg");
+        let config = Config::parse("[screenshots]\nfolder = \"/srv/shots\"\n").unwrap();
+        assert_eq!(config.screenshots.folder_in(home), PathBuf::from("/srv/shots"));
+        assert!(Config::parse("[screenshots]\nformat = \"gif\"\n").is_err());
     }
 
     #[test]

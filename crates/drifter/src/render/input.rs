@@ -608,17 +608,40 @@ impl State {
     }
 
     pub(super) fn tell_keyboard(&mut self, event: &impl KeyboardKeyEvent<LibinputInputBackend>) {
+        let time = event.time_msec();
+        let code = event.key_code().raw();
+        let pressed = event.state() == KeyState::Pressed;
+        self.key_in(code, pressed, time);
+    }
+
+    pub(super) fn key_in(&mut self, code: u32, pressed: bool, time: u32) {
+        if !self.access.sticky_keys {
+            self.feed_key(code, pressed, time);
+            return;
+        }
+        let modifier = drifter_core::shortcut::is_modifier_code(code);
+        for (code, pressed) in self.sticky.key(code, pressed, modifier) {
+            self.feed_key(code, pressed, time);
+        }
+    }
+
+    pub(super) fn clock_ms(&self) -> u32 {
+        self.started.elapsed().as_millis() as u32
+    }
+
+    pub(super) fn feed_key(&mut self, code: u32, pressed: bool, time: u32) {
         use smithay::input::keyboard::FilterResult;
         use smithay::utils::SERIAL_COUNTER;
 
         let keyboard = self.wayland.keyboard.clone();
-        let time = event.time_msec();
-        let code = event.key_code().raw();
-        let pressed = event.state() == KeyState::Pressed;
+        let state = match pressed {
+            true => KeyState::Pressed,
+            false => KeyState::Released,
+        };
         let shortcut = keyboard.input::<Shortcut, _>(
             self,
-            event.key_code(),
-            event.state(),
+            smithay::input::keyboard::Keycode::new(code),
+            state,
             SERIAL_COUNTER.next_serial(),
             time,
             |state, held, keysym| {

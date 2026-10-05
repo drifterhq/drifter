@@ -119,6 +119,27 @@ pub fn save_png(image: &Image, path: &Path) -> Result<(), String> {
         .map_err(|e| format!("{}: {e}", path.display()))
 }
 
+pub fn save_jpeg(image: &Image, path: &Path) -> Result<(), String> {
+    let width = u16::try_from(image.width).map_err(|_| "the picture is too wide for JPEG".to_string())?;
+    let height = u16::try_from(image.height).map_err(|_| "the picture is too tall for JPEG".to_string())?;
+    let rgb: Vec<u8> = image
+        .rgba
+        .chunks_exact(4)
+        .flat_map(|pixel| [pixel[0], pixel[1], pixel[2]])
+        .collect();
+    let encoder = jpeg_encoder::Encoder::new_file(path, 92).map_err(|e| format!("{}: {e}", path.display()))?;
+    encoder
+        .encode(&rgb, width, height, jpeg_encoder::ColorType::Rgb)
+        .map_err(|e| format!("{}: {e}", path.display()))
+}
+
+pub fn save_as(image: &Image, path: &Path, format: crate::config::ShotFormat) -> Result<(), String> {
+    match format {
+        crate::config::ShotFormat::Png => save_png(image, path),
+        crate::config::ShotFormat::Jpeg => save_jpeg(image, path),
+    }
+}
+
 pub const SVG_SIZE: u32 = 256;
 
 pub fn load(path: &Path) -> Result<Image, String> {
@@ -391,6 +412,27 @@ fn load_png(path: &Path, bytes: &[u8]) -> Result<Image, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_jpeg_screenshot_reads_back_close_to_what_was_saved() {
+        let mut rgba = Vec::new();
+        for y in 0..32u32 {
+            for x in 0..48u32 {
+                let red = if x < 24 { 220 } else { 30 };
+                rgba.extend_from_slice(&[red, (y * 6) as u8, 90, 255]);
+            }
+        }
+        let image = Image { width: 48, height: 32, rgba };
+        let path = std::env::temp_dir().join(format!("drifter-shot-{}.jpg", std::process::id()));
+        super::save_as(&image, &path, crate::config::ShotFormat::Jpeg).unwrap();
+        let bytes = std::fs::read(&path).unwrap();
+        assert_eq!(&bytes[..2], &[0xFF, 0xD8], "the file is a JPEG");
+        let back = super::load(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!((back.width, back.height), (48, 32));
+        let at = |x: u32, y: u32| back.rgba[((y * 48 + x) * 4) as usize];
+        assert!(at(4, 10) > 180 && at(44, 10) < 70, "left is red, right is not");
+    }
+
     use super::*;
 
     const SQUARE: &str = "<?xml version=\"1.0\"?>\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"8\"><rect x=\"0\" y=\"0\" width=\"8\" height=\"8\" fill=\"#ff0000\"/></svg>";

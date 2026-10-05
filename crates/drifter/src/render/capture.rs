@@ -259,19 +259,18 @@ impl State {
             height,
             rgba,
         };
-        let folder = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_default()
-            .join("Pictures/Screenshots");
+        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        let folder = self.shots.folder_in(&home);
+        let format = self.shots.format;
         let stamp = drifter_core::tray::now("%Y-%m-%d %H.%M.%S").unwrap_or_default();
-        let path = folder.join(format!("Screenshot {stamp}.png"));
+        let path = folder.join(format!("Screenshot {stamp}.{}", format.extension()));
         let reply = self.shot_tx.clone();
         let spawned = std::thread::Builder::new()
             .name("drifter-screenshot".to_string())
             .spawn(move || {
                 let saved = std::fs::create_dir_all(&folder)
                     .map_err(|e| e.to_string())
-                    .and_then(|()| drifter_core::image::save_png(&image, &path))
+                    .and_then(|()| drifter_core::image::save_as(&image, &path, format))
                     .map(|()| path);
                 let _ = reply.send(saved);
             });

@@ -225,6 +225,11 @@ impl Combo {
 const FIRST_VT: u32 = 0x1008_fe01;
 const LAST_VT: u32 = 0x1008_fe0c;
 
+pub fn is_modifier_code(code: u32) -> bool {
+    const EVDEV: [u32; 8] = [29, 97, 42, 54, 56, 100, 125, 126];
+    EVDEV.iter().any(|evdev| evdev + 8 == code)
+}
+
 pub fn vt_number(keysym: u32) -> Option<i32> {
     (FIRST_VT..=LAST_VT)
         .contains(&keysym)
@@ -254,6 +259,16 @@ pub fn pretty(key: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_modifier_keys_are_known_by_their_xkb_code() {
+        for code in [37, 105, 50, 62, 64, 108, 133, 134] {
+            assert!(super::is_modifier_code(code), "{code} is a modifier");
+        }
+        for code in [38, 54, 65, 9, 66] {
+            assert!(!super::is_modifier_code(code), "{code} is not");
+        }
+    }
+
     #[test]
     fn ctrl_alt_f_keys_name_their_terminal() {
         assert_eq!(vt_number(0x1008_fe01), Some(1));

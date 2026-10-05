@@ -40,6 +40,7 @@ pub enum Section {
     Mouse,
     Touchpad,
     Shortcuts,
+    Access,
     Power,
     Lock,
     Time,
@@ -49,7 +50,7 @@ pub enum Section {
 }
 
 impl Section {
-    pub const ALL: [Section; 19] = [
+    pub const ALL: [Section; 20] = [
         Section::Desktop,
         Section::Displays,
         Section::Wallpaper,
@@ -63,6 +64,7 @@ impl Section {
         Section::Mouse,
         Section::Touchpad,
         Section::Shortcuts,
+        Section::Access,
         Section::Power,
         Section::Lock,
         Section::Time,
@@ -86,6 +88,7 @@ impl Section {
             Section::Mouse => "Mouse",
             Section::Touchpad => "Touchpad",
             Section::Shortcuts => "Shortcuts",
+            Section::Access => "Accessibility",
             Section::Power => "Power",
             Section::Lock => "Lock Screen",
             Section::Time => "Date & Time",
@@ -109,8 +112,9 @@ impl Section {
             Section::Keyboard => "layout typing repeat caps compose",
             Section::Mouse => "pointer speed scroll buttons",
             Section::Touchpad => "trackpad tap swipe scroll gestures",
-            Section::Shortcuts => "keys hotkeys keybindings",
-            Section::Power => "sleep suspend lid battery shutdown",
+            Section::Shortcuts => "keys hotkeys keybindings screenshot folder format png jpeg",
+            Section::Access => "accessibility large text bigger high contrast reduce motion animation sticky keys a11y",
+            Section::Power => "sleep suspend lid battery shutdown profile performance saver balanced",
             Section::Lock => "password idle screen off",
             Section::Time => "clock zone ntp date",
             Section::Login => "startup autostart apps",
@@ -150,6 +154,7 @@ impl Section {
             Section::Mouse => [110, 120, 200],
             Section::Touchpad => [60, 150, 110],
             Section::Shortcuts => [130, 100, 200],
+            Section::Access => [40, 120, 220],
             Section::Power => [70, 170, 80],
             Section::Lock => [96, 102, 120],
             Section::Time => [60, 130, 220],
@@ -265,7 +270,23 @@ pub struct Model {
     pub query: String,
     pub confirm_reset: bool,
     pub file_note: Option<String>,
+    pub access: crate::config::Access,
+    pub shots: crate::config::Shots,
+    pub profile: Option<Profiles>,
+    pub cells: Vec<(String, String)>,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Profiles {
+    pub now: String,
+    pub offered: Vec<String>,
+}
+
+pub const PROFILES: [(&str, &str); 3] = [
+    ("power-saver", "Saver"),
+    ("balanced", "Balanced"),
+    ("performance", "Performance"),
+];
 
 impl Model {
     pub fn read(
@@ -395,6 +416,10 @@ impl Model {
             .map(|path| path.map(clean)),
             power: config.power,
             notify: config.notify,
+            access: config.access,
+            shots: config.screenshots.clone(),
+            profile: None,
+            cells: Vec::new(),
             keys: config.keys.clone(),
             variants: crate::keyboard::variants(&config.keyboard.layout),
             recent: Vec::new(),
@@ -980,6 +1005,7 @@ impl Model {
             Section::Notifications => self.notify_groups(),
             Section::Sound => self.sound_groups(),
             Section::Shortcuts => self.shortcut_groups(),
+            Section::Access => self.access_groups(),
             Section::Power => self.power_groups(),
             Section::Time => self.time_groups(),
             Section::About => self.about_groups(),
@@ -1969,6 +1995,13 @@ pub enum Id {
     Tap,
     ThreeTap,
     Swipe,
+    LargeText,
+    HighContrast,
+    ReduceMotion,
+    StickyKeys,
+    ShotFolder,
+    ShotFormat,
+    Profile,
     MonitorName,
     Scale,
     Turn,
@@ -3207,6 +3240,13 @@ fn paint_glyph(canvas: &mut Canvas, section: Section, icon: Rect) {
                 canvas.circle(o + Vec2::new(x, 11.0), 1.5, dot, 1.0);
             }
         }
+        Section::Access => {
+            canvas.circle(o + Vec2::new(11.0, 5.0), 2.0, white, 1.0);
+            canvas.round_rect(r(4.0, 8.0, 14.0, 2.0), 1.0, white, 1.0);
+            canvas.round_rect(r(9.5, 8.0, 3.0, 6.0), 1.0, white, 1.0);
+            canvas.round_rect(r(8.0, 13.0, 2.0, 6.0), 1.0, white, 1.0);
+            canvas.round_rect(r(12.0, 13.0, 2.0, 6.0), 1.0, white, 1.0);
+        }
         Section::Lock => {
             canvas.circle(o + Vec2::new(11.0, 9.0), 4.5, white, 1.0);
             canvas.circle(o + Vec2::new(11.0, 9.0), 2.5, section.tint(), 1.0);
@@ -3611,6 +3651,63 @@ mod tests {
         let side = back.monitor.iter().find(|m| m.name == "HDMI-A-1").unwrap();
         assert!(!side.enabled);
         assert!(!out.contains("enabled = true"));
+    }
+
+    #[test]
+    fn the_access_and_screenshot_rows_write_their_keys() {
+        let text = "[notify]\nquiet = true\n";
+        let before = model(&config(text));
+        let mut after = before.clone();
+        after.set(Id::ReduceMotion, Value::Switch(true));
+        after.set(Id::StickyKeys, Value::Switch(true));
+        after.set(Id::ShotFormat, Value::Choice(1));
+        after.shots.folder = Some("~/Desktop".to_string());
+        let out = after.write(&before, text).unwrap();
+        let back = Config::parse(&out).unwrap();
+        back.validate().unwrap();
+        assert!(back.access.reduce_motion && back.access.sticky_keys);
+        assert!(!back.access.large_text);
+        assert_eq!(back.screenshots.format, crate::config::ShotFormat::Jpeg);
+        assert_eq!(back.screenshots.folder.as_deref(), Some("~/Desktop"));
+        assert!(back.notify.quiet);
+
+        let mut reset = model(&back);
+        assert_eq!(reset.press(Id::ShotFolder, 0), Some(Ask::Files(For::ShotFolder)));
+        reset.press(Id::ShotFolder, 1);
+        let out = reset.write(&model(&back), &out).unwrap();
+        assert_eq!(Config::parse(&out).unwrap().screenshots.folder, None);
+    }
+
+    #[test]
+    fn the_power_mode_shows_only_what_the_daemon_offers() {
+        let mut model = model(&Config::default());
+        let rows = |model: &Model| -> Vec<Id> {
+            model
+                .groups(Section::Power)
+                .iter()
+                .flat_map(|group| group.rows.iter().map(|row| row.id))
+                .collect()
+        };
+        assert!(!rows(&model).contains(&Id::Profile), "no daemon, no row");
+        model.profile = Some(Profiles {
+            now: "balanced".into(),
+            offered: vec!["power-saver".into(), "balanced".into()],
+        });
+        assert!(rows(&model).contains(&Id::Profile));
+        let group = model.groups(Section::Power);
+        let row = group
+            .iter()
+            .flat_map(|group| group.rows.iter())
+            .find(|row| row.id == Id::Profile)
+            .unwrap();
+        assert_eq!(
+            row.control,
+            Control::Segments { options: vec!["Saver", "Balanced"], chosen: 1 }
+        );
+        model.set(Id::Profile, Value::Choice(0));
+        assert_eq!(model.profile.as_ref().unwrap().now, "power-saver");
+        model.cells = vec![("Charge".into(), "80%, charging".into())];
+        assert!(rows(&model).contains(&Id::Battery));
     }
 
     #[test]

@@ -1527,3 +1527,30 @@ fn wlr_randr_lists_and_changes_the_screen() {
     assert!(!ok, "a flipped head is refused: {said}");
     assert_eq!(run.screen.state.heads[0].rotate, 90);
 }
+
+#[test]
+fn sticky_keys_hold_a_tapped_ctrl_for_the_next_key() {
+    const CTRL: u32 = 37;
+    const C: u32 = 54;
+    let mut run = start("sticky", &Config::default(), None);
+    let state = &mut run.screen.state;
+    let ctrl = |state: &State| state.wayland.keyboard.modifier_state().ctrl;
+
+    state.key_in(CTRL, true, 1);
+    state.key_in(CTRL, false, 2);
+    state.key_in(C, true, 3);
+    assert!(!ctrl(state), "without sticky keys a tap does nothing");
+    state.key_in(C, false, 4);
+
+    state.access.sticky_keys = true;
+    state.key_in(CTRL, true, 5);
+    state.key_in(CTRL, false, 6);
+    assert!(!ctrl(state), "the tap itself lets go");
+    state.key_in(C, true, 7);
+    assert!(ctrl(state), "ctrl is down while c is down");
+    state.key_in(C, false, 8);
+    assert!(!ctrl(state), "ctrl lets go after c");
+    state.key_in(C, true, 9);
+    assert!(!ctrl(state), "only the next key gets ctrl");
+    state.key_in(C, false, 10);
+}

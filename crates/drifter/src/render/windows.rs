@@ -27,7 +27,10 @@ impl State {
             let Some(motion) = window.motion.as_mut() else {
                 continue;
             };
-            motion.advance(dt);
+            motion.advance(match self.access.reduce_motion {
+                true => Duration::from_secs(60),
+                false => dt,
+            });
             if motion.done() {
                 finished.push(index);
             }

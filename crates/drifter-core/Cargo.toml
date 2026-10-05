@@ -8,6 +8,7 @@ license.workspace = true
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 fontdue = { version = "0.9.4", default-features = false }
 jpeg-decoder = { version = "0.3.2", default-features = false }
+jpeg-encoder = { version = "0.7.1", default-features = false, features = ["std"] }
 png = "0.18.1"
 resvg = { version = "0.48.1", default-features = false }
 serde = { version = "1.0.229", features = ["derive"] }

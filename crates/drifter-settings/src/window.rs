@@ -103,6 +103,8 @@ pub fn run() -> Result<(), String> {
     model.sound = read_sound();
     model.autostarts = drifter_core::autostart::installed();
     model.brightness = read_brightness();
+    model.profile = read_profile();
+    model.cells = read_cells();
     (model.zone, model.ntp) = read_time();
     model.about = system::about(std::env::var("DRIFTER_RENDERER").ok().as_deref(), &path);
     read_recent(&mut model);
@@ -324,6 +326,58 @@ fn read_sound() -> Sound {
         mic: mic.min(1.0),
         mic_muted,
     }
+}
+
+const PROFILE_BUSES: [(&str, &str); 2] = [
+    ("org.freedesktop.UPower.PowerProfiles", "/org/freedesktop/UPower/PowerProfiles"),
+    ("net.hadess.PowerProfiles", "/net/hadess/PowerProfiles"),
+];
+
+fn read_profile() -> Option<drifter_core::settings::Profiles> {
+    PROFILE_BUSES.iter().find_map(|(bus, path)| {
+        let now = output("busctl", &["get-property", bus, path, bus, "ActiveProfile"])?;
+        let now = now.trim().strip_prefix("s ")?.trim_matches('"').to_string();
+        let listed = output("busctl", &["get-property", bus, path, bus, "Profiles"]).unwrap_or_default();
+        let offered = drifter_core::settings::PROFILES
+            .iter()
+            .map(|(name, _)| name.to_string())
+            .filter(|name| listed.contains(&format!("\"{name}\"")))
+            .collect();
+        Some(drifter_core::settings::Profiles { now, offered })
+    })
+}
+
+fn set_profile(name: &str) {
+    for (bus, path) in PROFILE_BUSES {
+        let ran = std::process::Command::new("busctl")
+            .args(["set-property", bus, path, bus, "ActiveProfile", "s", name])
+            .stdin(std::process::Stdio::null())
+            .output();
+        match ran {
+            Ok(out) if out.status.success() => return,
+            Ok(_) => continue,
+            Err(error) => {
+                eprintln!("drifter-settings: the power mode needs busctl: {error}");
+                return;
+            }
+        }
+    }
+    eprintln!("drifter-settings: power-profiles-daemon did not take {name}");
+}
+
+fn read_cells() -> Vec<(String, String)> {
+    let Ok(entries) = std::fs::read_dir("/sys/class/power_supply") else {
+        return Vec::new();
+    };
+    let mut folders: Vec<PathBuf> = entries.flatten().map(|entry| entry.path()).collect();
+    folders.sort();
+    folders
+        .iter()
+        .map(|folder| {
+            drifter_core::stats::battery_rows(|key| std::fs::read_to_string(folder.join(key)).ok())
+        })
+        .find(|rows| !rows.is_empty())
+        .unwrap_or_default()
 }
 
 fn read_brightness() -> Option<f64> {
@@ -686,6 +740,17 @@ impl Settings {
                     self.draw();
                 }
             }
+            Section::Power => {
+                let cells = read_cells();
+                let profile = read_profile();
+                if cells != self.model.cells || profile != self.saved.profile {
+                    self.model.cells = cells.clone();
+                    self.saved.cells = cells;
+                    self.model.profile = profile.clone();
+                    self.saved.profile = profile;
+                    self.draw();
+                }
+            }
             Section::Sound => {
                 let sound = read_sound();
                 if sound != self.model.sound {
@@ -762,6 +827,14 @@ impl Settings {
                 .clone()
                 .filter(|folder| folder.is_dir())
                 .unwrap_or(pictures),
+            For::ShotFolder => self
+                .model
+                .shots
+                .folder_in(&home())
+                .ancestors()
+                .find(|folder| folder.is_dir())
+                .map(Path::to_path_buf)
+                .unwrap_or(pictures),
             For::Picture => near(self.model.wallpaper.as_ref()).unwrap_or(pictures),
             For::Pointer => near(self.model.assets[0].as_ref()).unwrap_or_else(home),
             For::Font => near(self.model.assets[1].as_ref())
@@ -817,6 +890,7 @@ impl Settings {
             Pick::Folder(folder) => {
                 match purpose {
                     For::Folder => self.model.choose_folder(folder),
+                    For::ShotFolder => self.model.choose_shot_folder(folder),
                     _ => self.model.choose_file(purpose, folder),
                 }
                 self.sheet = None;
@@ -1170,6 +1244,17 @@ impl Settings {
 
     fn apply_live(&mut self) {
         let before = self.saved.clone();
+        if let Some(now) = self.model.profile.as_ref()
+            && before.profile.as_ref().is_some_and(|was| was.now != now.now)
+        {
+            let wanted = now.now.clone();
+            let spawned = std::thread::Builder::new()
+                .name("settings-profile".to_string())
+                .spawn(move || set_profile(&wanted));
+            if let Err(error) = spawned {
+                eprintln!("drifter-settings: cannot change the power mode: {error}");
+            }
+        }
         let (now, was) = (&self.model.sound, &before.sound);
         let mut fresh = false;
         let picked = |devices: Option<&system::Device>| devices.map(|device| device.id);
