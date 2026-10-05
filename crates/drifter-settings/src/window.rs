@@ -63,6 +63,9 @@ pub struct Settings {
     size: (u32, u32),
     exit: bool,
     resized: bool,
+    scrolled: bool,
+    shown: Option<std::time::Instant>,
+    qh: QueueHandle<Settings>,
 
     look: Look,
     fonts: (Font, Font, Font),
@@ -222,6 +225,9 @@ pub fn run() -> Result<(), String> {
         size: START,
         exit: false,
         resized: false,
+        scrolled: false,
+        shown: None,
+        qh: qh.clone(),
         look,
         fonts,
         wallpaper,
@@ -247,9 +253,12 @@ pub fn run() -> Result<(), String> {
 
     while !settings.exit {
         events
-            .dispatch(None, &mut settings)
+            .dispatch(
+                settings.scrolled.then_some(std::time::Duration::from_millis(100)),
+                &mut settings,
+            )
             .map_err(|e| format!("event loop: {e}"))?;
-        if std::mem::take(&mut settings.resized) {
+        if std::mem::take(&mut settings.resized) || settings.scroll_due() {
             settings.draw();
         }
     }
@@ -606,7 +615,15 @@ impl Settings {
         }
     }
 
+    fn scroll_due(&self) -> bool {
+        self.scrolled
+            && self
+                .shown
+                .is_none_or(|shown| shown.elapsed() >= std::time::Duration::from_millis(100))
+    }
+
     fn draw(&mut self) {
+        self.scrolled = false;
         let (width, height) = self.size;
         let fonts = Fonts {
             body: &self.fonts.0,
@@ -653,6 +670,8 @@ impl Settings {
             eprintln!("drifter-settings: {error}");
             return;
         }
+        surface.frame(&self.qh, surface.clone());
+        self.shown = Some(std::time::Instant::now());
         self.window.commit();
     }
 
@@ -1194,7 +1213,7 @@ impl Settings {
         let size = self.view();
         if let Some(sheet) = self.sheet.as_mut() {
             sheet.scroll_by(size, by);
-            self.draw();
+            self.scrolled = true;
             return;
         }
         if self.at.x <= self.look.sidebar {
@@ -1202,7 +1221,7 @@ impl Settings {
             let before = self.look.side_scroll;
             self.look.side_scroll = (before + by).clamp(0.0, most);
             if self.look.side_scroll != before {
-                self.draw();
+                self.scrolled = true;
             }
             return;
         }
@@ -1210,7 +1229,7 @@ impl Settings {
         self.scroll += by;
         self.clamp_scroll();
         if self.scroll != before {
-            self.draw();
+            self.scrolled = true;
         }
     }
 
@@ -1571,7 +1590,9 @@ impl CompositorHandler for Settings {
     ) {
     }
 
-    fn frame(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: u32) {}
+    fn frame(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: u32) {
+        self.shown = None;
+    }
 
     fn surface_enter(
         &mut self,
