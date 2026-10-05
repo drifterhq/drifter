@@ -445,6 +445,9 @@ impl State {
         if self.drag_sound_panel() {
             return;
         }
+        if self.drag_overview() {
+            return;
+        }
         match self.grab {
             Grab::None => {}
             Grab::Move { id, offset } => {
@@ -489,6 +492,7 @@ impl State {
         let serial = SERIAL_COUNTER.next_serial();
         if state == ButtonState::Released {
             self.release_sound_panel();
+            self.release_overview();
             if let (Grab::Move { id, .. }, Some(zone)) = (&self.grab, self.zone)
                 && let Some(index) = self.place_of(*id)
             {
@@ -556,7 +560,7 @@ impl State {
         if self.press_card(code) {
             return true;
         }
-        if self.press_overview() {
+        if self.press_overview_button(code) {
             return true;
         }
         if self.press_sound_panel(code) {

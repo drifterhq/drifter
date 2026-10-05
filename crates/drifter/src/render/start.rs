@@ -465,6 +465,7 @@ pub fn open(
         shot_wanted: false,
         drawers: [Drawer::new(Edge::Top), Drawer::new(Edge::Bottom)],
         tunables,
+        overview_hold: None,
         places: Vec::new(),
         place_saves: Vec::new(),
         note_folders: std::collections::HashMap::new(),

@@ -1593,3 +1593,49 @@ fn a_place_is_saved_with_the_keys_and_flown_back_to() {
         state.camera
     );
 }
+
+#[test]
+fn the_overview_moves_a_dragged_window_and_flies_to_a_clicked_one() {
+    use smithay::backend::input::ButtonState;
+    let mut run = start("overview-move", &Config::default(), None);
+    let (stop, client) = red_window(&mut run);
+    let state = &mut run.screen.state;
+    let at = state
+        .windows
+        .iter()
+        .position(|window| window.app == "drifter-test-red")
+        .expect("the red window is placed");
+    let before = state.windows[at].content;
+    let mut camera = state.camera;
+    camera.zoom = 0.25;
+    look_at(state, camera);
+    assert!(state.overview());
+
+    let id = state.windows[at].id;
+    state.pointer = state.on_screen(before).center();
+    state.tell_button(super::BTN_LEFT, ButtonState::Pressed, 1);
+    assert!(state.flight.is_none(), "a press alone does not fly");
+    state.pointer = state.pointer + Vec2::new(40.0, 20.0);
+    state.drag();
+    state.tell_button(super::BTN_LEFT, ButtonState::Released, 2);
+    let after = state.windows[state.place_of(id).unwrap()].content;
+    assert_eq!(
+        after.origin - before.origin,
+        Vec2::new(160.0, 80.0),
+        "the window moves by the drag divided by the zoom"
+    );
+    assert!(state.flight.is_none(), "a drag does not fly");
+    assert!(state.overview(), "the camera stays out");
+
+    state.pointer = state.on_screen(after).center();
+    state.tell_button(super::BTN_LEFT, ButtonState::Pressed, 3);
+    state.pointer = state.pointer + Vec2::new(2.0, 1.0);
+    state.drag();
+    state.tell_button(super::BTN_LEFT, ButtonState::Released, 4);
+    assert_eq!(state.windows[state.place_of(id).unwrap()].content, after, "a small wobble is a click");
+    let flight = state.flight.map(|(flight, _)| flight.to).expect("a click flies to the window");
+    assert!((flight.zoom - Camera::WORK_ZOOM).abs() < 1e-6);
+
+    stop.store(true, Ordering::Relaxed);
+    let _ = client.join();
+}

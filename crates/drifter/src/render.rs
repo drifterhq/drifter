@@ -247,6 +247,16 @@ struct Popover {
     hover: Option<usize>,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct OverviewHold {
+    id: u64,
+    from: Vec2,
+    offset: Vec2,
+    moved: bool,
+}
+
+const OVERVIEW_SLOP: f64 = 6.0;
+
 enum Grab {
     None,
     Move {
@@ -451,6 +461,7 @@ pub struct State {
     hud: Option<(TextureBuffer<Tex>, Rect, Instant)>,
     drawers: [Drawer; 2],
     tunables: Tunables,
+    overview_hold: Option<OverviewHold>,
     places: Vec<(drifter_core::place::Place, Option<drifter_core::shortcut::Combo>)>,
     place_saves: Vec<(usize, drifter_core::shortcut::Combo)>,
     note_folders: std::collections::HashMap<u32, PathBuf>,

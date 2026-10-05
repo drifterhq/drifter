@@ -95,6 +95,82 @@ impl State {
         }
     }
 
+    pub(super) fn frame_under_pointer(&self) -> Option<usize> {
+        let world = self.in_world(self.pointer);
+        self.windows
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, window)| {
+                window.placed
+                    && !window.hidden
+                    && !window.going
+                    && self.chrome.layout(window.content).frame.contains(world)
+            })
+            .map(|(index, _)| index)
+    }
+
+    pub(super) fn press_overview_button(&mut self, code: u32) -> bool {
+        if !self.overview() {
+            return false;
+        }
+        if code == BTN_LEFT
+            && self.flight.is_none()
+            && let Some(index) = self.frame_under_pointer()
+            && self.windows[index].full.is_none()
+        {
+            let window = &self.windows[index];
+            self.overview_hold = Some(OverviewHold {
+                id: window.id,
+                from: self.pointer,
+                offset: self.in_world(self.pointer) - window.content.origin,
+                moved: false,
+            });
+            return true;
+        }
+        self.press_overview()
+    }
+
+    pub(super) fn drag_overview(&mut self) -> bool {
+        let Some(mut hold) = self.overview_hold else {
+            return false;
+        };
+        if !hold.moved && (self.pointer - hold.from).length() < OVERVIEW_SLOP {
+            return true;
+        }
+        hold.moved = true;
+        self.overview_hold = Some(hold);
+        let world = self.world;
+        let wanted = self.in_world(self.pointer) - hold.offset;
+        if let Some(window) = self.windows.iter_mut().find(|window| window.id == hold.id) {
+            let moved = Rect::new(wanted.round(), window.content.size).inside(world);
+            window.content.origin = moved.origin;
+            window.touched = true;
+        }
+        self.kick_now();
+        true
+    }
+
+    pub(super) fn release_overview(&mut self) -> bool {
+        let Some(hold) = self.overview_hold.take() else {
+            return false;
+        };
+        let Some(index) = self.place_of(hold.id) else {
+            return true;
+        };
+        match hold.moved {
+            true => {
+                self.raise(index);
+            }
+            false => {
+                let center = self.windows[index].content.center();
+                self.fly_to(Camera::at_work_zoom(center));
+            }
+        }
+        self.kick_now();
+        true
+    }
+
     pub(super) fn press_overview(&mut self) -> bool {
         if !self.overview() {
             return false;
