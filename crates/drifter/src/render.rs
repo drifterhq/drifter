@@ -441,6 +441,7 @@ pub struct State {
     control: Option<centers::Panel>,
     control_icon: Option<TextureBuffer<Tex>>,
     control_status: drifter_core::control::Status,
+    control_stale: bool,
     notes_panel: Option<(TextureBuffer<Tex>, Rect, usize)>,
     search: Option<search::Search>,
     launchpad: Option<launchpad::Pad>,
@@ -1005,6 +1006,7 @@ impl State {
         self.wind_the_stats();
         self.wind_the_volume();
         self.wind_the_light();
+        self.wind_the_control();
         self.wind_the_ripple();
         self.wind_the_desk_menu();
         self.settle_bounces();

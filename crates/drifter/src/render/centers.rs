@@ -168,7 +168,14 @@ impl State {
                 self.control_status.volume = self.volume;
             }
         }
-        self.paint_control();
+        self.control_stale = true;
+        self.kick_now();
+    }
+
+    pub(super) fn wind_the_control(&mut self) {
+        if std::mem::take(&mut self.control_stale) && self.control.is_some() {
+            self.paint_control();
+        }
     }
 
     fn flip_tile(&mut self, tile: Tile) {
