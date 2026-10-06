@@ -51,7 +51,7 @@ impl Live {
         screen: Vec2,
         clock: f64,
         every: Option<Duration>,
-    ) -> Option<TextureBuffer<Tex>> {
+    ) -> Option<(TextureBuffer<Tex>, Vec2)> {
         let div = if self.half { 2.0 } else { 1.0 };
         let size = (
             ((screen.x / div).round() as i32).max(1),
@@ -68,7 +68,7 @@ impl Live {
         self.arts
             .iter()
             .find(|art| art.size == size)
-            .map(|art| art.buffer.clone())
+            .map(|art| (art.buffer.clone(), Vec2::new(f64::from(size.0), f64::from(size.1))))
     }
 
     fn paint(

@@ -1425,12 +1425,13 @@ fn paper_pieces(
     (clock, every): (f64, Option<Duration>),
     elements: &mut Vec<Skin>,
 ) {
-    if let Some(buffer) = paper
+    if let Some((buffer, size)) = paper
         .live
         .as_mut()
         .and_then(|live| live.draw(renderer, screen, clock, every))
     {
-        elements.push(Skin::Texture(element(&buffer, Rect::new(Vec2::ZERO, screen), alpha)));
+        let whole = Rect::new(Vec2::ZERO, size);
+        elements.push(Skin::Texture(faded(&buffer, whole, Rect::new(Vec2::ZERO, screen), alpha)));
         return;
     }
     let mode = match paper.fixed {
