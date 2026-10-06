@@ -448,6 +448,7 @@ pub fn open(
         palette,
         tray_raw: Vec::new(),
         frost_key: None,
+        fading: None,
         control: None,
         control_icon,
         control_status: drifter_core::control::Status::default(),

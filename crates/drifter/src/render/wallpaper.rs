@@ -68,7 +68,8 @@ impl State {
         pyramid: Option<drifter_core::tiles::Pyramid>,
     ) {
         if let Some(pyramid) = pyramid {
-            self.wallpaper = Some(Backdrop::new(pyramid));
+            let old = self.wallpaper.replace(Backdrop::new(pyramid));
+            self.fading = old.map(|old| (old, Instant::now()));
             self.frost_key = None;
         }
         self.paper.hour = drifter_core::livepaper::is_livepaper(&path)
@@ -155,6 +156,16 @@ impl State {
                 head.panels = panels.clone();
             }
             self.panels = panels;
+        }
+    }
+
+    pub(super) fn settle_fade(&mut self) {
+        if self
+            .fading
+            .as_ref()
+            .is_some_and(|(_, since)| since.elapsed() >= PAPER_FADE)
+        {
+            self.fading = None;
         }
     }
 

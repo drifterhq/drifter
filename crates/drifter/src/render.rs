@@ -82,6 +82,7 @@ const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
 const BTN_MIDDLE: u32 = 0x112;
 const CLOSE_PATIENCE: Duration = Duration::from_secs(2);
+const PAPER_FADE: Duration = Duration::from_millis(1500);
 const PANEL_ALPHA: u8 = 235;
 const TICK: Duration = Duration::from_millis(8);
 const CONFIG_WATCH: Duration = Duration::from_millis(400);
@@ -434,6 +435,7 @@ pub struct State {
     icons: Vec<(String, String, TextureBuffer<Tex>)>,
     tray_raw: Vec<crate::tray::Icon>,
     frost_key: Option<[i64; 6]>,
+    fading: Option<(Backdrop, Instant)>,
     control: Option<centers::Panel>,
     control_icon: Option<TextureBuffer<Tex>>,
     control_status: drifter_core::control::Status,
@@ -537,6 +539,7 @@ impl State {
             || self.flight.is_some()
             || self.windows.iter().any(|window| window.motion.is_some())
             || !self.bounces.is_empty()
+            || self.fading.is_some()
             || self.windows.iter().any(|window| window.closed_at.is_some())
             || self.dock_drag.is_some()
             || self.heads.iter().enumerate().any(|(index, head)| {
@@ -834,34 +837,19 @@ impl State {
             &mut elements,
         );
 
+        let fading = self
+            .fading
+            .as_ref()
+            .map(|(_, since)| drifter_core::motion::smooth(since.elapsed().as_secs_f64() / PAPER_FADE.as_secs_f64()));
+        let view = (self.mode, self.screen, self.world, self.camera);
         if let Some(paper) = self.wallpaper.as_mut() {
-            let laid = drifter_core::wallpaper::place(
-                self.mode,
-                paper.pyramid.size(),
-                self.screen,
-                self.world,
-                &self.camera,
-            );
-            let now = Instant::now();
-            for piece in paper.pyramid.pieces(laid.source, laid.target) {
-                if !paper.resident.contains_key(&piece.key) {
-                    let image = paper.pyramid.tile(piece.key);
-                    match upload(&mut self.renderer, Some(&image), "wallpaper tile") {
-                        Ok(Some(buffer)) => {
-                            paper.resident.insert(piece.key, (buffer, now));
-                        }
-                        Ok(None) => continue,
-                        Err(error) => {
-                            eprintln!("drifter: {error}");
-                            continue;
-                        }
-                    }
-                }
-                if let Some((buffer, used)) = paper.resident.get_mut(&piece.key) {
-                    *used = now;
-                    elements.push(Skin::Texture(cropped(buffer, piece.source, piece.target)));
-                }
-            }
+            let alpha = fading.unwrap_or(1.0) as f32;
+            paper_pieces(&mut self.renderer, paper, view, alpha, &mut elements);
+        }
+        if let (Some((old, _)), Some(t)) = (self.fading.as_mut(), fading)
+            && t < 1.0
+        {
+            paper_pieces(&mut self.renderer, old, view, 1.0, &mut elements);
         }
         elements
     }
@@ -1001,6 +989,7 @@ impl State {
         self.wind_the_volume();
         self.wind_the_light();
         self.settle_bounces();
+        self.settle_fade();
 
         let scale = self.heads[at].scale;
         let shown: Vec<Shown> = self
@@ -1367,6 +1356,36 @@ fn upload(
 }
 
 type Pinned = Vec<(drifter_core::Launch, Option<TextureBuffer<Tex>>)>;
+
+fn paper_pieces(
+    renderer: &mut Painter,
+    paper: &mut Backdrop,
+    (mode, screen, world, camera): (drifter_core::WallpaperMode, Vec2, Vec2, Camera),
+    alpha: f32,
+    elements: &mut Vec<Skin>,
+) {
+    let laid = drifter_core::wallpaper::place(mode, paper.pyramid.size(), screen, world, &camera);
+    let now = Instant::now();
+    for piece in paper.pyramid.pieces(laid.source, laid.target) {
+        if !paper.resident.contains_key(&piece.key) {
+            let image = paper.pyramid.tile(piece.key);
+            match upload(renderer, Some(&image), "wallpaper tile") {
+                Ok(Some(buffer)) => {
+                    paper.resident.insert(piece.key, (buffer, now));
+                }
+                Ok(None) => continue,
+                Err(error) => {
+                    eprintln!("drifter: {error}");
+                    continue;
+                }
+            }
+        }
+        if let Some((buffer, used)) = paper.resident.get_mut(&piece.key) {
+            *used = now;
+            elements.push(Skin::Texture(faded(buffer, piece.source, piece.target, alpha)));
+        }
+    }
+}
 
 fn element(buffer: &TextureBuffer<Tex>, rect: Rect, alpha: f32) -> TextureRenderElement<Tex> {
     let origin = rect.origin.round();
