@@ -20,7 +20,7 @@ impl State {
         let name = match window.app.as_str() {
             SETTINGS_APP => "Settings".to_string(),
             app => crate::apps::find(app)
-                .map(|entry| entry.name)
+                .and_then(|entry| entry.name)
                 .unwrap_or_else(|| app.to_string()),
         };
         Some((window.app.clone(), name))

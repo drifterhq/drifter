@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 pub struct Entry {
+    pub name: Option<String>,
     pub icon: Option<PathBuf>,
     pub exec: Option<String>,
 }
@@ -10,9 +11,15 @@ pub fn find(app_id: &str) -> Option<Entry> {
     let text = std::fs::read_to_string(&file).ok()?;
     let mut icon = None;
     let mut exec = None;
+    let mut name = None;
 
     for line in text.lines() {
         let line = line.trim();
+        if let Some(rest) = line.strip_prefix("Name=")
+            && name.is_none()
+        {
+            name = Some(rest.to_string());
+        }
         if let Some(rest) = line.strip_prefix("Icon=")
             && icon.is_none()
         {
@@ -25,7 +32,7 @@ pub fn find(app_id: &str) -> Option<Entry> {
         }
     }
 
-    Some(Entry { icon, exec })
+    Some(Entry { name, icon, exec })
 }
 
 fn desktop_file(app_id: &str) -> Option<PathBuf> {
