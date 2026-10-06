@@ -5,7 +5,8 @@ use std::sync::{Arc, Mutex};
 
 use drifter_core::desktop::App;
 use drifter_core::settings::{Art, Ask, Fonts, Hit, Id, Look, Model, Section, Value};
-use drifter_core::sheet::{Choice, For, Pick, Sheet};
+use drifter_core::settings::UserAsk;
+use drifter_core::sheet::{Choice, Field, For, Pick, Sheet};
 use drifter_core::shortcut::{self, Combo, Mods};
 use drifter_core::stats::{self, Mount};
 use drifter_core::system::{self, Sound};
@@ -57,6 +58,8 @@ pub struct Settings {
     mods: Modifiers,
     chores: LoopSender<Option<String>>,
     net_done: LoopSender<(bool, Result<(), String>)>,
+    user_done: LoopSender<(For, Result<String, String>)>,
+    parked: Option<Sheet>,
     searching: bool,
     net_ticks: u32,
     history_seen: Option<std::time::SystemTime>,
@@ -177,6 +180,15 @@ pub fn run() -> Result<(), String> {
             }
         })
         .map_err(|e| format!("cannot watch the network changes: {e}"))?;
+    let (user_done, user_back) = loop_channel::<(For, Result<String, String>)>();
+    events
+        .handle()
+        .insert_source(user_back, |event, _, settings: &mut Settings| {
+            if let ChannelEvent::Msg((purpose, result)) = event {
+                settings.user_finished(purpose, result);
+            }
+        })
+        .map_err(|e| format!("cannot watch the user changes: {e}"))?;
     let (chores, chores_done) = loop_channel::<Option<String>>();
     events
         .handle()
@@ -216,6 +228,8 @@ pub fn run() -> Result<(), String> {
         mods: Modifiers::default(),
         chores,
         net_done,
+        user_done,
+        parked: None,
         searching: false,
         net_ticks: 0,
         history_seen: None,
@@ -247,6 +261,7 @@ pub fn run() -> Result<(), String> {
         loads,
     };
     settings.load_row_icons();
+    settings.refresh(settings.section);
 
     while !settings.exit {
         events
@@ -543,7 +558,7 @@ fn write_whole(path: &Path, text: &str) -> Result<(), String> {
     })
 }
 
-fn home() -> PathBuf {
+pub(crate) fn home() -> PathBuf {
     std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/"))
@@ -568,6 +583,14 @@ impl Settings {
     }
 
     fn icon_for(&self, key: &str) -> Option<Image> {
+        if let Some((px, path)) = drifter_core::sheet::face_of(key) {
+            let image = drifter_core::image::load(&path).ok()?;
+            let square = drifter_core::users::square(&image, px);
+            return Some(drifter_core::users::round(&square));
+        }
+        if key.starts_with("letter:") {
+            return None;
+        }
         let path = if let Some(id) = key.strip_prefix("app:") {
             let app = self.apps.iter().find(|app| app.id == id)?;
             icon_file(app.icon.as_deref()?)?
@@ -733,6 +756,7 @@ impl Settings {
                 }
                 Some(Ask::Reset) => self.reset_all(),
                 Some(Ask::Net(ask)) => self.net_ask(ask),
+                Some(Ask::User(ask)) => self.user_ask(ask),
                 Some(Ask::Forget) => {
                     if let Err(error) = std::fs::remove_file(history_path())
                         && error.kind() != std::io::ErrorKind::NotFound
@@ -879,7 +903,225 @@ impl Settings {
                 self.model.net_note = None;
                 self.read_net();
             }
+            Section::Users => {
+                self.model.user_note = None;
+                self.read_users();
+            }
             _ => {}
+        }
+    }
+
+    fn read_users(&mut self) {
+        let users = crate::users::read();
+        self.model.users = Some(users.clone());
+        self.saved.users = Some(users);
+        let stock = self.model.faces.clone();
+        self.icons.retain(|key, _| match drifter_core::sheet::face_of(key) {
+            Some((_, path)) => stock.contains(&path),
+            None => true,
+        });
+        for key in self.model.face_keys() {
+            self.want_icon(key);
+        }
+    }
+
+    fn want_faces(&mut self, wanted: &[PathBuf]) {
+        for path in wanted {
+            self.want_icon(drifter_core::sheet::face_key(path, drifter_core::sheet::FACE_CELL as u32));
+        }
+    }
+
+    fn open_faces(&mut self, purpose: For, chosen: Option<PathBuf>) {
+        let stock = self.model.faces.clone();
+        self.want_faces(&stock);
+        self.sheet = Some(Sheet::faces(purpose, stock, chosen));
+    }
+
+    fn user_ask(&mut self, ask: UserAsk) {
+        match ask {
+            UserAsk::Rename => {
+                let full = self.model.me().map(|me| me.full.clone()).unwrap_or_default();
+                self.sheet = Some(Sheet::form(
+                    For::MyName,
+                    "Change your full name",
+                    vec![Field::plain("Full name", &full)],
+                    "Save",
+                ));
+            }
+            UserAsk::Picture => self.open_faces(For::MyFace, None),
+            UserAsk::Password => {
+                self.sheet = Some(Sheet::form(
+                    For::MyPassword,
+                    "Change your password",
+                    vec![
+                        Field::secret("Current password"),
+                        Field::secret("New password"),
+                        Field::secret("Repeat the new password"),
+                    ],
+                    "Change Password",
+                ));
+            }
+            UserAsk::Add => {
+                let seed = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|since| since.subsec_nanos() as u64)
+                    .unwrap_or(0);
+                let face = drifter_core::users::pick_stock(&self.model.faces, seed);
+                if let Some(face) = &face {
+                    self.want_faces(std::slice::from_ref(face));
+                }
+                self.sheet = Some(
+                    Sheet::form(
+                        For::AddUser,
+                        "Add a user",
+                        vec![
+                            Field::plain("Full name", ""),
+                            Field::following("Account name"),
+                            Field::secret("Password"),
+                            Field::secret("Repeat the password"),
+                        ],
+                        "Add User",
+                    )
+                    .with_switch("Allow this user to administer the computer", false)
+                    .with_face(face),
+                );
+            }
+            UserAsk::Admin(at, admin) => {
+                let Some(user) = self.model.other(at).cloned() else {
+                    return;
+                };
+                self.model.user_note = Some(match admin {
+                    true => format!("Making {} an admin…", user.shown()),
+                    false => format!("Making {} a standard user…", user.shown()),
+                });
+                self.user_job(
+                    For::MakeAdmin(at),
+                    crate::users::Job::Admin {
+                        login: user.login,
+                        admin,
+                    },
+                );
+            }
+            UserAsk::Remove(at) => {
+                let Some(user) = self.model.other(at).cloned() else {
+                    return;
+                };
+                self.sheet = Some(
+                    Sheet::form(For::RemoveUser(at), &format!("Remove {}?", user.shown()), Vec::new(), "Remove")
+                        .with_switch("Delete the home folder too", false)
+                        .with_note(&format!(
+                            "If you keep it, {} stays on this computer.",
+                            user.home.display()
+                        )),
+                );
+            }
+        }
+    }
+
+    fn user_job(&mut self, purpose: For, job: crate::users::Job) {
+        let done = self.user_done.clone();
+        let spawned = std::thread::Builder::new()
+            .name("settings-users".to_string())
+            .spawn(move || {
+                let _ = done.send((purpose, crate::users::run(job)));
+            });
+        if let Err(error) = spawned {
+            self.user_finished(purpose, Err(format!("Cannot start: {error}")));
+        }
+    }
+
+    fn user_finished(&mut self, purpose: For, result: Result<String, String>) {
+        let open = self
+            .sheet
+            .as_ref()
+            .is_some_and(|sheet| sheet.purpose() == purpose && matches!(sheet, Sheet::Form { .. }));
+        match (open, result) {
+            (true, Err(error)) => {
+                if let Some(sheet) = self.sheet.as_mut() {
+                    sheet.work(Some(&error), false);
+                }
+            }
+            (true, Ok(done)) => {
+                self.sheet = None;
+                self.model.user_note = Some(done);
+            }
+            (false, result) => {
+                self.model.user_note = Some(result.unwrap_or_else(|error| error));
+            }
+        }
+        self.read_users();
+        if self.section == Section::Users {
+            self.draw();
+        }
+    }
+
+    fn submit_form(&mut self, purpose: For, texts: Vec<String>, on: bool) {
+        use drifter_core::users;
+        use crate::users::Job;
+
+        let text = |at: usize| texts.get(at).cloned().unwrap_or_default();
+        let checked: Result<(Job, String), String> = match purpose {
+            For::MyName => users::check_full(&text(0))
+                .map(|full| (Job::Rename(full), "Saving…".to_string())),
+            For::MyPassword => match text(0).is_empty() {
+                true => Err("Type your current password.".to_string()),
+                false => users::check_new_password(&text(1), &text(2)).map(|()| {
+                    (
+                        Job::Password {
+                            old: text(0),
+                            new: text(1),
+                        },
+                        "Changing your password…".to_string(),
+                    )
+                }),
+            },
+            For::AddUser => {
+                let taken = self
+                    .model
+                    .users
+                    .as_ref()
+                    .map(|users| users.taken.clone())
+                    .unwrap_or_default();
+                users::check_full(&text(0)).and_then(|full| {
+                    users::check_login(&text(1), &taken)?;
+                    users::check_new_password(&text(2), &text(3))?;
+                    let note = format!("Adding {full}. Type an admin password if asked.");
+                    Ok((
+                        Job::Add {
+                            full,
+                            login: text(1),
+                            password: text(2),
+                            admin: on,
+                            picture: self.sheet.as_ref().and_then(Sheet::face),
+                        },
+                        note,
+                    ))
+                })
+            }
+            For::RemoveUser(at) => match self.model.other(at) {
+                Some(user) => Ok((
+                    Job::Remove {
+                        uid: user.uid,
+                        files: on,
+                    },
+                    format!("Removing {}. Type an admin password if asked.", user.shown()),
+                )),
+                None => Err("That user is gone.".to_string()),
+            },
+            _ => return,
+        };
+        match checked {
+            Ok((job, note)) => {
+                if let Some(sheet) = self.sheet.as_mut() {
+                    sheet.work(Some(&note), true);
+                }
+                self.user_job(purpose, job);
+            }
+            Err(error) => {
+                if let Some(sheet) = self.sheet.as_mut() {
+                    sheet.work(Some(&error), false);
+                }
+            }
         }
     }
 
@@ -1020,7 +1262,46 @@ impl Settings {
             return;
         };
         match pick {
-            Pick::Cancel => self.sheet = None,
+            Pick::Cancel if purpose == For::NewFace && self.parked.is_some() => {
+                self.sheet = self.parked.take();
+            }
+            Pick::Cancel => {
+                self.sheet = None;
+                self.parked = None;
+            }
+            Pick::Focus(at) => {
+                if let Some(sheet) = self.sheet.as_mut() {
+                    sheet.focus(at);
+                }
+            }
+            Pick::Toggle => {
+                if let Some(sheet) = self.sheet.as_mut() {
+                    sheet.toggle();
+                }
+            }
+            Pick::Face => {
+                let chosen = self.sheet.as_ref().and_then(Sheet::face);
+                self.parked = self.sheet.take();
+                self.open_faces(For::NewFace, chosen);
+            }
+            Pick::Browse => {
+                let pictures = home().join("Pictures");
+                let start = if pictures.is_dir() { pictures } else { home() };
+                self.sheet = Some(Sheet::files(purpose, start));
+            }
+            Pick::Submit { texts, on } => self.submit_form(purpose, texts, on),
+            Pick::File(file) if purpose == For::MyFace => {
+                self.sheet = None;
+                self.model.user_note = Some("Changing your picture…".to_string());
+                self.user_job(For::MyFace, crate::users::Job::Face(file));
+            }
+            Pick::File(file) if purpose == For::NewFace => {
+                self.sheet = self.parked.take();
+                self.want_faces(std::slice::from_ref(&file));
+                if let Some(sheet) = self.sheet.as_mut() {
+                    sheet.put_face(file);
+                }
+            }
             Pick::Tab(tab) => {
                 if let Some(Sheet::Picker { tab: held, .. }) = self.sheet.as_mut() {
                     *held = tab;
@@ -1351,6 +1632,8 @@ impl Settings {
         model.query = old.query;
         model.monitors = old.monitors;
         model.picked = old.picked;
+        model.users = old.users;
+        model.user_note = old.user_note;
         self.saved = self.model.clone();
         self.look = themed(&self.model, self.look.side_scroll);
         self.load_row_icons();
@@ -1411,7 +1694,8 @@ impl Settings {
             return;
         };
         match event.keysym {
-            Keysym::Escape => self.sheet = None,
+            Keysym::Escape => self.take(Pick::Cancel),
+            Keysym::Tab => sheet.next_field(),
             Keysym::BackSpace => sheet.backspace(),
             Keysym::Return | Keysym::KP_Enter => {
                 if let Some(pick) = sheet.enter() {

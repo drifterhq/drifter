@@ -24,6 +24,9 @@ pub const UNITS: [u64; 3] = [1, 60, 3600];
 pub const BRIGHTNESS_LEAST: f64 = 5.0;
 
 mod pages;
+mod people;
+
+pub use people::{BIG_FACE, ROW_FACE, UserAsk};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Section {
@@ -45,6 +48,7 @@ pub enum Section {
     Access,
     Power,
     Lock,
+    Users,
     Time,
     Login,
     Apps,
@@ -52,7 +56,7 @@ pub enum Section {
 }
 
 impl Section {
-    pub const ALL: [Section; 22] = [
+    pub const ALL: [Section; 23] = [
         Section::Desktop,
         Section::Displays,
         Section::Wallpaper,
@@ -71,6 +75,7 @@ impl Section {
         Section::Access,
         Section::Power,
         Section::Lock,
+        Section::Users,
         Section::Time,
         Section::Login,
         Section::Apps,
@@ -97,6 +102,7 @@ impl Section {
             Section::Access => "Accessibility",
             Section::Power => "Power",
             Section::Lock => "Lock Screen",
+            Section::Users => "Users",
             Section::Time => "Date & Time",
             Section::Login => "Login Items",
             Section::Apps => "Default Apps",
@@ -124,6 +130,7 @@ impl Section {
             Section::Access => "accessibility large text bigger high contrast reduce motion animation sticky keys a11y",
             Section::Power => "sleep suspend lid battery shutdown profile performance saver balanced",
             Section::Lock => "password idle screen off",
+            Section::Users => "user account people password picture photo avatar face admin administrator name add remove login",
             Section::Time => "clock zone ntp date",
             Section::Login => "startup autostart apps",
             Section::Apps => "browser terminal file manager",
@@ -167,6 +174,7 @@ impl Section {
             Section::Access => [40, 120, 220],
             Section::Power => [70, 170, 80],
             Section::Lock => [96, 102, 120],
+            Section::Users => [70, 130, 220],
             Section::Time => [60, 130, 220],
             Section::Login => [220, 80, 90],
             Section::Apps => [214, 160, 40],
@@ -184,6 +192,7 @@ pub enum Ask {
     Capture(usize),
     Forget,
     Reset,
+    User(UserAsk),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -290,6 +299,9 @@ pub struct Model {
     pub wifi: Option<crate::net::Wifi>,
     pub blue: Option<crate::net::Blue>,
     pub net_note: Option<String>,
+    pub users: Option<crate::users::Users>,
+    pub user_note: Option<String>,
+    pub faces: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -457,6 +469,9 @@ impl Model {
             wifi: None,
             blue: None,
             net_note: None,
+            users: None,
+            user_note: None,
+            faces: crate::users::stock(&config.faces_dir()),
             keys: config.keys.clone(),
             variants: crate::keyboard::variants(&config.keyboard.layout),
             recent: Vec::new(),
@@ -1050,6 +1065,7 @@ impl Model {
             Section::Power => self.power_groups(),
             Section::Time => self.time_groups(),
             Section::About => self.about_groups(),
+            Section::Users => self.user_groups(),
             Section::Touchpad => self.touchpad_groups(),
             Section::Displays => {
                 let mut groups = self.display_groups();
@@ -1617,6 +1633,9 @@ impl Model {
             (Id::Scale, 1) => self.step_scale(true),
             (Id::Resolution, at) => self.step_mode(true, at == 1),
             (Id::Refresh, at) => self.step_mode(false, at == 1),
+            (Id::MyName | Id::MyPicture | Id::MyPassword | Id::User(_) | Id::AddUser, index) => {
+                return self.press_user(id, index);
+            }
             (id, index) => return self.press_more(id, index),
         }
         None
@@ -2173,6 +2192,11 @@ pub enum Id {
     Export,
     Import,
     ResetAll,
+    MyName,
+    MyPicture,
+    MyPassword,
+    User(usize),
+    AddUser,
 }
 
 const SHOWS: [&str; 6] = [
@@ -2653,6 +2677,14 @@ impl Look {
         {
             return Some(Hit::Monitor(at));
         }
+        if section == Section::Users
+            && model.me().is_some()
+            && self
+                .face_spot(self.picture_rect(size, scroll))
+                .contains(pointer)
+        {
+            return Some(Hit::Press(Id::MyPicture, 0));
+        }
         let groups = model.groups(section);
         let placed = self.place(size, section, &groups, scroll);
         for (group, placed) in groups.iter().zip(&placed) {
@@ -2754,6 +2786,7 @@ impl Look {
                 Section::Desktop => self.paint_world(&mut canvas, rect, model.world, fonts),
                 Section::Window => self.paint_title_bar(&mut canvas, rect, model, fonts),
                 Section::Displays => self.paint_monitors(&mut canvas, size, scroll, model, fonts),
+                Section::Users => self.paint_me(&mut canvas, rect, model, fonts, art.icons),
                 _ => self.paint_wallpaper(&mut canvas, rect, art.wallpaper),
             }
         }
@@ -3235,7 +3268,11 @@ fn outline(canvas: &mut Canvas, rect: Rect, thick: f64, color: [u8; 3]) {
 fn has_picture(section: Section) -> bool {
     matches!(
         section,
-        Section::Desktop | Section::Displays | Section::Wallpaper | Section::Window
+        Section::Desktop
+            | Section::Displays
+            | Section::Wallpaper
+            | Section::Window
+            | Section::Users
     )
 }
 
@@ -3430,6 +3467,10 @@ fn paint_glyph(canvas: &mut Canvas, section: Section, icon: Rect) {
             for (x, y) in [(6.5, 6.5), (15.5, 6.5), (6.5, 15.5), (15.5, 15.5)] {
                 canvas.circle(o + Vec2::new(x, y), 3.0, white, 1.0);
             }
+        }
+        Section::Users => {
+            canvas.circle(o + Vec2::new(11.0, 8.0), 3.5, white, 1.0);
+            canvas.round_rect(r(5.0, 13.0, 12.0, 6.0), 3.0, white, 1.0);
         }
         Section::Login => {
             canvas.round_rect(r(12.0, 4.0, 6.0, 14.0), 1.5, white, 1.0);

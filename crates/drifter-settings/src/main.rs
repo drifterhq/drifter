@@ -10,6 +10,8 @@ mod heads;
 #[cfg(target_os = "linux")]
 mod net;
 #[cfg(target_os = "linux")]
+mod users;
+#[cfg(target_os = "linux")]
 mod window;
 
 #[cfg(target_os = "linux")]
