@@ -406,6 +406,7 @@ fn a_window_is_drawn_at_its_size_and_halves_at_half_zoom() {
 #[test]
 fn a_window_wears_a_frame_that_hugs_it_at_every_zoom() {
     let mut run = start("chrome", &Config::default(), None);
+    run.screen.state.window_shadow = None;
     let (stop, client) = red_window(&mut run);
     let content = {
         let window = run
@@ -469,6 +470,30 @@ fn a_window_wears_a_frame_that_hugs_it_at_every_zoom() {
     stop.store(true, Ordering::Relaxed);
     let _ = client.join();
     assert!(wrong.is_empty(), "the frame is off:\n{}", wrong.join("\n"));
+}
+
+#[test]
+fn a_framed_window_casts_a_soft_shadow_that_fades_out() {
+    let mut run = start("shadow", &Config::default(), None);
+    let (stop, client) = red_window(&mut run);
+    let content = run
+        .screen
+        .state
+        .windows
+        .iter()
+        .find(|window| window.app == "drifter-test-red")
+        .expect("the red window is placed")
+        .content;
+    let image = run.shot("shadow");
+    let state = &run.screen.state;
+    let frame = state.on_screen(state.chrome.layout(content).frame);
+    let x = frame.center().x.round() as u32;
+    let near = pixel(&image, x, (frame.max().y + 4.0).round() as u32);
+    let far = pixel(&image, x, (frame.max().y + 60.0).round() as u32);
+    stop.store(true, Ordering::Relaxed);
+    let _ = client.join();
+    assert!(!is_background(near), "just under the frame is shaded: {near:?}");
+    assert!(is_background(far), "far below the frame is untouched: {far:?}");
 }
 
 #[test]
