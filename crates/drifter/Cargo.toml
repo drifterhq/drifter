@@ -51,6 +51,7 @@ assets = [
     ["../../scripts/drifter-session", "usr/bin/", "755"],
     ["../../dist/drifter.desktop", "usr/share/wayland-sessions/", "644"],
     ["../../dist/pam-drifter", "etc/pam.d/drifter", "644"],
+    ["../../dist/61-drifter-pixelbook.hwdb", "usr/lib/udev/hwdb.d/", "644"],
     ["../../conf/drifter-portals.conf", "usr/share/xdg-desktop-portal/", "644"],
     ["../../conf/xdpw.conf", "etc/xdg/xdg-desktop-portal-wlr/drifter", "644"],
     ["../../conf/default.toml", "usr/share/drifter/conf/", "644"],

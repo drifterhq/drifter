@@ -79,6 +79,18 @@ impl Action {
     }
 }
 
+const BUILT_IN: [(&str, Action); 1] = [("XF86Search", Action::Search)];
+
+pub fn built_in(held: Mods, names: &[String]) -> Option<Action> {
+    if held != Mods::default() {
+        return None;
+    }
+    BUILT_IN
+        .iter()
+        .find(|(key, _)| names.iter().any(|name| name.eq_ignore_ascii_case(key)))
+        .map(|(_, action)| *action)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Mods {
     pub ctrl: bool,
@@ -342,6 +354,18 @@ mod tests {
     fn keysym_names_lose_their_prefix() {
         assert_eq!(keysym_word("XK_Tab"), "Tab");
         assert_eq!(keysym_word("XF86XK_AudioMute"), "XF86AudioMute");
+    }
+
+    #[test]
+    fn the_search_key_opens_search() {
+        let names = ["XF86Search".to_string()];
+        assert_eq!(built_in(Mods::default(), &names), Some(Action::Search));
+        let shifted = Mods {
+            shift: true,
+            ..Mods::default()
+        };
+        assert_eq!(built_in(shifted, &names), None);
+        assert_eq!(built_in(Mods::default(), &["a".to_string()]), None);
     }
 
     #[test]

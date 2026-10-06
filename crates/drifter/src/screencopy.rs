@@ -232,10 +232,12 @@ pub fn done(copy: &Copy) {
             .damage(0, 0, copy.region.size.x as u32, copy.region.size.y as u32);
     }
     copy.frame.flags(zwlr_screencopy_frame_v1::Flags::empty());
-    let since = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let seconds = since.as_secs();
+    let mut now = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut now) };
+    let seconds = now.tv_sec as u64;
     copy.frame
-        .ready((seconds >> 32) as u32, seconds as u32, since.subsec_nanos());
+        .ready((seconds >> 32) as u32, seconds as u32, now.tv_nsec as u32);
 }

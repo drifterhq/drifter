@@ -743,6 +743,10 @@ impl State {
                     state.swallowed.push(code);
                     return FilterResult::Intercept(Shortcut::Do(*action, held.shift));
                 }
+                if let Some(action) = drifter_core::shortcut::built_in(mods, &names) {
+                    state.swallowed.push(code);
+                    return FilterResult::Intercept(Shortcut::Do(action, false));
+                }
                 if let Some((slot, _)) = state
                     .place_saves
                     .iter()
