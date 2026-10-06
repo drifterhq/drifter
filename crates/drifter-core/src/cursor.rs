@@ -1,14 +1,18 @@
 use crate::geom::{Rect, Vec2};
 use crate::image::Image;
 
-const OUTLINE: f64 = 1.4;
+const OUTLINE: f64 = 1.0;
+const SHADOW_ROOM: f64 = 3.0;
+const SHADOW_DROP: Vec2 = Vec2::new(0.3, 1.1);
+const SHADOW_SOFT: f64 = 1.1;
+const SHADOW_DARK: f64 = 0.38;
 const SHAPE: [(f64, f64); 7] = [
     (0.0, 0.0),
     (0.0, 17.0),
-    (4.3, 12.8),
-    (7.1, 19.6),
-    (10.1, 18.4),
-    (7.3, 11.8),
+    (4.1, 13.0),
+    (6.9, 19.9),
+    (10.5, 18.4),
+    (7.7, 11.9),
     (12.2, 11.8),
 ];
 
@@ -23,8 +27,8 @@ impl Default for Cursor {
     fn default() -> Self {
         Cursor {
             scale: 1.6,
-            fill: [245, 245, 248],
-            edge: [12, 12, 16],
+            fill: [0, 0, 0],
+            edge: [255, 255, 255],
         }
     }
 }
@@ -34,7 +38,7 @@ impl Cursor {
         let reach = SHAPE.iter().fold(Vec2::ZERO, |most, (x, y)| {
             Vec2::new(most.x.max(*x), most.y.max(*y))
         });
-        (reach + Vec2::splat(OUTLINE * 2.0)) * self.scale
+        (reach + Vec2::splat(OUTLINE * 2.0 + SHADOW_ROOM)) * self.scale
     }
 
     pub fn hotspot(&self) -> Vec2 {
@@ -66,10 +70,18 @@ impl Cursor {
                     let reach = if inside { OUTLINE } else { OUTLINE - distance };
                     (self.edge, (reach / OUTLINE).clamp(0.0, 1.0))
                 } else {
-                    continue;
+                    (self.edge, 0.0)
                 };
 
-                if coverage <= 0.0 {
+                let below = point - SHADOW_DROP;
+                let gap = match crate::cursor::inside(below) {
+                    true => 0.0,
+                    false => (distance_to_edge(below) - OUTLINE).max(0.0),
+                };
+                let shade = SHADOW_DARK * (-(gap * gap) / (2.0 * SHADOW_SOFT * SHADOW_SOFT)).exp();
+
+                let alpha = coverage + shade * (1.0 - coverage);
+                if alpha <= 0.0 {
                     continue;
                 }
                 let index = ((y as usize) * (width as usize) + x as usize) * 4;
@@ -77,7 +89,7 @@ impl Cursor {
                     rgba[index + channel] =
                         (f64::from(*value) * coverage).round().clamp(0.0, 255.0) as u8;
                 }
-                rgba[index + 3] = (coverage * 255.0).round().clamp(0.0, 255.0) as u8;
+                rgba[index + 3] = (alpha * 255.0).round().clamp(0.0, 255.0) as u8;
             }
         }
 
@@ -161,7 +173,7 @@ mod tests {
     }
 
     #[test]
-    fn the_arrow_has_a_dark_outline_around_a_light_body() {
+    fn the_arrow_has_a_light_outline_around_a_dark_body() {
         let cursor = Cursor::default();
         let image = cursor.paint();
         let body = pixel(
@@ -170,11 +182,11 @@ mod tests {
             (7.0 * cursor.scale) as u32,
         );
         assert_eq!(body[3], 255);
-        assert!(body[0] > 200, "the arrow body is not light");
+        assert!(body[0] < 40, "the arrow body is not dark");
 
         let rim = pixel(&image, 1, (7.0 * cursor.scale) as u32);
         assert!(rim[3] > 0, "the arrow has no outline");
-        assert!(rim[0] < 100, "the outline is not dark");
+        assert!(rim[0] > 150, "the outline is not light");
     }
 
     #[test]
@@ -193,7 +205,8 @@ mod tests {
             (10.0 * cursor.scale) as u32,
             (6.0 * cursor.scale) as u32,
         );
-        assert_eq!(notch[3], 0, "the arrow is a solid triangle, not an arrow");
+        assert!(notch[3] < 60, "the arrow is a solid triangle, not an arrow: {notch:?}");
+        assert!(notch[0] < 10, "only the soft shadow reaches the notch");
     }
 
     #[test]
