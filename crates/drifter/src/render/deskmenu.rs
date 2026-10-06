@@ -57,7 +57,7 @@ impl State {
     }
 
     fn desk_entries(&mut self, picks: &mut Vec<Pick>) -> Vec<Entry> {
-        let mut pick = |picks: &mut Vec<Pick>, what: Pick| {
+        let pick = |picks: &mut Vec<Pick>, what: Pick| {
             picks.push(what);
             (picks.len() - 1) as u32
         };
