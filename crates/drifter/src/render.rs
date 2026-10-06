@@ -774,6 +774,9 @@ impl State {
                     zoom * stretch,
                 ))
             }));
+            if dressed && !maximized {
+                self.cast_shadow(shown, awake, fade, &mut elements);
+            }
         }
 
         self.layer_elements(

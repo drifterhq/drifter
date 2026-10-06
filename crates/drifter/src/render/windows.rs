@@ -366,14 +366,18 @@ impl State {
                 false => elements.push(Skin::Texture(element(buffer, show(rect), fade))),
             }
         }
-        if let Some((buffer, corner)) = self.window_shadow.as_ref().filter(|_| !maximized) {
-            let strength = fade * if awake { 0.42 } else { 0.22 };
-            let frame = show(layout.frame);
-            for (source, target) in
-                drifter_core::window::shadow_slices(frame, *corner, self.camera.zoom, 6.0)
-            {
-                elements.push(Skin::Texture(faded(buffer, source, target, strength)));
-            }
+    }
+
+    pub(super) fn cast_shadow(&self, content: Rect, awake: bool, fade: f32, elements: &mut Vec<Skin>) {
+        let Some((buffer, corner)) = self.window_shadow.as_ref() else {
+            return;
+        };
+        let strength = fade * if awake { 0.42 } else { 0.22 };
+        let frame = self.on_screen(self.chrome.layout(content).frame);
+        for (source, target) in
+            drifter_core::window::shadow_slices(frame, *corner, self.camera.zoom, 6.0)
+        {
+            elements.push(Skin::Texture(faded(buffer, source, target, strength)));
         }
     }
 
