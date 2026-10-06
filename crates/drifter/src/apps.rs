@@ -88,6 +88,18 @@ pub fn start(exec: &str, files: &[&str], socket: &str) {
     }
 }
 
+pub fn fresh_signals(command: &mut std::process::Command) -> &mut std::process::Command {
+    use std::os::unix::process::CommandExt;
+    unsafe {
+        command.pre_exec(|| {
+            let mut none: libc::sigset_t = std::mem::zeroed();
+            libc::sigemptyset(&mut none);
+            libc::pthread_sigmask(libc::SIG_SETMASK, &none, std::ptr::null_mut());
+            Ok(())
+        })
+    }
+}
+
 static X11: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 static ENV: std::sync::Mutex<Vec<(String, String)>> = std::sync::Mutex::new(Vec::new());
 
@@ -148,7 +160,7 @@ pub fn start_x11(socket: &str) {
         return;
     };
     let display = format!(":{number}");
-    let result = std::process::Command::new(&program)
+    let result = fresh_signals(&mut std::process::Command::new(&program))
         .arg(&display)
         .env("WAYLAND_DISPLAY", socket)
         .env_remove("DISPLAY")
@@ -174,6 +186,7 @@ pub fn launch(argv: &[String], socket: &str) {
         return;
     };
     let mut command = std::process::Command::new(program);
+    fresh_signals(&mut command);
     if let Ok(held) = ENV.lock() {
         for (key, value) in held.iter() {
             command.env(key, value);

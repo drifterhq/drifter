@@ -411,7 +411,7 @@ impl State {
         };
         let area = area.map(|rect| Rect::new(rect.origin + head.place, rect.size));
         let args = grab::recorder_args(&head.name, area, self.sound_from.as_deref(), &path);
-        let spawned = std::process::Command::new("wf-recorder")
+        let spawned = crate::apps::fresh_signals(&mut std::process::Command::new("wf-recorder"))
             .args(&args)
             .env("WAYLAND_DISPLAY", &self.socket)
             .stdin(std::process::Stdio::null())
