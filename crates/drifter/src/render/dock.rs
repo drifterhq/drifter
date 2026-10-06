@@ -85,7 +85,6 @@ impl State {
     }
 
     fn drag_target(&self, count: usize) -> Option<usize> {
-        self.dock_drag.as_ref()?;
         let band = self.dock_band()?;
         if self.pointer.y < band.origin.y - self.dock.icon * 1.5 {
             return None;
@@ -182,8 +181,11 @@ impl State {
 
     pub(super) fn release_dock(&mut self) -> bool {
         let pressed = self.dock_press.take();
-        if let Some(drag) = self.dock_drag.take() {
-            self.drop_dock(drag);
+        if self.dock_drag.is_some() {
+            let target = self.drag_target(self.dock_apps().len());
+            if let Some(drag) = self.dock_drag.take() {
+                self.drop_dock(drag, target);
+            }
             self.kick_now();
             return true;
         }
@@ -257,7 +259,7 @@ impl State {
             .unwrap_or(0.0)
     }
 
-    fn drop_dock(&mut self, drag: DockDrag) {
+    fn drop_dock(&mut self, drag: DockDrag, target: Option<usize>) {
         let apps = self.dock_apps();
         let Some(moved) = apps.get(drag.from) else {
             return;
@@ -265,7 +267,6 @@ impl State {
         if moved.key != drag.key {
             return;
         }
-        let target = self.drag_target(apps.len());
         let mut off: Vec<&str> = Vec::new();
         let pinned_count = apps.iter().filter(|app| app.pinned).count();
         let order: Vec<(drifter_core::Launch, bool)> = match target {
