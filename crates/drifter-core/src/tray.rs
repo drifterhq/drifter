@@ -32,8 +32,12 @@ impl Default for Tray {
 }
 
 impl Tray {
+    pub fn control_rect(&self, band: Rect) -> Rect {
+        self.left_of(band, self.power_rect(band).origin.x)
+    }
+
     pub fn clock_rect(&self, band: Rect, text: Vec2) -> Rect {
-        let x = self.power_rect(band).origin.x - self.button_gap - text.x;
+        let x = self.control_rect(band).origin.x - self.button_gap - text.x;
         Rect::new(Vec2::new(x, self.centered(band, text.y)), text)
     }
 
@@ -343,12 +347,14 @@ mod tests {
     }
 
     #[test]
-    fn the_clock_sits_left_of_the_power_button() {
+    fn from_the_right_power_then_control_center_then_the_clock() {
         let tray = Tray::default();
         let text = Vec2::new(240.0, 26.0);
-        let rect = tray.clock_rect(band(), text);
-        let button = tray.power_rect(band());
-        assert_eq!(button.origin.x - rect.max().x, tray.button_gap);
+        let clock = tray.clock_rect(band(), text);
+        let control = tray.control_rect(band());
+        let power = tray.power_rect(band());
+        assert_eq!(power.origin.x - control.max().x, tray.button_gap);
+        assert_eq!(control.origin.x - clock.max().x, tray.button_gap);
     }
 
     #[test]

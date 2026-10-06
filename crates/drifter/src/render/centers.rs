@@ -10,15 +10,7 @@ pub(super) struct Panel {
 impl State {
     pub(super) fn control_rect(&self) -> Option<Rect> {
         self.control_icon.as_ref()?;
-        let band = self.tray_band()?;
-        let right = self
-            .sun_rect()
-            .or_else(|| self.speaker_rect())
-            .or_else(|| self.clock.as_ref().map(|(_, _, rect)| *rect))
-            .unwrap_or_else(|| self.tray.power_rect(band))
-            .origin
-            .x;
-        Some(self.tray.left_of(band, right))
+        Some(self.tray.control_rect(self.tray_band()?))
     }
 
     fn control_status(&self) -> Status {

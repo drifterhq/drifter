@@ -466,16 +466,7 @@ impl State {
     }
 
     pub(super) fn sun_rect(&self) -> Option<Rect> {
-        self.sun.as_ref()?;
-        self.light?;
-        let band = self.tray_band()?;
-        let right = self
-            .speaker_rect()
-            .or_else(|| self.clock.as_ref().map(|(_, _, rect)| *rect))
-            .unwrap_or_else(|| self.tray.power_rect(band))
-            .origin
-            .x;
-        Some(self.tray.left_of(band, right))
+        None
     }
 
     fn gauge_rect(&self, gauge: Gauge) -> Option<Rect> {
@@ -510,10 +501,7 @@ impl State {
     }
 
     pub(super) fn speaker_rect(&self) -> Option<Rect> {
-        self.speaker.as_ref()?;
-        let band = self.tray_band()?;
-        let clock = self.clock.as_ref().map(|(_, _, rect)| *rect);
-        Some(self.tray.speaker_rect(band, clock))
+        None
     }
 
     pub(super) fn menu_look(&self) -> Look {
@@ -721,14 +709,11 @@ impl State {
     }
 
     fn tray_right(&self, band: Rect) -> f64 {
-        if let Some(rect) = self.control_rect() {
-            return rect.origin.x;
-        }
-        match (self.sun_rect(), self.speaker_rect(), self.clock.as_ref()) {
-            (Some(rect), _, _) | (None, Some(rect), _) => rect.origin.x,
-            (None, None, Some((_, _, rect))) => rect.origin.x,
-            (None, None, None) => self.tray.power_rect(band).origin.x,
-        }
+        self.clock
+            .as_ref()
+            .map(|(_, _, rect)| rect.origin.x)
+            .or_else(|| self.control_rect().map(|rect| rect.origin.x))
+            .unwrap_or_else(|| self.tray.power_rect(band).origin.x)
     }
 
     pub(super) fn tray_icon_rect(&self, band: Rect, slot: usize) -> Rect {

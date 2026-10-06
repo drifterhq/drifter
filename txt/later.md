@@ -26,6 +26,7 @@ The 2026-10-05 night-two work ran only on the VM, with fake radios.
 - wlr-output-management changes last until the config is next saved or reloaded. Flipped transforms are refused. Adaptive sync is not offered.
 - Settings paints its whole window for each change. On the Pixelbook one paint takes about 43 ms, so scrolling tops out near 23 frames a second. Paint only what changed, or keep the sidebar as a ready image.
 - Drifter panics when a print to stderr fails ("failed printing to stderr: Input/output error"). It happened on the Pixelbook at 18:08:51 on 2026-10-05, with no restart from us. Logging must never panic.
+- The old volume and brightness buttons are hidden now that Control Center has both sliders. Remove their code: the speaker and sun rects, the gauge panel, and their tips and scroll handling.
 - The hot corner frames all windows. With one window that fits at zoom 1 it does not zoom out at all.
 
 ## Settings gaps
