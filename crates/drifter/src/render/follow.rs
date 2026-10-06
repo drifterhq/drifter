@@ -308,6 +308,7 @@ impl State {
             self.rule = Some(buffer);
         }
         self.frost_key = None;
+        self.drops = paint_drops(&mut self.renderer, &self.shapes, &palette);
         self.take_icons(self.tray_raw.clone());
         if let Some((level, muted)) = self.volume {
             self.speaker = None;

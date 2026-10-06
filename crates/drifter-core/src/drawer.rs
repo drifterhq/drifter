@@ -40,7 +40,7 @@ impl Default for Panel {
         Panel {
             height: 36.0,
             radius: 10.0,
-            shadow: 12.0,
+            shadow: 28.0,
             slack: 16.0,
         }
     }
@@ -182,35 +182,61 @@ fn depth(edge: Edge, px: f64, py: f64, width: f64, panel: &Panel) -> f64 {
     side * (inner - py)
 }
 
-fn shade(depth: f64, shadow: f64) -> f64 {
-    if shadow <= 0.0 || depth >= shadow {
-        return 1.0;
-    }
-    let sink = 1.0 - (depth.max(0.0) / shadow);
-    1.0 - 0.8 * sink * sink
-}
-
 pub fn paint(edge: Edge, width: u32, panel: &Panel, color: [u8; 3], alpha: u8) -> Image {
-    let mut image = paint_flat(edge, width, panel, color, alpha);
-    shadow(&mut image, edge, panel);
-    image
+    paint_flat(edge, width, panel, color, alpha)
 }
 
-pub fn shadow(image: &mut Image, edge: Edge, panel: &Panel) {
+pub fn rim(image: &mut Image, edge: Edge, panel: &Panel, color: [u8; 3], strength: f64) {
     let w = f64::from(image.width);
     for y in 0..image.height {
         let py = f64::from(y) + 0.5;
         for x in 0..image.width {
-            let lit = shade(depth(edge, f64::from(x) + 0.5, py, w, panel), panel.shadow);
-            if lit >= 1.0 {
+            let d = depth(edge, f64::from(x) + 0.5, py, w, panel);
+            let weight = strength * (1.0 - (d - 0.5).abs()).clamp(0.0, 1.0);
+            if weight <= 0.0 {
                 continue;
             }
             let index = ((y * image.width + x) * 4) as usize;
-            for channel in &mut image.rgba[index..index + 3] {
-                *channel = (f64::from(*channel) * lit).round() as u8;
+            let a = f64::from(image.rgba[index + 3]) / 255.0;
+            for (channel, value) in color.iter().enumerate() {
+                let was = f64::from(image.rgba[index + channel]);
+                let now = was + (f64::from(*value) * a - was) * weight;
+                image.rgba[index + channel] = now.round().clamp(0.0, 255.0) as u8;
             }
         }
     }
+}
+
+pub fn drop_shadow(edge: Edge, width: u32, panel: &Panel, strength: f64) -> Image {
+    let reach = panel.shadow.max(1.0);
+    let height = reach.round() as u32;
+    let mut rgba = vec![0u8; (width as usize) * (height as usize) * 4];
+    let sigma = reach / 2.6;
+    for y in 0..height {
+        let away = match edge {
+            Edge::Top => f64::from(y) + 0.5,
+            Edge::Bottom => f64::from(height - y) - 0.5,
+        };
+        let falloff = (-(away * away) / (2.0 * sigma * sigma)).exp();
+        let alpha = (strength * falloff * 255.0).round().clamp(0.0, 255.0) as u8;
+        for x in 0..width as usize {
+            rgba[(y as usize * width as usize + x) * 4 + 3] = alpha;
+        }
+    }
+    Image {
+        width,
+        height,
+        rgba,
+    }
+}
+
+pub fn shadow_rect(band: Rect, edge: Edge, panel: &Panel) -> Rect {
+    let reach = panel.shadow.max(1.0).round();
+    let y = match edge {
+        Edge::Top => band.max().y,
+        Edge::Bottom => band.origin.y - reach,
+    };
+    Rect::new(Vec2::new(band.origin.x, y), Vec2::new(band.size.x, reach))
 }
 
 pub fn paint_flat(edge: Edge, width: u32, panel: &Panel, color: [u8; 3], alpha: u8) -> Image {
@@ -528,58 +554,45 @@ mod tests {
     }
 
     #[test]
-    fn the_inset_shadow_is_darkest_at_the_straight_edge() {
+    fn the_outer_shadow_is_darkest_by_the_drawer_and_fades_away() {
         let panel = panel();
-        let screen = Vec2::new(f64::from(WIDTH), SCREEN.y);
-        let image = paint(Edge::Top, WIDTH, &panel, [180, 180, 180], 255);
-        let rect = opened(Edge::Top).rect(screen, &panel);
-        let middle = f64::from(WIDTH) / 2.0;
-        let at_edge = on_screen(&image, rect, Vec2::new(middle, panel.height - 2.0))[0];
-        let inside = on_screen(
-            &image,
-            rect,
-            Vec2::new(middle, panel.height - panel.shadow - 4.0),
-        )[0];
-        assert!(
-            at_edge < inside,
-            "the inner edge is not darker than the panel body"
-        );
+        for edge in Edge::ALL {
+            let image = drop_shadow(edge, 4, &panel, 0.4);
+            let alpha = |y: u32| image.rgba[((y * image.width) * 4 + 3) as usize];
+            let (near, far) = match edge {
+                Edge::Top => (0, image.height - 1),
+                Edge::Bottom => (image.height - 1, 0),
+            };
+            assert!(alpha(near) > 90, "{edge:?}: {}", alpha(near));
+            assert!(alpha(far) < 5, "{edge:?}: {}", alpha(far));
+            assert!(image.rgba.chunks(4).all(|p| p[0] == 0 && p[1] == 0 && p[2] == 0));
+        }
     }
 
     #[test]
-    fn the_shadow_sits_on_the_wallpaper_side_for_both_edges() {
+    fn the_shadow_strip_sits_just_past_the_drawer_on_the_wallpaper() {
         let panel = panel();
         let screen = Vec2::new(f64::from(WIDTH), SCREEN.y);
-        let image = paint(Edge::Bottom, WIDTH, &panel, [180, 180, 180], 255);
-        let rect = opened(Edge::Bottom).rect(screen, &panel);
-        let middle = f64::from(WIDTH) / 2.0;
-        let at_edge = on_screen(
-            &image,
-            rect,
-            Vec2::new(middle, screen.y - panel.height + 2.0),
-        )[0];
-        let inside = on_screen(
-            &image,
-            rect,
-            Vec2::new(middle, screen.y - panel.height + panel.shadow + 4.0),
-        )[0];
-        assert!(at_edge < inside);
+        let top = opened(Edge::Top).band(screen, &panel);
+        let below = shadow_rect(top, Edge::Top, &panel);
+        assert_eq!(below.origin.y, top.max().y);
+        let bottom = opened(Edge::Bottom).band(screen, &panel);
+        let above = shadow_rect(bottom, Edge::Bottom, &panel);
+        assert_eq!(above.max().y, bottom.origin.y);
     }
 
     #[test]
-    fn the_shadow_only_reaches_as_far_as_its_width() {
+    fn the_rim_is_a_thin_line_on_the_edge_only() {
         let panel = panel();
         let screen = Vec2::new(f64::from(WIDTH), SCREEN.y);
-        let image = paint(Edge::Top, WIDTH, &panel, [180, 180, 180], 255);
+        let mut image = paint(Edge::Top, WIDTH, &panel, [100, 100, 100], 255);
+        rim(&mut image, Edge::Top, &panel, [255, 255, 255], 0.5);
         let rect = opened(Edge::Top).rect(screen, &panel);
         let middle = f64::from(WIDTH) / 2.0;
-        let outside = on_screen(
-            &image,
-            rect,
-            Vec2::new(middle, panel.height - panel.shadow - 2.0),
-        )[0];
-        let far = on_screen(&image, rect, Vec2::new(middle, 2.0))[0];
-        assert_eq!(outside, far);
+        let edge = on_screen(&image, rect, Vec2::new(middle, panel.height - 0.5))[0];
+        let inside = on_screen(&image, rect, Vec2::new(middle, panel.height - 4.0))[0];
+        assert!(edge > 150, "{edge}");
+        assert_eq!(inside, 100, "the body keeps its color");
     }
 
     #[test]

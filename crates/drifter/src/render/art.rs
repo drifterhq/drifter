@@ -188,11 +188,30 @@ pub(super) fn tiles(piece: ChromePiece) -> bool {
     )
 }
 
+pub(super) fn paint_drops(
+    renderer: &mut Painter,
+    shapes: &[Panel; 2],
+    palette: &drifter_core::theme::Palette,
+) -> Vec<TextureBuffer<Tex>> {
+    Edge::ALL
+        .into_iter()
+        .filter_map(|edge| {
+            let image = drawer::drop_shadow(
+                edge,
+                1,
+                &shapes[edge.index()],
+                f64::from(palette.drop) / 255.0,
+            );
+            upload(renderer, Some(&image), "drawer shadow").ok().flatten()
+        })
+        .collect()
+}
+
 pub(super) fn paint_panels(
     renderer: &mut Painter,
     width: f64,
     shapes: &[Panel; 2],
-    color: [u8; 3],
+    palette: &drifter_core::theme::Palette,
 ) -> Result<[TextureBuffer<Tex>; 2], String> {
     let mut built = Vec::new();
     for edge in Edge::ALL {
@@ -200,12 +219,19 @@ pub(super) fn paint_panels(
             Edge::Top => "top drawer",
             Edge::Bottom => "bottom drawer",
         };
-        let image = drawer::paint(
+        let mut image = drawer::paint(
             edge,
             width.max(1.0) as u32,
             &shapes[edge.index()],
-            color,
+            palette.bar,
             PANEL_ALPHA,
+        );
+        drawer::rim(
+            &mut image,
+            edge,
+            &shapes[edge.index()],
+            palette.rim,
+            f64::from(palette.rim_alpha) / 255.0,
         );
         let buffer = upload(renderer, Some(&image), what)?
             .ok_or_else(|| format!("cannot build the {what}"))?;

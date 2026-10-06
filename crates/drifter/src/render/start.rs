@@ -210,7 +210,8 @@ pub fn open(
     let (skin, mut chrome) = load_skin(&mut renderer, config, &palette);
     chrome.follow(&config.window);
 
-    let panels = paint_panels(&mut renderer, screen.x, &shapes, palette.bar)?;
+    let panels = paint_panels(&mut renderer, screen.x, &shapes, &palette)?;
+    let drops = paint_drops(&mut renderer, &shapes, &palette);
 
     let tray = Tray {
         size: config.tray.size,
@@ -435,6 +436,7 @@ pub fn open(
         palette,
         tray_raw: Vec::new(),
         frost_key: None,
+        drops,
         frost_at: None,
         tip: None,
         tip_of: None,

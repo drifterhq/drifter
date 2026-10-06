@@ -25,7 +25,7 @@ impl State {
         );
         let global = output.create_global::<State>(&self.wayland.handle);
         output.set_preferred(mode);
-        let panels = paint_panels(&mut self.renderer, pixels.x, &self.shapes, self.palette.bar)?;
+        let panels = paint_panels(&mut self.renderer, pixels.x, &self.shapes, &self.palette)?;
         let placeholder = std::num::NonZeroU32::MIN;
         self.heads.push(Head {
             name,

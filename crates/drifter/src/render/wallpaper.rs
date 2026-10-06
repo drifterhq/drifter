@@ -138,7 +138,13 @@ impl State {
                 veil,
             );
             self.frosted(&mut image, origin, f64::from(veil) / 255.0);
-            drifter_core::drawer::shadow(&mut image, edge, &shape);
+            drifter_core::drawer::rim(
+                &mut image,
+                edge,
+                &shape,
+                self.palette.rim,
+                f64::from(self.palette.rim_alpha) / 255.0,
+            );
             match upload(&mut self.renderer, Some(&image), "frosted drawer") {
                 Ok(Some(buffer)) => built.push(buffer),
                 _ => return,

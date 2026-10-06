@@ -420,6 +420,7 @@ pub struct State {
     icons: Vec<(String, String, TextureBuffer<Tex>)>,
     tray_raw: Vec<crate::tray::Icon>,
     frost_key: Option<[i64; 6]>,
+    drops: Vec<TextureBuffer<Tex>>,
     frost_at: Option<Instant>,
     palette: drifter_core::theme::Palette,
     popover: Option<Popover>,
@@ -709,12 +710,22 @@ impl State {
         for edge in Edge::ALL {
             let drawer = &self.drawers[edge.index()];
             if drawer.visible() {
-                let rect = drawer.rect(self.screen, &self.shapes[edge.index()]);
+                let shape = &self.shapes[edge.index()];
+                let rect = drawer.rect(self.screen, shape);
                 elements.push(Skin::Texture(element(
                     &self.panels[edge.index()],
                     rect,
                     1.0,
                 )));
+                if let Some(drop) = self.drops.get(edge.index()) {
+                    let reach = shape.shadow.max(1.0).round();
+                    let band = drawer.band(self.screen, shape);
+                    elements.push(Skin::Texture(cropped(
+                        drop,
+                        Rect::new(Vec2::ZERO, Vec2::new(1.0, reach)),
+                        drifter_core::drawer::shadow_rect(band, edge, shape),
+                    )));
+                }
             }
         }
 
