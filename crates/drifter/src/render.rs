@@ -192,6 +192,7 @@ enum Target {
     },
     Window(u64),
     Dock(String),
+    DockBar,
     App(String),
     Desktop,
 }

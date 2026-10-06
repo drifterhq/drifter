@@ -1990,6 +1990,14 @@ pub fn write_flag(text: &str, table: &str, key: &str, on: bool) -> Result<String
     Ok(doc.to_string())
 }
 
+pub fn write_number(text: &str, table: &str, key: &str, value: i64) -> Result<String, String> {
+    let mut doc = text
+        .parse::<toml_edit::DocumentMut>()
+        .map_err(|error| format!("the config no longer parses: {error}"))?;
+    put(&mut doc, table, key, toml_edit::Value::from(value));
+    Ok(doc.to_string())
+}
+
 pub fn write_dock(text: &str, pinned: &[Launch], off: &[&str]) -> Result<String, String> {
     let mut doc = text
         .parse::<toml_edit::DocumentMut>()
@@ -4094,6 +4102,8 @@ mod tests {
         assert!(Config::parse(&out).unwrap().notify.quiet);
         assert!(out.contains("# hush"));
         let out = write_word(&out, "appearance", "style", "dark").unwrap();
+        let out = write_number(&out, "drawers", "bottom", 80).unwrap();
+        assert_eq!(Config::parse(&out).unwrap().drawers.bottom, 80.0);
         assert_eq!(Config::parse(&out).unwrap().appearance.style, Some(crate::config::Style::Dark));
     }
 

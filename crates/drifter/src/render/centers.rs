@@ -208,7 +208,7 @@ impl State {
         self.paint_control();
     }
 
-    fn save_key(&self, change: impl Fn(&str) -> Result<String, String>) {
+    pub(super) fn save_key(&self, change: impl Fn(&str) -> Result<String, String>) {
         let text = std::fs::read_to_string(&self.config_path).unwrap_or_default();
         match change(&text) {
             Ok(out) => {

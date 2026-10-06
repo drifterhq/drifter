@@ -154,6 +154,10 @@ impl State {
                 self.dock_menu_pick(&key, chosen.id);
                 return true;
             }
+            Target::DockBar => {
+                self.dock_bar_pick(chosen.id);
+                return true;
+            }
             Target::App(app) => {
                 let app = app.clone();
                 self.popover = None;
@@ -303,6 +307,15 @@ impl State {
         }
 
         if self.dock_menu() {
+            return true;
+        }
+        let minimized_slot = self.dock_band().is_some_and(|band| {
+            matches!(
+                self.dock.at(band, self.pointer, self.dock_apps().len(), self.minimized().len()),
+                Some(Slot::Minimized(_))
+            )
+        });
+        if !minimized_slot && self.dock_bar_menu() {
             return true;
         }
 

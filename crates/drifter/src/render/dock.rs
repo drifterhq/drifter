@@ -2,6 +2,13 @@ use super::*;
 use drifter_core::dock::same_app;
 
 const DRAG_START: f64 = 6.0;
+const BAR_HIDING: i32 = 1;
+const BAR_SIZE: i32 = 2;
+const BAR_COG: i32 = 3;
+const BAR_TRASH: i32 = 4;
+const BAR_SETTINGS: i32 = 5;
+const BAR_SIZE_BASE: i32 = 1000;
+const DOCK_SIZES: [(i64, &str); 3] = [(52, "Small"), (64, "Medium"), (84, "Large")];
 const HOP: f64 = 0.42;
 
 pub(super) struct DockApp {
@@ -383,6 +390,92 @@ impl State {
             }
             _ => false,
         }
+    }
+
+    pub(super) fn dock_bar_menu(&mut self) -> bool {
+        let Some(band) = self.dock_band() else {
+            return false;
+        };
+        if !band.contains(self.pointer) {
+            return false;
+        }
+        let at = self.pointer;
+        let items = self.dock_bar_items();
+        self.open_popover(items, at, Target::DockBar);
+        true
+    }
+
+    fn dock_bar_items(&self) -> Vec<Item> {
+        let hides = self.tunables.bar_hides[Edge::Bottom.index()];
+        vec![
+            Item::line(
+                BAR_HIDING,
+                match hides {
+                    true => "Turn Hiding Off",
+                    false => "Turn Hiding On",
+                },
+            ),
+            Item::more(BAR_SIZE, "Dock Size"),
+            Item::rule(90),
+            Item::line(
+                BAR_COG,
+                match self.dock.settings {
+                    true => "Hide Settings Button",
+                    false => "Show Settings Button",
+                },
+            ),
+            Item::line(
+                BAR_TRASH,
+                match self.dock.trash {
+                    true => "Hide Trash",
+                    false => "Show Trash",
+                },
+            ),
+            Item::rule(91),
+            Item::line(BAR_SETTINGS, "Dock Settings…"),
+        ]
+    }
+
+    pub(super) fn dock_bar_pick(&mut self, id: i32) {
+        let at = self.popover.as_ref().map(|open| open.rect.origin).unwrap_or(self.pointer);
+        match id {
+            BAR_SIZE => {
+                let now = self.shapes[Edge::Bottom.index()].height.round() as i64;
+                let sizes = DOCK_SIZES
+                    .iter()
+                    .map(|(height, name)| Item {
+                        enabled: *height != now,
+                        ..Item::line(BAR_SIZE_BASE + *height as i32, name)
+                    })
+                    .collect();
+                self.open_popover(drifter_core::menu::with_back(sizes), at, Target::DockBar);
+                return;
+            }
+            drifter_core::menu::BACK => {
+                let items = self.dock_bar_items();
+                self.open_popover(items, at, Target::DockBar);
+                return;
+            }
+            BAR_HIDING => {
+                let hide = !self.tunables.bar_hides[Edge::Bottom.index()];
+                self.save_key(|text| drifter_core::settings::write_flag(text, "motion", "hide_bottom", hide));
+            }
+            BAR_COG => {
+                let show = !self.dock.settings;
+                self.save_key(|text| drifter_core::settings::write_flag(text, "dock", "settings", show));
+            }
+            BAR_TRASH => {
+                let show = !self.dock.trash;
+                self.save_key(|text| drifter_core::settings::write_flag(text, "dock", "trash", show));
+            }
+            BAR_SETTINGS => self.open_settings_at("dock"),
+            size if size > BAR_SIZE_BASE => {
+                let height = i64::from(size - BAR_SIZE_BASE);
+                self.save_key(|text| drifter_core::settings::write_number(text, "drawers", "bottom", height));
+            }
+            _ => {}
+        }
+        self.popover = None;
     }
 
     pub(super) fn dock_menu_pick(&mut self, key: &str, id: i32) {

@@ -33,6 +33,13 @@ impl Item {
         }
     }
 
+    pub fn more(id: i32, label: &str) -> Item {
+        Item {
+            children: true,
+            ..Item::line(id, label)
+        }
+    }
+
     pub fn rule(id: i32) -> Item {
         Item {
             id,
