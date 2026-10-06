@@ -1,6 +1,9 @@
 use super::*;
 use drifter_core::search::Found;
 
+const PAD_OPEN: i32 = 1;
+const PAD_PIN: i32 = 2;
+
 pub(super) struct Pad {
     pub query: String,
     pub all: Vec<Found>,
@@ -136,7 +139,7 @@ impl State {
         self.paint_launchpad();
     }
 
-    pub(super) fn press_launchpad(&mut self) -> bool {
+    pub(super) fn press_launchpad(&mut self, code: u32) -> bool {
         let look = drifter_core::launchpad::Look::themed(&self.palette);
         let Some(pad) = self.launchpad.as_ref() else {
             return false;
@@ -149,6 +152,25 @@ impl State {
             .slot_at(size, inside, on_page)
             .and_then(|slot| pad.shown.get(pad.page * per + slot).cloned());
         if pad.rect.contains(self.pointer) && chosen.is_none() {
+            return true;
+        }
+        if code == BTN_RIGHT {
+            if let Some(found) = chosen {
+                let pinned = self.pinned_app(&found.key);
+                let items = vec![
+                    Item::line(PAD_OPEN, "Open"),
+                    Item::rule(9),
+                    Item::line(
+                        PAD_PIN,
+                        match pinned {
+                            true => "Remove from Dock",
+                            false => "Keep in Dock",
+                        },
+                    ),
+                ];
+                let at = self.pointer;
+                self.open_popover(items, at, Target::PadApp(found.key));
+            }
             return true;
         }
         self.launchpad = None;
@@ -177,6 +199,52 @@ impl State {
             self.paint_launchpad();
         }
         true
+    }
+
+    fn pinned_app(&self, key: &str) -> bool {
+        self.dock_apps()
+            .iter()
+            .any(|app| app.pinned && app.place.is_none() && drifter_core::dock::same_app(&app.key, key))
+    }
+
+    pub(super) fn pad_menu_pick(&mut self, key: &str, id: i32) {
+        match id {
+            PAD_OPEN => {
+                let found = self
+                    .launchpad
+                    .as_ref()
+                    .and_then(|pad| pad.all.iter().find(|found| found.key == key).cloned());
+                self.launchpad = None;
+                if let Some(found) = found {
+                    self.open_app(&found);
+                }
+                self.kick_now();
+            }
+            PAD_PIN => {
+                let apps = self.dock_apps();
+                match self.pinned_app(key) {
+                    true => {
+                        if let Some(app) = apps
+                            .iter()
+                            .find(|app| app.pinned && drifter_core::dock::same_app(&app.key, key))
+                        {
+                            let held = app.key.clone();
+                            self.dock_menu_pick(&held, 2);
+                        }
+                    }
+                    false => {
+                        let mut pinned: Vec<drifter_core::Launch> = apps
+                            .iter()
+                            .filter(|app| app.pinned)
+                            .map(|app| app.launch.clone())
+                            .collect();
+                        pinned.push(drifter_core::Launch::App(key.to_string()));
+                        self.save_dock(&pinned, &[]);
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 
     fn open_app(&mut self, found: &Found) {

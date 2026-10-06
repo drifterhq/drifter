@@ -558,8 +558,14 @@ impl State {
     }
 
     pub(super) fn press_own(&mut self, code: u32) -> bool {
-        if self.launchpad.is_some() {
-            return self.press_launchpad();
+        if self.launchpad.is_some()
+            && !self
+                .popover
+                .as_ref()
+                .is_some_and(|open| open.rect.contains(self.pointer))
+        {
+            self.popover = None;
+            return self.press_launchpad(code);
         }
         if self.press_search(code) {
             return true;

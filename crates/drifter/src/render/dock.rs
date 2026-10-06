@@ -330,7 +330,7 @@ impl State {
             .map(|((key, _), _)| key)
     }
 
-    fn save_dock(&mut self, pinned: &[drifter_core::Launch], off: &[&str]) {
+    pub(super) fn save_dock(&mut self, pinned: &[drifter_core::Launch], off: &[&str]) {
         let path = self.config_path.clone();
         let text = std::fs::read_to_string(&path).unwrap_or_default();
         match drifter_core::settings::write_dock(&text, pinned, off) {

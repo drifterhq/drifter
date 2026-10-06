@@ -154,6 +154,12 @@ impl State {
                 self.dock_menu_pick(&key, chosen.id);
                 return true;
             }
+            Target::PadApp(key) => {
+                let key = key.clone();
+                self.popover = None;
+                self.pad_menu_pick(&key, chosen.id);
+                return true;
+            }
             Target::DockBar => {
                 self.dock_bar_pick(chosen.id);
                 return true;

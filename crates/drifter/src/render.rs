@@ -196,6 +196,7 @@ enum Target {
     Window(u64),
     Dock(String),
     DockBar,
+    PadApp(String),
     App(String),
     Desktop,
 }
@@ -651,18 +652,18 @@ impl State {
             elements.push(Skin::Texture(element(buffer, target, 0.12)));
         }
 
-        if let Some(pad) = self.launchpad.as_ref().filter(|_| live)
-            && let Some(art) = pad.art.as_ref()
-        {
-            elements.push(Skin::Texture(element(art, pad.rect, 1.0)));
-            self.modal_shadow(pad.rect, &mut elements);
-        }
         if let Some((art, rect)) = self.search.as_ref().and_then(|open| open.art.as_ref()).filter(|_| live) {
             elements.push(Skin::Texture(element(art, *rect, 1.0)));
             self.modal_shadow(*rect, &mut elements);
         }
         if let Some(open) = self.popover.as_ref().filter(|_| live) {
             elements.push(Skin::Texture(element(&open.art, open.rect, 1.0)));
+        }
+        if let Some(pad) = self.launchpad.as_ref().filter(|_| live)
+            && let Some(art) = pad.art.as_ref()
+        {
+            elements.push(Skin::Texture(element(art, pad.rect, 1.0)));
+            self.modal_shadow(pad.rect, &mut elements);
         }
         if let Some(open) = self.control.as_ref().filter(|_| live) {
             elements.push(Skin::Texture(element(&open.art, open.rect, 1.0)));
