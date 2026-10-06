@@ -382,6 +382,15 @@ impl State {
         }
     }
 
+    pub(super) fn modal_shadow(&self, rect: Rect, elements: &mut Vec<Skin>) {
+        let Some((buffer, corner)) = self.window_shadow.as_ref() else {
+            return;
+        };
+        for (source, target) in drifter_core::window::shadow_slices(rect, *corner, 1.0, 8.0) {
+            elements.push(Skin::Texture(faded(buffer, source, target, 0.38)));
+        }
+    }
+
     pub(super) fn cast_shadow(
         &self,
         content: Rect,

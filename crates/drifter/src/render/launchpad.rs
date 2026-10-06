@@ -7,6 +7,7 @@ pub(super) struct Pad {
     pub shown: Vec<Found>,
     pub page: usize,
     pub base: drifter_core::Image,
+    pub rect: Rect,
     pub art: Option<TextureBuffer<Tex>>,
 }
 
@@ -22,28 +23,20 @@ impl State {
         self.notes_panel = None;
         let mut all = drifter_core::search::apps(&drifter_core::desktop::installed());
         all.sort_by_key(|found| found.title.to_lowercase());
-        let width = self.screen.x.max(1.0) as u32;
-        let height = self.screen.y.max(1.0) as u32;
         let look = drifter_core::launchpad::Look::themed(&self.palette);
-        let mut base = drifter_core::Image {
-            width,
-            height,
-            rgba: vec![0; (width * height * 4) as usize],
-        };
-        let veil = self.veil(0.9) * 0.85;
-        for pixel in base.rgba.chunks_mut(4) {
-            for (channel, value) in look.veil.iter().enumerate() {
-                pixel[channel] = (f64::from(*value) * veil).round() as u8;
-            }
-            pixel[3] = (veil * 255.0).round() as u8;
-        }
-        self.frosted(&mut base, Vec2::ZERO, veil);
+        let rect = look.rect(self.screen);
+        let veil = self.veil(0.97);
+        let mut canvas = drifter_core::paint::Canvas::new(rect.size.x as u32, rect.size.y as u32);
+        canvas.round_rect(Rect::new(Vec2::ZERO, rect.size), look.radius, look.back, veil);
+        let mut base = canvas.image;
+        self.frosted(&mut base, rect.origin, veil);
         self.launchpad = Some(Pad {
             query: String::new(),
             shown: all.clone(),
             all,
             page: 0,
             base,
+            rect,
             art: None,
         });
         self.paint_launchpad();
@@ -67,12 +60,12 @@ impl State {
             return;
         }
         let look = drifter_core::launchpad::Look::themed(&self.palette);
-        let screen = self.screen;
         let side = look.icon as u32;
         let Some(pad) = self.launchpad.as_ref() else {
             return;
         };
-        let per = look.per_page(screen);
+        let size = pad.rect.size;
+        let per = look.per_page(size);
         let visible: Vec<Found> = pad.shown.iter().skip(pad.page * per).take(per).cloned().collect();
         let skipped = pad.page * per;
         let total = pad.shown.len();
@@ -83,10 +76,14 @@ impl State {
             apps.push((found.title.clone(), icon));
         }
         apps.resize(total, (String::new(), None));
-        let (Some(font), Some(pad)) = (self.font.as_ref(), self.launchpad.as_ref()) else {
+        let (Some(font), Some(big), Some(pad)) = (
+            self.font.as_ref(),
+            self.search_font.as_ref(),
+            self.launchpad.as_ref(),
+        ) else {
             return;
         };
-        let image = look.paint(&pad.base, screen, &pad.query, &apps, pad.page, font);
+        let image = look.paint(&pad.base, &pad.query, &apps, pad.page, font, big);
         let art = upload(&mut self.renderer, Some(&image), "apps").ok().flatten();
         if let Some(pad) = self.launchpad.as_mut() {
             pad.art = art;
@@ -96,11 +93,10 @@ impl State {
 
     pub(super) fn launchpad_key(&mut self, key: LockKey) {
         let look = drifter_core::launchpad::Look::themed(&self.palette);
-        let screen = self.screen;
         let Some(pad) = self.launchpad.as_mut() else {
             return;
         };
-        let pages = look.pages(screen, pad.shown.len());
+        let pages = look.pages(pad.rect.size, pad.shown.len());
         match key {
             LockKey::Letter(letter) => {
                 pad.query.push(letter);
@@ -142,17 +138,17 @@ impl State {
 
     pub(super) fn press_launchpad(&mut self) -> bool {
         let look = drifter_core::launchpad::Look::themed(&self.palette);
-        let screen = self.screen;
         let Some(pad) = self.launchpad.as_ref() else {
             return false;
         };
-        let per = look.per_page(screen);
+        let size = pad.rect.size;
+        let inside = self.pointer - pad.rect.origin;
+        let per = look.per_page(size);
         let on_page = pad.shown.len().saturating_sub(pad.page * per);
         let chosen = look
-            .slot_at(screen, self.pointer, on_page)
+            .slot_at(size, inside, on_page)
             .and_then(|slot| pad.shown.get(pad.page * per + slot).cloned());
-        let in_field = look.field_rect(screen).contains(self.pointer);
-        if in_field {
+        if pad.rect.contains(self.pointer) && chosen.is_none() {
             return true;
         }
         self.launchpad = None;
@@ -165,14 +161,13 @@ impl State {
 
     pub(super) fn scroll_launchpad(&mut self, steps: f64) -> bool {
         let look = drifter_core::launchpad::Look::themed(&self.palette);
-        let screen = self.screen;
         let Some(pad) = self.launchpad.as_mut() else {
             return false;
         };
         if steps.abs() < 0.5 {
             return true;
         }
-        let pages = look.pages(screen, pad.shown.len());
+        let pages = look.pages(pad.rect.size, pad.shown.len());
         let before = pad.page;
         pad.page = match steps > 0.0 {
             true => (pad.page + 1).min(pages - 1),

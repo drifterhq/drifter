@@ -18,161 +18,217 @@ pub fn is_button(item: &Launch) -> bool {
     item.command() == Some(DOCK_COMMAND)
 }
 
-pub fn paint_icon(side: u32) -> Image {
-    let size = f64::from(side.max(12));
-    let mut canvas = Canvas::new(side, side);
-    let tile = Rect::new(Vec2::splat(size * 0.06), Vec2::splat(size * 0.88));
-    canvas.round_rect(tile, size * 0.22, [44, 48, 62], 1.0);
-    canvas.round_rect(
-        Rect::new(tile.origin, Vec2::new(tile.size.x, tile.size.y * 0.5)),
-        size * 0.22,
-        [70, 76, 96],
-        0.35,
-    );
-    let colors = [
-        [255, 95, 87], [254, 188, 46], [40, 200, 64],
-        [10, 132, 255], [191, 90, 242], [255, 55, 95],
-        [100, 210, 255], [255, 159, 10], [48, 209, 88],
-    ];
-    let step = tile.size.x / 3.6;
-    let dot = step * 0.62;
-    for (index, color) in colors.iter().enumerate() {
-        let (col, row) = ((index % 3) as f64, (index / 3) as f64);
-        let at = tile.origin + Vec2::new(step * 0.55 + step * col, step * 0.55 + step * row) + Vec2::splat(step * 0.15);
-        canvas.round_rect(Rect::new(at, Vec2::splat(dot)), dot * 0.28, *color, 1.0);
+fn squircle(p: Vec2, half: f64) -> f64 {
+    let n = 5.0;
+    let x = (p.x.abs() / half).powf(n);
+    let y = (p.y.abs() / half).powf(n);
+    (1.0 - (x + y).powf(1.0 / n)) * half
+}
+
+fn mix(a: [u8; 3], b: [u8; 3], t: f64) -> [f64; 3] {
+    [0, 1, 2].map(|c| f64::from(a[c]) + (f64::from(b[c]) - f64::from(a[c])) * t.clamp(0.0, 1.0))
+}
+
+fn blend(image: &mut Image, x: u32, y: u32, color: [f64; 3], cover: f64) {
+    if cover <= 0.0 {
+        return;
     }
-    canvas.image
+    let at = ((y * image.width + x) * 4) as usize;
+    for c in 0..3 {
+        let was = f64::from(image.rgba[at + c]);
+        image.rgba[at + c] = (color[c] * cover + was * (1.0 - cover)).round().clamp(0.0, 255.0) as u8;
+    }
+    let was = f64::from(image.rgba[at + 3]);
+    image.rgba[at + 3] = (255.0 * cover + was * (1.0 - cover)).round().clamp(0.0, 255.0) as u8;
+}
+
+pub fn paint_icon(side: u32) -> Image {
+    let side = side.max(16);
+    let size = f64::from(side);
+    let mut image = Image {
+        width: side,
+        height: side,
+        rgba: vec![0; (side * side * 4) as usize],
+    };
+    let half = size * 0.46;
+    let center = Vec2::splat(size / 2.0);
+    let tiles: [([u8; 3], [u8; 3]); 9] = [
+        ([255, 128, 102], [242, 64, 74]),
+        ([255, 214, 92], [255, 159, 10]),
+        ([110, 230, 120], [40, 190, 80]),
+        ([110, 190, 255], [10, 120, 255]),
+        ([214, 150, 255], [160, 80, 235]),
+        ([255, 120, 170], [235, 50, 110]),
+        ([120, 230, 230], [30, 175, 200]),
+        ([255, 180, 110], [245, 120, 40]),
+        ([150, 160, 255], [90, 100, 235]),
+    ];
+    let pitch = size * 0.235;
+    let tile = size * 0.19;
+    let first = center - Vec2::splat(pitch);
+    for y in 0..side {
+        for x in 0..side {
+            let p = Vec2::new(f64::from(x) + 0.5, f64::from(y) + 0.5);
+            let edge = squircle(p - center, half);
+            let body = (edge + 0.5).clamp(0.0, 1.0);
+            let shade = (p.y - (center.y - half)) / (half * 2.0);
+            blend(&mut image, x, y, mix([250, 251, 253], [214, 219, 230], shade), body);
+            let rim = (1.0 - (edge - 0.6).abs()).clamp(0.0, 1.0) * body;
+            blend(&mut image, x, y, [255.0, 255.0, 255.0], rim * 0.6);
+            for (index, (top, bottom)) in tiles.iter().enumerate() {
+                let at = first + Vec2::new(pitch * (index % 3) as f64, pitch * (index / 3) as f64);
+                let local = p - at;
+                let inside = squircle(local, tile / 2.0);
+                let cover = (inside + 0.5).clamp(0.0, 1.0);
+                if cover > 0.0 {
+                    let t = (local.y + tile / 2.0) / tile;
+                    blend(&mut image, x, y, mix(*top, *bottom, t), cover);
+                }
+            }
+        }
+    }
+    image
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Look {
     pub icon: f64,
     pub cell: Vec2,
-    pub field: Vec2,
-    pub top: f64,
-    pub bottom: f64,
-    pub most_columns: usize,
-    pub most_rows: usize,
-    pub veil: [u8; 3],
+    pub field: f64,
+    pub pad: f64,
+    pub dots: f64,
+    pub radius: f64,
+    pub back: [u8; 3],
     pub ink: [u8; 3],
     pub dim: [u8; 3],
     pub field_back: [u8; 3],
+    pub rule: [u8; 3],
 }
 
 impl Look {
     pub fn themed(p: &crate::theme::Palette) -> Look {
         Look {
-            icon: 72.0,
-            cell: Vec2::new(136.0, 124.0),
-            field: Vec2::new(300.0, 34.0),
-            top: 90.0,
-            bottom: 80.0,
-            most_columns: 7,
-            most_rows: 5,
-            veil: p.back,
+            icon: 60.0,
+            cell: Vec2::new(108.0, 104.0),
+            field: 56.0,
+            pad: 20.0,
+            dots: 30.0,
+            radius: 22.0,
+            back: p.back,
             ink: p.ink,
             dim: p.dim,
             field_back: p.raised,
+            rule: p.rule,
         }
     }
 
-    pub fn grid(&self, screen: Vec2) -> (usize, usize) {
-        let columns = ((screen.x - 80.0) / self.cell.x).floor().max(1.0) as usize;
-        let rows = ((screen.y - self.top - self.bottom) / self.cell.y).floor().max(1.0) as usize;
-        (columns.min(self.most_columns), rows.min(self.most_rows))
+    pub fn rect(&self, screen: Vec2) -> Rect {
+        let wide = (screen.x - 120.0).clamp(360.0, self.cell.x * 6.0 + self.pad * 2.0);
+        let tall = (screen.y - 180.0).clamp(300.0, self.field + self.cell.y * 4.0 + self.pad * 2.0 + self.dots);
+        Rect::new(((screen - Vec2::new(wide, tall)) / 2.0).round(), Vec2::new(wide, tall))
     }
 
-    pub fn per_page(&self, screen: Vec2) -> usize {
-        let (columns, rows) = self.grid(screen);
+    pub fn grid(&self, size: Vec2) -> (usize, usize) {
+        let columns = ((size.x - self.pad * 2.0) / self.cell.x).floor().max(1.0) as usize;
+        let rows = ((size.y - self.field - self.pad * 2.0 - self.dots) / self.cell.y).floor().max(1.0) as usize;
+        (columns, rows)
+    }
+
+    pub fn per_page(&self, size: Vec2) -> usize {
+        let (columns, rows) = self.grid(size);
         columns * rows
     }
 
-    pub fn pages(&self, screen: Vec2, count: usize) -> usize {
-        count.div_ceil(self.per_page(screen)).max(1)
+    pub fn pages(&self, size: Vec2, count: usize) -> usize {
+        count.div_ceil(self.per_page(size)).max(1)
     }
 
-    pub fn field_rect(&self, screen: Vec2) -> Rect {
-        Rect::new(
-            Vec2::new(((screen.x - self.field.x) / 2.0).round(), (self.top - self.field.y) / 2.0),
-            self.field,
-        )
+    pub fn field_rect(&self, size: Vec2) -> Rect {
+        Rect::new(Vec2::ZERO, Vec2::new(size.x, self.field))
     }
 
-    pub fn cell_rect(&self, screen: Vec2, slot: usize) -> Rect {
-        let (columns, rows) = self.grid(screen);
+    pub fn cell_rect(&self, size: Vec2, slot: usize) -> Rect {
+        let (columns, _) = self.grid(size);
         let wide = self.cell.x * columns as f64;
-        let tall = self.cell.y * rows as f64;
-        let left = ((screen.x - wide) / 2.0).round();
-        let top = self.top + ((screen.y - self.top - self.bottom - tall) / 2.0).max(0.0).round();
+        let left = ((size.x - wide) / 2.0).round();
+        let top = self.field + self.pad;
         Rect::new(
             Vec2::new(left + self.cell.x * (slot % columns) as f64, top + self.cell.y * (slot / columns) as f64),
             self.cell,
         )
     }
 
-    pub fn icon_rect(&self, screen: Vec2, slot: usize) -> Rect {
-        let cell = self.cell_rect(screen, slot);
+    pub fn icon_rect(&self, size: Vec2, slot: usize) -> Rect {
+        let cell = self.cell_rect(size, slot);
         Rect::new(
-            Vec2::new(cell.center().x - self.icon / 2.0, cell.origin.y + 10.0).round(),
+            Vec2::new(cell.center().x - self.icon / 2.0, cell.origin.y + 8.0).round(),
             Vec2::splat(self.icon),
         )
     }
 
-    pub fn slot_at(&self, screen: Vec2, pointer: Vec2, shown: usize) -> Option<usize> {
-        (0..shown.min(self.per_page(screen))).find(|slot| {
-            let icon = self.icon_rect(screen, *slot);
-            Rect::new(icon.origin - Vec2::splat(8.0), icon.size + Vec2::new(16.0, 34.0)).contains(pointer)
-        })
+    pub fn slot_at(&self, size: Vec2, inside: Vec2, shown: usize) -> Option<usize> {
+        (0..shown.min(self.per_page(size))).find(|slot| self.cell_rect(size, *slot).contains(inside))
     }
 
     pub fn paint(
         &self,
         base: &Image,
-        screen: Vec2,
         query: &str,
         apps: &[(String, Option<Image>)],
         page: usize,
         font: &Font,
+        big: &Font,
     ) -> Image {
+        let size = base.size();
         let mut canvas = Canvas { image: base.clone() };
-        let field = self.field_rect(screen);
-        canvas.round_rect(field, field.size.y / 2.0, self.field_back, 0.85);
+        let field = self.field_rect(size);
+        let glass = Vec2::new(self.pad + 10.0, field.center().y - 2.0);
+        canvas.circle(glass, 8.0, self.dim, 1.0);
+        canvas.circle(glass, 6.0, self.back, 1.0);
+        for step in 0..8 {
+            let t = f64::from(step) * 0.8;
+            canvas.circle(glass + Vec2::new(6.5 + t, 6.5 + t), 1.6, self.dim, 1.0);
+        }
         let (text, ink) = match query.is_empty() {
-            true => ("Search", self.dim),
+            true => ("Search apps", self.dim),
             false => (query, self.ink),
         };
-        let words = font.paint(text, ink);
-        let x = match query.is_empty() {
-            true => field.center().x - f64::from(words.width) / 2.0,
-            false => field.origin.x + 16.0,
-        };
-        canvas.stamp(&words, Vec2::new(x, field.center().y - f64::from(words.height) / 2.0), 1.0);
+        let words = big.paint(text, ink);
+        canvas.stamp(&words, Vec2::new(self.pad + 32.0, field.center().y - f64::from(words.height) / 2.0), 1.0);
+        canvas.round_rect(
+            Rect::new(Vec2::new(0.0, field.max().y), Vec2::new(size.x, 1.0)),
+            0.0,
+            self.rule,
+            1.0,
+        );
 
-        let per = self.per_page(screen);
-        let start = page * per;
-        for (slot, (name, icon)) in apps.iter().skip(start).take(per).enumerate() {
-            let spot = self.icon_rect(screen, slot);
+        let per = self.per_page(size);
+        for (slot, (name, icon)) in apps.iter().skip(page * per).take(per).enumerate() {
+            let spot = self.icon_rect(size, slot);
             match icon {
                 Some(image) => canvas.stamp(image, spot.origin, 1.0),
                 None => canvas.round_rect(spot, spot.size.x * 0.22, self.field_back, 1.0),
             }
-            let label = fit(font, name, self.cell.x - 12.0);
+            let label = fit(font, name, self.cell.x - 10.0);
             let text = font.paint(&label, self.ink);
             canvas.stamp(
                 &text,
-                Vec2::new(spot.center().x - f64::from(text.width) / 2.0, spot.max().y + 8.0).round(),
+                Vec2::new(spot.center().x - f64::from(text.width) / 2.0, spot.max().y + 7.0).round(),
                 1.0,
             );
         }
+        if apps.is_empty() {
+            let none = font.paint("No apps match", self.dim);
+            canvas.stamp(&none, Vec2::new((size.x - f64::from(none.width)) / 2.0, size.y / 2.0), 1.0);
+        }
 
-        let pages = self.pages(screen, apps.len());
+        let pages = self.pages(size, apps.len());
         if pages > 1 {
-            let gap = 16.0;
-            let left = screen.x / 2.0 - gap * (pages as f64 - 1.0) / 2.0;
+            let gap = 14.0;
+            let left = size.x / 2.0 - gap * (pages as f64 - 1.0) / 2.0;
             for at in 0..pages {
-                let center = Vec2::new(left + gap * at as f64, screen.y - self.bottom / 2.0);
-                let alpha = if at == page { 1.0 } else { 0.35 };
-                canvas.circle(center, 4.0, self.ink, alpha);
+                let center = Vec2::new(left + gap * at as f64, size.y - self.dots / 2.0 - 4.0);
+                canvas.circle(center, 3.5, self.ink, if at == page { 0.9 } else { 0.25 });
             }
         }
         canvas.image
@@ -200,35 +256,37 @@ mod tests {
     const SCREEN: Vec2 = Vec2::new(1200.0, 800.0);
 
     #[test]
-    fn the_grid_fits_the_screen_and_pages_hold_the_rest() {
+    fn the_panel_is_a_centered_modal_not_the_whole_screen() {
         let look = Look::themed(&crate::theme::DARK);
-        let (columns, rows) = look.grid(SCREEN);
-        assert_eq!(columns, 7);
-        assert!(rows >= 4);
-        let per = look.per_page(SCREEN);
-        assert_eq!(look.pages(SCREEN, per), 1);
-        assert_eq!(look.pages(SCREEN, per + 1), 2);
-        assert_eq!(look.pages(SCREEN, 0), 1);
-        let last = look.cell_rect(SCREEN, per - 1);
-        assert!(last.max().x <= SCREEN.x && last.max().y <= SCREEN.y - look.bottom + 1.0);
-        assert!(look.cell_rect(SCREEN, 0).origin.y >= look.top);
+        let rect = look.rect(SCREEN);
+        assert!(rect.size.x < SCREEN.x && rect.size.y < SCREEN.y);
+        assert!((rect.center().x - SCREEN.x / 2.0).abs() <= 1.0);
+        let (columns, rows) = look.grid(rect.size);
+        assert_eq!(columns, 6);
+        assert!(rows >= 3);
+        let per = look.per_page(rect.size);
+        assert_eq!(look.pages(rect.size, per + 1), 2);
+        let last = look.cell_rect(rect.size, per - 1);
+        assert!(last.max().y <= rect.size.y - look.dots + 1.0);
     }
 
     #[test]
-    fn an_icon_or_its_label_is_found_by_the_pointer() {
+    fn an_app_is_found_by_the_pointer_inside_the_panel() {
         let look = Look::themed(&crate::theme::DARK);
-        let icon = look.icon_rect(SCREEN, 3);
-        assert_eq!(look.slot_at(SCREEN, icon.center(), 10), Some(3));
-        assert_eq!(look.slot_at(SCREEN, icon.center() + Vec2::new(0.0, 50.0), 10), Some(3), "the name counts");
-        assert_eq!(look.slot_at(SCREEN, icon.center(), 2), None, "an empty slot is nothing");
-        assert_eq!(look.slot_at(SCREEN, Vec2::new(5.0, 5.0), 10), None);
+        let size = look.rect(SCREEN).size;
+        let icon = look.icon_rect(size, 3);
+        assert_eq!(look.slot_at(size, icon.center(), 10), Some(3));
+        assert_eq!(look.slot_at(size, icon.center(), 2), None);
+        assert_eq!(look.slot_at(size, Vec2::new(5.0, 5.0), 10), None, "the search field is not an app");
     }
 
     #[test]
-    fn the_dock_button_is_known_by_its_command() {
+    fn the_dock_button_is_known_by_its_command_and_has_a_rounded_icon() {
         assert!(is_button(&button()));
         assert!(!is_button(&Launch::App("foot".into())));
-        let icon = paint_icon(48);
-        assert_eq!((icon.width, icon.height), (48, 48));
+        let icon = paint_icon(64);
+        let alpha = |x: u32, y: u32| icon.rgba[((y * 64 + x) * 4 + 3) as usize];
+        assert_eq!(alpha(0, 0), 0, "the corner is cut round");
+        assert_eq!(alpha(32, 32), 255);
     }
 }
