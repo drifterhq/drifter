@@ -13,7 +13,7 @@ pub fn run(action: Action) {
             std::thread::sleep(std::time::Duration::from_millis(400));
         }
         if let Err(error) = call(method) {
-            eprintln!("drifter: {} failed: {error}", action.label());
+            log!("drifter: {} failed: {error}", action.label());
         }
     });
 }

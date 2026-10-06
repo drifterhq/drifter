@@ -956,7 +956,7 @@ impl State {
                     set_up_mouse(&mut device, &self.mouse);
                     self.mice.push(device.clone());
                 }
-                println!("drifter: input {}", device.name());
+                out!("drifter: input {}", device.name());
             }
             InputEvent::DeviceRemoved { device } => {
                 self.touchpads.retain(|pad| *pad != device);

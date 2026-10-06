@@ -1,3 +1,17 @@
+macro_rules! out {
+    ($($arg:tt)*) => {{
+        use std::io::Write as _;
+        let _ = writeln!(std::io::stdout(), $($arg)*);
+    }};
+}
+
+macro_rules! log {
+    ($($arg:tt)*) => {{
+        use std::io::Write as _;
+        let _ = writeln!(std::io::stderr(), $($arg)*);
+    }};
+}
+
 #[cfg(target_os = "linux")]
 mod heads;
 #[cfg(target_os = "linux")]
@@ -10,7 +24,7 @@ fn main() -> std::process::ExitCode {
     match window::run() {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("drifter-settings: {error}");
+            log!("drifter-settings: {error}");
             std::process::ExitCode::FAILURE
         }
     }
@@ -18,5 +32,5 @@ fn main() -> std::process::ExitCode {
 
 #[cfg(not(target_os = "linux"))]
 fn main() {
-    eprintln!("drifter-settings runs on Linux under Drifter");
+    log!("drifter-settings runs on Linux under Drifter");
 }

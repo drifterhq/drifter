@@ -16,13 +16,13 @@ pub(super) fn wire(
                 };
                 head.awaiting = false;
                 if let Err(error) = head.compositor.frame_submitted() {
-                    eprintln!("drifter: frame submit on {} failed: {error}", head.name);
+                    log!("drifter: frame submit on {} failed: {error}", head.name);
                 }
                 if let Err(error) = state.draw() {
                     state.stop(error);
                 }
             }
-            DrmEvent::Error(error) => eprintln!("drifter: drm event: {error}"),
+            DrmEvent::Error(error) => log!("drifter: drm event: {error}"),
         })
         .map_err(|e| format!("cannot watch drm events: {e}"))?;
 
@@ -41,7 +41,7 @@ pub(super) fn wire(
                 })
                 .map_err(|e| format!("cannot watch for monitors: {e}"))?;
         }
-        Err(error) => eprintln!("drifter: monitors plugged in later are not seen: {error}"),
+        Err(error) => log!("drifter: monitors plugged in later are not seen: {error}"),
     }
 
     handle
@@ -65,17 +65,17 @@ pub(super) fn wire(
                     .as_mut()
                     .is_some_and(|libinput| libinput.resume().is_err())
                 {
-                    eprintln!("drifter: cannot take the input devices back");
+                    log!("drifter: cannot take the input devices back");
                 }
                 state.drop_held_input();
                 if let Some(Err(error)) = state.drm.as_mut().map(|drm| drm.activate(true)) {
-                    eprintln!("drifter: cannot take the screen back: {error}");
+                    log!("drifter: cannot take the screen back: {error}");
                 }
                 for head in &mut state.heads {
                     head.awaiting = false;
                     head.warmth = None;
                     if let Err(error) = head.compositor.reset_state() {
-                        eprintln!("drifter: cannot reset {}: {error}", head.name);
+                        log!("drifter: cannot reset {}: {error}", head.name);
                     }
                     head.compositor.reset_buffers();
                 }
@@ -154,7 +154,7 @@ pub fn open(
                     .unwrap_or(node)
             });
         gbm = GbmDevice::new(drm_fd.clone())
-            .inspect_err(|e| eprintln!("drifter: no gbm device: {e}"))
+            .inspect_err(|e| log!("drifter: no gbm device: {e}"))
             .ok();
         let (device, notifier) =
             DrmDevice::new(drm_fd, true).map_err(|e| format!("cannot open drm device: {e}"))?;
@@ -254,7 +254,7 @@ pub fn open(
     let (tray_bus, tray_icons) = match live.then(crate::tray::start) {
         Some(Ok((bus, icons))) => (Some(bus), Some(icons)),
         Some(Err(error)) => {
-            eprintln!("drifter: no tray: {error}");
+            log!("drifter: no tray: {error}");
             (None, None)
         }
         None => (None, None),
@@ -262,7 +262,7 @@ pub fn open(
     let (notes_bus, note_events) = match live.then(crate::notes::start) {
         Some(Ok((bus, events))) => (Some(bus), Some(events)),
         Some(Err(error)) => {
-            eprintln!("drifter: no notifications: {error}");
+            log!("drifter: no notifications: {error}");
             (None, None)
         }
         None => (None, None),
@@ -270,7 +270,7 @@ pub fn open(
     let (media, media_readings) = match live.then(crate::media::start) {
         Some(Ok((media, readings))) => (Some(media), Some(readings)),
         Some(Err(error)) => {
-            eprintln!("drifter: no media keys: {error}");
+            log!("drifter: no media keys: {error}");
             (None, None)
         }
         None => (None, None),
@@ -278,7 +278,7 @@ pub fn open(
     let font = match Font::find(config.font_path(), tray.size) {
         Ok(font) => Some(font),
         Err(error) => {
-            eprintln!("drifter: no clock: {error}");
+            log!("drifter: no clock: {error}");
             None
         }
     };
@@ -632,7 +632,7 @@ pub fn open(
                     })
                     .map_err(|e| format!("cannot watch the dock badges: {e}"))?;
             }
-            Err(error) => eprintln!("drifter: {error}"),
+            Err(error) => log!("drifter: {error}"),
         }
     }
 
@@ -685,7 +685,7 @@ pub fn open(
                 })
                 .map_err(|e| format!("cannot watch logind: {e}"))?;
         }
-        Err(error) if live => eprintln!("drifter: no lock on sleep or on request: {error}"),
+        Err(error) if live => log!("drifter: no lock on sleep or on request: {error}"),
         Err(_) => {}
     }
 
@@ -702,7 +702,7 @@ pub fn open(
                 })
                 .map_err(|e| format!("cannot watch disks: {e}"))?;
         }
-        Err(error) if live => eprintln!("drifter: plugged in disks are not opened: {error}"),
+        Err(error) if live => log!("drifter: plugged in disks are not opened: {error}"),
         Err(_) => {}
     }
 
@@ -724,7 +724,7 @@ pub fn open(
                 })
                 .map_err(|e| format!("cannot watch polkit: {e}"))?;
         }
-        Err(error) if live => eprintln!("drifter: no password prompt: {error}"),
+        Err(error) if live => log!("drifter: no password prompt: {error}"),
         Err(_) => {}
     }
 
@@ -763,7 +763,7 @@ pub fn open(
                 .handle
                 .insert_client(stream, crate::shell::client_data())
             {
-                eprintln!("drifter: cannot greet a client: {error}");
+                log!("drifter: cannot greet a client: {error}");
             }
         })
         .map_err(|e| format!("cannot watch the wayland socket: {e}"))?;
@@ -866,9 +866,9 @@ pub(super) fn pick_painter(
             if !is_software(&name) {
                 return Ok((Painter::Gles(renderer), formats, name));
             }
-            eprintln!("drifter: {name} is software gl, so drifter draws with pixman");
+            log!("drifter: {name} is software gl, so drifter draws with pixman");
         }
-        Err(error) => eprintln!("drifter: no gpu ({error}), so drifter draws with pixman"),
+        Err(error) => log!("drifter: no gpu ({error}), so drifter draws with pixman"),
     }
     let renderer = smithay::backend::renderer::pixman::PixmanRenderer::new()
         .map_err(|e| format!("pixman renderer: {e}"))?;

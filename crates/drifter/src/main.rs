@@ -3,6 +3,20 @@ use std::process::ExitCode;
 
 use drifter_core::{Camera, Config, Vec2, wallpaper};
 
+macro_rules! out {
+    ($($arg:tt)*) => {{
+        use std::io::Write as _;
+        let _ = writeln!(std::io::stdout(), $($arg)*);
+    }};
+}
+
+macro_rules! log {
+    ($($arg:tt)*) => {{
+        use std::io::Write as _;
+        let _ = writeln!(std::io::stderr(), $($arg)*);
+    }};
+}
+
 #[cfg(target_os = "linux")]
 mod apps;
 #[cfg(target_os = "linux")]
@@ -51,11 +65,11 @@ mod wlr_toplevel;
 #[cfg(target_os = "linux")]
 fn print_rect(what: &str, rect: Option<drifter_core::Rect>) {
     match rect {
-        Some(rect) => println!(
+        Some(rect) => out!(
             "            {what} at {} {} size {} x {}",
             rect.origin.x, rect.origin.y, rect.size.x, rect.size.y
         ),
-        None => println!("            {what} not drawn"),
+        None => out!("            {what} not drawn"),
     }
 }
 
@@ -69,21 +83,21 @@ fn report(config: &Config) {
     let fit = Camera::fit_zoom(screen, world);
     let needed = wallpaper::required_size(config.workspace.wallpaper_mode, screen, world);
 
-    println!(
+    out!(
         "workspace   {} x {} screens",
         config.workspace.width, config.workspace.height
     );
-    println!("screen      {} x {}", screen.x, screen.y);
-    println!("world       {} x {} px", world.x, world.y);
-    println!("zoom range  {fit:.4} to {:.4}", Camera::WORK_ZOOM);
-    println!("modifier    {:?}", config.input.modifier);
-    println!("wallpaper   {:?}", config.workspace.wallpaper_mode);
-    println!("            wants {} x {} px", needed.x, needed.y);
+    out!("screen      {} x {}", screen.x, screen.y);
+    out!("world       {} x {} px", world.x, world.y);
+    out!("zoom range  {fit:.4} to {:.4}", Camera::WORK_ZOOM);
+    out!("modifier    {:?}", config.input.modifier);
+    out!("wallpaper   {:?}", config.workspace.wallpaper_mode);
+    out!("            wants {} x {} px", needed.x, needed.y);
     match &config.wallpaper_path() {
-        Some(image) => println!("            {} ({})", image.display(), present(image)),
-        None => println!("            none set"),
+        Some(image) => out!("            {} ({})", image.display(), present(image)),
+        None => out!("            none set"),
     }
-    println!(
+    out!(
         "drawers     top {} px, bottom {} px",
         config.drawers.top, config.drawers.bottom
     );
@@ -94,21 +108,21 @@ fn bootstrap(config: &Config) -> ExitCode {
     let mut seat = match session::open() {
         Ok(seat) => seat,
         Err(error) => {
-            eprintln!("drifter: seat session failed: {error}");
-            eprintln!("drifter: check that seatd is running");
+            log!("drifter: seat session failed: {error}");
+            log!("drifter: check that seatd is running");
             return ExitCode::FAILURE;
         }
     };
 
-    println!("seat        {}", seat.name);
-    println!("            active {}", seat.active);
-    println!("            {} udev device(s)", seat.devices.len());
+    out!("seat        {}", seat.name);
+    out!("            active {}", seat.active);
+    out!("            {} udev device(s)", seat.devices.len());
     for device in &seat.devices {
-        println!("            {}", device.display());
+        out!("            {}", device.display());
     }
 
     let Some(card) = seat.devices.first().cloned() else {
-        eprintln!("drifter: no drm device on seat {}", seat.name);
+        log!("drifter: no drm device on seat {}", seat.name);
         return ExitCode::FAILURE;
     };
 
@@ -117,7 +131,7 @@ fn bootstrap(config: &Config) -> ExitCode {
 
     let wallpaper = config.wallpaper_path().and_then(|path| {
         drifter_core::image::load_covering(&path, 5120.0, 2880.0)
-            .map_err(|error| eprintln!("drifter: no wallpaper: {error}"))
+            .map_err(|error| log!("drifter: no wallpaper: {error}"))
             .ok()
     });
 
@@ -134,44 +148,44 @@ fn bootstrap(config: &Config) -> ExitCode {
     ) {
         Ok(screen) => screen,
         Err(error) => {
-            eprintln!("drifter: {error}");
+            log!("drifter: {error}");
             return ExitCode::FAILURE;
         }
     };
 
     let found = screen.found();
-    println!("screen      {}", found.connector);
-    println!(
+    out!("screen      {}", found.connector);
+    out!(
         "            {} x {} @ {} on {}",
         found.width,
         found.height,
         found.refresh,
         found.device.display()
     );
-    println!("            gl {}", found.renderer);
+    out!("            gl {}", found.renderer);
     print_rect("wallpaper", found.wallpaper);
-    println!(
+    out!(
         "drawer      {} x {} px, y {} to {}",
         found.drawer.size.x,
         found.drawer.size.y,
         found.drawer.origin.y,
         found.drawer.max().y
     );
-    println!(
+    out!(
         "            corners reach {} px further at the two ends",
         found.corner
     );
-    println!("wayland     {}", found.socket);
-    println!(
+    out!("wayland     {}", found.socket);
+    out!(
         "camera      at {} {} zoom {:.4}",
         found.camera.center.x, found.camera.center.y, found.camera.zoom
     );
-    println!("running     drifter holds the screen until it is killed");
+    out!("running     drifter holds the screen until it is killed");
 
     match screen.run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("drifter: {error}");
+            log!("drifter: {error}");
             ExitCode::FAILURE
         }
     }
@@ -179,7 +193,7 @@ fn bootstrap(config: &Config) -> ExitCode {
 
 #[cfg(not(target_os = "linux"))]
 fn bootstrap(_config: &Config) -> ExitCode {
-    println!("seat        not on linux, skipped");
+    out!("seat        not on linux, skipped");
     ExitCode::SUCCESS
 }
 
@@ -199,7 +213,7 @@ fn keep_crashes() {
                 .write_all(entry.as_bytes())
         });
         if let Err(error) = written {
-            eprintln!("drifter: cannot write the crash log: {error}");
+            log!("drifter: cannot write the crash log: {error}");
         }
         default(info);
     }));
@@ -211,20 +225,20 @@ fn main() -> ExitCode {
     keep_crashes();
     let path = Config::config_path();
     match Config::first_run(&path) {
-        Ok(true) => println!("config      made {} from the defaults", path.display()),
+        Ok(true) => out!("config      made {} from the defaults", path.display()),
         Ok(false) => {}
-        Err(error) => eprintln!("drifter: cannot make {}: {error}", path.display()),
+        Err(error) => log!("drifter: cannot make {}: {error}", path.display()),
     }
     let config = match Config::load_from(&path) {
         Ok(config) => config,
         Err(error) => {
-            eprintln!("drifter: {error}, so drifter uses its defaults");
+            log!("drifter: {error}, so drifter uses its defaults");
             let _ = CONFIG_ERROR.set(error.to_string());
             Config::default()
         }
     };
 
-    println!("config      {} ({})", path.display(), present(&path));
+    out!("config      {} ({})", path.display(), present(&path));
     report(&config);
     bootstrap(&config)
 }

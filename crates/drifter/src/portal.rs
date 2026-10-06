@@ -20,11 +20,11 @@ pub fn announce(socket: &str) {
         .name("drifter-portal".to_string())
         .spawn(move || {
             if let Err(error) = tell(&pairs) {
-                eprintln!("drifter: the desktop portals may not find drifter: {error}");
+                log!("drifter: the desktop portals may not find drifter: {error}");
             }
         });
     if let Err(error) = spawned {
-        eprintln!("drifter: cannot tell the session about drifter: {error}");
+        log!("drifter: cannot tell the session about drifter: {error}");
     }
 }
 
@@ -71,7 +71,7 @@ fn tell(pairs: &HashMap<String, String>) -> Result<(), String> {
                 &(unit, "replace"),
             )
         }) {
-            eprintln!("drifter: {unit}: {error}");
+            log!("drifter: {unit}: {error}");
         }
     }
     Ok(())

@@ -273,7 +273,7 @@ impl State {
         for window in &self.windows {
             output.enter(window.toplevel.wl_surface());
         }
-        println!(
+        out!(
             "screen      {name} {width} x {height} @ {}, scale {}, rotate {}",
             drm_mode.vrefresh(),
             wanted.scale,
@@ -311,7 +311,7 @@ impl State {
             return;
         };
         let Ok(resources) = drm.resource_handles() else {
-            eprintln!("drifter: cannot read drm resources");
+            log!("drifter: cannot read drm resources");
             return;
         };
         let connected: Vec<(connector::Handle, connector::Info)> = resources
@@ -367,7 +367,7 @@ impl State {
                     continue;
                 }
                 let head = self.heads.remove(index);
-                println!("screen      {} unplugged", head.name);
+                out!("screen      {} unplugged", head.name);
                 let layers: Vec<_> = smithay::desktop::layer_map_for_output(&head.output)
                     .layers()
                     .cloned()
@@ -386,7 +386,7 @@ impl State {
                 continue;
             }
             if let Err(error) = self.add_head(*handle, info) {
-                eprintln!("drifter: {error}");
+                log!("drifter: {error}");
             }
         }
         let fresh = known..self.heads.len();
@@ -449,7 +449,7 @@ impl State {
                 continue;
             };
             if let Err(error) = head.compositor.use_mode(drm_mode) {
-                eprintln!("drifter: {} cannot use {}: {error}", head.name, picked.text());
+                log!("drifter: {} cannot use {}: {error}", head.name, picked.text());
                 continue;
             }
             let (width, height) = drm_mode.size();
@@ -464,7 +464,7 @@ impl State {
                 transform: turn(head.rotate),
             });
             head.compositor.reset_buffers();
-            println!("screen      {} now {}", head.name, picked.text());
+            out!("screen      {} now {}", head.name, picked.text());
         }
     }
 
@@ -508,7 +508,7 @@ impl State {
                 self.drops = paint_drops(&mut self.renderer, rect.size.x, &self.shapes, &self.palette);
                 match paint_panels(&mut self.renderer, rect.size.x, &self.shapes, &self.palette) {
                     Ok(panels) => self.heads[index].panels = panels,
-                    Err(error) => eprintln!("drifter: {error}"),
+                    Err(error) => log!("drifter: {error}"),
                 }
             }
             let output = self.heads[index].output.clone();
@@ -617,7 +617,7 @@ impl State {
         let planned = match crate::wlr_output::plan(&self.monitors, &self.seen_outputs(), &changes) {
             Ok(planned) => planned,
             Err(error) => {
-                eprintln!("drifter: an output change was refused: {error}");
+                log!("drifter: an output change was refused: {error}");
                 return Answer::Refused;
             }
         };

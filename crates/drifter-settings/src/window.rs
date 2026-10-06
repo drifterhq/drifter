@@ -335,7 +335,7 @@ fn output(program: &str, args: &[&str]) -> Option<String> {
 
 fn wpctl(args: &[&str]) {
     if let Err(error) = std::process::Command::new("wpctl").args(args).status() {
-        eprintln!("drifter-settings: wpctl {args:?}: {error}");
+        log!("drifter-settings: wpctl {args:?}: {error}");
     }
 }
 
@@ -394,12 +394,12 @@ fn set_profile(name: &str) {
             Ok(out) if out.status.success() => return,
             Ok(_) => continue,
             Err(error) => {
-                eprintln!("drifter-settings: the power mode needs busctl: {error}");
+                log!("drifter-settings: the power mode needs busctl: {error}");
                 return;
             }
         }
     }
-    eprintln!("drifter-settings: power-profiles-daemon did not take {name}");
+    log!("drifter-settings: power-profiles-daemon did not take {name}");
 }
 
 fn read_cells() -> Vec<(String, String)> {
@@ -444,11 +444,11 @@ fn set_brightness(level: f64) {
         .output()
     {
         Ok(out) if out.status.success() => {}
-        Ok(out) => eprintln!(
+        Ok(out) => log!(
             "drifter-settings: cannot set the brightness: {}",
             String::from_utf8_lossy(&out.stderr).trim()
         ),
-        Err(error) => eprintln!("drifter-settings: brightness needs busctl: {error}"),
+        Err(error) => log!("drifter-settings: brightness needs busctl: {error}"),
     }
 }
 
@@ -513,7 +513,7 @@ fn tell_the_system(change: impl Fn(&str) -> String) {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
         Err(error) => {
-            eprintln!(
+            log!(
                 "drifter-settings: {} is left alone because it cannot be read: {error}",
                 path.display()
             );
@@ -521,7 +521,7 @@ fn tell_the_system(change: impl Fn(&str) -> String) {
         }
     };
     if let Err(error) = write_whole(&path, &change(&text)) {
-        eprintln!("drifter-settings: {error}");
+        log!("drifter-settings: {error}");
     }
 }
 
@@ -659,7 +659,7 @@ impl Settings {
         ) {
             Ok(made) => made,
             Err(error) => {
-                eprintln!("drifter-settings: no buffer: {error}");
+                log!("drifter-settings: no buffer: {error}");
                 return;
             }
         };
@@ -673,7 +673,7 @@ impl Settings {
         let surface = self.window.wl_surface();
         surface.damage_buffer(0, 0, width as i32, height as i32);
         if let Err(error) = buffer.attach_to(surface) {
-            eprintln!("drifter-settings: {error}");
+            log!("drifter-settings: {error}");
             return;
         }
         surface.frame(&self.qh, surface.clone());
@@ -734,7 +734,7 @@ impl Settings {
                     if let Err(error) = std::fs::remove_file(history_path())
                         && error.kind() != std::io::ErrorKind::NotFound
                     {
-                        eprintln!("drifter-settings: cannot clear the history: {error}");
+                        log!("drifter-settings: cannot clear the history: {error}");
                     }
                     read_recent(&mut self.model);
                 }
@@ -1452,7 +1452,7 @@ impl Settings {
                 .name("settings-profile".to_string())
                 .spawn(move || set_profile(&wanted));
             if let Err(error) = spawned {
-                eprintln!("drifter-settings: cannot change the power mode: {error}");
+                log!("drifter-settings: cannot change the power mode: {error}");
             }
         }
         let (now, was) = (&self.model.sound, &before.sound);
@@ -1499,7 +1499,7 @@ impl Settings {
                     && let Err(error) =
                         drifter_core::autostart::set_on(&user, &system, &now.id, now.on)
                 {
-                    eprintln!(
+                    log!(
                         "drifter-settings: cannot change autostart {}: {error}",
                         now.id
                     );
@@ -1541,7 +1541,7 @@ impl Settings {
                     let _ = done.send(failed);
                 });
             if let Err(error) = spawned {
-                eprintln!("drifter-settings: cannot change the time settings: {error}");
+                log!("drifter-settings: cannot change the time settings: {error}");
             }
         }
 
@@ -1559,7 +1559,7 @@ impl Settings {
             Ok(text) => text,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
             Err(error) => {
-                eprintln!(
+                log!(
                     "drifter-settings: cannot read {}: {error}",
                     self.path.display()
                 );
@@ -1569,7 +1569,7 @@ impl Settings {
         let out = match self.model.write(&self.saved, &text) {
             Ok(out) => out,
             Err(error) => {
-                eprintln!("drifter-settings: {error}");
+                log!("drifter-settings: {error}");
                 return;
             }
         };
@@ -1579,7 +1579,7 @@ impl Settings {
         }
         match write_whole(&self.path, &out) {
             Ok(()) => self.saved = self.model.clone(),
-            Err(error) => eprintln!("drifter-settings: cannot save: {error}"),
+            Err(error) => log!("drifter-settings: cannot save: {error}"),
         }
     }
 }
@@ -1690,13 +1690,13 @@ impl SeatHandler for Settings {
         if capability == Capability::Pointer && self.pointer.is_none() {
             match self.seats.get_pointer(qh, &seat) {
                 Ok(pointer) => self.pointer = Some(pointer),
-                Err(error) => eprintln!("drifter-settings: no pointer: {error}"),
+                Err(error) => log!("drifter-settings: no pointer: {error}"),
             }
         }
         if capability == Capability::Keyboard && self.keyboard.is_none() {
             match self.seats.get_keyboard(qh, &seat, None) {
                 Ok(keyboard) => self.keyboard = Some(keyboard),
-                Err(error) => eprintln!("drifter-settings: no keyboard: {error}"),
+                Err(error) => log!("drifter-settings: no keyboard: {error}"),
             }
         }
     }

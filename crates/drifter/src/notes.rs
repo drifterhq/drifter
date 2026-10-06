@@ -67,7 +67,7 @@ fn serve(next: Arc<AtomicU32>, events: LoopSender<Event>, replies: Receiver<Repl
     let address = match crate::tray::bus_address() {
         Ok(address) => address,
         Err(error) => {
-            eprintln!("drifter: no notifications: {error}");
+            log!("drifter: no notifications: {error}");
             return;
         }
     };
@@ -79,7 +79,7 @@ fn serve(next: Arc<AtomicU32>, events: LoopSender<Event>, replies: Receiver<Repl
     let connection = match built {
         Ok(connection) => connection,
         Err(error) => {
-            eprintln!("drifter: no notifications: {error}");
+            log!("drifter: no notifications: {error}");
             return;
         }
     };
@@ -101,7 +101,7 @@ fn serve(next: Arc<AtomicU32>, events: LoopSender<Event>, replies: Receiver<Repl
             ),
         };
         if let Err(error) = sent {
-            eprintln!("drifter: a notification signal failed: {error}");
+            log!("drifter: a notification signal failed: {error}");
         }
     }
 }

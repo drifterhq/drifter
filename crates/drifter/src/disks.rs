@@ -22,7 +22,7 @@ pub fn start() -> Result<Channel<Event>, String> {
         .name("drifter-disks".to_string())
         .spawn(move || {
             if let Err(error) = watch(&bus, &tx) {
-                eprintln!("drifter: plugged in disks are not opened: {error}");
+                log!("drifter: plugged in disks are not opened: {error}");
             }
         })
         .map_err(|e| format!("cannot start the disk thread: {e}"))?;
@@ -70,7 +70,7 @@ fn mount(bus: &Connection, path: &OwnedObjectPath) -> Option<Event> {
     let (block, filesystem) = match (plain(BLOCK), plain(FILESYSTEM)) {
         (Ok(block), Ok(filesystem)) => (block, filesystem),
         (Err(error), _) | (_, Err(error)) => {
-            eprintln!("drifter: cannot read the disk {}: {error}", path.as_str());
+            log!("drifter: cannot read the disk {}: {error}", path.as_str());
             return None;
         }
     };
@@ -101,7 +101,7 @@ fn mount(bus: &Connection, path: &OwnedObjectPath) -> Option<Event> {
     let options: HashMap<&str, Value> = HashMap::from([("auth.no_user_interaction", Value::from(true))]);
     Some(match filesystem.call::<_, _, String>("Mount", &(options,)) {
         Ok(folder) => {
-            println!("disk        {name} opened at {folder}");
+            out!("disk        {name} opened at {folder}");
             Event::Mounted { name, folder }
         }
         Err(error) => Event::Failed {

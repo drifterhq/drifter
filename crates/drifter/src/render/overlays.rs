@@ -76,7 +76,7 @@ impl State {
         let art = match upload(&mut self.renderer, Some(&image), "switcher") {
             Ok(art) => art,
             Err(error) => {
-                eprintln!("drifter: {error}");
+                log!("drifter: {error}");
                 None
             }
         };
@@ -95,14 +95,14 @@ impl State {
                 self.hud = Some((art, look.rect(self.screen), Instant::now() + HUD_TIME));
             }
             Ok(None) => {}
-            Err(error) => eprintln!("drifter: {error}"),
+            Err(error) => log!("drifter: {error}"),
         }
         self.kick_now();
     }
 
     pub(super) fn prompt_begin(&mut self, request: crate::polkit::Request) {
         if self.font.is_none() {
-            eprintln!("drifter: no font, so no password prompt can be shown");
+            log!("drifter: no font, so no password prompt can be shown");
             let _ = request.reply.try_send(false);
             return;
         }
@@ -228,7 +228,7 @@ impl State {
         match upload(&mut self.renderer, Some(&image), "password prompt") {
             Ok(Some(art)) => self.prompt_art = Some((art, rect)),
             Ok(None) => {}
-            Err(error) => eprintln!("drifter: {error}"),
+            Err(error) => log!("drifter: {error}"),
         }
         self.kick_now();
     }
@@ -276,7 +276,7 @@ impl State {
                 return;
             }
             Err(error) => {
-                eprintln!("drifter: {error}");
+                log!("drifter: {error}");
                 self.tell_closed(note.id, 3);
                 return;
             }

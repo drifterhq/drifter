@@ -276,11 +276,11 @@ impl XdgShellHandler for State {
             state.positioner = positioner;
         });
         if let Err(error) = self.popups.track_popup(PopupKind::Xdg(surface.clone())) {
-            eprintln!("drifter: popup lost its parent: {error}");
+            log!("drifter: popup lost its parent: {error}");
             return;
         }
         if let Err(error) = surface.send_configure() {
-            eprintln!("drifter: popup refused: {error}");
+            log!("drifter: popup refused: {error}");
             return;
         }
         self.kick_now();
@@ -420,7 +420,7 @@ pub fn start(
     let keyboard = match seat.add_keyboard(xkb(keys), delay, rate) {
         Ok(keyboard) => keyboard,
         Err(error) => {
-            eprintln!(
+            log!(
                 "drifter: keyboard layout {:?} did not load ({error}), so the system default is used",
                 keys.layout
             );

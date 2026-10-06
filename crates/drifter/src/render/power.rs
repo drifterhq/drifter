@@ -25,13 +25,13 @@ impl State {
             let length = match drm.get_crtc(head.crtc) {
                 Ok(info) => info.gamma_length() as usize,
                 Err(error) => {
-                    eprintln!("drifter: no night light on {}: {error}", head.name);
+                    log!("drifter: no night light on {}: {error}", head.name);
                     continue;
                 }
             };
             if length == 0 {
                 if night {
-                    eprintln!(
+                    log!(
                         "drifter: {} has no gamma ramp, so no night light",
                         head.name
                     );
@@ -40,7 +40,7 @@ impl State {
             }
             let [red, green, blue] = drifter_core::night::ramp(length, wanted);
             if let Err(error) = drm.set_gamma(head.crtc, &red, &green, &blue) {
-                eprintln!("drifter: no night light on {}: {error}", head.name);
+                log!("drifter: no night light on {}: {error}", head.name);
             }
         }
     }
@@ -111,7 +111,7 @@ impl State {
         for head in &mut self.heads {
             head.awaiting = false;
             if let Err(error) = head.compositor.clear() {
-                eprintln!("drifter: cannot turn {} off: {error}", head.name);
+                log!("drifter: cannot turn {} off: {error}", head.name);
             }
         }
     }
@@ -124,7 +124,7 @@ impl State {
         for head in &mut self.heads {
             head.awaiting = false;
             if let Err(error) = head.compositor.reset_state() {
-                eprintln!("drifter: cannot turn {} on: {error}", head.name);
+                log!("drifter: cannot turn {} on: {error}", head.name);
             }
         }
         self.kick_now();

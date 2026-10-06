@@ -33,7 +33,7 @@ fn listen(tx: Sender<Heard>) {
         return;
     };
     let Ok(connection) = builder.build() else {
-        eprintln!("drifter: no session bus for dock badges");
+        log!("drifter: no session bus for dock badges");
         return;
     };
     let Ok(rule) = zbus::MatchRule::builder()

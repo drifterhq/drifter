@@ -34,7 +34,7 @@ impl State {
             || keys.options != self.keys.options
         {
             if let Err(error) = keyboard.set_xkb_config(self, crate::shell::xkb(keys)) {
-                eprintln!(
+                log!(
                     "drifter: keyboard layout {:?} did not load: {error:?}",
                     keys.layout
                 );
@@ -233,13 +233,13 @@ impl State {
                     self.arrow_size = size;
                     self.arrow_hotspot = hotspot;
                 }
-                Err(error) => eprintln!("drifter: {error}"),
+                Err(error) => log!("drifter: {error}"),
             }
         }
         if paths[1] != self.asset_paths[1] {
             match Font::find(config.font_path(), config.tray.size) {
                 Ok(font) => self.font = Some(font),
-                Err(error) => eprintln!("drifter: no clock: {error}"),
+                Err(error) => log!("drifter: no clock: {error}"),
             }
             self.lock_big = Font::find(config.font_path(), 56.0).ok();
             self.lock_small = Font::find(config.font_path(), 15.0).ok();
@@ -269,7 +269,7 @@ impl State {
                     self.pinned = pinned;
                     self.pinned_from = (config.dock.clone(), config.apps.clone());
                 }
-                Err(error) => eprintln!("drifter: {error}"),
+                Err(error) => log!("drifter: {error}"),
             }
         }
         self.asset_paths = paths;
@@ -298,7 +298,7 @@ impl State {
         match upload(&mut self.renderer, Some(&power), "power") {
             Ok(Some(buffer)) => self.power = Some(buffer),
             Ok(None) => {}
-            Err(error) => eprintln!("drifter: {error}"),
+            Err(error) => log!("drifter: {error}"),
         }
         let (skin, chrome) = load_skin(&mut self.renderer, config, &palette);
         self.skin = skin;
@@ -367,7 +367,7 @@ impl State {
             let _ = std::fs::create_dir_all(folder);
         }
         if let Err(error) = std::fs::write(&path, out) {
-            eprintln!("drifter: cannot keep the note history: {error}");
+            log!("drifter: cannot keep the note history: {error}");
         }
     }
 
@@ -385,7 +385,7 @@ impl State {
                 self.apply(&config);
                 self.kick_now();
             }
-            Err(error) => eprintln!("drifter: the config did not load: {error}"),
+            Err(error) => log!("drifter: the config did not load: {error}"),
         }
     }
 
@@ -454,7 +454,7 @@ impl State {
             self.tray.size = config.tray.size;
             match Font::find(config.font_path(), config.tray.size) {
                 Ok(font) => self.font = Some(font),
-                Err(error) => eprintln!("drifter: no clock: {error}"),
+                Err(error) => log!("drifter: no clock: {error}"),
             }
             self.clock = None;
             self.stats = None;
@@ -508,7 +508,7 @@ impl State {
                     self.pinned = pinned;
                     self.pinned_from = wanted;
                 }
-                Err(error) => eprintln!("drifter: {error}"),
+                Err(error) => log!("drifter: {error}"),
             }
         }
         self.sampler.follow(&config.tray);
@@ -561,16 +561,16 @@ pub(super) fn tell_access(was: Option<&drifter_core::Access>, now: &drifter_core
                     .status();
                 match ran {
                     Ok(status) if status.success() => {}
-                    Ok(_) => eprintln!("drifter: gsettings has no {schema} {key} here"),
+                    Ok(_) => log!("drifter: gsettings has no {schema} {key} here"),
                     Err(error) => {
-                        eprintln!("drifter: apps keep their settings, gsettings did not run: {error}");
+                        log!("drifter: apps keep their settings, gsettings did not run: {error}");
                         return;
                     }
                 }
             }
         });
     if let Err(error) = spawned {
-        eprintln!("drifter: cannot tell apps about accessibility: {error}");
+        log!("drifter: cannot tell apps about accessibility: {error}");
     }
 }
 
@@ -643,15 +643,15 @@ pub(super) fn tell_gnome(was: Option<&drifter_core::Appearance>, look: &drifter_
                     .status();
                 match ran {
                     Ok(status) if status.success() => {}
-                    Ok(_) => eprintln!("drifter: gsettings has no {key} here"),
+                    Ok(_) => log!("drifter: gsettings has no {key} here"),
                     Err(error) => {
-                        eprintln!("drifter: apps keep their look, gsettings did not run: {error}");
+                        log!("drifter: apps keep their look, gsettings did not run: {error}");
                         return;
                     }
                 }
             }
         });
     if let Err(error) = spawned {
-        eprintln!("drifter: cannot tell apps about the look: {error}");
+        log!("drifter: cannot tell apps about the look: {error}");
     }
 }

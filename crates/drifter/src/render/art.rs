@@ -43,7 +43,7 @@ pub(super) fn dock_items(
             .and_then(|path| match drifter_core::image::load_sized(&path, side) {
                 Ok(image) => Some(image),
                 Err(error) => {
-                    eprintln!("drifter: no dock icon for {}: {error}", item.name());
+                    log!("drifter: no dock icon for {}: {error}", item.name());
                     None
                 }
             })
@@ -81,7 +81,7 @@ pub(super) fn load_arrow(
         .and_then(|path| match drifter_core::image::load(&path) {
             Ok(image) => Some(image),
             Err(error) => {
-                eprintln!("drifter: no cursor: {error}");
+                log!("drifter: no cursor: {error}");
                 None
             }
         });
@@ -121,7 +121,7 @@ pub(super) fn load_skin(
     for name in crate::shell::skin_names() {
         let from_file = dir.as_ref().and_then(|dir| {
             drifter_core::image::load(&dir.join(&name))
-                .inspect_err(|error| eprintln!("drifter: no window art: {error}"))
+                .inspect_err(|error| log!("drifter: no window art: {error}"))
                 .ok()
         });
         let Some(image) = from_file.or_else(|| drifter_core::window::painted(&name, &drawn)) else {
@@ -134,7 +134,7 @@ pub(super) fn load_skin(
                 skin.insert(name, (buffer, size));
             }
             Ok(None) => {}
-            Err(error) => eprintln!("drifter: {error}"),
+            Err(error) => log!("drifter: {error}"),
         }
     }
     let chrome = Chrome::themed(palette);
@@ -162,7 +162,7 @@ pub(super) fn load_dock_art(
         match drifter_core::image::load(&dir.join(format!("{name}.png"))) {
             Ok(image) => Some(image.scaled(side, side)),
             Err(error) => {
-                eprintln!("drifter: no dock art for {name}: {error}");
+                log!("drifter: no dock art for {name}: {error}");
                 None
             }
         }
@@ -175,7 +175,7 @@ pub(super) fn load_dock_art(
         |image: &drifter_core::Image, what: &str| match upload(renderer, Some(image), what) {
             Ok(buffer) => buffer,
             Err(error) => {
-                eprintln!("drifter: {error}");
+                log!("drifter: {error}");
                 None
             }
         };

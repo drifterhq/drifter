@@ -976,9 +976,9 @@ impl State {
                     if self.heads.iter().all(|head| head.frames == 0) {
                         return Err(error);
                     }
-                    eprintln!("drifter: {error}");
+                    log!("drifter: {error}");
                 }
-                Err(error) => eprintln!("drifter: {error}"),
+                Err(error) => log!("drifter: {error}"),
             }
         }
 
@@ -1119,7 +1119,7 @@ impl State {
             return;
         };
         if let Err(error) = display.dispatch_clients(self) {
-            eprintln!("drifter: wayland dispatch failed: {error}");
+            log!("drifter: wayland dispatch failed: {error}");
         }
         let _ = display.flush_clients();
         self.display = Some(display);
@@ -1305,7 +1305,7 @@ impl Screen {
             for entry in drifter_core::autostart::to_start(&found, &state.login) {
                 match entry.argv() {
                     Some(argv) => crate::apps::launch(&argv, &state.socket),
-                    None => eprintln!("drifter: cannot read the autostart line {:?}", entry.exec),
+                    None => log!("drifter: cannot read the autostart line {:?}", entry.exec),
                 }
             }
         }
@@ -1395,7 +1395,7 @@ fn paper_pieces(
                 }
                 Ok(None) => continue,
                 Err(error) => {
-                    eprintln!("drifter: {error}");
+                    log!("drifter: {error}");
                     continue;
                 }
             }

@@ -68,7 +68,7 @@ pub fn run(item: &drifter_core::Launch, socket: &str) {
     if let Some(command) = item.command() {
         match drifter_core::exec::words(command) {
             Some(argv) if !argv.is_empty() => launch(&argv, socket),
-            _ => eprintln!("drifter: cannot read the command line {command:?}"),
+            _ => log!("drifter: cannot read the command line {command:?}"),
         }
         return;
     }
@@ -77,14 +77,14 @@ pub fn run(item: &drifter_core::Launch, socket: &str) {
     };
     match find(app).and_then(|entry| entry.exec) {
         Some(exec) => start(&exec, &[], socket),
-        None => eprintln!("drifter: no installed app is called {app}"),
+        None => log!("drifter: no installed app is called {app}"),
     }
 }
 
 pub fn start(exec: &str, files: &[&str], socket: &str) {
     match drifter_core::exec::command(exec, files) {
         Some(argv) => launch(&argv, socket),
-        None => eprintln!("drifter: cannot read the command line {exec:?}"),
+        None => log!("drifter: cannot read the command line {exec:?}"),
     }
 }
 
@@ -115,7 +115,7 @@ pub fn open_role(
             open_folder(&home, item.as_ref(), socket);
         }
         (_, Some(item)) => run(&item, socket),
-        (role, None) => eprintln!("drifter: no {role:?} app is set or installed"),
+        (role, None) => log!("drifter: no {role:?} app is set or installed"),
     }
 }
 
@@ -140,11 +140,11 @@ fn free_display() -> Option<u32> {
 
 pub fn start_x11(socket: &str) {
     let Some(program) = on_path("xwayland-satellite") else {
-        eprintln!("drifter: xwayland-satellite is not installed, so X11 apps cannot run");
+        log!("drifter: xwayland-satellite is not installed, so X11 apps cannot run");
         return;
     };
     let Some(number) = free_display() else {
-        eprintln!("drifter: no free X display number, so X11 apps cannot run");
+        log!("drifter: no free X display number, so X11 apps cannot run");
         return;
     };
     let display = format!(":{number}");
@@ -158,14 +158,14 @@ pub fn start_x11(socket: &str) {
         .spawn();
     match result {
         Ok(mut child) => {
-            println!("x11         {display} through {}", program.display());
+            out!("x11         {display} through {}", program.display());
             let _ = X11.set(display);
             std::thread::spawn(move || {
                 let _ = child.wait();
-                eprintln!("drifter: xwayland-satellite stopped");
+                log!("drifter: xwayland-satellite stopped");
             });
         }
-        Err(error) => eprintln!("drifter: cannot start xwayland-satellite: {error}"),
+        Err(error) => log!("drifter: cannot start xwayland-satellite: {error}"),
     }
 }
 
@@ -199,7 +199,7 @@ pub fn launch(argv: &[String], socket: &str) {
                 let _ = child.wait();
             });
         }
-        Err(error) => eprintln!("drifter: cannot start {program}: {error}"),
+        Err(error) => log!("drifter: cannot start {program}: {error}"),
     }
 }
 
@@ -223,7 +223,7 @@ pub fn open_folder(path: &str, chosen: Option<&drifter_core::Launch>, socket: &s
         launch(&["xdg-open".to_string(), path.to_string()], socket);
         return;
     }
-    eprintln!("drifter: no file manager is installed, so {path} cannot be opened");
+    log!("drifter: no file manager is installed, so {path} cannot be opened");
 }
 
 pub fn defaults(

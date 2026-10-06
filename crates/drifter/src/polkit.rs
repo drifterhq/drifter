@@ -30,7 +30,7 @@ pub fn start() -> Result<Channel<Event>, String> {
         .name("drifter-polkit".to_string())
         .spawn(move || {
             if let Err(error) = serve(tx) {
-                eprintln!("drifter: no password prompt: {error}");
+                log!("drifter: no password prompt: {error}");
             }
         })
         .map_err(|e| format!("cannot start the polkit thread: {e}"))?;
@@ -83,7 +83,7 @@ fn serve(events: LoopSender<Event>) -> Result<(), String> {
         &(("unix-session", details), locale.as_str(), PATH),
     )
     .map_err(|e| format!("polkit refused the agent for session {session}: {e}"))?;
-    println!("polkit      prompts for session {session}");
+    out!("polkit      prompts for session {session}");
     loop {
         std::thread::park();
     }

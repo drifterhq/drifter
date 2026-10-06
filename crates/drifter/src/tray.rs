@@ -364,7 +364,7 @@ fn choose(connection: &zbus::blocking::Connection, service: &str, id: i32) {
         .unwrap_or(0);
     let data = zbus::zvariant::Value::I32(0);
     if let Err(error) = menu.call_method("Event", &(id, "clicked", &data, now)) {
-        eprintln!("drifter: tray menu click failed: {error}");
+        log!("drifter: tray menu click failed: {error}");
     }
 }
 
@@ -391,7 +391,7 @@ fn poke(
     match proxy.call_method(method, &(x, y)) {
         Ok(_) => true,
         Err(error) => {
-            eprintln!("drifter: tray {method} failed: {error}");
+            log!("drifter: tray {method} failed: {error}");
             false
         }
     }
@@ -414,7 +414,7 @@ fn send_menu(
                 at,
             });
         }
-        _ => eprintln!("drifter: {service} offers no menu"),
+        _ => log!("drifter: {service} offers no menu"),
     }
 }
 
@@ -427,7 +427,7 @@ fn serve(
     let address = match bus_address() {
         Ok(address) => address,
         Err(error) => {
-            eprintln!("drifter: no tray: {error}");
+            log!("drifter: no tray: {error}");
             return;
         }
     };
@@ -435,7 +435,7 @@ fn serve(
     let mut builder = match zbus::blocking::connection::Builder::address(address.as_str()) {
         Ok(builder) => builder.method_timeout(PATIENCE),
         Err(error) => {
-            eprintln!("drifter: no tray: {address}: {error}");
+            log!("drifter: no tray: {address}: {error}");
             return;
         }
     };
@@ -448,14 +448,14 @@ fn serve(
     builder = match builder.name(WATCHER) {
         Ok(builder) => builder,
         Err(error) => {
-            eprintln!("drifter: no tray: {error}");
+            log!("drifter: no tray: {error}");
             return;
         }
     };
     builder = match builder.serve_at(WATCHER_PATH, watcher) {
         Ok(builder) => builder,
         Err(error) => {
-            eprintln!("drifter: no tray: {error}");
+            log!("drifter: no tray: {error}");
             return;
         }
     };
@@ -463,14 +463,14 @@ fn serve(
     let connection = match builder.build() {
         Ok(connection) => connection,
         Err(error) => {
-            eprintln!("drifter: no tray: {error}");
-            eprintln!("drifter: {address} may already have a tray owning {WATCHER}");
+            log!("drifter: no tray: {error}");
+            log!("drifter: {address} may already have a tray owning {WATCHER}");
             return;
         }
     };
 
-    println!("tray        {address}");
-    println!("            owns {WATCHER}");
+    out!("tray        {address}");
+    out!("            owns {WATCHER}");
 
     let watching = connection.clone();
     let names = items.clone();
@@ -482,7 +482,7 @@ fn serve(
 
     loop {
         let Ok(job) = jobs.recv() else {
-            eprintln!("drifter: the tray stopped listening");
+            log!("drifter: the tray stopped listening");
             return;
         };
 
@@ -490,7 +490,7 @@ fn serve(
             Job::Look => {
                 let names = items.lock().unwrap().clone();
                 let icons = read_icons(&connection, &names);
-                println!("drifter: tray has {} icon(s)", icons.len());
+                out!("drifter: tray has {} icon(s)", icons.len());
                 let _ = wake.send(Update::Icons(icons));
             }
             Job::Menu(service, trail, x, y) => {

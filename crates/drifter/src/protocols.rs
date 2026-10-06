@@ -309,7 +309,7 @@ pub fn list_toplevel(
 impl InputMethodHandler for State {
     fn new_popup(&mut self, surface: ImePopup) {
         if let Err(error) = self.popups.track_popup(PopupKind::from(surface)) {
-            eprintln!("drifter: input method popup lost its parent: {error}");
+            log!("drifter: input method popup lost its parent: {error}");
         }
     }
 
@@ -346,7 +346,7 @@ impl WlrLayerShellHandler for State {
             .unwrap_or_else(|| self.output.clone());
         let mut map = layer_map_for_output(&output);
         if let Err(error) = map.map_layer(&LayerSurface::new(surface, namespace)) {
-            eprintln!("drifter: cannot place a layer surface: {error}");
+            log!("drifter: cannot place a layer surface: {error}");
         }
     }
 
@@ -356,7 +356,7 @@ impl WlrLayerShellHandler for State {
         popup: PopupSurface,
     ) {
         if let Err(error) = self.popups.track_popup(PopupKind::Xdg(popup)) {
-            eprintln!("drifter: layer popup lost its parent: {error}");
+            log!("drifter: layer popup lost its parent: {error}");
         }
     }
 

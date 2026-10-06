@@ -27,7 +27,7 @@ pub fn start() -> Result<Channel<Event>, String> {
         .name("drifter-logind-lock".to_string())
         .spawn(move || {
             if let Err(error) = watch_lock(&lock_bus, path, lock_tx) {
-                eprintln!("drifter: logind lock requests are not seen: {error}");
+                log!("drifter: logind lock requests are not seen: {error}");
             }
         })
         .map_err(|e| format!("cannot start the logind thread: {e}"))?;
@@ -36,7 +36,7 @@ pub fn start() -> Result<Channel<Event>, String> {
         .name("drifter-logind-sleep".to_string())
         .spawn(move || {
             if let Err(error) = watch_sleep(&bus, tx) {
-                eprintln!("drifter: the screen does not lock before sleep: {error}");
+                log!("drifter: the screen does not lock before sleep: {error}");
             }
         })
         .map_err(|e| format!("cannot start the logind thread: {e}"))?;
@@ -79,7 +79,7 @@ fn watch_sleep(bus: &Connection, tx: Sender<Event>) -> Result<(), String> {
                 "block",
             ),
         )
-        .inspect_err(|e| eprintln!("drifter: logind keeps the lid and power button: {e}"))
+        .inspect_err(|e| log!("drifter: logind keeps the lid and power button: {e}"))
         .ok();
     for message in signals {
         let going: bool = message.body().deserialize().unwrap_or(false);
@@ -107,6 +107,6 @@ fn inhibit(manager: &Proxy) -> Option<OwnedFd> {
             "Inhibit",
             &("sleep", "Drifter", "Lock the screen before sleep", "delay"),
         )
-        .inspect_err(|e| eprintln!("drifter: cannot delay sleep to lock first: {e}"))
+        .inspect_err(|e| log!("drifter: cannot delay sleep to lock first: {e}"))
         .ok()
 }

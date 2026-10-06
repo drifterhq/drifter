@@ -29,7 +29,7 @@ impl Sampler {
                 }
             });
         if let Err(error) = spawned {
-            eprintln!("drifter: no system info: {error}");
+            log!("drifter: no system info: {error}");
         }
         Sampler { wanted, latest }
     }
@@ -85,7 +85,7 @@ impl Reader {
                     });
                     let field = disk(mounts, name);
                     if field.is_none() && self.missing.insert(name.clone()) {
-                        eprintln!("drifter: tray metric {name:?} is not a mounted disk");
+                        log!("drifter: tray metric {name:?} is not a mounted disk");
                     }
                     field
                 }

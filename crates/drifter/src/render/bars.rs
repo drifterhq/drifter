@@ -36,7 +36,7 @@ impl State {
             match upload(&mut self.renderer, Some(&image), "tray icon") {
                 Ok(Some(buffer)) => self.icons.push((icon.service, icon.title, buffer)),
                 Ok(None) => {}
-                Err(error) => eprintln!("drifter: {error}"),
+                Err(error) => log!("drifter: {error}"),
             }
         }
     }
@@ -61,7 +61,7 @@ impl State {
                 })
             }
             Ok(None) => {}
-            Err(error) => eprintln!("drifter: {error}"),
+            Err(error) => log!("drifter: {error}"),
         }
     }
 
@@ -88,7 +88,7 @@ impl State {
                 }
             }
             Ok(None) => {}
-            Err(error) => eprintln!("drifter: {error}"),
+            Err(error) => log!("drifter: {error}"),
         }
     }
 
@@ -222,7 +222,7 @@ impl State {
                 self.tip_of = Some(text.to_string());
             }
             Ok(None) => {}
-            Err(error) => eprintln!("drifter: {error}"),
+            Err(error) => log!("drifter: {error}"),
         }
     }
 
@@ -434,7 +434,7 @@ impl State {
             match upload(&mut self.renderer, Some(&image), "speaker") {
                 Ok(Some(buffer)) => self.speaker = Some((buffer, key)),
                 Ok(None) => {}
-                Err(error) => eprintln!("drifter: {error}"),
+                Err(error) => log!("drifter: {error}"),
             }
         }
         if self.gauge_panel.as_ref().is_some_and(|panel| panel.gauge == Gauge::Volume) {
@@ -449,7 +449,7 @@ impl State {
             match upload(&mut self.renderer, Some(&image), "sun") {
                 Ok(Some(buffer)) => self.sun = Some(buffer),
                 Ok(None) => {}
-                Err(error) => eprintln!("drifter: {error}"),
+                Err(error) => log!("drifter: {error}"),
             }
         }
         if self.gauge_panel.as_ref().is_some_and(|panel| panel.gauge == Gauge::Brightness) {
@@ -556,7 +556,7 @@ impl State {
             Ok(Some(art)) => art,
             Ok(None) => return,
             Err(error) => {
-                eprintln!("drifter: {error}");
+                log!("drifter: {error}");
                 return;
             }
         };
@@ -763,7 +763,7 @@ impl State {
         let reading = match drifter_core::tray::now(&self.format) {
             Ok(reading) => reading,
             Err(error) => {
-                eprintln!("drifter: {error}");
+                log!("drifter: {error}");
                 self.format = drifter_core::tray::DEFAULT_FORMAT.to_string();
                 return;
             }
@@ -788,7 +788,7 @@ impl State {
         match upload(&mut self.renderer, Some(&image), "clock") {
             Ok(Some(buffer)) => self.clock = Some((reading, buffer, rect)),
             Ok(None) => {}
-            Err(error) => eprintln!("drifter: {error}"),
+            Err(error) => log!("drifter: {error}"),
         }
     }
 
@@ -822,7 +822,7 @@ impl State {
         match upload(&mut self.renderer, Some(&image), "system info") {
             Ok(Some(buffer)) => self.stats = Some((buffer, size)),
             Ok(None) => {}
-            Err(error) => eprintln!("drifter: {error}"),
+            Err(error) => log!("drifter: {error}"),
         }
     }
 }

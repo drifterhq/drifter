@@ -49,7 +49,7 @@ impl State {
         match upload(&mut self.renderer, Some(&image), "app name") {
             Ok(Some(buffer)) => self.app_label = Some((name, buffer, size)),
             Ok(None) => {}
-            Err(error) => eprintln!("drifter: {error}"),
+            Err(error) => log!("drifter: {error}"),
         }
     }
 

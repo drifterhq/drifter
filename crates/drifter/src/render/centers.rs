@@ -213,10 +213,10 @@ impl State {
         match change(&text) {
             Ok(out) => {
                 if let Err(error) = std::fs::write(&self.config_path, out) {
-                    eprintln!("drifter: cannot save the setting: {error}");
+                    log!("drifter: cannot save the setting: {error}");
                 }
             }
-            Err(error) => eprintln!("drifter: cannot save the setting: {error}"),
+            Err(error) => log!("drifter: cannot save the setting: {error}"),
         }
     }
 

@@ -82,7 +82,7 @@ impl Keeper {
                 }
             });
         if let Err(error) = spawned {
-            eprintln!("drifter: cannot keep the clipboard: {error}");
+            log!("drifter: cannot keep the clipboard: {error}");
         }
     }
 

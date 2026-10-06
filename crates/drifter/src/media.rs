@@ -169,7 +169,7 @@ fn volume(target: &str, verb: &[&str], amount: &str) -> Option<Reading> {
         .arg(amount)
         .status();
     if let Err(error) = set {
-        eprintln!("drifter: volume keys need wpctl: {error}");
+        log!("drifter: volume keys need wpctl: {error}");
         return None;
     }
     read_volume(target)
@@ -179,7 +179,7 @@ fn brightness(step: f64) -> Option<Reading> {
     let light = drifter_core::system::backlight()?;
     let value = light.step(step);
     if let Err(error) = set_brightness(&light.name, value) {
-        eprintln!("drifter: cannot set the brightness: {error}");
+        log!("drifter: cannot set the brightness: {error}");
         return None;
     }
     Some(Reading {
@@ -193,7 +193,7 @@ fn light_at(level: f64) -> Option<Reading> {
     let light = drifter_core::system::backlight()?;
     let value = light.raw(level);
     if let Err(error) = set_brightness(&light.name, value) {
-        eprintln!("drifter: cannot set the brightness: {error}");
+        log!("drifter: cannot set the brightness: {error}");
         return None;
     }
     Some(Reading {
@@ -268,7 +268,7 @@ fn player(method: &str) -> Option<Reading> {
         method,
         &(),
     ) {
-        eprintln!("drifter: {chosen} did not take {method}: {error}");
+        log!("drifter: {chosen} did not take {method}: {error}");
     }
     None
 }

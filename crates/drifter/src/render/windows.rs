@@ -659,7 +659,7 @@ impl State {
                     self.titles.insert(title, (buffer, size));
                 }
                 Ok(None) => {}
-                Err(error) => eprintln!("drifter: {error}"),
+                Err(error) => log!("drifter: {error}"),
             }
         }
         let _ = font;
@@ -793,7 +793,7 @@ impl State {
             .or_else(|| self.dock_spare.clone())
             .map(|image| image.scaled(wanted, wanted));
         let Some(image) = art else {
-            eprintln!("drifter: no dock icon for {name}");
+            log!("drifter: no dock icon for {name}");
             self.no_icon.insert(name);
             return;
         };
@@ -802,7 +802,7 @@ impl State {
                 self.app_icons.insert(name, buffer);
             }
             Ok(None) => {}
-            Err(error) => eprintln!("drifter: {error}"),
+            Err(error) => log!("drifter: {error}"),
         }
     }
 

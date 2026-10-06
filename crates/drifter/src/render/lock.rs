@@ -19,7 +19,7 @@ impl State {
         let user = match crate::auth::ready() {
             Ok(user) => user,
             Err(error) => {
-                eprintln!("drifter: cannot lock: {error}");
+                log!("drifter: cannot lock: {error}");
                 return false;
             }
         };
@@ -178,7 +178,7 @@ impl State {
         if held.lock.is_alive() {
             return;
         }
-        eprintln!("drifter: the screen locker quit without unlocking, so Drifter locks instead");
+        log!("drifter: the screen locker quit without unlocking, so Drifter locks instead");
         let refocus = self.client_lock.take().and_then(|held| held.refocus);
         self.wayland.extras.session_lock =
             smithay::wayland::session_lock::SessionLockManagerState::new::<State, _>(
@@ -292,7 +292,7 @@ impl State {
         let art = match upload(&mut self.renderer, Some(&image), "lock") {
             Ok(art) => art,
             Err(error) => {
-                eprintln!("drifter: {error}");
+                log!("drifter: {error}");
                 None
             }
         };
@@ -371,7 +371,7 @@ impl State {
             return;
         };
         if let Err(error) = session.change_vt(vt) {
-            eprintln!("drifter: cannot switch to terminal {vt}: {error}");
+            log!("drifter: cannot switch to terminal {vt}: {error}");
         }
     }
 
@@ -431,7 +431,7 @@ impl State {
             }
             Verdict::Denied => lock.note = Note::Wrong,
             Verdict::Broken(error) => {
-                eprintln!("drifter: the lock cannot check passwords: {error}");
+                log!("drifter: the lock cannot check passwords: {error}");
                 lock.note = Note::Wrong;
             }
         }

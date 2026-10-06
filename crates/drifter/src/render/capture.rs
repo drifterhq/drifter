@@ -213,7 +213,7 @@ impl State {
                 match self.copy_into(&mut dmabuf, elements, copy.cursor) {
                     Ok(()) => crate::screencopy::done(&copy),
                     Err(error) => {
-                        eprintln!("drifter: {error}");
+                        log!("drifter: {error}");
                         copy.frame.failed();
                     }
                 }
@@ -223,7 +223,7 @@ impl State {
             if shots[slot].is_none() {
                 match self.capture(elements, copy.cursor) {
                     Ok(shot) => shots[slot] = Some(shot),
-                    Err(error) => eprintln!("drifter: {error}"),
+                    Err(error) => log!("drifter: {error}"),
                 }
             }
             let written = shots[slot]
@@ -232,7 +232,7 @@ impl State {
             match written {
                 Some(Ok(())) => crate::screencopy::done(&copy),
                 Some(Err(error)) => {
-                    eprintln!("drifter: {error}");
+                    log!("drifter: {error}");
                     copy.frame.failed();
                 }
                 None => copy.frame.failed(),
@@ -244,7 +244,7 @@ impl State {
         let bytes = match self.capture(elements, false) {
             Ok(shot) => shot,
             Err(error) => {
-                eprintln!("drifter: no screenshot: {error}");
+                log!("drifter: no screenshot: {error}");
                 return;
             }
         };

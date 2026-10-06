@@ -209,7 +209,7 @@ impl State {
         }
         if let Some(name) = app.place.clone() {
             if !self.go_to_named_place(&name) {
-                eprintln!("drifter: the dock names a place that is gone: {name}");
+                log!("drifter: the dock names a place that is gone: {name}");
             }
             return true;
         }
@@ -336,10 +336,10 @@ impl State {
         match drifter_core::settings::write_dock(&text, pinned, off) {
             Ok(out) => {
                 if let Err(error) = std::fs::write(&path, out) {
-                    eprintln!("drifter: cannot save the dock: {error}");
+                    log!("drifter: cannot save the dock: {error}");
                 }
             }
-            Err(error) => eprintln!("drifter: cannot save the dock: {error}"),
+            Err(error) => log!("drifter: cannot save the dock: {error}"),
         }
     }
 
@@ -792,7 +792,7 @@ fn empty_trash() {
                 false => std::fs::remove_file(&path),
             };
             if let Err(error) = gone {
-                eprintln!("drifter: cannot empty the trash: {}: {error}", path.display());
+                log!("drifter: cannot empty the trash: {}: {error}", path.display());
             }
         }
     }

@@ -52,13 +52,13 @@ impl State {
                         let _ = reply.send((path, Some(pyramid)));
                     }
                     Err(error) => {
-                        eprintln!("drifter: no wallpaper {}: {error}", path.display());
+                        log!("drifter: no wallpaper {}: {error}", path.display());
                         let _ = reply.send((path, None));
                     }
                 },
             );
         if let Err(error) = spawned {
-            eprintln!("drifter: cannot load the wallpaper: {error}");
+            log!("drifter: cannot load the wallpaper: {error}");
         }
     }
 
