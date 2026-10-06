@@ -579,10 +579,7 @@ pub fn shadow_patch(radius: f64, blur: f64) -> Image {
             let p = Vec2::new(f64::from(x) + 0.5, f64::from(y) + 0.5);
             let cx = p.x.clamp(inner_lo + radius, inner_hi - radius);
             let cy = p.y.clamp(inner_lo + radius, inner_hi - radius);
-            let away = (p - Vec2::new(cx, cy)).length() - radius;
-            if away <= 0.0 {
-                continue;
-            }
+            let away = ((p - Vec2::new(cx, cy)).length() - radius).max(0.0);
             let alpha = (-(away * away) / (2.0 * sigma * sigma)).exp();
             rgba[((y * side + x) * 4 + 3) as usize] = (alpha * 255.0).round() as u8;
         }
@@ -641,6 +638,26 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn the_window_shadow_fades_out_and_has_no_gap() {
+        let patch = shadow_patch(10.0, SHADOW_BLUR);
+        let side = patch.width;
+        let alpha = |x: u32, y: u32| patch.rgba[((y * side + x) * 4 + 3) as usize];
+        let middle = side / 2;
+        assert_eq!(alpha(middle, middle), 255, "solid under the window, so a drop leaves no gap");
+        assert!(alpha(middle, SHADOW_BLUR as u32 - 1) > 200, "dark at the window edge");
+        assert!(alpha(middle, 0) < 20, "faded out at the far edge");
+        let frame = Rect::new(Vec2::new(100.0, 100.0), Vec2::new(400.0, 300.0));
+        let corner = f64::from(side - 1) / 2.0;
+        let slices = shadow_slices(frame, corner, 1.0, 0.0);
+        assert_eq!(slices.len(), 8, "eight pieces, no middle");
+        let left = slices.iter().map(|(_, d)| d.origin.x).fold(f64::MAX, f64::min);
+        assert_eq!(left, frame.origin.x - SHADOW_BLUR);
+        let half = shadow_slices(frame, corner, 0.5, 0.0);
+        let narrow = half.iter().map(|(_, d)| d.origin.x).fold(f64::MAX, f64::min);
+        assert_eq!(narrow, frame.origin.x - SHADOW_BLUR * 0.5, "the shadow shrinks with the zoom");
+    }
 
     fn chrome() -> Chrome {
         Chrome::default()
