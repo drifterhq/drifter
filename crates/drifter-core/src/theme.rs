@@ -151,7 +151,8 @@ pub fn gtk4_css() -> String {
 }
 
 pub fn gtk4_dir() -> std::path::PathBuf {
-    crate::config::xdg_dir("XDG_CONFIG_HOME", ".config").join("gtk-4.0")
+    let ours = crate::config::xdg_dir("XDG_CONFIG_HOME", ".config");
+    ours.parent().unwrap_or(&ours).join("gtk-4.0")
 }
 
 pub fn install_gtk4_css(dir: &std::path::Path) -> std::io::Result<()> {
@@ -175,6 +176,13 @@ pub fn install_gtk4_css(dir: &std::path::Path) -> std::io::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn gtk_reads_its_own_folder_not_drifters() {
+        let dir = super::gtk4_dir();
+        assert!(dir.ends_with("gtk-4.0"));
+        assert_ne!(dir.parent().and_then(|up| up.file_name()), Some(std::ffi::OsStr::new("drifter")));
+    }
+
     use super::*;
 
     fn light(color: [u8; 3]) -> f64 {
