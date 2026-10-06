@@ -871,6 +871,22 @@ impl State {
             return;
         }
         if self.lock.is_none()
+            && (self.control.is_some() || self.gauge_panel.is_some())
+            && let InputEvent::Keyboard { event } = &event
+            && matches!(event.key_code().raw(), KEY_UP | KEY_LEFT | KEY_RIGHT | KEY_DOWN)
+        {
+            let key = self.read_key(event);
+            if event.state() == KeyState::Pressed {
+                let way = match key {
+                    LockKey::Left | LockKey::Down => -1.0,
+                    _ => 1.0,
+                };
+                let shift = self.wayland.keyboard.modifier_state().shift;
+                self.nudge_panels(if shift { way * 10.0 } else { way });
+            }
+            return;
+        }
+        if self.lock.is_none()
             && self.launchpad.is_some()
             && let InputEvent::Keyboard { event } = &event
         {

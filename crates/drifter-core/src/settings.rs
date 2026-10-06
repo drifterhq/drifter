@@ -290,6 +290,7 @@ pub struct Model {
     pub about: Vec<(String, String)>,
     pub time_error: Option<String>,
     pub query: String,
+    pub focus: Option<Id>,
     pub confirm_reset: bool,
     pub file_note: Option<String>,
     pub access: crate::config::Access,
@@ -485,6 +486,7 @@ impl Model {
             about: Vec::new(),
             time_error: None,
             query: String::new(),
+            focus: None,
             confirm_reset: false,
             file_note: None,
         }
@@ -857,6 +859,24 @@ impl Model {
         let mut row = Row::new(id, &self.name_of(item), Control::Buttons(marks)).detail(&detail);
         row.icon = Some(Model::icon_key(item));
         row
+    }
+
+    pub fn nudge(&self, section: Section, id: Id, steps: f64) -> Option<Value> {
+        self.groups(section)
+            .into_iter()
+            .flat_map(|group| group.rows)
+            .filter(|row| row.id == id && row.enabled)
+            .find_map(|row| match row.control {
+                Control::Slider { least, most, value, .. } => {
+                    let span = most - least;
+                    let step = match span > 1000.0 {
+                        true => (span / 100.0).round(),
+                        false => 1.0,
+                    };
+                    Some(Value::Number((value.round() + step * steps).clamp(least, most)))
+                }
+                _ => None,
+            })
     }
 
     pub fn groups(&self, section: Section) -> Vec<Group> {
@@ -2827,7 +2847,7 @@ impl Look {
                     );
                     canvas.round_rect(line, 0.0, self.rule, 1.0);
                 }
-                self.paint_row(&mut canvas, row, *rect, fonts, art.icons);
+                self.paint_row(&mut canvas, row, *rect, fonts, art.icons, model.focus == Some(row.id));
             }
             if let Some(set) = &group.thumbs {
                 for (index, rect) in placed.thumbs.iter().enumerate() {
@@ -2916,6 +2936,7 @@ impl Look {
         rect: Rect,
         fonts: &Fonts,
         icons: &HashMap<String, Image>,
+        focused: bool,
     ) {
         let fade = if row.enabled { 1.0 } else { 0.4 };
         let mut x = rect.origin.x + 14.0;
@@ -2998,6 +3019,9 @@ impl Look {
                     Vec2::new(knob.x - track.origin.x, track.size.y),
                 );
                 canvas.round_rect(filled, 2.0, self.accent, fade);
+                if focused {
+                    canvas.circle(knob, 12.5, self.accent, 0.45 * fade);
+                }
                 canvas.circle(knob + Vec2::new(0.0, 1.0), 9.5, [0, 0, 0], 0.3 * fade);
                 canvas.circle(knob, 9.0, [255, 255, 255], fade);
                 let words = match (zero, value.round() <= *least) {
@@ -3733,6 +3757,18 @@ mod tests {
         let back = Config::parse(&after.write(&before, text).unwrap()).unwrap();
         assert_eq!(back.input.modifier, Modifier::Super);
         assert_eq!(back.workspace.wallpaper_mode, WallpaperMode::Parallax);
+    }
+
+    #[test]
+    fn arrow_steps_move_a_slider_finely_and_stop_at_its_ends() {
+        let model = model(&config(""));
+        assert_eq!(model.nudge(Section::Wallpaper, Id::Drift, 1.0), Some(Value::Number(101.0)));
+        assert_eq!(model.nudge(Section::Wallpaper, Id::Drift, -10.0), Some(Value::Number(90.0)));
+        let mut low = model.clone();
+        low.drift = 0;
+        assert_eq!(low.nudge(Section::Wallpaper, Id::Drift, -1.0), Some(Value::Number(0.0)));
+        assert_eq!(model.nudge(Section::Wallpaper, Id::WallpaperMode, 1.0), None);
+        assert_eq!(model.nudge(Section::Desktop, Id::Drift, 1.0), None);
     }
 
     #[test]

@@ -506,7 +506,7 @@ impl State {
         }
     }
 
-    fn gauge_level(&self, gauge: Gauge) -> Option<(f64, bool)> {
+    pub(super) fn gauge_level(&self, gauge: Gauge) -> Option<(f64, bool)> {
         match gauge {
             Gauge::Brightness => self.light.map(|level| (level, false)),
             _ => self.volume,

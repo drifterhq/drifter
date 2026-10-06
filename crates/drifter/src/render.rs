@@ -79,6 +79,10 @@ use smithay::reexports::wayland_server::Display;
 use smithay::utils::{DeviceFd, Scale, Transform};
 
 const KEY_POWER: u32 = 124;
+const KEY_UP: u32 = 111;
+const KEY_LEFT: u32 = 113;
+const KEY_RIGHT: u32 = 114;
+const KEY_DOWN: u32 = 116;
 const LOCK_PATIENCE: Duration = Duration::from_secs(30);
 const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;

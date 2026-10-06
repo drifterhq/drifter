@@ -129,6 +129,7 @@ pub struct Settings {
     stale: bool,
     shown: Option<std::time::Instant>,
     qh: QueueHandle<Settings>,
+    handle: smithay_client_toolkit::reexports::calloop::LoopHandle<'static, Settings>,
 
     look: Look,
     fonts: (Font, Font, Font),
@@ -313,6 +314,7 @@ pub fn run() -> Result<(), String> {
         stale: false,
         shown: None,
         qh: qh.clone(),
+        handle: events.handle(),
         look,
         fonts,
         wallpaper,
@@ -811,6 +813,10 @@ impl Settings {
         let hit = self
             .look
             .hit(self.view(), self.section, &self.model, self.scroll, self.at);
+        self.model.focus = match hit {
+            Some(Hit::Change(id, Value::Number(_))) => Some(id),
+            _ => None,
+        };
         match hit {
             Some(Hit::Search) => {}
             Some(Hit::Section(section)) => self.go_to(section),
@@ -1698,6 +1704,7 @@ impl Settings {
 
     fn go_to(&mut self, section: Section) {
         self.section = section;
+        self.model.focus = None;
         self.scroll = 0.0;
         self.refresh(section);
         self.want_thumbs();
@@ -1817,7 +1824,9 @@ impl Settings {
             return;
         }
         let Some(sheet) = self.sheet.as_mut() else {
-            self.search_key(event);
+            if !self.nudge(event) {
+                self.search_key(event);
+            }
             return;
         };
         match event.keysym {
@@ -1836,6 +1845,24 @@ impl Settings {
             }
         }
         self.draw();
+    }
+
+    fn nudge(&mut self, event: &KeyEvent) -> bool {
+        let Some(id) = self.model.focus else {
+            return false;
+        };
+        let way = match event.keysym {
+            Keysym::Left | Keysym::Down => -1.0,
+            Keysym::Right | Keysym::Up => 1.0,
+            _ => return false,
+        };
+        let steps = if self.mods.shift { way * 10.0 } else { way };
+        if let Some(value) = self.model.nudge(self.section, id, steps) {
+            self.model.set(id, value);
+            self.unsaved = true;
+            self.stale = true;
+        }
+        true
     }
 
     fn apply_live(&mut self) {
@@ -2110,7 +2137,10 @@ impl SeatHandler for Settings {
             }
         }
         if capability == Capability::Keyboard && self.keyboard.is_none() {
-            match self.seats.get_keyboard(qh, &seat, None) {
+            let repeat = Box::new(|settings: &mut Settings, _: &wl_keyboard::WlKeyboard, event: KeyEvent| {
+                settings.key(&event)
+            });
+            match self.seats.get_keyboard_with_repeat(qh, &seat, None, self.handle.clone(), repeat) {
                 Ok(keyboard) => self.keyboard = Some(keyboard),
                 Err(error) => log!("drifter-settings: no keyboard: {error}"),
             }

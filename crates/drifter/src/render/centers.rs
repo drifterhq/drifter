@@ -5,6 +5,7 @@ pub(super) struct Panel {
     pub rect: Rect,
     pub art: TextureBuffer<Tex>,
     pub held: Option<usize>,
+    pub last: usize,
 }
 
 impl State {
@@ -85,7 +86,8 @@ impl State {
             return;
         };
         let held = self.control.as_ref().and_then(|open| open.held);
-        self.control = Some(Panel { rect, art, held });
+        let last = self.control.as_ref().map_or(1, |open| open.last);
+        self.control = Some(Panel { rect, art, held, last });
     }
 
     fn close_panels(&mut self) {
@@ -111,12 +113,14 @@ impl State {
                     Some(ControlHit::Light(level)) => {
                         if let Some(open) = self.control.as_mut() {
                             open.held = Some(0);
+                            open.last = 0;
                         }
                         self.slide_control(0, level);
                     }
                     Some(ControlHit::Volume(level)) => {
                         if let Some(open) = self.control.as_mut() {
                             open.held = Some(1);
+                            open.last = 1;
                         }
                         self.slide_control(1, level);
                     }
@@ -153,6 +157,25 @@ impl State {
         let level = self.control_look().level_at(which, self.pointer.x - rect.origin.x);
         self.slide_control(which, level);
         true
+    }
+
+    pub(super) fn nudge_panels(&mut self, steps: f64) {
+        let step = steps * 0.01;
+        if let Some(which) = self.control.as_ref().map(|open| open.last) {
+            let now = match which {
+                0 => self.light,
+                _ => self.volume.map(|(level, _)| level),
+            };
+            if let Some(now) = now {
+                self.slide_control(which, (now + step).clamp(0.0, 1.0));
+            }
+            return;
+        }
+        if let Some(gauge) = self.gauge_panel.as_ref().map(|panel| panel.gauge)
+            && let Some((now, _)) = self.gauge_level(gauge)
+        {
+            self.set_gauge(gauge, (now + step).clamp(0.0, 1.0));
+        }
     }
 
     pub(super) fn release_control(&mut self) {
