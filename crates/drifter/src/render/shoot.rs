@@ -664,7 +664,7 @@ impl State {
             .into_iter()
             .zip(&inks.sides)
             {
-                elements.push(Skin::Texture(element(ink, side, 0.9)));
+                elements.push(Skin::Texture(fill(ink, side, 0.9)));
             }
             let screen = self.screen;
             let max = rect.max();
@@ -678,12 +678,12 @@ impl State {
             .zip(&inks.shades)
             {
                 if shade.size.x > 0.0 && shade.size.y > 0.0 {
-                    elements.push(Skin::Texture(element(ink, shade, 0.35)));
+                    elements.push(Skin::Texture(fill(ink, shade, 0.35)));
                 }
             }
         }
         if let Some(rect) = shooter.under {
-            elements.push(Skin::Texture(element(&inks.accent, rect, 0.3)));
+            elements.push(Skin::Texture(fill(&inks.accent, rect, 0.3)));
         }
     }
 }

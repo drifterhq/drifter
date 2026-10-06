@@ -661,8 +661,8 @@ impl State {
             if let (Some(progress), Some(plain)) = (badge.progress, self.plain.as_ref()) {
                 let bar = drifter_core::dock::progress_rect(rect);
                 let filled = Rect::new(bar.origin, Vec2::new(bar.size.x * progress.clamp(0.0, 1.0), bar.size.y));
-                elements.push(Skin::Texture(element(plain, filled, 0.95)));
-                elements.push(Skin::Texture(element(plain, bar, 0.3)));
+                elements.push(Skin::Texture(fill(plain, filled, 0.95)));
+                elements.push(Skin::Texture(fill(plain, bar, 0.3)));
             }
         }
 
@@ -722,7 +722,7 @@ impl State {
         }
         if let Some(buffer) = self.rule.as_ref() {
             for rule in self.dock.dividers(band, count, hidden.len()) {
-                elements.push(Skin::Texture(element(buffer, rule, 1.0)));
+                elements.push(Skin::Texture(fill(buffer, rule, 1.0)));
             }
         }
     }

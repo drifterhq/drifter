@@ -675,9 +675,9 @@ impl State {
                 ),
             ];
             for bar in bars {
-                elements.push(Skin::Texture(element(buffer, bar, 0.85)));
+                elements.push(Skin::Texture(fill(buffer, bar, 0.85)));
             }
-            elements.push(Skin::Texture(element(buffer, target, 0.12)));
+            elements.push(Skin::Texture(fill(buffer, target, 0.12)));
         }
 
         if let Some((art, rect)) = self.search.as_ref().and_then(|open| open.art.as_ref()).filter(|_| live) {
@@ -1441,6 +1441,19 @@ fn element(buffer: &TextureBuffer<Tex>, rect: Rect, alpha: f32) -> TextureRender
         buffer,
         Some(alpha),
         None,
+        Some((size.x as i32, size.y as i32).into()),
+        Kind::Unspecified,
+    )
+}
+
+fn fill(pixel: &TextureBuffer<Tex>, rect: Rect, alpha: f32) -> TextureRenderElement<Tex> {
+    let origin = rect.origin.round();
+    let size = (rect.origin + rect.size).round() - origin;
+    TextureRenderElement::from_texture_buffer(
+        (origin.x, origin.y),
+        pixel,
+        Some(alpha),
+        Some(smithay::utils::Rectangle::from_size((1.0, 1.0).into())),
         Some((size.x as i32, size.y as i32).into()),
         Kind::Unspecified,
     )
