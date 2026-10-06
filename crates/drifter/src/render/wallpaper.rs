@@ -1,4 +1,125 @@
 use super::*;
+use smithay::backend::renderer::gles::{GlesPixelProgram, GlesTexture, Uniform, UniformName, UniformType};
+use smithay::backend::renderer::{Bind, Frame, Offscreen, Renderer};
+
+struct Art {
+    size: (i32, i32),
+    texture: GlesTexture,
+    buffer: TextureBuffer<Tex>,
+    drawn: Instant,
+}
+
+pub(super) struct Live {
+    program: GlesPixelProgram,
+    half: bool,
+    arts: Vec<Art>,
+}
+
+impl Live {
+    pub(super) fn compile(renderer: &mut Painter, path: &Path) -> Option<Live> {
+        let Painter::Gles(gles) = renderer else {
+            return None;
+        };
+        let body = match std::fs::read_to_string(path) {
+            Ok(body) => body,
+            Err(error) => {
+                log!("drifter: cannot read {}: {error}", path.display());
+                return None;
+            }
+        };
+        let mut names = vec![
+            UniformName::new("T", UniformType::_1f),
+            UniformName::new("L", UniformType::_1f),
+        ];
+        names.extend(["S0", "S1", "A", "B", "C"].map(|name| UniformName::new(name, UniformType::_3f)));
+        match gles.compile_custom_pixel_shader(drifter_core::shader::source(&body), &names) {
+            Ok(program) => Some(Live {
+                program,
+                half: drifter_core::shader::half(path),
+                arts: Vec::new(),
+            }),
+            Err(error) => {
+                log!("drifter: {} does not compile: {error}", path.display());
+                None
+            }
+        }
+    }
+
+    pub(super) fn draw(
+        &mut self,
+        renderer: &mut Painter,
+        screen: Vec2,
+        clock: f64,
+        every: Option<Duration>,
+    ) -> Option<TextureBuffer<Tex>> {
+        let div = if self.half { 2.0 } else { 1.0 };
+        let size = (
+            ((screen.x / div).round() as i32).max(1),
+            ((screen.y / div).round() as i32).max(1),
+        );
+        let at = self.arts.iter().position(|art| art.size == size);
+        let stale = match at {
+            None => true,
+            Some(at) => every.is_some_and(|every| self.arts[at].drawn.elapsed() >= every),
+        };
+        if stale && let Err(error) = self.paint(renderer, size, clock, at) {
+            log!("drifter: the live wallpaper did not draw: {error}");
+        }
+        self.arts
+            .iter()
+            .find(|art| art.size == size)
+            .map(|art| art.buffer.clone())
+    }
+
+    fn paint(
+        &mut self,
+        renderer: &mut Painter,
+        size: (i32, i32),
+        clock: f64,
+        at: Option<usize>,
+    ) -> Result<(), String> {
+        let Painter::Gles(gles) = renderer else {
+            return Err("the live wallpaper needs the gles renderer".to_string());
+        };
+        let mut texture = match at {
+            Some(at) => self.arts.remove(at).texture,
+            None => Offscreen::<GlesTexture>::create_buffer(gles, DrmFourcc::Abgr8888, size.into())
+                .map_err(|e| e.to_string())?,
+        };
+        let sky = drifter_core::shader::sky(drifter_core::shader::hour_now());
+        let mut uniforms = vec![
+            Uniform::new("T", clock as f32),
+            Uniform::new("L", sky.light as f32),
+        ];
+        uniforms.extend(sky.uniforms().map(|(name, value)| Uniform::new(name, value)));
+        {
+            let mut target = gles.bind(&mut texture).map_err(|e| e.to_string())?;
+            let mut frame = gles
+                .render(&mut target, size.into(), Transform::Normal)
+                .map_err(|e| e.to_string())?;
+            frame
+                .render_pixel_shader_to(
+                    &self.program,
+                    smithay::utils::Rectangle::from_size((f64::from(size.0), f64::from(size.1)).into()),
+                    smithay::utils::Rectangle::from_size(size.into()),
+                    size.into(),
+                    None,
+                    1.0,
+                    &uniforms,
+                )
+                .map_err(|e| e.to_string())?;
+            frame.finish().map_err(|e| e.to_string())?;
+        }
+        let buffer = TextureBuffer::from_texture(&*renderer, Tex::Gles(texture.clone()), 1, Transform::Normal, None);
+        self.arts.push(Art {
+            size,
+            texture,
+            buffer,
+            drawn: Instant::now(),
+        });
+        Ok(())
+    }
+}
 
 impl State {
     pub(super) fn watch_wallpaper(&mut self) {
@@ -40,13 +161,32 @@ impl State {
         }
     }
 
+    pub(super) fn paper_clock(&mut self) -> f64 {
+        let now = Instant::now();
+        let (then, at) = self.paper.clock;
+        let clock = then + now.duration_since(at).as_secs_f64() * self.paper.drift;
+        self.paper.clock = (clock, now);
+        clock
+    }
+
+    pub(super) fn live_every(&self) -> Duration {
+        match self.paper.drift > 0.0 {
+            true => LIVE_EVERY,
+            false => LIVE_STILL,
+        }
+    }
+
     pub(super) fn load_wallpaper(&self, path: PathBuf) {
         let reply = self.paper_tx.clone();
         let (world, screen) = (self.world, self.screen);
+        let cover = match drifter_core::shader::is_shader(&path) {
+            true => screen,
+            false => world,
+        };
         let spawned = std::thread::Builder::new()
             .name("drifter-wallpaper".to_string())
             .spawn(
-                move || match drifter_core::image::load_covering(&path, world.x, world.y) {
+                move || match drifter_core::image::load_covering(&path, cover.x, cover.y) {
                     Ok(image) => {
                         let pyramid = drifter_core::tiles::Pyramid::build(image, world, screen);
                         let _ = reply.send((path, Some(pyramid)));
@@ -68,7 +208,12 @@ impl State {
         pyramid: Option<drifter_core::tiles::Pyramid>,
     ) {
         if let Some(pyramid) = pyramid {
-            let old = self.wallpaper.replace(Backdrop::new(pyramid));
+            let shader = drifter_core::shader::is_shader(&path);
+            let live = match shader {
+                true => Live::compile(&mut self.renderer, &path),
+                false => None,
+            };
+            let old = self.wallpaper.replace(Backdrop::new(pyramid, live, shader));
             self.fading = old.map(|old| (old, Instant::now()));
             self.frost_key = None;
         }
@@ -81,7 +226,11 @@ impl State {
     pub(super) fn laid_paper(&self) -> Option<(drifter_core::wallpaper::Placement, Vec2)> {
         let paper = self.wallpaper.as_ref()?;
         let size = paper.pyramid.size();
-        let laid = drifter_core::wallpaper::place(self.mode, size, self.screen, self.world, &self.camera);
+        let mode = match paper.fixed {
+            true => drifter_core::WallpaperMode::Fixed,
+            false => self.mode,
+        };
+        let laid = drifter_core::wallpaper::place(mode, size, self.screen, self.world, &self.camera);
         Some((laid, size))
     }
 

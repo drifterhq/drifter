@@ -85,6 +85,8 @@ const BTN_RIGHT: u32 = 0x111;
 const BTN_MIDDLE: u32 = 0x112;
 const CLOSE_PATIENCE: Duration = Duration::from_secs(2);
 const PAPER_FADE: Duration = Duration::from_millis(1500);
+const LIVE_EVERY: Duration = Duration::from_millis(166);
+const LIVE_STILL: Duration = Duration::from_secs(10);
 const PANEL_ALPHA: u8 = 235;
 const TICK: Duration = Duration::from_millis(8);
 const CONFIG_WATCH: Duration = Duration::from_millis(400);
@@ -167,16 +169,20 @@ struct Backdrop {
     pyramid: drifter_core::tiles::Pyramid,
     resident: std::collections::HashMap<(usize, u32, u32), (TextureBuffer<Tex>, Instant)>,
     frost: drifter_core::frost::Frost,
+    live: Option<wallpaper::Live>,
+    fixed: bool,
 }
 
 impl Backdrop {
-    fn new(pyramid: drifter_core::tiles::Pyramid) -> Backdrop {
+    fn new(pyramid: drifter_core::tiles::Pyramid, live: Option<wallpaper::Live>, fixed: bool) -> Backdrop {
         let smallest = &pyramid.levels[pyramid.levels.len() - 1];
         let frost = drifter_core::frost::Frost::build(smallest);
         Backdrop {
             pyramid,
             resident: std::collections::HashMap::new(),
             frost,
+            live,
+            fixed,
         }
     }
 }
@@ -229,6 +235,8 @@ struct Paper {
     order: drifter_core::WallpaperOrder,
     next: Option<Instant>,
     hour: Option<u32>,
+    drift: f64,
+    clock: (f64, Instant),
 }
 
 impl Paper {
@@ -244,6 +252,8 @@ impl Paper {
                 .wallpaper_path()
                 .filter(|path| drifter_core::livepaper::is_livepaper(path))
                 .map(|_| drifter_core::livepaper::hour_now()),
+            drift: f64::from(config.workspace.wallpaper_motion) / 100.0,
+            clock: (0.0, Instant::now()),
         }
     }
 }
@@ -598,6 +608,9 @@ impl State {
         if self.drawers[Edge::Top.index()].visible() && self.font.is_some() {
             return Some(SECOND_TICK);
         }
+        if self.wallpaper.as_ref().is_some_and(|paper| paper.live.is_some()) {
+            return Some(self.live_every());
+        }
         None
     }
 
@@ -882,14 +895,16 @@ impl State {
         if let Some((art, area)) = self.ripple.as_ref().and_then(|ripple| ripple.art.as_ref().map(|art| (art, ripple.area))) {
             elements.push(Skin::Texture(element(art, area, 1.0)));
         }
+        let clock = self.paper_clock();
+        let every = self.live_every();
         if let Some(paper) = self.wallpaper.as_mut() {
             let alpha = fading.unwrap_or(1.0) as f32;
-            paper_pieces(&mut self.renderer, paper, view, alpha, &mut elements);
+            paper_pieces(&mut self.renderer, paper, view, alpha, (clock, Some(every)), &mut elements);
         }
         if let (Some((old, _)), Some(t)) = (self.fading.as_mut(), fading)
             && t < 1.0
         {
-            paper_pieces(&mut self.renderer, old, view, 1.0, &mut elements);
+            paper_pieces(&mut self.renderer, old, view, 1.0, (clock, None), &mut elements);
         }
         elements
     }
@@ -1407,8 +1422,21 @@ fn paper_pieces(
     paper: &mut Backdrop,
     (mode, screen, world, camera): (drifter_core::WallpaperMode, Vec2, Vec2, Camera),
     alpha: f32,
+    (clock, every): (f64, Option<Duration>),
     elements: &mut Vec<Skin>,
 ) {
+    if let Some(buffer) = paper
+        .live
+        .as_mut()
+        .and_then(|live| live.draw(renderer, screen, clock, every))
+    {
+        elements.push(Skin::Texture(element(&buffer, Rect::new(Vec2::ZERO, screen), alpha)));
+        return;
+    }
+    let mode = match paper.fixed {
+        true => drifter_core::WallpaperMode::Fixed,
+        false => mode,
+    };
     let laid = drifter_core::wallpaper::place(mode, paper.pyramid.size(), screen, world, &camera);
     let now = Instant::now();
     for piece in paper.pyramid.pieces(laid.source, laid.target) {

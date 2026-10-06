@@ -36,6 +36,7 @@ pub mod ripple;
 pub mod screens;
 pub mod search;
 pub mod settings;
+pub mod shader;
 pub mod sheet;
 pub mod shortcut;
 pub mod snap;

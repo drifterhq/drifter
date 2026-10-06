@@ -506,6 +506,7 @@ impl State {
         self.paper.folder = paper.folder;
         self.paper.every = paper.every;
         self.paper.order = paper.order;
+        self.paper.drift = paper.drift;
         self.dock.settings = config.dock.settings;
         self.dock.trash = config.dock.trash;
         self.apps_chosen = config.apps.clone();

@@ -8,6 +8,7 @@ pub fn is_livepaper(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
         .is_some_and(|ext| ext.eq_ignore_ascii_case(EXTENSION))
+        || crate::shader::is_shader(path)
 }
 
 pub fn hour_now() -> u32 {

@@ -56,6 +56,8 @@ pub struct Workspace {
     pub wallpaper_every: u64,
     #[serde(default)]
     pub wallpaper_order: WallpaperOrder,
+    #[serde(default = "default_motion")]
+    pub wallpaper_motion: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
@@ -260,6 +262,10 @@ fn default_screens() -> u32 {
     9
 }
 
+fn default_motion() -> u32 {
+    100
+}
+
 impl Default for Workspace {
     fn default() -> Self {
         Workspace {
@@ -270,6 +276,7 @@ impl Default for Workspace {
             wallpaper_folder: None,
             wallpaper_every: 0,
             wallpaper_order: WallpaperOrder::default(),
+            wallpaper_motion: default_motion(),
         }
     }
 }
@@ -1107,7 +1114,8 @@ impl Tunables {
 
 pub const DEFAULTS: &str = "default.toml";
 pub const SHARED: &str = "/usr/share/drifter/conf";
-pub const FALLBACK_WALLPAPER: &str = "../img/wallpaper.jpeg";
+pub const FALLBACK_WALLPAPER: &str = "aurora.shader";
+pub const MOST_MOTION: u32 = 300;
 pub const LONGEST_LOCK: u64 = 7 * 24 * 60;
 pub const LONGEST_ROTATION: u64 = 366 * 24 * 3600;
 
@@ -1142,7 +1150,7 @@ pub fn resolve_picture(
     let near = beside(asked);
     match near.exists() {
         true => near,
-        false => beside(Path::new(FALLBACK_WALLPAPER)),
+        false => crate::livepaper::find(FALLBACK_WALLPAPER, livepapers).unwrap_or(near),
     }
 }
 
@@ -1434,6 +1442,11 @@ impl Config {
         if self.lock.after > LONGEST_LOCK {
             return Err(ConfigError::Invalid(format!(
                 "lock after is minutes and must be at most {LONGEST_LOCK}"
+            )));
+        }
+        if self.workspace.wallpaper_motion > MOST_MOTION {
+            return Err(ConfigError::Invalid(format!(
+                "wallpaper_motion is a percent and must be at most {MOST_MOTION}"
             )));
         }
         if self.workspace.wallpaper_every > LONGEST_ROTATION {
@@ -1891,11 +1904,12 @@ mod tests {
     }
 
     #[test]
-    fn a_livepaper_name_is_looked_up_and_falls_back_to_the_picture() {
+    fn a_livepaper_name_is_looked_up_and_falls_back_to_aurora() {
         let root = std::env::temp_dir().join(format!("drifter-resolve-{}", std::process::id()));
         let shelf = root.join("livepapers");
         std::fs::create_dir_all(&shelf).unwrap();
         std::fs::write(shelf.join("bloom.livepaper"), b"z").unwrap();
+        std::fs::write(shelf.join(FALLBACK_WALLPAPER), b"vec3 wall(vec2 P){return vec3(0.);}").unwrap();
         let beside = |path: &Path| root.join("conf").join(path);
         let folders = vec![shelf.clone()];
         assert_eq!(
@@ -1904,14 +1918,19 @@ mod tests {
         );
         assert_eq!(
             resolve_picture(Path::new("gone.livepaper"), &folders, beside),
-            root.join("conf").join(FALLBACK_WALLPAPER)
+            shelf.join(FALLBACK_WALLPAPER)
+        );
+        assert_eq!(
+            resolve_picture(Path::new("ink.shader"), &folders, beside),
+            shelf.join(FALLBACK_WALLPAPER)
         );
         assert_eq!(
             resolve_picture(Path::new("../img/a.png"), &folders, beside),
             root.join("conf/../img/a.png")
         );
         let file = Config::parse(include_str!("../../../conf/default.toml")).unwrap();
-        assert_eq!(file.workspace.wallpaper.as_deref(), Some(Path::new("bloom.livepaper")));
+        assert_eq!(file.workspace.wallpaper.as_deref(), Some(Path::new("aurora.shader")));
+        assert_eq!(file.workspace.wallpaper_motion, 100);
     }
 
     #[test]

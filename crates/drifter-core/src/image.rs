@@ -147,11 +147,25 @@ pub fn load(path: &Path) -> Result<Image, String> {
 }
 
 pub fn load_sized(path: &Path, want: u32) -> Result<Image, String> {
+    if crate::shader::is_shader(path) {
+        return Ok(shader_still(path, want.max(1) * 3 / 2, want.max(1)));
+    }
     load_with(path, |bytes| draw_svg(bytes, want))
 }
 
 pub fn load_covering(path: &Path, width: f64, height: f64) -> Result<Image, String> {
+    if crate::shader::is_shader(path) {
+        let wide = width.max(1.0).min(STILL_WIDE);
+        let tall = (height.max(1.0) * wide / width.max(1.0)).round().max(1.0);
+        return Ok(shader_still(path, wide as u32, tall as u32));
+    }
     load_with(path, |bytes| cover_svg(bytes, width, height))
+}
+
+pub const STILL_WIDE: f64 = 960.0;
+
+fn shader_still(path: &Path, width: u32, height: u32) -> Image {
+    crate::shader::still(path, width, height, 0.0, crate::shader::hour_now())
 }
 
 fn load_with(

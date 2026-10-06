@@ -198,8 +198,19 @@ pub fn open(
         },
     ];
 
-    let wallpaper_element = wallpaper
-        .map(|image| Backdrop::new(drifter_core::tiles::Pyramid::build(image, world, screen)));
+    let shader = config
+        .wallpaper_path()
+        .filter(|path| drifter_core::shader::is_shader(path));
+    let wallpaper_element = wallpaper.map(|image| {
+        let live = shader
+            .as_deref()
+            .and_then(|path| super::wallpaper::Live::compile(&mut renderer, path));
+        Backdrop::new(
+            drifter_core::tiles::Pyramid::build(image, world, screen),
+            live,
+            shader.is_some(),
+        )
+    });
     let (arrow, arrow_size, arrow_hotspot) = load_arrow(&mut renderer, config)?;
 
     let open_band = {

@@ -266,6 +266,7 @@ pub struct Model {
     pub rotate: u64,
     pub unit: usize,
     pub rotation: WallpaperOrder,
+    pub drift: u32,
     pub pictures: Vec<PathBuf>,
     pub livepapers: Vec<PathBuf>,
     pub names: HashMap<String, String>,
@@ -437,6 +438,7 @@ impl Model {
             rotate: every / UNITS[unit],
             unit,
             rotation: config.workspace.wallpaper_order,
+            drift: config.workspace.wallpaper_motion,
             pictures: config
                 .wallpaper_folder()
                 .map(|folder| crate::wallpaper::pictures(&clean(folder)))
@@ -1448,11 +1450,21 @@ impl Model {
             1,
             Group {
                 header: Some("Livepapers"),
-                rows: Vec::new(),
+                rows: vec![Row::new(
+                    Id::Drift,
+                    "Motion",
+                    Control::Slider {
+                        least: 0.0,
+                        most: f64::from(crate::config::MOST_MOTION),
+                        value: f64::from(self.drift),
+                        unit: "%",
+                        zero: Some("Still"),
+                    },
+                )],
                 footer: Some(
                     match self.livepapers.is_empty() {
-                        true => "No livepapers yet. Put .livepaper files in ~/.local/share/drifter/livepapers.",
-                        false => "A livepaper changes with the time of day. Click one to use it.",
+                        true => "No livepapers yet. Put .shader or .livepaper files in ~/.local/share/drifter/livepapers.",
+                        false => "A livepaper changes with the time of day. Click one to use it. Motion sets how fast a .shader livepaper drifts.",
                     }
                     .into(),
                 ),
@@ -1516,6 +1528,9 @@ impl Model {
                 let (least, most) = REPEAT_RATE;
                 self.keyboard.repeat_rate =
                     n.round().clamp(f64::from(least), f64::from(most)) as u32
+            }
+            (Id::Drift, Value::Number(n)) => {
+                self.drift = n.round().clamp(0.0, f64::from(crate::config::MOST_MOTION)) as u32
             }
             (Id::Rotate, Value::Number(n)) => self.rotate = n.round().clamp(0.0, 60.0) as u64,
             (Id::Unit, Value::Choice(n)) => self.unit = n.min(2),
@@ -1727,6 +1742,9 @@ impl Model {
                 "wallpaper_every",
                 int(self.every() as f64),
             );
+        }
+        if self.drift != before.drift {
+            put(&mut doc, "workspace", "wallpaper_motion", int(f64::from(self.drift)));
         }
         if self.rotation != before.rotation {
             let order = match self.rotation {
@@ -2080,6 +2098,7 @@ fn put(doc: &mut toml_edit::DocumentMut, table: &str, key: &str, fresh: toml_edi
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Id {
     World,
+    Drift,
     WallpaperMode,
     Modifier,
     Top,
@@ -3714,6 +3733,21 @@ mod tests {
         let back = Config::parse(&after.write(&before, text).unwrap()).unwrap();
         assert_eq!(back.input.modifier, Modifier::Super);
         assert_eq!(back.workspace.wallpaper_mode, WallpaperMode::Parallax);
+    }
+
+    #[test]
+    fn the_motion_slider_writes_a_percent_and_stops_at_the_most() {
+        let text = "";
+        let before = model(&config(text));
+        assert_eq!(before.drift, 100);
+        let mut after = before.clone();
+        after.set(Id::Drift, Value::Number(0.0));
+        let back = Config::parse(&after.write(&before, text).unwrap()).unwrap();
+        assert_eq!(back.workspace.wallpaper_motion, 0);
+        after.set(Id::Drift, Value::Number(9999.0));
+        let back = Config::parse(&after.write(&before, text).unwrap()).unwrap();
+        assert_eq!(back.workspace.wallpaper_motion, crate::config::MOST_MOTION);
+        assert!(Config::parse("[workspace]\nwallpaper_motion = 301\n").unwrap().validate().is_err());
     }
 
     #[test]

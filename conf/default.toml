@@ -7,13 +7,23 @@
 width = 9
 height = 9
 
-# PNG or JPEG. Drifter reads the format from the first bytes of the file.
-# If the file is missing, Drifter logs it and runs with no wallpaper.
-# A .livepaper file holds 24 pictures, one for each hour of the day. Give
-# just its name to find it in ~/.local/share/drifter/livepapers, then in
-# ../livepapers, then in /usr/share/drifter/livepapers. If it is in none of
-# them, Drifter shows ../img/wallpaper.jpeg instead.
-wallpaper = "bloom.livepaper"
+# A .shader file is a live wallpaper drawn by the graphics card. Its colors
+# follow the time of day. Drifter ships aurora, mesh, ink, silk, nebula,
+# topo, caustics and film.
+# A .livepaper file holds 24 pictures, one for each hour of the day.
+# Give a .shader or .livepaper just by its name to find it in
+# ~/.local/share/drifter/livepapers, then in ../livepapers, then in
+# /usr/share/drifter/livepapers. If it is in none of them, Drifter shows
+# aurora.shader instead.
+# PNG, JPEG and SVG pictures work too. Drifter reads the format from the
+# first bytes of the file. If the file is missing, Drifter logs it and runs
+# with no wallpaper.
+wallpaper = "aurora.shader"
+
+# How fast a .shader wallpaper moves, in percent. 0 holds it still, 100 is
+# the normal slow drift, 300 is the most. The colors follow the time of day
+# at every speed.
+wallpaper_motion = 100
 
 # fixed    one screen. Stays put at every zoom.
 # pan      world sized. Moves and zooms with the world.
