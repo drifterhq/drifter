@@ -1258,6 +1258,10 @@ impl Config {
         self.assets.dock.as_deref().map(|path| self.beside(path))
     }
 
+    pub fn faces_dir(&self) -> PathBuf {
+        self.beside(Path::new("../img/users"))
+    }
+
     pub fn load() -> Result<Config, ConfigError> {
         Config::load_from(&Config::config_path())
     }

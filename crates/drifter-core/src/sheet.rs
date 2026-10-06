@@ -32,6 +32,13 @@ pub enum For {
     ShotFolder,
     Wifi(usize),
     NetInfo(usize),
+    MyName,
+    MyPassword,
+    MyFace,
+    AddUser,
+    NewFace,
+    RemoveUser(usize),
+    MakeAdmin(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,6 +102,39 @@ pub struct Entry {
     pub folder: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Field {
+    pub label: &'static str,
+    pub text: String,
+    pub secret: bool,
+    pub follows: bool,
+}
+
+impl Field {
+    pub fn plain(label: &'static str, text: &str) -> Field {
+        Field {
+            label,
+            text: text.to_string(),
+            secret: false,
+            follows: false,
+        }
+    }
+
+    pub fn secret(label: &'static str) -> Field {
+        Field {
+            secret: true,
+            ..Field::plain(label, "")
+        }
+    }
+
+    pub fn following(label: &'static str) -> Field {
+        Field {
+            follows: true,
+            ..Field::plain(label, "")
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Sheet {
     Picker {
@@ -133,6 +173,23 @@ pub enum Sheet {
         lines: Vec<(String, String)>,
         scroll: f64,
     },
+    Form {
+        purpose: For,
+        title: String,
+        fields: Vec<Field>,
+        focus: usize,
+        switch: Option<(&'static str, bool)>,
+        face: Option<Option<PathBuf>>,
+        note: Option<String>,
+        busy: bool,
+        go: &'static str,
+    },
+    Faces {
+        purpose: For,
+        stock: Vec<PathBuf>,
+        chosen: Option<PathBuf>,
+        scroll: f64,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -146,10 +203,31 @@ pub enum Pick {
     File(PathBuf),
     Default,
     Choice(String),
+    Focus(usize),
+    Toggle,
+    Face,
+    Browse,
+    Submit { texts: Vec<String>, on: bool },
 }
 
 const ROW: f64 = 36.0;
 const LINE: f64 = 26.0;
+const FIELD: f64 = 58.0;
+const SWITCH: f64 = 38.0;
+const AVATAR: f64 = 72.0;
+const NOTE: f64 = 34.0;
+pub const FACE_CELL: f64 = 72.0;
+const FACE_GAP: f64 = 14.0;
+
+pub fn face_key(path: &Path, px: u32) -> String {
+    format!("face:{px}:{}", path.display())
+}
+
+pub fn face_of(key: &str) -> Option<(u32, PathBuf)> {
+    let rest = key.strip_prefix("face:")?;
+    let (px, path) = rest.split_once(':')?;
+    Some((px.parse().ok()?, PathBuf::from(path)))
+}
 
 pub fn is_font(path: &Path) -> bool {
     path.extension()
@@ -240,6 +318,121 @@ impl Sheet {
         }
     }
 
+    pub fn form(purpose: For, title: &str, fields: Vec<Field>, go: &'static str) -> Sheet {
+        Sheet::Form {
+            purpose,
+            title: title.to_string(),
+            fields,
+            focus: 0,
+            switch: None,
+            face: None,
+            note: None,
+            busy: false,
+            go,
+        }
+    }
+
+    pub fn with_switch(mut self, label: &'static str, on: bool) -> Sheet {
+        if let Sheet::Form { switch, .. } = &mut self {
+            *switch = Some((label, on));
+        }
+        self
+    }
+
+    pub fn with_face(mut self, picture: Option<PathBuf>) -> Sheet {
+        if let Sheet::Form { face, .. } = &mut self {
+            *face = Some(picture);
+        }
+        self
+    }
+
+    pub fn with_note(mut self, words: &str) -> Sheet {
+        if let Sheet::Form { note, .. } = &mut self {
+            *note = Some(words.to_string());
+        }
+        self
+    }
+
+    pub fn faces(purpose: For, stock: Vec<PathBuf>, chosen: Option<PathBuf>) -> Sheet {
+        Sheet::Faces {
+            purpose,
+            stock,
+            chosen,
+            scroll: 0.0,
+        }
+    }
+
+    pub fn work(&mut self, words: Option<&str>, working: bool) {
+        if let Sheet::Form { note, busy, .. } = self {
+            *note = words.map(str::to_string);
+            *busy = working;
+        }
+    }
+
+    pub fn put_face(&mut self, picture: PathBuf) {
+        if let Sheet::Form { face: Some(face), .. } = self {
+            *face = Some(picture);
+        }
+    }
+
+    pub fn face(&self) -> Option<PathBuf> {
+        match self {
+            Sheet::Form { face: Some(face), .. } => face.clone(),
+            _ => None,
+        }
+    }
+
+    pub fn focus(&mut self, at: usize) {
+        if let Sheet::Form { fields, focus, .. } = self
+            && at < fields.len()
+        {
+            *focus = at;
+        }
+    }
+
+    pub fn next_field(&mut self) {
+        if let Sheet::Form { fields, focus, .. } = self
+            && !fields.is_empty()
+        {
+            *focus = (*focus + 1) % fields.len();
+        }
+    }
+
+    pub fn toggle(&mut self) {
+        if let Sheet::Form {
+            switch: Some((_, on)),
+            ..
+        } = self
+        {
+            *on = !*on;
+        }
+    }
+
+    fn submit(&self) -> Option<Pick> {
+        match self {
+            Sheet::Form {
+                fields,
+                switch,
+                busy: false,
+                ..
+            } => Some(Pick::Submit {
+                texts: fields.iter().map(|field| field.text.clone()).collect(),
+                on: switch.is_some_and(|(_, on)| on),
+            }),
+            _ => None,
+        }
+    }
+
+    fn follow(&mut self) {
+        if let Sheet::Form { fields, .. } = self
+            && let Some(source) = fields.first().map(|field| field.text.clone())
+        {
+            for field in fields.iter_mut().skip(1).filter(|field| field.follows) {
+                field.text = crate::users::login_from(&source);
+            }
+        }
+    }
+
     pub fn purpose(&self) -> For {
         match self {
             Sheet::Picker { purpose, .. }
@@ -247,7 +440,9 @@ impl Sheet {
             | Sheet::Choices { purpose, .. }
             | Sheet::Capture { purpose, .. }
             | Sheet::Secret { purpose, .. }
-            | Sheet::Info { purpose, .. } => *purpose,
+            | Sheet::Info { purpose, .. }
+            | Sheet::Form { purpose, .. }
+            | Sheet::Faces { purpose, .. } => *purpose,
         }
     }
 
@@ -265,6 +460,7 @@ impl Sheet {
                 ..
             } | Sheet::Choices { .. }
                 | Sheet::Secret { .. }
+                | Sheet::Form { .. }
         )
     }
 
@@ -280,6 +476,15 @@ impl Sheet {
                 Some(text)
             }
             Sheet::Secret { text, .. } => Some(text),
+            Sheet::Form {
+                fields,
+                focus,
+                busy: false,
+                ..
+            } => fields.get_mut(*focus).map(|field| {
+                field.follows = false;
+                &mut field.text
+            }),
             _ => None,
         }
     }
@@ -288,12 +493,14 @@ impl Sheet {
         if let Some(text) = self.text_mut() {
             text.extend(typed.chars().filter(|c| !c.is_control()));
         }
+        self.follow();
     }
 
     pub fn backspace(&mut self) {
         if let Some(text) = self.text_mut() {
             text.pop();
         }
+        self.follow();
     }
 
     pub fn enter(&self) -> Option<Pick> {
@@ -307,6 +514,10 @@ impl Sheet {
                 .first()
                 .map(|item| Pick::Choice(item.code.clone())),
             Sheet::Secret { text, .. } if !text.is_empty() => Some(Pick::Command(text.clone())),
+            Sheet::Form { fields, focus, .. } if focus + 1 < fields.len() => {
+                Some(Pick::Focus(focus + 1))
+            }
+            Sheet::Form { .. } => self.submit(),
             _ => None,
         }
     }
@@ -321,8 +532,19 @@ impl Sheet {
             Sheet::Picker { .. } => 0,
             Sheet::Files { entries, .. } => entries.len(),
             Sheet::Choices { items, text, .. } => matching(items, text).len(),
-            Sheet::Capture { .. } | Sheet::Secret { .. } => 0,
+            Sheet::Capture { .. } | Sheet::Secret { .. } | Sheet::Form { .. } => 0,
             Sheet::Info { lines, .. } => lines.len(),
+            Sheet::Faces { stock, .. } => stock.len(),
+        }
+    }
+
+    fn content_height(&self, list: Rect) -> f64 {
+        match self {
+            Sheet::Faces { stock, .. } => {
+                let (_, down) = face_grid(list.size.x, stock.len());
+                down as f64 * (FACE_CELL + FACE_GAP) + FACE_GAP
+            }
+            _ => self.count() as f64 * self.row_height(),
         }
     }
 
@@ -338,22 +560,24 @@ impl Sheet {
             Sheet::Picker { scroll, .. }
             | Sheet::Files { scroll, .. }
             | Sheet::Choices { scroll, .. }
-            | Sheet::Info { scroll, .. } => *scroll,
-            Sheet::Capture { .. } | Sheet::Secret { .. } => 0.0,
+            | Sheet::Info { scroll, .. }
+            | Sheet::Faces { scroll, .. } => *scroll,
+            Sheet::Capture { .. } | Sheet::Secret { .. } | Sheet::Form { .. } => 0.0,
         }
     }
 
     pub fn scroll_by(&mut self, size: Vec2, by: f64) {
         let list = frame(size, self).list;
-        let most = (self.count() as f64 * self.row_height() - list.size.y).max(0.0);
+        let most = (self.content_height(list) - list.size.y).max(0.0);
         match self {
             Sheet::Picker { scroll, .. }
             | Sheet::Files { scroll, .. }
             | Sheet::Choices { scroll, .. }
-            | Sheet::Info { scroll, .. } => {
+            | Sheet::Info { scroll, .. }
+            | Sheet::Faces { scroll, .. } => {
                 *scroll = (*scroll + by).clamp(0.0, most);
             }
-            Sheet::Capture { .. } | Sheet::Secret { .. } => {}
+            Sheet::Capture { .. } | Sheet::Secret { .. } | Sheet::Form { .. } => {}
         }
     }
 
@@ -381,6 +605,8 @@ impl Sheet {
             } => Some(("Use the app's icon", Pick::Default)),
             Sheet::Capture { .. } => Some(("No shortcut", Pick::Default)),
             Sheet::Secret { text, .. } => Some(("Join", Pick::Command(text.clone()))),
+            Sheet::Form { go, .. } => self.submit().map(|pick| (*go, pick)),
+            Sheet::Faces { .. } => Some(("Choose a file…", Pick::Browse)),
             Sheet::Files { .. } | Sheet::Choices { .. } | Sheet::Info { .. } => None,
         }
     }
@@ -393,8 +619,10 @@ impl Sheet {
     }
 
     fn title(&self) -> &str {
-        if let Sheet::Capture { title, .. } | Sheet::Secret { title, .. } | Sheet::Info { title, .. } =
-            self
+        if let Sheet::Capture { title, .. }
+        | Sheet::Secret { title, .. }
+        | Sheet::Info { title, .. }
+        | Sheet::Form { title, .. } = self
         {
             return title;
         }
@@ -424,6 +652,12 @@ impl Sheet {
             For::Export => "Choose where to save the settings",
             For::Wifi(_) => "Join a network",
             For::NetInfo(_) => "Network details",
+            For::MyName => "Change your full name",
+            For::MyPassword => "Change your password",
+            For::MyFace | For::NewFace => "Choose a picture",
+            For::AddUser => "Add a user",
+            For::RemoveUser(_) => "Remove a user",
+            For::MakeAdmin(_) => "Change a user",
         }
     }
 
@@ -439,6 +673,30 @@ impl Sheet {
                 Pick::Command(text) if text.is_empty() => None,
                 pick => Some(pick),
             };
+        }
+        if let Sheet::Form { fields, .. } = self {
+            let form = form_frame(frame.card, self);
+            if let Some(at) = form.fields.iter().position(|rect| rect.contains(pointer)) {
+                return (at < fields.len()).then_some(Pick::Focus(at));
+            }
+            if form.switch.is_some_and(|rect| rect.contains(pointer)) {
+                return Some(Pick::Toggle);
+            }
+            if form.face.is_some_and(|rect| rect.contains(pointer)) {
+                return Some(Pick::Face);
+            }
+            return None;
+        }
+        if let Sheet::Faces { stock, scroll, .. } = self {
+            if !frame.list.contains(pointer) {
+                return None;
+            }
+            let inside = pointer - frame.list.origin + Vec2::new(0.0, *scroll);
+            return face_cells(frame.list.size.x, stock.len())
+                .iter()
+                .position(|cell| cell.contains(inside))
+                .and_then(|at| stock.get(at))
+                .map(|path| Pick::File(path.clone()));
         }
         if let Some(tabs) = frame.tabs {
             let half = Rect::new(tabs.origin, Vec2::new(tabs.size.x / 2.0, tabs.size.y));
@@ -657,6 +915,22 @@ impl Sheet {
                 }
             }
             Sheet::Info { lines, scroll, .. } => paint_info(canvas, look, fonts, frame.list, lines, *scroll),
+            Sheet::Form { .. } => self.paint_form(canvas, look, fonts, icons, frame.card),
+            Sheet::Faces {
+                stock,
+                chosen,
+                scroll,
+                ..
+            } => paint_faces(
+                canvas,
+                look,
+                fonts,
+                icons,
+                frame.list,
+                stock,
+                chosen.as_deref(),
+                *scroll,
+            ),
             _ => self.paint_list(canvas, look, fonts, icons, frame.list),
         }
 
@@ -664,6 +938,102 @@ impl Sheet {
         if let Some((label, pick)) = self.primary() {
             let off = matches!(&pick, Pick::Command(text) if text.is_empty());
             button(canvas, look, fonts, frame.primary, label, !off);
+        } else if let Sheet::Form { go, .. } = self {
+            button(canvas, look, fonts, frame.primary, go, false);
+        }
+    }
+
+    fn paint_form(
+        &self,
+        canvas: &mut Canvas,
+        look: &Look,
+        fonts: &Fonts,
+        icons: &HashMap<String, Image>,
+        card: Rect,
+    ) {
+        let Sheet::Form {
+            fields,
+            focus,
+            switch,
+            face,
+            note,
+            busy,
+            ..
+        } = self
+        else {
+            return;
+        };
+        let form = form_frame(card, self);
+        if let (Some(spot), Some(picture)) = (form.face, face) {
+            paint_face(canvas, look, icons, spot, picture.as_deref());
+            let hint = fonts
+                .small
+                .paint("Click the picture to choose another.", look.dim);
+            let at = Vec2::new(
+                spot.max().x + 16.0,
+                spot.center().y - f64::from(hint.height) / 2.0,
+            );
+            canvas.stamp(&hint, at, 1.0);
+        }
+        for (at, (field, rect)) in fields.iter().zip(&form.fields).enumerate() {
+            let label = fonts.small.paint(field.label, look.dim);
+            canvas.stamp(&label, rect.origin - Vec2::new(-2.0, 20.0), 1.0);
+            let mine = at == *focus && !busy;
+            canvas.round_rect(*rect, 7.0, if mine { look.accent } else { look.rule }, 1.0);
+            let inner = Rect::new(rect.origin + Vec2::splat(1.5), rect.size - Vec2::splat(3.0));
+            canvas.round_rect(inner, 6.0, look.back, 1.0);
+            let dots = "•".repeat(field.text.chars().count());
+            let shown = match field.secret {
+                true => dots.as_str(),
+                false => field.text.as_str(),
+            };
+            let room = rect.size.x - 24.0;
+            let painted = fonts.body.paint(&fit_left(fonts.body, shown, room), look.ink);
+            let left = Vec2::new(
+                rect.origin.x + 12.0,
+                rect.center().y - f64::from(painted.height) / 2.0,
+            );
+            if !shown.is_empty() {
+                canvas.stamp(&painted, left, 1.0);
+            }
+            if mine {
+                let caret_x = match shown.is_empty() {
+                    true => left.x,
+                    false => left.x + f64::from(painted.width) + 1.0,
+                };
+                let caret = Rect::new(
+                    Vec2::new(caret_x, rect.center().y - 8.0),
+                    Vec2::new(1.5, 16.0),
+                );
+                canvas.round_rect(caret, 0.0, look.accent, 1.0);
+            }
+        }
+        if let (Some(row), Some((label, on))) = (form.switch, switch) {
+            let text = fonts.body.paint(
+                &fit_left(fonts.body, label, row.size.x - 70.0),
+                look.ink,
+            );
+            canvas.stamp(
+                &text,
+                Vec2::new(row.origin.x + 2.0, row.center().y - f64::from(text.height) / 2.0),
+                1.0,
+            );
+            let pill = Rect::new(
+                Vec2::new(row.max().x - look.switch.x, row.center().y - look.switch.y / 2.0),
+                look.switch,
+            );
+            canvas.round_rect(pill, pill.size.y, if *on { look.accent } else { look.off }, 1.0);
+            let knob = pill.size.y / 2.0 - 2.0;
+            let cx = match on {
+                true => pill.max().x - 2.0 - knob,
+                false => pill.origin.x + 2.0 + knob,
+            };
+            canvas.circle(Vec2::new(cx, pill.center().y), knob, [255, 255, 255], 1.0);
+        }
+        if let Some(note) = note {
+            let room = form.note.size.x;
+            let text = fonts.small.paint(&fit_left(fonts.small, note, room), look.accent);
+            canvas.stamp(&text, form.note.origin, 1.0);
         }
     }
 
@@ -691,7 +1061,11 @@ impl Sheet {
                 .into_iter()
                 .map(|item| (item.name.clone(), None, false))
                 .collect(),
-            Sheet::Capture { .. } | Sheet::Secret { .. } | Sheet::Info { .. } => Vec::new(),
+            Sheet::Capture { .. }
+            | Sheet::Secret { .. }
+            | Sheet::Info { .. }
+            | Sheet::Form { .. }
+            | Sheet::Faces { .. } => Vec::new(),
         };
         if rows.is_empty() {
             let empty = fonts.small.paint("Nothing here", look.dim);
@@ -731,6 +1105,85 @@ impl Sheet {
         }
         canvas.stamp(&inside.image, list.origin, 1.0);
     }
+}
+
+pub fn paint_face(
+    canvas: &mut Canvas,
+    look: &Look,
+    icons: &HashMap<String, Image>,
+    spot: Rect,
+    picture: Option<&Path>,
+) {
+    let found = picture.and_then(|path| icons.get(&face_key(path, spot.size.x as u32)));
+    match found {
+        Some(image) => canvas.stamp(image, spot.center() - image.size() / 2.0, 1.0),
+        None => {
+            let r = spot.size.x / 2.0;
+            canvas.circle(spot.center(), r, look.off, 1.0);
+            canvas.circle(spot.center() - Vec2::new(0.0, r * 0.22), r * 0.3, look.dim, 1.0);
+            let body = Rect::new(
+                spot.center() + Vec2::new(-r * 0.5, r * 0.18),
+                Vec2::new(r, r * 0.5),
+            );
+            canvas.round_rect(body, r * 0.25, look.dim, 1.0);
+        }
+    }
+}
+
+fn face_grid(width: f64, count: usize) -> (usize, usize) {
+    let across = (((width - FACE_GAP) / (FACE_CELL + FACE_GAP)).floor() as usize).max(1);
+    (across, count.div_ceil(across))
+}
+
+fn face_cells(width: f64, count: usize) -> Vec<Rect> {
+    let (across, _) = face_grid(width, count);
+    let used = across as f64 * (FACE_CELL + FACE_GAP) - FACE_GAP;
+    let left = ((width - used) / 2.0).floor();
+    (0..count)
+        .map(|at| {
+            let (col, line) = (at % across, at / across);
+            Rect::new(
+                Vec2::new(
+                    left + col as f64 * (FACE_CELL + FACE_GAP),
+                    FACE_GAP + line as f64 * (FACE_CELL + FACE_GAP),
+                ),
+                Vec2::splat(FACE_CELL),
+            )
+        })
+        .collect()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn paint_faces(
+    canvas: &mut Canvas,
+    look: &Look,
+    fonts: &Fonts,
+    icons: &HashMap<String, Image>,
+    list: Rect,
+    stock: &[PathBuf],
+    chosen: Option<&Path>,
+    scroll: f64,
+) {
+    canvas.round_rect(list, 8.0, look.card, 1.0);
+    let mut inside = Canvas::new(list.size.x as u32, list.size.y as u32);
+    if stock.is_empty() {
+        let empty = fonts
+            .small
+            .paint("No pictures here yet. Choose a file instead.", look.dim);
+        inside.stamp(&empty, list.size / 2.0 - empty.size() / 2.0, 1.0);
+    }
+    for (path, cell) in stock.iter().zip(face_cells(list.size.x, stock.len())) {
+        let cell = Rect::new(cell.origin - Vec2::new(0.0, scroll), cell.size);
+        if cell.max().y < -8.0 || cell.origin.y > list.size.y + 8.0 {
+            continue;
+        }
+        if chosen == Some(path.as_path()) {
+            inside.circle(cell.center(), FACE_CELL / 2.0 + 4.0, look.accent, 1.0);
+            inside.circle(cell.center(), FACE_CELL / 2.0 + 1.5, look.card, 1.0);
+        }
+        paint_face(&mut inside, look, icons, cell, Some(path));
+    }
+    canvas.stamp(&inside.image, list.origin, 1.0);
 }
 
 pub fn letter(canvas: &mut Canvas, look: &Look, fonts: &Fonts, spot: Rect, name: &str) {
@@ -826,6 +1279,67 @@ fn fit_left(font: &crate::text::Font, text: &str, width: f64) -> String {
     "…".to_string()
 }
 
+struct FormFrame {
+    face: Option<Rect>,
+    fields: Vec<Rect>,
+    switch: Option<Rect>,
+    note: Rect,
+}
+
+fn form_tall(sheet: &Sheet) -> f64 {
+    let Sheet::Form {
+        fields,
+        switch,
+        face,
+        ..
+    } = sheet
+    else {
+        return 0.0;
+    };
+    let face = if face.is_some() { AVATAR + 14.0 } else { 0.0 };
+    let switch = if switch.is_some() { SWITCH } else { 0.0 };
+    56.0 + face + fields.len() as f64 * FIELD + switch + NOTE + 50.0
+}
+
+fn form_frame(card: Rect, sheet: &Sheet) -> FormFrame {
+    let x = card.origin.x + 20.0;
+    let width = card.size.x - 40.0;
+    let mut y = card.origin.y + 56.0;
+    let (count, has_switch, has_face) = match sheet {
+        Sheet::Form {
+            fields,
+            switch,
+            face,
+            ..
+        } => (fields.len(), switch.is_some(), face.is_some()),
+        _ => (0, false, false),
+    };
+    let face = has_face.then(|| {
+        let spot = Rect::new(Vec2::new(x, y), Vec2::splat(AVATAR));
+        y += AVATAR + 14.0;
+        spot
+    });
+    let fields = (0..count)
+        .map(|_| {
+            let rect = Rect::new(Vec2::new(x, y + 20.0), Vec2::new(width, 32.0));
+            y += FIELD;
+            rect
+        })
+        .collect();
+    let switch = has_switch.then(|| {
+        let row = Rect::new(Vec2::new(x, y), Vec2::new(width, 30.0));
+        y += SWITCH;
+        row
+    });
+    let note = Rect::new(Vec2::new(x, y + 4.0), Vec2::new(width, 20.0));
+    FormFrame {
+        face,
+        fields,
+        switch,
+        note,
+    }
+}
+
 struct Frame {
     card: Rect,
     tabs: Option<Rect>,
@@ -840,6 +1354,7 @@ fn frame(size: Vec2, sheet: &Sheet) -> Frame {
     let wide = (size.x - 60.0).clamp(300.0, 500.0);
     let tall = match sheet {
         Sheet::Secret { .. } => 240.0,
+        Sheet::Form { .. } => form_tall(sheet).min((size.y - 20.0).max(240.0)),
         _ => (size.y - 60.0).clamp(300.0, 500.0),
     };
     let card = Rect::new(
@@ -862,7 +1377,7 @@ fn frame(size: Vec2, sheet: &Sheet) -> Frame {
         )
     });
     let top = match sheet {
-        Sheet::Info { .. } => card.origin.y + 54.0,
+        Sheet::Info { .. } | Sheet::Faces { .. } => card.origin.y + 54.0,
         _ => card.origin.y + 90.0,
     };
     let list = Rect::new(
@@ -910,6 +1425,131 @@ mod tests {
         assert_eq!(sheet.enter(), Some(Pick::Command("drift pas1".to_string())));
         assert_eq!(sheet.purpose(), For::Wifi(2));
         assert_eq!(sheet.title(), "Join DrifterNet");
+    }
+
+    fn add_user() -> Sheet {
+        Sheet::form(
+            For::AddUser,
+            "Add a user",
+            vec![
+                Field::plain("Full name", ""),
+                Field::following("Account name"),
+                Field::secret("Password"),
+                Field::secret("Repeat password"),
+            ],
+            "Add User",
+        )
+        .with_switch("Allow this user to administer the computer", false)
+        .with_face(Some(PathBuf::from("/faces/cat.png")))
+    }
+
+    #[test]
+    fn the_account_name_follows_the_full_name_until_it_is_typed_in() {
+        let mut sheet = add_user();
+        assert!(sheet.typing());
+        sheet.type_text("Ann Lee");
+        let texts = |sheet: &Sheet| match sheet {
+            Sheet::Form { fields, .. } => fields.iter().map(|f| f.text.clone()).collect::<Vec<_>>(),
+            _ => Vec::new(),
+        };
+        assert_eq!(texts(&sheet)[1], "annlee");
+        sheet.backspace();
+        assert_eq!(texts(&sheet)[1], "annle");
+        sheet.focus(1);
+        sheet.backspace();
+        sheet.type_text("x");
+        sheet.focus(0);
+        sheet.type_text("e");
+        assert_eq!(texts(&sheet)[0], "Ann Lee");
+        assert_eq!(texts(&sheet)[1], "annlx", "a typed account name stays put");
+    }
+
+    #[test]
+    fn enter_walks_the_fields_then_submits_with_the_switch() {
+        let mut sheet = add_user();
+        sheet.type_text("Ann");
+        assert_eq!(sheet.enter(), Some(Pick::Focus(1)));
+        sheet.focus(3);
+        sheet.type_text("pw");
+        sheet.toggle();
+        assert_eq!(
+            sheet.enter(),
+            Some(Pick::Submit {
+                texts: vec!["Ann".into(), "ann".into(), "".into(), "pw".into()],
+                on: true,
+            })
+        );
+        sheet.next_field();
+        sheet.type_text("q");
+        match &sheet {
+            Sheet::Form { fields, focus, .. } => {
+                assert_eq!(*focus, 0, "tab wraps to the first field");
+                assert_eq!(fields[0].text, "Annq");
+            }
+            _ => panic!("not a form"),
+        }
+    }
+
+    #[test]
+    fn a_busy_form_takes_no_typing_and_cannot_submit_twice() {
+        let mut sheet = add_user();
+        sheet.type_text("Ann");
+        sheet.work(Some("Adding Ann…"), true);
+        sheet.type_text("x");
+        assert_eq!(sheet.enter(), Some(Pick::Focus(1)));
+        sheet.focus(3);
+        assert_eq!(sheet.enter(), None);
+        assert_eq!(sheet.hit(SIZE, frame(SIZE, &sheet).primary.center()), None);
+        sheet.work(Some("That name is taken."), false);
+        assert!(matches!(sheet.enter(), Some(Pick::Submit { .. })));
+        match &sheet {
+            Sheet::Form { fields, note, .. } => {
+                assert_eq!(fields[0].text, "Ann");
+                assert_eq!(note.as_deref(), Some("That name is taken."));
+            }
+            _ => panic!("not a form"),
+        }
+    }
+
+    #[test]
+    fn clicks_on_a_form_find_the_field_the_switch_and_the_picture() {
+        let mut sheet = add_user();
+        let card = frame(SIZE, &sheet).card;
+        let form = form_frame(card, &sheet);
+        assert_eq!(sheet.hit(SIZE, form.fields[2].center()), Some(Pick::Focus(2)));
+        assert_eq!(sheet.hit(SIZE, form.switch.unwrap().center()), Some(Pick::Toggle));
+        assert_eq!(sheet.hit(SIZE, form.face.unwrap().center()), Some(Pick::Face));
+        assert!(form.note.max().y <= frame(SIZE, &sheet).cancel.origin.y, "the note sits above the buttons");
+        sheet.put_face(PathBuf::from("/faces/ball.png"));
+        assert_eq!(sheet.face(), Some(PathBuf::from("/faces/ball.png")));
+    }
+
+    #[test]
+    fn a_picture_grid_picks_the_clicked_picture_and_offers_a_file() {
+        let stock: Vec<PathBuf> = (0..30).map(|at| PathBuf::from(format!("/faces/{at}.png"))).collect();
+        let mut sheet = Sheet::faces(For::MyFace, stock.clone(), None);
+        let frame_now = frame(SIZE, &sheet);
+        let cells = face_cells(frame_now.list.size.x, stock.len());
+        let second = cells[1].center() + frame_now.list.origin;
+        assert_eq!(sheet.hit(SIZE, second), Some(Pick::File(stock[1].clone())));
+        assert_eq!(sheet.hit(SIZE, frame_now.primary.center()), Some(Pick::Browse));
+        sheet.scroll_by(SIZE, 10_000.0);
+        let Sheet::Faces { scroll, .. } = &sheet else {
+            panic!("not faces");
+        };
+        assert!(*scroll > 0.0, "thirty pictures scroll");
+        let last = cells[29];
+        let shown = last.center() + frame_now.list.origin - Vec2::new(0.0, *scroll);
+        assert!(frame_now.list.contains(shown), "the last picture can be reached");
+        assert_eq!(sheet.hit(SIZE, shown), Some(Pick::File(stock[29].clone())));
+    }
+
+    #[test]
+    fn face_keys_carry_their_size_and_path() {
+        let key = face_key(Path::new("/var/lib/AccountsService/icons/dh"), 72);
+        assert_eq!(key, "face:72:/var/lib/AccountsService/icons/dh");
+        assert_eq!(face_of(&key), Some((72, PathBuf::from("/var/lib/AccountsService/icons/dh"))));
+        assert_eq!(face_of("app:foo"), None);
     }
 
     fn apps() -> Vec<App> {

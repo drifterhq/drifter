@@ -44,7 +44,7 @@ extended-description = "A Wayland desktop where the window manager is a camera o
 section = "x11"
 priority = "optional"
 depends = "$auto, libegl1, libgles2, pipewire, wireplumber, xdg-desktop-portal, xdg-desktop-portal-wlr, xdg-desktop-portal-gtk, seatd | systemd"
-recommends = "network-manager-gnome, blueman, udisks2, power-profiles-daemon, iw, xwayland, foot, grim"
+recommends = "network-manager-gnome, blueman, udisks2, power-profiles-daemon, iw, xwayland, foot, grim, accountsservice, openssl"
 assets = [
     ["target/release/drifter", "usr/bin/", "755"],
     ["target/release/drifter-settings", "usr/bin/", "755"],
@@ -59,5 +59,6 @@ assets = [
     ["../../livepapers/*", "usr/share/drifter/livepapers/", "644"],
     ["../../img/dock/*", "usr/share/drifter/img/dock/", "644"],
     ["../../img/window/*", "usr/share/drifter/img/window/", "644"],
+    ["../../img/users/*", "usr/share/drifter/img/users/", "644"],
     ["../../fonts/*", "usr/share/drifter/fonts/", "644"],
 ]
