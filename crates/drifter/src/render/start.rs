@@ -432,7 +432,14 @@ pub fn open(
         verify: verify_tx,
         tickets: 0,
         power,
-        look: Look::themed(&palette),
+        look: Look {
+            accent: config
+                .appearance
+                .accent
+                .map(|accent| accent.color())
+                .unwrap_or(drifter_core::menu::ACCENT),
+            ..Look::themed(&palette)
+        },
         palette,
         tray_raw: Vec::new(),
         frost_key: None,

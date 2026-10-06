@@ -71,13 +71,17 @@ pub struct Look {
     pub back: [u8; 3],
     pub back_alpha: u8,
     pub hover: [u8; 3],
+    pub accent: [u8; 3],
+    pub on_accent: [u8; 3],
 }
+
+pub const ACCENT: [u8; 3] = [10, 122, 255];
 
 impl Look {
     pub fn themed(p: &crate::theme::Palette) -> Look {
         Look {
-            pad: 6.0,
-            item: 26.0,
+            pad: 5.0,
+            item: 24.0,
             rule: 9.0,
             radius: 8.0,
             least_width: 160.0,
@@ -87,6 +91,8 @@ impl Look {
             back: p.back,
             back_alpha: 246,
             hover: p.hover,
+            accent: ACCENT,
+            on_accent: [255, 255, 255],
         }
     }
 }
@@ -189,13 +195,22 @@ impl Look {
                 paint_rule(&mut image, self.pad, size.x - self.pad, line, self.dim);
                 continue;
             }
-            if hover == Some(index) {
-                fill(&mut image, rect, self.hover);
+            let lit = hover == Some(index) && item.enabled;
+            if lit {
+                let bar = Rect::new(
+                    Vec2::new(rect.origin.x + self.pad, rect.origin.y + 1.0),
+                    Vec2::new(rect.size.x - self.pad * 2.0, rect.size.y - 2.0),
+                );
+                fill_round(&mut image, bar, 5.0, self.accent);
             }
             let Some(font) = font else {
                 continue;
             };
-            let ink = if item.enabled { self.ink } else { self.dim };
+            let ink = match (lit, item.enabled) {
+                (true, _) => self.on_accent,
+                (false, true) => self.ink,
+                (false, false) => self.dim,
+            };
             if item.children {
                 let tip = Vec2::new(size.x - self.pad * 2.0, rect.center().y);
                 paint_arrow(&mut image, tip, ink);
@@ -249,6 +264,29 @@ pub(crate) fn corner(px: f64, py: f64, size: Vec2, radius: f64) -> f64 {
         }
     }
     px.min(size.x - px).min(py).min(size.y - py)
+}
+
+pub(crate) fn fill_round(image: &mut Image, rect: Rect, radius: f64, color: [u8; 3]) {
+    let from_y = rect.origin.y.max(0.0) as u32;
+    let to_y = (rect.max().y.min(f64::from(image.height))).ceil() as u32;
+    let from_x = rect.origin.x.max(0.0) as u32;
+    let to_x = (rect.max().x.min(f64::from(image.width))).ceil() as u32;
+    for y in from_y..to_y {
+        for x in from_x..to_x {
+            let local = Vec2::new(f64::from(x) + 0.5, f64::from(y) + 0.5) - rect.origin;
+            let cover = (corner(local.x, local.y, rect.size, radius) + 0.5).clamp(0.0, 1.0);
+            if cover <= 0.0 {
+                continue;
+            }
+            let index = ((y as usize) * (image.width as usize) + x as usize) * 4;
+            for (channel, value) in color.iter().enumerate() {
+                let was = f64::from(image.rgba[index + channel]);
+                image.rgba[index + channel] = (f64::from(*value) * cover + was * (1.0 - cover)).round() as u8;
+            }
+            let was = f64::from(image.rgba[index + 3]);
+            image.rgba[index + 3] = (255.0 * cover + was * (1.0 - cover)).round() as u8;
+        }
+    }
 }
 
 pub(crate) fn fill(image: &mut Image, rect: Rect, color: [u8; 3]) {
@@ -486,15 +524,18 @@ mod tests {
     }
 
     #[test]
-    fn the_hovered_item_is_lighter_than_the_rest() {
+    fn the_hovered_item_is_a_solid_accent_bar_inset_from_the_edges() {
         let look = Look::default();
         let items = items();
         let size = look.size(&items, None);
-        let plain = look.paint(&items, size, None, None);
         let lit = look.paint(&items, size, Some(0), None);
         let row = look.item_rect(&items, size, 0).center();
-        let at = ((row.y as usize) * (plain.width as usize) + (size.x / 2.0) as usize) * 4;
-        assert!(lit.rgba[at] > plain.rgba[at]);
+        let px = |x: f64| {
+            let at = ((row.y as usize) * (lit.width as usize) + x as usize) * 4;
+            [lit.rgba[at], lit.rgba[at + 1], lit.rgba[at + 2], lit.rgba[at + 3]]
+        };
+        assert_eq!(px(size.x / 2.0), [ACCENT[0], ACCENT[1], ACCENT[2], 255]);
+        assert_ne!(px(1.0)[2], ACCENT[2], "the bar stops short of the menu edge");
     }
 
     #[test]

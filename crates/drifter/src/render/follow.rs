@@ -218,6 +218,10 @@ impl State {
         if palette != self.palette {
             self.recolor(config, palette);
         }
+        self.look.accent = look
+            .accent
+            .map(|accent| accent.color())
+            .unwrap_or(drifter_core::menu::ACCENT);
         if paths == self.asset_paths && !cursor_moved && was.icons == look.icons {
             return;
         }
