@@ -17,7 +17,7 @@ sudo dnf install -y --skip-unavailable \
 
 sudo dnf install -y --skip-unavailable \
     xorg-x11-server-Xwayland xwayland-satellite foot grim slurp wf-recorder \
-    pipewire wireplumber xdg-desktop-portal xdg-desktop-portal-wlr xdg-desktop-portal-gtk \
+    pipewire wireplumber xdg-desktop-portal xdg-desktop-portal-wlr xdg-desktop-portal-gtk wlr-randr kanshi \
     network-manager-applet blueman udisks2 iw accountsservice openssl \
     libnotify pulseaudio-utils
 
