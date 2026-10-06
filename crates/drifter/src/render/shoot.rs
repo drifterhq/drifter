@@ -35,7 +35,8 @@ pub(super) struct Thumb {
 pub(super) struct Inks {
     pub cross: TextureBuffer<Tex>,
     pub accent: TextureBuffer<Tex>,
-    pub black: TextureBuffer<Tex>,
+    pub sides: Vec<TextureBuffer<Tex>>,
+    pub shades: Vec<TextureBuffer<Tex>>,
 }
 
 impl State {
@@ -75,16 +76,23 @@ impl State {
                 rgba: vec![rgb[0], rgb[1], rgb[2], 255],
             };
             let cross = grab::paint_cross(CROSS);
+            let mut four = |rgb: [u8; 3], what: &str| -> Vec<TextureBuffer<Tex>> {
+                (0..4)
+                    .filter_map(|_| upload(&mut self.renderer, Some(&pixel(rgb)), what).ok().flatten())
+                    .collect()
+            };
+            let sides = four([255, 255, 255], "selection edge");
+            let shades = four([0, 0, 0], "selection shade");
             let made = (
                 upload(&mut self.renderer, Some(&cross), "crosshair"),
                 upload(&mut self.renderer, Some(&pixel(self.look.accent)), "accent"),
-                upload(&mut self.renderer, Some(&pixel([0, 0, 0])), "shade"),
             );
-            if let (Ok(Some(cross)), Ok(Some(accent)), Ok(Some(black))) = made {
+            if let (Ok(Some(cross)), Ok(Some(accent)), 4, 4) = (made.0, made.1, sides.len(), shades.len()) {
                 self.shot_inks = Some((self.look.accent, Inks {
                     cross,
                     accent,
-                    black,
+                    sides,
+                    shades,
                 }));
             }
         }
@@ -553,7 +561,6 @@ impl State {
                 TimeoutAction::Drop
             },
         );
-        self.kick_now();
     }
 
     pub(super) fn press_thumb(&mut self, code: u32) -> bool {
@@ -648,26 +655,30 @@ impl State {
         if let Some(rect) = boxed {
             let thick = 1.0;
             let (o, s) = (rect.origin, rect.size);
-            for side in [
+            for (side, ink) in [
                 Rect::new(o, Vec2::new(s.x, thick)),
                 Rect::new(Vec2::new(o.x, o.y + s.y - thick), Vec2::new(s.x, thick)),
                 Rect::new(o, Vec2::new(thick, s.y)),
                 Rect::new(Vec2::new(o.x + s.x - thick, o.y), Vec2::new(thick, s.y)),
-            ] {
-                if let Some(plain) = self.plain.as_ref() {
-                    elements.push(Skin::Texture(element(plain, side, 0.9)));
-                }
+            ]
+            .into_iter()
+            .zip(&inks.sides)
+            {
+                elements.push(Skin::Texture(element(ink, side, 0.9)));
             }
             let screen = self.screen;
             let max = rect.max();
-            for shade in [
+            for (shade, ink) in [
                 Rect::new(Vec2::ZERO, Vec2::new(screen.x, o.y)),
                 Rect::new(Vec2::new(0.0, max.y), Vec2::new(screen.x, screen.y - max.y)),
                 Rect::new(Vec2::new(0.0, o.y), Vec2::new(o.x, s.y)),
                 Rect::new(Vec2::new(max.x, o.y), Vec2::new(screen.x - max.x, s.y)),
-            ] {
+            ]
+            .into_iter()
+            .zip(&inks.shades)
+            {
                 if shade.size.x > 0.0 && shade.size.y > 0.0 {
-                    elements.push(Skin::Texture(element(&inks.black, shade, 0.35)));
+                    elements.push(Skin::Texture(element(ink, shade, 0.35)));
                 }
             }
         }
