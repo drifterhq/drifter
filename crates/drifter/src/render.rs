@@ -99,6 +99,7 @@ render_elements! {
     pub Piece<R> where R: ImportAll;
     Texture=TextureRenderElement<<R as RendererSuper>::TextureId>,
     Client=RescaleRenderElement<WaylandSurfaceRenderElement<R>>,
+    Clipped=smithay::backend::renderer::element::utils::CropRenderElement<RescaleRenderElement<WaylandSurfaceRenderElement<R>>>,
 }
 
 type Skin = Piece<Painter>;
@@ -796,15 +797,21 @@ impl State {
             if dressed {
                 self.dress(shown, (awake, maximized), &title, fade, &mut elements);
             }
-            elements.extend(client.into_iter().map(|piece| {
-                Skin::Client(RescaleRenderElement::from_element(
-                    piece,
-                    anchor,
-                    zoom * stretch,
-                ))
+            let edge = self.on_screen(shown);
+            let crop = smithay::utils::Rectangle::<i32, smithay::utils::Physical>::new(
+                (edge.origin.x.round() as i32, edge.origin.y.round() as i32).into(),
+                (edge.size.x.round() as i32, edge.size.y.round() as i32).into(),
+            );
+            elements.extend(client.into_iter().filter_map(|piece| {
+                let scaled = RescaleRenderElement::from_element(piece, anchor, zoom * stretch);
+                smithay::backend::renderer::element::utils::CropRenderElement::from_element(
+                    scaled,
+                    smithay::utils::Scale::from(1.0),
+                    crop,
+                )
+                .map(Skin::Clipped)
             }));
-            let own_shadow = inset.x > 0.5 || inset.y > 0.5;
-            if !maximized && (dressed || !own_shadow) {
+            if !maximized {
                 self.cast_shadow(shown, dressed, awake, fade, &mut elements);
             }
         }
