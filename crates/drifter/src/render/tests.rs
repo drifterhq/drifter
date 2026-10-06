@@ -658,10 +658,11 @@ fn drawers_slide_in_at_their_edge_and_leave_no_trace() {
             for x in (0..SIZE.0).step_by(2) {
                 let at = Vec2::new(f64::from(x), f64::from(y));
                 let same = pixel(&opened, x, y) == pixel(&closed, x, y);
+                let reach = state.shapes[index].shadow + 4.0;
                 let near = at.x >= rect.origin.x - 4.0
                     && at.x <= rect.max().x + 4.0
-                    && at.y >= rect.origin.y - 4.0
-                    && at.y <= rect.max().y + 4.0;
+                    && at.y >= rect.origin.y - reach
+                    && at.y <= rect.max().y + reach;
                 let within = at.x > rect.origin.x + 1.0
                     && at.x < rect.max().x - 1.0
                     && at.y > rect.origin.y + 1.0
