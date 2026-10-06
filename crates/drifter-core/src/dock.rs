@@ -128,13 +128,17 @@ impl Dock {
         rules
     }
 
+    pub fn dot_side(&self) -> f64 {
+        (self.icon * 0.14).round().max(4.0)
+    }
+
     pub fn dot_rect(&self, band: Rect, pinned: usize, minimized: usize, slot: Slot) -> Rect {
         let icon = self.slot_rect(band, pinned, minimized, slot);
-        let side = (self.icon / 9.0).max(3.0).round();
+        let side = self.dot_side();
         Rect::new(
             Vec2::new(
                 icon.center().x - side / 2.0,
-                (icon.max().y + side).min(band.max().y - side - 1.0),
+                (icon.max().y + 4.0).min(band.max().y - side - 2.0),
             )
             .round(),
             Vec2::splat(side),

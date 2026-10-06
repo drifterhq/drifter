@@ -576,7 +576,7 @@ impl State {
                     let rect = self
                         .dock
                         .dot_rect(band, count, hidden.len(), Slot::Pinned(slot));
-                    elements.push(Skin::Texture(element(buffer, rect, 0.9)));
+                    elements.push(Skin::Texture(element(buffer, rect, 1.0)));
                 }
             }
         }

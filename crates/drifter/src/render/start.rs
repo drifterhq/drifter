@@ -303,10 +303,7 @@ pub fn open(
 
     let pinned = dock_items(&mut renderer, config, side, spare.as_ref())?;
 
-    let dot_image = drifter_core::dock::paint_dot(
-        (trash_look.icon / 9.0).max(3.0) as u32,
-        trash_look.rule_ink(),
-    );
+    let dot_image = drifter_core::dock::paint_dot(trash_look.dot_side() as u32, palette.ink);
     let dot = upload(&mut renderer, Some(&dot_image), "running dot")?;
     let glow_image =
         drifter_core::corner::paint_glow(drifter_core::corner::REACH as u32, [255, 214, 160]);

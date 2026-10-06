@@ -299,7 +299,7 @@ impl State {
         self.cog = cog;
         self.dock_spare = spare;
         let dock = drifter_core::dock::Dock::themed(&palette);
-        let dot = drifter_core::dock::paint_dot((dock.icon / 9.0).max(3.0) as u32, dock.rule_ink());
+        let dot = drifter_core::dock::paint_dot(dock.dot_side() as u32, palette.ink);
         if let Ok(Some(buffer)) = upload(&mut self.renderer, Some(&dot), "running dot") {
             self.dot = Some(buffer);
         }
