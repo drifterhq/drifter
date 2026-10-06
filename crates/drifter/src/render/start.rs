@@ -286,6 +286,9 @@ pub fn open(
     let trash_look = Dock::themed(&palette).sized(config.drawers.bottom);
     let side = trash_look.icon as u32;
     let (trash, cog, spare) = load_dock_art(&mut renderer, config, side, &palette);
+    let shadow_image = drifter_core::window::shadow_patch(chrome.radius, drifter_core::window::SHADOW_BLUR);
+    let window_shadow = upload(&mut renderer, Some(&shadow_image), "window shadow")?
+        .map(|buffer| (buffer, f64::from(shadow_image.width - 1) / 2.0));
     let power_image = drifter_core::tray::paint_power(tray.button as u32, tray.ink);
     let power = upload(&mut renderer, Some(&power_image), "power")?;
     let lock_big = Font::find(config.font_path(), 56.0).ok();
@@ -433,6 +436,7 @@ pub fn open(
         palette,
         tray_raw: Vec::new(),
         frost_key: None,
+        window_shadow,
         bounces: Vec::new(),
         dock_press: None,
         dock_drag: None,

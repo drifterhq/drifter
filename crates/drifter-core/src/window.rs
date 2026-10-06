@@ -565,6 +565,62 @@ impl Chrome {
     }
 }
 
+pub const SHADOW_BLUR: f64 = 30.0;
+
+pub fn shadow_patch(radius: f64, blur: f64) -> Image {
+    let corner = (blur + radius).ceil();
+    let side = (corner * 2.0 + 1.0) as u32;
+    let sigma = blur / 2.6;
+    let mut rgba = vec![0u8; (side * side * 4) as usize];
+    let inner_lo = blur;
+    let inner_hi = f64::from(side) - blur;
+    for y in 0..side {
+        for x in 0..side {
+            let p = Vec2::new(f64::from(x) + 0.5, f64::from(y) + 0.5);
+            let cx = p.x.clamp(inner_lo + radius, inner_hi - radius);
+            let cy = p.y.clamp(inner_lo + radius, inner_hi - radius);
+            let away = (p - Vec2::new(cx, cy)).length() - radius;
+            if away <= 0.0 {
+                continue;
+            }
+            let alpha = (-(away * away) / (2.0 * sigma * sigma)).exp();
+            rgba[((y * side + x) * 4 + 3) as usize] = (alpha * 255.0).round() as u8;
+        }
+    }
+    Image {
+        width: side,
+        height: side,
+        rgba,
+    }
+}
+
+pub fn shadow_slices(frame: Rect, corner: f64, zoom: f64, drop: f64) -> Vec<(Rect, Rect)> {
+    let c = corner * zoom;
+    let outer = Rect::new(
+        frame.origin - Vec2::splat(c - (corner - SHADOW_BLUR).max(0.0) * zoom) + Vec2::new(0.0, drop * zoom),
+        frame.size + Vec2::splat(2.0 * (c - (corner - SHADOW_BLUR).max(0.0) * zoom)),
+    );
+    let middle = Vec2::new((outer.size.x - 2.0 * c).max(0.0), (outer.size.y - 2.0 * c).max(0.0));
+    let cols = [(0.0, corner, outer.origin.x, c), (corner, 1.0, outer.origin.x + c, middle.x), (corner + 1.0, corner, outer.origin.x + c + middle.x, c)];
+    let rows = [(0.0, corner, outer.origin.y, c), (corner, 1.0, outer.origin.y + c, middle.y), (corner + 1.0, corner, outer.origin.y + c + middle.y, c)];
+    let mut out = Vec::new();
+    for (row, (sy, sh, dy, dh)) in rows.iter().enumerate() {
+        for (col, (sx, sw, dx, dw)) in cols.iter().enumerate() {
+            if row == 1 && col == 1 {
+                continue;
+            }
+            if *dw <= 0.0 || *dh <= 0.0 {
+                continue;
+            }
+            out.push((
+                Rect::new(Vec2::new(*sx, *sy), Vec2::new(*sw, *sh)),
+                Rect::new(Vec2::new(*dx, *dy), Vec2::new(*dw, *dh)),
+            ));
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
 

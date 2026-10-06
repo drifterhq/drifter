@@ -422,6 +422,7 @@ pub struct State {
     icons: Vec<(String, String, TextureBuffer<Tex>)>,
     tray_raw: Vec<crate::tray::Icon>,
     frost_key: Option<[i64; 6]>,
+    window_shadow: Option<(TextureBuffer<Tex>, f64)>,
     bounces: Vec<(String, Instant)>,
     dock_press: Option<(usize, Vec2)>,
     dock_drag: Option<dock::DockDrag>,
