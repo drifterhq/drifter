@@ -22,8 +22,7 @@ pub(super) struct DeskMenu {
 }
 
 pub(super) struct Ripple {
-    pub patch: drifter_core::Image,
-    pub water: drifter_core::ripple::Water,
+    pub fresh: std::sync::Arc<std::sync::Mutex<Option<drifter_core::Image>>>,
     pub area: Rect,
     pub since: Instant,
     pub art: Option<TextureBuffer<Tex>>,
@@ -113,13 +112,34 @@ impl State {
         };
         let area = drifter_core::ripple::region(at);
         let patch = drifter_core::ripple::capture(&paper.pyramid, &laid, area);
-        self.ripple = Some(Ripple {
-            patch,
-            water: drifter_core::ripple::Water::new(),
-            area,
-            since: Instant::now(),
-            art: None,
+        let since = Instant::now();
+        let fresh = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let out = std::sync::Arc::downgrade(&fresh);
+        let spawned = std::thread::Builder::new().name("ripple".into()).spawn(move || {
+            let mut water = drifter_core::ripple::Water::new();
+            loop {
+                let t = since.elapsed().as_secs_f64() / drifter_core::ripple::SECONDS;
+                if t >= 1.0 {
+                    return;
+                }
+                water.advance(t);
+                let image = water.render(&patch, t);
+                let Some(slot) = out.upgrade() else {
+                    return;
+                };
+                if let Ok(mut slot) = slot.lock() {
+                    *slot = Some(image);
+                }
+            }
         });
+        if spawned.is_ok() {
+            self.ripple = Some(Ripple {
+                fresh,
+                area,
+                since,
+                art: None,
+            });
+        }
     }
 
     pub(super) fn wind_the_ripple(&mut self) {
@@ -131,10 +151,13 @@ impl State {
             self.ripple = None;
             return;
         }
-        ripple.water.advance(t);
-        let image = ripple.water.render(&ripple.patch, t);
+        let Some(image) = ripple.fresh.lock().ok().and_then(|mut slot| slot.take()) else {
+            return;
+        };
         let art = upload(&mut self.renderer, Some(&image), "ripple").ok().flatten();
-        if let Some(ripple) = self.ripple.as_mut() {
+        if let Some(ripple) = self.ripple.as_mut()
+            && art.is_some()
+        {
             ripple.art = art;
         }
     }

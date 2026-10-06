@@ -165,7 +165,7 @@ impl Water {
             raw.map(|v| v / len)
         };
         let mut rgba = vec![0u8; (width * height_px * 4) as usize];
-        let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).min(8);
+        let threads = std::thread::available_parallelism().map_or(1, |n| n.get().saturating_sub(1).max(1)).min(8);
         let band = (height_px as usize).div_ceil(threads).max(1);
         let row = (width * 4) as usize;
         let paint = |first: u32, out: &mut [u8]| {

@@ -191,7 +191,7 @@ mod app_tests {
         assert!(icon.origin.y >= band.origin.y);
         assert!(dot.origin.y >= icon.max().y, "the dot sits under the icon");
         assert!(dot.max().y <= band.max().y, "the dot stays in the dock");
-        assert_eq!(Dock::default().sized(140.0).icon, 128.0);
+        assert_eq!(Dock::default().sized(170.0).icon, 128.0);
         assert_eq!(Dock::default().sized(20.0).icon, 24.0);
     }
 
