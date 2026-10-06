@@ -8,8 +8,7 @@ const PANEL_FADE: f64 = 0.12;
 #[derive(Clone)]
 pub(super) enum Pick {
     App(String),
-    Wallpaper(String),
-    MoreWallpapers,
+    Wallpaper,
     Settings,
     Power(Action),
 }
@@ -24,6 +23,7 @@ pub(super) struct DeskMenu {
 
 pub(super) struct Ripple {
     pub patch: drifter_core::Image,
+    pub water: drifter_core::ripple::Water,
     pub area: Rect,
     pub since: Instant,
     pub art: Option<TextureBuffer<Tex>>,
@@ -72,22 +72,9 @@ impl State {
             }
             groups.push(Entry::submenu(name, apps));
         }
-        let config = Config::load_from(&self.config_path).unwrap_or_default();
-        let mut papers = Vec::new();
-        for path in drifter_core::livepaper::installed(&config.livepaper_folders()) {
-            let Some(file) = path.file_name().map(|name| name.to_string_lossy().into_owned()) else {
-                continue;
-            };
-            let id = pick(picks, Pick::Wallpaper(file));
-            papers.push(Entry::action(id, &drifter_core::livepaper::name(&path)));
-        }
-        if !papers.is_empty() {
-            papers.push(Entry::rule());
-        }
-        papers.push(Entry::action(pick(picks, Pick::MoreWallpapers), "More Wallpapers…"));
         vec![
             Entry::submenu("Applications", groups),
-            Entry::submenu("Change Wallpaper", papers),
+            Entry::action(pick(picks, Pick::Wallpaper), "Change Wallpaper…"),
             Entry::rule(),
             Entry::action(pick(picks, Pick::Settings), "Settings…"),
             Entry::rule(),
@@ -128,6 +115,7 @@ impl State {
         let patch = drifter_core::ripple::capture(&paper.pyramid, &laid, area);
         self.ripple = Some(Ripple {
             patch,
+            water: drifter_core::ripple::Water::new(),
             area,
             since: Instant::now(),
             art: None,
@@ -135,7 +123,7 @@ impl State {
     }
 
     pub(super) fn wind_the_ripple(&mut self) {
-        let Some(ripple) = self.ripple.as_ref() else {
+        let Some(ripple) = self.ripple.as_mut() else {
             return;
         };
         let t = ripple.since.elapsed().as_secs_f64() / drifter_core::ripple::SECONDS;
@@ -143,7 +131,8 @@ impl State {
             self.ripple = None;
             return;
         }
-        let image = drifter_core::ripple::frame(&ripple.patch, t);
+        ripple.water.advance(t);
+        let image = ripple.water.render(&ripple.patch, t);
         let art = upload(&mut self.renderer, Some(&image), "ripple").ok().flatten();
         if let Some(ripple) = self.ripple.as_mut() {
             ripple.art = art;
@@ -381,10 +370,7 @@ impl State {
                 self.bounces.retain(|(held, _)| *held != app);
                 self.bounces.push((app, Instant::now()));
             }
-            Pick::Wallpaper(file) => {
-                self.save_key(|text| drifter_core::settings::write_word(text, "workspace", "wallpaper", &file));
-            }
-            Pick::MoreWallpapers => self.open_settings_at("wallpaper"),
+            Pick::Wallpaper => self.open_settings_at("wallpaper"),
             Pick::Settings => self.open_settings(),
             Pick::Power(Action::Lock) => {
                 self.lock_now();
