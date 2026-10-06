@@ -48,16 +48,12 @@ impl Dock {
     }
 
     pub fn sized(self, bar: f64) -> Dock {
-        let icon = (bar - 12.0).clamp(24.0, 128.0).round();
+        let icon = (bar * 0.82).clamp(24.0, 128.0).round();
         Dock {
             icon,
             gap: (icon * 0.08).round().max(2.0),
             ..self
         }
-    }
-
-    fn dot_room(&self) -> f64 {
-        self.dot_side() + 2.0
     }
 
     fn tail(&self) -> usize {
@@ -85,7 +81,7 @@ impl Dock {
 
     pub fn slot_rect(&self, band: Rect, pinned: usize, minimized: usize, slot: Slot) -> Rect {
         let step = self.icon + self.gap;
-        let y = band.origin.y + ((band.size.y - self.icon - self.dot_room()) / 2.0).max(0.0);
+        let y = band.origin.y + ((band.size.y - self.icon) / 2.0).max(0.0);
         let before_minimized = if pinned > 0 { self.divider } else { 0.0 };
         let tail = self.divider * self.splits(pinned, minimized) as f64;
         let place = match slot {
@@ -142,7 +138,7 @@ impl Dock {
     }
 
     pub fn dot_side(&self) -> f64 {
-        (self.icon * 0.14).round().max(4.0)
+        (self.icon * 0.08).round().max(3.0)
     }
 
     pub fn dot_rect(&self, band: Rect, pinned: usize, minimized: usize, slot: Slot) -> Rect {
@@ -151,7 +147,7 @@ impl Dock {
         Rect::new(
             Vec2::new(
                 icon.center().x - side / 2.0,
-                (icon.max().y + 1.0).min(band.max().y - side - 1.0),
+                (icon.max().y + (band.max().y - icon.max().y - side) / 2.0).max(icon.max().y),
             )
             .round(),
             Vec2::splat(side),
@@ -639,8 +635,9 @@ mod tests {
         let dock = Dock::default();
         let band = band();
         let icon = dock.slot_rect(band, 2, 0, Slot::Pinned(0));
-        let lift = (dock.dot_side() + 2.0) / 2.0;
-        assert!((icon.center().y + lift - band.center().y).abs() <= 0.5);
+        assert!((icon.center().y - band.center().y).abs() <= 0.5);
+        let dot = dock.dot_rect(band, 2, 0, Slot::Pinned(0));
+        assert!(dot.origin.y >= icon.max().y && dot.max().y <= band.max().y);
     }
 
     fn trash_pixel(image: &Image, x: u32, y: u32) -> [u8; 4] {
