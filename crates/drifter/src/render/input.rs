@@ -1070,9 +1070,12 @@ pub(super) fn set_up_touchpad(
     pad: &drifter_core::Touchpad,
     left_handed: bool,
 ) {
-    use smithay::reexports::input::{AccelProfile, ScrollMethod, TapButtonMap};
+    use smithay::reexports::input::{AccelProfile, ClickMethod, ScrollMethod, TapButtonMap};
     if device.config_left_handed_is_available() {
         let _ = device.config_left_handed_set(left_handed);
+    }
+    if device.config_click_methods().contains(&ClickMethod::Clickfinger) {
+        let _ = device.config_click_set_method(ClickMethod::Clickfinger);
     }
     let _ = device.config_tap_set_enabled(pad.tap);
     let _ = device.config_tap_set_button_map(TapButtonMap::LeftRightMiddle);
