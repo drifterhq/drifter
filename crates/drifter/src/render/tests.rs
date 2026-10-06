@@ -1584,7 +1584,7 @@ fn sticky_keys_hold_a_tapped_ctrl_for_the_next_key() {
 #[test]
 fn a_place_is_saved_with_the_keys_and_flown_back_to() {
     const SUPER: u32 = 133;
-    const SHIFT: u32 = 50;
+    const CTRL: u32 = 37;
     const THREE: u32 = 12;
     let mut run = start("places", &Config::default(), None);
     let folder = run.folder.clone();
@@ -1594,7 +1594,7 @@ fn a_place_is_saved_with_the_keys_and_flown_back_to() {
 
     let here = Camera::new(Vec2::new(5000.0, 3000.0), 0.5);
     look_at(state, here);
-    for (code, pressed) in [(SUPER, true), (SHIFT, true), (THREE, true), (THREE, false), (SHIFT, false), (SUPER, false)] {
+    for (code, pressed) in [(SUPER, true), (CTRL, true), (THREE, true), (THREE, false), (CTRL, false), (SUPER, false)] {
         state.key_in(code, pressed, 1);
     }
     let saved = Config::load_from(&state.config_path).unwrap();
@@ -1608,6 +1608,15 @@ fn a_place_is_saved_with_the_keys_and_flown_back_to() {
         state.key_in(code, pressed, 2);
     }
     assert!(state.flight.is_some(), "the camera flies to the place");
+
+    const SHIFT: u32 = 50;
+    const FOUR: u32 = 13;
+    for (code, pressed) in [(SUPER, true), (SHIFT, true), (FOUR, true), (FOUR, false), (SHIFT, false), (SUPER, false)] {
+        state.key_in(code, pressed, 3);
+    }
+    assert!(state.shooter.is_some(), "shift, super and 4 start a screenshot");
+    let saved = Config::load_from(&state.config_path).unwrap();
+    assert_eq!(saved.place.len(), 1, "and save no place");
     let deadline = Instant::now() + Duration::from_secs(3);
     while state.flight.is_some() && Instant::now() < deadline {
         state.steer();

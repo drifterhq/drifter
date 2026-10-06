@@ -42,7 +42,7 @@ pub fn go_key(slot: usize) -> String {
 }
 
 pub fn save_key(slot: usize) -> String {
-    format!("camera+shift+{slot}")
+    format!("camera+ctrl+{slot}")
 }
 
 pub fn dock_command(name: &str) -> String {

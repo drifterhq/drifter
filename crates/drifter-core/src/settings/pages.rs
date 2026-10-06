@@ -577,7 +577,7 @@ impl Model {
             header: Some("Places"),
             rows,
             footer: Some(
-                "Camera key + Shift + 1 to 9 saves this view. Camera key + 1 to 9 flies back."
+                "Camera key + Ctrl + 1 to 9 saves this view. Camera key + 1 to 9 flies back."
                     .into(),
             ),
             thumbs: None,
