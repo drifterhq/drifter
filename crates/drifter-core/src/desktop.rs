@@ -6,6 +6,8 @@ pub struct App {
     pub name: String,
     pub icon: Option<String>,
     pub exec: Option<String>,
+    pub words: String,
+    pub categories: Vec<String>,
 }
 
 pub fn roots() -> Vec<PathBuf> {
@@ -25,6 +27,8 @@ pub fn read(id: &str, text: &str) -> Option<App> {
     let mut exec = None;
     let mut kind = None;
     let mut hidden = false;
+    let mut words: Vec<String> = Vec::new();
+    let mut categories: Vec<String> = Vec::new();
     for line in text.lines() {
         let line = line.trim();
         if line.starts_with('[') {
@@ -43,6 +47,18 @@ pub fn read(id: &str, text: &str) -> Option<App> {
             "Icon" if icon.is_none() => icon = Some(value),
             "Exec" if exec.is_none() => exec = Some(value),
             "Type" => kind = Some(value),
+            "Categories" => {
+                categories.extend(value.split(';').filter(|word| !word.is_empty()).map(str::to_string));
+                words.extend(value.split(';').filter(|word| !word.is_empty()).map(str::to_lowercase));
+            }
+            "GenericName" | "Keywords" => {
+                words.extend(
+                    value
+                        .split([';', ' ', ','])
+                        .filter(|word| !word.is_empty())
+                        .map(str::to_lowercase),
+                );
+            }
             "NoDisplay" | "Hidden" if value == "true" => hidden = true,
             _ => {}
         }
@@ -55,6 +71,8 @@ pub fn read(id: &str, text: &str) -> Option<App> {
         name: name.unwrap_or_else(|| id.to_string()),
         icon,
         exec,
+        words: words.join(" "),
+        categories,
     })
 }
 

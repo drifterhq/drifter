@@ -32,7 +32,7 @@ pub fn apps(installed: &[crate::desktop::App]) -> Vec<Found> {
             title: app.name.clone(),
             detail: "Application".to_string(),
             key: app.id.clone(),
-            extra: app.id.clone(),
+            extra: format!("{} {}", app.id, app.words),
             icon: app.icon.clone(),
         })
         .collect()
@@ -347,6 +347,25 @@ mod tests {
         assert_eq!(rank("wireless", &all)[0].title, "Wi-Fi", "a setting is found by its words");
         assert!(rank("   ", &all).is_empty());
         assert!(rank("zzz", &all).is_empty());
+    }
+
+    #[test]
+    fn apps_are_found_by_their_generic_name_and_keywords() {
+        let foot = crate::desktop::read(
+            "foot",
+            "[Desktop Entry]\nType=Application\nName=Foot\nGenericName=Terminal\nKeywords=shell;prompt;command;commandline;\nCategories=System;TerminalEmulator;\n",
+        )
+        .unwrap();
+        let files = crate::desktop::read(
+            "pcmanfm",
+            "[Desktop Entry]\nType=Application\nName=PCManFM\nGenericName=File Manager\nKeywords=folder;manager;explore;disk;filesystem\nCategories=System;FileTools;FileManager;\n",
+        )
+        .unwrap();
+        let mut all = apps(&[foot, files]);
+        all.extend(settings());
+        assert_eq!(rank("terminal", &all)[0].title, "Foot");
+        assert_eq!(rank("folder", &all)[0].title, "PCManFM");
+        assert_eq!(rank("shell", &all)[0].title, "Foot");
     }
 
     #[test]

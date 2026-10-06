@@ -919,6 +919,8 @@ mod tests {
                 name: format!("App {n}"),
                 icon: None,
                 exec: Some(format!("app{n}")),
+                words: String::new(),
+                categories: Vec::new(),
             })
             .collect()
     }
