@@ -112,7 +112,7 @@ pub struct Look {
 impl Look {
     pub fn themed(p: &crate::theme::Palette, accent: [u8; 3]) -> Look {
         Look {
-            width: 320.0,
+            width: 344.0,
             pad: 12.0,
             tile: 60.0,
             gap: 10.0,
@@ -197,12 +197,12 @@ impl Look {
             let dot = Vec2::new(rect.origin.x + 26.0, rect.center().y);
             canvas.circle(dot, 15.0, if on { self.accent } else { self.off }, 1.0);
             symbol(&mut canvas, tile, dot, if on { [255, 255, 255] } else { self.ink });
-            let label = font.paint(tile.label(), self.ink);
-            let note = font.paint(&status.note(tile), self.dim);
             let x = rect.origin.x + 50.0;
-            let room = (rect.max().x - x - 6.0).max(1.0);
-            canvas.stamp(&clip(&label, room), Vec2::new(x, rect.center().y - f64::from(label.height) - 1.0), 1.0);
-            canvas.stamp(&clip(&note, room), Vec2::new(x, rect.center().y + 1.0), 1.0);
+            let room = (rect.max().x - x - 8.0).max(1.0);
+            let label = font.paint(&fit(font, tile.label(), room), self.ink);
+            let note = font.paint(&fit(font, &status.note(tile), room), self.dim);
+            canvas.stamp(&label, Vec2::new(x, rect.center().y - f64::from(label.height) - 1.0), 1.0);
+            canvas.stamp(&note, Vec2::new(x, rect.center().y + 1.0), 1.0);
         }
         for (which, (name, level)) in [
             ("Display", status.light),
@@ -229,18 +229,18 @@ impl Look {
     }
 }
 
-fn clip(image: &Image, room: f64) -> Image {
-    let width = (room as u32).min(image.width).max(1);
-    let mut rgba = Vec::with_capacity((width * image.height * 4) as usize);
-    for y in 0..image.height {
-        let at = (y * image.width * 4) as usize;
-        rgba.extend_from_slice(&image.rgba[at..at + (width * 4) as usize]);
+fn fit(font: &Font, text: &str, room: f64) -> String {
+    if font.width_of(text) <= room {
+        return text.to_string();
     }
-    Image {
-        width,
-        height: image.height,
-        rgba,
+    let mut out = String::new();
+    for c in text.chars() {
+        if font.width_of(&format!("{out}{c}…")) > room {
+            break;
+        }
+        out.push(c);
     }
+    format!("{}…", out.trim_end())
 }
 
 fn shape(canvas: &mut Canvas, at: Vec2, ink: [u8; 3], inside: impl Fn(f64, Vec2) -> f64) {
