@@ -47,6 +47,19 @@ impl Dock {
         self.ink
     }
 
+    pub fn sized(self, bar: f64) -> Dock {
+        let icon = (bar - 12.0).clamp(24.0, 128.0).round();
+        Dock {
+            icon,
+            gap: (icon * 0.08).round().max(2.0),
+            ..self
+        }
+    }
+
+    fn dot_room(&self) -> f64 {
+        self.dot_side() + 2.0
+    }
+
     fn tail(&self) -> usize {
         usize::from(self.settings) + usize::from(self.trash)
     }
@@ -72,7 +85,7 @@ impl Dock {
 
     pub fn slot_rect(&self, band: Rect, pinned: usize, minimized: usize, slot: Slot) -> Rect {
         let step = self.icon + self.gap;
-        let y = band.origin.y + (band.size.y - self.icon) / 2.0;
+        let y = band.origin.y + ((band.size.y - self.icon - self.dot_room()) / 2.0).max(0.0);
         let before_minimized = if pinned > 0 { self.divider } else { 0.0 };
         let tail = self.divider * self.splits(pinned, minimized) as f64;
         let place = match slot {
@@ -138,7 +151,7 @@ impl Dock {
         Rect::new(
             Vec2::new(
                 icon.center().x - side / 2.0,
-                (icon.max().y + 4.0).min(band.max().y - side - 2.0),
+                (icon.max().y + 1.0).min(band.max().y - side - 1.0),
             )
             .round(),
             Vec2::splat(side),
@@ -169,6 +182,21 @@ mod app_tests {
         assert!(same_app("org.gnome.Nautilus", "nautilus"));
         assert!(!same_app("foot", "footclient-x"));
         assert!(!same_app("", ""));
+    }
+
+    #[test]
+    fn the_icons_grow_with_the_dock_and_leave_room_for_the_dot() {
+        let dock = Dock::default().sized(64.0);
+        assert_eq!(dock.icon, 52.0);
+        assert_eq!(dock.gap, 4.0);
+        let band = Rect::new(Vec2::new(0.0, 1016.0), Vec2::new(1920.0, 64.0));
+        let icon = dock.slot_rect(band, 3, 0, Slot::Pinned(1));
+        let dot = dock.dot_rect(band, 3, 0, Slot::Pinned(1));
+        assert!(icon.origin.y >= band.origin.y);
+        assert!(dot.origin.y >= icon.max().y, "the dot sits under the icon");
+        assert!(dot.max().y <= band.max().y, "the dot stays in the dock");
+        assert_eq!(Dock::default().sized(140.0).icon, 128.0);
+        assert_eq!(Dock::default().sized(20.0).icon, 24.0);
     }
 
     #[test]
@@ -607,11 +635,12 @@ mod tests {
     }
 
     #[test]
-    fn the_icons_are_centered_in_the_band() {
+    fn the_icons_and_their_dot_are_centered_in_the_band() {
         let dock = Dock::default();
         let band = band();
         let icon = dock.slot_rect(band, 2, 0, Slot::Pinned(0));
-        assert_eq!(icon.center().y, band.center().y);
+        let lift = (dock.dot_side() + 2.0) / 2.0;
+        assert!((icon.center().y + lift - band.center().y).abs() <= 0.5);
     }
 
     fn trash_pixel(image: &Image, x: u32, y: u32) -> [u8; 4] {
@@ -801,7 +830,7 @@ mod tests {
         for slot in [Slot::Pinned(2), Slot::Minimized(0)] {
             assert!(dock.slot_rect(band, 3, 1, slot).max().x <= trash.origin.x);
         }
-        assert_eq!(trash.center().y, band.center().y);
+        assert_eq!(trash.center().y, dock.slot_rect(band, 3, 1, Slot::Pinned(0)).center().y);
     }
 
     #[test]

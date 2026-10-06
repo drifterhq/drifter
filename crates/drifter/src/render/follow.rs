@@ -298,7 +298,7 @@ impl State {
         self.trash = trash;
         self.cog = cog;
         self.dock_spare = spare;
-        let dock = drifter_core::dock::Dock::themed(&palette);
+        let dock = drifter_core::dock::Dock::themed(&palette).sized(self.shapes[Edge::Bottom.index()].height);
         let dot = drifter_core::dock::paint_dot(dock.dot_side() as u32, palette.ink);
         if let Ok(Some(buffer)) = upload(&mut self.renderer, Some(&dot), "running dot") {
             self.dot = Some(buffer);
@@ -471,7 +471,24 @@ impl State {
         self.dock.trash = config.dock.trash;
         self.apps_chosen = config.apps.clone();
         let wanted = (config.dock.clone(), config.apps.clone());
-        if self.pinned_from != wanted {
+        let resized = self.dock.sized(config.drawers.bottom);
+        let regrown = resized.icon != self.dock.icon;
+        if regrown {
+            self.dock = resized;
+            let side = self.dock.icon as u32;
+            let (trash, cog, spare) = load_dock_art(&mut self.renderer, config, side, &self.palette);
+            self.trash = trash;
+            self.cog = cog;
+            self.dock_spare = spare;
+            self.trash_full_art = None;
+            self.app_icons.clear();
+            self.no_icon.clear();
+            let dot = drifter_core::dock::paint_dot(self.dock.dot_side() as u32, self.palette.ink);
+            if let Ok(Some(buffer)) = upload(&mut self.renderer, Some(&dot), "running dot") {
+                self.dot = Some(buffer);
+            }
+        }
+        if self.pinned_from != wanted || regrown {
             let side = self.dock.icon as u32;
             match dock_items(&mut self.renderer, config, side, self.dock_spare.as_ref()) {
                 Ok(pinned) => {

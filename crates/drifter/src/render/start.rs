@@ -283,7 +283,7 @@ pub fn open(
         }
     };
 
-    let trash_look = Dock::themed(&palette);
+    let trash_look = Dock::themed(&palette).sized(config.drawers.bottom);
     let side = trash_look.icon as u32;
     let (trash, cog, spare) = load_dock_art(&mut renderer, config, side, &palette);
     let power_image = drifter_core::tray::paint_power(tray.button as u32, tray.ink);
@@ -394,7 +394,7 @@ pub fn open(
         dock: Dock {
             settings: config.dock.settings,
             trash: config.dock.trash,
-            ..Dock::default()
+            ..Dock::themed(&palette).sized(config.drawers.bottom)
         },
         pinned,
         pinned_from: (config.dock.clone(), config.apps.clone()),
