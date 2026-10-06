@@ -16,7 +16,16 @@ pub(super) fn dock_items(
                 .any(|held| held == item || (held.app().is_some() && held.app() == item.app()))
         })
         .collect();
-    wanted.extend(dock.pinned.iter().cloned());
+    let button = drifter_core::launchpad::button();
+    if dock.apps && !dock.pinned.contains(&button) {
+        wanted.insert(0, button);
+    }
+    wanted.extend(
+        dock.pinned
+            .iter()
+            .filter(|item| dock.apps || !drifter_core::launchpad::is_button(item))
+            .cloned(),
+    );
     let mut pinned = Vec::new();
     for item in wanted {
         let path = item
@@ -40,6 +49,10 @@ pub(super) fn dock_items(
             })
             .map(|image| image.scaled(side, side))
             .or_else(|| marked.then(|| drifter_core::place::icon(side)))
+            .or_else(|| {
+                drifter_core::launchpad::is_button(&item)
+                    .then(|| drifter_core::launchpad::paint_icon(side))
+            })
             .or_else(|| spare.cloned());
         let buffer = match art {
             Some(image) => upload(renderer, Some(&image), "dock icon")?,

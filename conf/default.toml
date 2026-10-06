@@ -135,6 +135,8 @@ terminal = true
 browser = true
 settings = true
 trash = true
+# The Apps button at the start of the dock opens a grid of every app.
+apps = true
 
 [window]
 # Which end of the title bar holds the buttons: left or right.

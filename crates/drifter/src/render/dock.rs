@@ -203,6 +203,10 @@ impl State {
         let Some(app) = apps.get(index) else {
             return true;
         };
+        if drifter_core::launchpad::is_button(&app.launch) {
+            self.toggle_launchpad();
+            return true;
+        }
         if let Some(name) = app.place.clone() {
             if !self.go_to_named_place(&name) {
                 eprintln!("drifter: the dock names a place that is gone: {name}");
@@ -308,6 +312,9 @@ impl State {
 
     fn builtin_switch(&self, launch: &drifter_core::Launch) -> Option<&'static str> {
         use drifter_core::desktop::Role;
+        if drifter_core::launchpad::is_button(launch) {
+            return Some("apps");
+        }
         let (dock, apps) = &self.pinned_from;
         [("files", Role::Files), ("terminal", Role::Terminal), ("browser", Role::Browser)]
             .into_iter()
@@ -358,7 +365,8 @@ impl State {
                 if !items.is_empty() {
                     items.push(Item::rule(99));
                 }
-                if app.place.is_none() {
+                let button = drifter_core::launchpad::is_button(&app.launch);
+                if app.place.is_none() && !button {
                     items.push(Item::line(1, "New Window"));
                 }
                 items.push(Item::line(

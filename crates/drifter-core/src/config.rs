@@ -105,6 +105,7 @@ impl Launch {
     pub fn name(&self) -> String {
         match (self.app(), self.command()) {
             (Some(app), _) => app.to_string(),
+            (None, Some(crate::launchpad::DOCK_COMMAND)) => "Apps".to_string(),
             (None, Some(command)) if crate::place::from_dock(command).is_some() => {
                 crate::place::from_dock(command).unwrap_or_default().to_string()
             }
@@ -280,6 +281,8 @@ pub struct DockConfig {
     pub settings: bool,
     #[serde(default = "yes")]
     pub trash: bool,
+    #[serde(default = "yes")]
+    pub apps: bool,
 }
 
 impl Default for DockConfig {
@@ -291,6 +294,7 @@ impl Default for DockConfig {
             browser: true,
             settings: true,
             trash: true,
+            apps: true,
         }
     }
 }

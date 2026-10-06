@@ -249,7 +249,7 @@ pub struct Model {
     pub autostart: bool,
     pub autostarts: Vec<crate::autostart::Entry>,
     pub dock: Vec<Launch>,
-    pub shows: [bool; 5],
+    pub shows: [bool; 6],
     pub defaults: [Option<Launch>; 3],
     pub system: [Option<String>; 3],
     pub wallpaper: Option<PathBuf>,
@@ -416,6 +416,7 @@ impl Model {
                 config.dock.browser,
                 config.dock.settings,
                 config.dock.trash,
+                config.dock.apps,
             ],
             defaults: Role::ALL.map(|role| config.apps.get(role).cloned()),
             system: Role::ALL.map(crate::desktop::system_default),
@@ -941,7 +942,8 @@ impl Model {
                             .map(|item| self.name_of(&item))
                             .unwrap_or_else(|| "None found".to_string()),
                         3 => "This window".to_string(),
-                        _ => "Opens the trash folder".to_string(),
+                        4 => "Opens the trash folder".to_string(),
+                        _ => "A grid of all your apps".to_string(),
                     };
                     rows.push(
                         Row::new(Id::DockShow(at), label, Control::Switch(self.shows[at]))
@@ -1513,7 +1515,7 @@ impl Model {
                 }
             }
             (Id::Title, Value::Switch(on)) => self.title = on,
-            (Id::DockShow(at), Value::Switch(on)) if at < 5 => self.shows[at] = on,
+            (Id::DockShow(at), Value::Switch(on)) if at < 6 => self.shows[at] = on,
             (Id::WallpaperMode, Value::Choice(n)) => {
                 self.wallpaper_mode = match n {
                     0 => WallpaperMode::Fixed,
@@ -1894,7 +1896,7 @@ impl Model {
                 doc.insert("monitor", toml_edit::Item::ArrayOfTables(list));
             }
         }
-        for (at, key) in ["files", "terminal", "browser", "settings", "trash"]
+        for (at, key) in ["files", "terminal", "browser", "settings", "trash", "apps"]
             .iter()
             .enumerate()
         {
@@ -2172,12 +2174,13 @@ pub enum Id {
     ResetAll,
 }
 
-const SHOWS: [&str; 5] = [
+const SHOWS: [&str; 6] = [
     "File manager",
     "Terminal",
     "Web browser",
     "Settings",
     "Trash",
+    "Apps",
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -4120,7 +4123,7 @@ mod tests {
     #[test]
     fn the_dock_switches_write_their_own_keys() {
         let before = model(&Config::default());
-        assert_eq!(before.shows, [true; 5]);
+        assert_eq!(before.shows, [true; 6]);
         let mut after = before.clone();
         after.set(Id::DockShow(1), Value::Switch(false));
         after.set(Id::DockShow(4), Value::Switch(false));
@@ -4134,7 +4137,7 @@ mod tests {
         let rows = look.place(SIZE, Section::Dock, &groups, 0.0)[1]
             .rows
             .clone();
-        let terminal = rows[rows.len() - 4];
+        let terminal = rows[rows.len() - 5];
         assert_eq!(
             look.hit(SIZE, Section::Dock, &after, 0.0, terminal.center()),
             Some(Hit::Change(Id::DockShow(1), Value::Switch(true)))
@@ -4173,9 +4176,10 @@ mod tests {
             .insert("pcmanfm".into(), "File Manager PCManFM".into());
         let groups = model.groups(Section::Dock);
         let rows = &groups[1].rows;
-        let files = &rows[rows.len() - 5];
+        let files = &rows[rows.len() - 6];
         assert_eq!(files.detail.as_deref(), Some("File Manager PCManFM"));
-        assert_eq!(rows[rows.len() - 4].detail.as_deref(), Some("None found"));
+        assert_eq!(rows[rows.len() - 5].detail.as_deref(), Some("None found"));
+        assert_eq!(rows[rows.len() - 1].label, "Apps");
     }
 
     #[test]

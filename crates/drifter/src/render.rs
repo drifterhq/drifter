@@ -12,6 +12,7 @@ mod centers;
 mod dock;
 mod follow;
 mod heads;
+mod launchpad;
 mod input;
 mod lock;
 mod overlays;
@@ -342,6 +343,8 @@ enum LockKey {
     Clear,
     Up,
     Down,
+    Left,
+    Right,
     Other,
 }
 
@@ -436,6 +439,7 @@ pub struct State {
     control_status: drifter_core::control::Status,
     notes_panel: Option<(TextureBuffer<Tex>, Rect, usize)>,
     search: Option<search::Search>,
+    launchpad: Option<launchpad::Pad>,
     search_font: Option<Font>,
     search_icons: std::collections::HashMap<String, Option<drifter_core::Image>>,
     app_label: Option<(String, TextureBuffer<Tex>, Vec2)>,
@@ -644,6 +648,9 @@ impl State {
             elements.push(Skin::Texture(element(buffer, target, 0.12)));
         }
 
+        if let Some(art) = self.launchpad.as_ref().and_then(|pad| pad.art.as_ref()).filter(|_| live) {
+            elements.push(Skin::Texture(element(art, Rect::new(Vec2::ZERO, self.screen), 1.0)));
+        }
         if let Some((art, rect)) = self.search.as_ref().and_then(|open| open.art.as_ref()).filter(|_| live) {
             elements.push(Skin::Texture(element(art, *rect, 1.0)));
         }

@@ -356,7 +356,12 @@ impl State {
                     let _ = sender.send((ticket, verdict));
                 });
             }
-            LockKey::Other | LockKey::Up | LockKey::Down | LockKey::Vt(_) => {}
+            LockKey::Other
+            | LockKey::Up
+            | LockKey::Down
+            | LockKey::Left
+            | LockKey::Right
+            | LockKey::Vt(_) => {}
         }
         self.paint_lock();
     }
@@ -395,6 +400,8 @@ impl State {
                     keysyms::KEY_Escape => LockKey::Clear,
                     keysyms::KEY_Up => LockKey::Up,
                     keysyms::KEY_Down => LockKey::Down,
+                    keysyms::KEY_Left => LockKey::Left,
+                    keysyms::KEY_Right => LockKey::Right,
                     _ => match symbol.key_char() {
                         Some(letter) => LockKey::Letter(letter),
                         None => LockKey::Other,

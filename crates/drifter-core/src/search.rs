@@ -137,6 +137,12 @@ fn score(found: &Found, query: &str) -> Option<u32> {
 }
 
 pub fn rank(query: &str, all: &[Found]) -> Vec<Found> {
+    let mut hits = rank_all(query, all);
+    hits.truncate(MOST);
+    hits
+}
+
+pub fn rank_all(query: &str, all: &[Found]) -> Vec<Found> {
     let query = query.trim().to_lowercase();
     if query.is_empty() {
         return Vec::new();
@@ -156,9 +162,6 @@ pub fn rank(query: &str, all: &[Found]) -> Vec<Found> {
             continue;
         }
         out.push(found.clone());
-        if out.len() == MOST {
-            break;
-        }
     }
     out
 }

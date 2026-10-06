@@ -558,6 +558,9 @@ impl State {
     }
 
     pub(super) fn press_own(&mut self, code: u32) -> bool {
+        if self.launchpad.is_some() {
+            return self.press_launchpad();
+        }
         if self.press_search(code) {
             return true;
         }
@@ -814,6 +817,16 @@ impl State {
             return;
         }
         if self.lock.is_none()
+            && self.launchpad.is_some()
+            && let InputEvent::Keyboard { event } = &event
+        {
+            if event.state() == KeyState::Pressed {
+                let key = self.read_key(event);
+                self.launchpad_key(key);
+            }
+            return;
+        }
+        if self.lock.is_none()
             && self.search.is_some()
             && let InputEvent::Keyboard { event } = &event
         {
@@ -904,6 +917,9 @@ impl State {
                     .map(|raw| -raw / 120.0)
                     .or_else(|| event.amount(Axis::Vertical).map(|raw| -raw / 10.0))
                     .unwrap_or(0.0);
+                if self.scroll_launchpad(steps) {
+                    return;
+                }
                 if self.scroll_gauges(steps) {
                     return;
                 }

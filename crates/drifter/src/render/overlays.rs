@@ -204,7 +204,7 @@ impl State {
                 self.change_vt(vt);
                 return;
             }
-            LockKey::Other | LockKey::Up | LockKey::Down => return,
+            LockKey::Other | LockKey::Up | LockKey::Down | LockKey::Left | LockKey::Right => return,
         }
         self.paint_prompt();
     }

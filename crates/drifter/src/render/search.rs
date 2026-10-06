@@ -126,7 +126,7 @@ impl State {
                 self.change_vt(vt);
                 return;
             }
-            LockKey::Other => return,
+            LockKey::Other | LockKey::Left | LockKey::Right => return,
         }
         self.paint_search();
     }

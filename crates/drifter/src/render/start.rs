@@ -453,6 +453,7 @@ pub fn open(
         control_status: drifter_core::control::Status::default(),
         notes_panel: None,
         search: None,
+        launchpad: None,
         search_font: Font::find(config.font_path(), 20.0).ok(),
         search_icons: std::collections::HashMap::new(),
         app_label: None,
