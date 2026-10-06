@@ -261,6 +261,7 @@ pub fn run() -> Result<(), String> {
         loads,
     };
     settings.load_row_icons();
+    settings.refresh(settings.section);
 
     while !settings.exit {
         events
