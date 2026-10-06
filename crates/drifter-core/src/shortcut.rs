@@ -12,10 +12,11 @@ pub enum Action {
     Files,
     Browser,
     Settings,
+    Search,
 }
 
 impl Action {
-    pub const ALL: [Action; 10] = [
+    pub const ALL: [Action; 11] = [
         Action::Switch,
         Action::Close,
         Action::Screenshot,
@@ -26,6 +27,7 @@ impl Action {
         Action::Files,
         Action::Browser,
         Action::Settings,
+        Action::Search,
     ];
 
     pub fn key(self) -> &'static str {
@@ -40,6 +42,7 @@ impl Action {
             Action::Files => "files",
             Action::Browser => "browser",
             Action::Settings => "settings",
+            Action::Search => "search",
         }
     }
 
@@ -55,6 +58,7 @@ impl Action {
             Action::Files => "Open the file manager",
             Action::Browser => "Open the web browser",
             Action::Settings => "Open Settings",
+            Action::Search => "Search",
         }
     }
 
@@ -70,6 +74,7 @@ impl Action {
             Action::Files => "",
             Action::Browser => "",
             Action::Settings => "",
+            Action::Search => "super+space",
         }
     }
 }

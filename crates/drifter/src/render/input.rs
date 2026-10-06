@@ -549,6 +549,9 @@ impl State {
     }
 
     pub(super) fn press_own(&mut self, code: u32) -> bool {
+        if self.press_search(code) {
+            return true;
+        }
         if let Some((_, rect)) = self.prompt_art.as_ref() {
             let rect = *rect;
             if code == BTN_LEFT {
@@ -796,6 +799,16 @@ impl State {
         {
             let key = self.read_key(event);
             self.prompt_key(key);
+            return;
+        }
+        if self.lock.is_none()
+            && self.search.is_some()
+            && let InputEvent::Keyboard { event } = &event
+        {
+            if event.state() == KeyState::Pressed {
+                let key = self.read_key(event);
+                self.search_key(key);
+            }
             return;
         }
         if self.lock.is_some()

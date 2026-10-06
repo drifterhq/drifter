@@ -790,6 +790,12 @@ pub struct Keys {
     pub browser: String,
     #[serde(default)]
     pub settings: String,
+    #[serde(default = "key_search")]
+    pub search: String,
+}
+
+fn key_search() -> String {
+    Action::Search.default_combo().into()
 }
 
 fn key_switch() -> String {
@@ -825,6 +831,7 @@ impl Default for Keys {
             files: String::new(),
             browser: String::new(),
             settings: String::new(),
+            search: String::new(),
         };
         for action in Action::ALL {
             *keys.get_mut(action) = action.default_combo().to_string();
@@ -846,6 +853,7 @@ impl Keys {
             Action::Files => &self.files,
             Action::Browser => &self.browser,
             Action::Settings => &self.settings,
+            Action::Search => &self.search,
         }
     }
 
@@ -861,6 +869,7 @@ impl Keys {
             Action::Files => &mut self.files,
             Action::Browser => &mut self.browser,
             Action::Settings => &mut self.settings,
+            Action::Search => &mut self.search,
         }
     }
 

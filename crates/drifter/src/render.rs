@@ -15,6 +15,7 @@ mod input;
 mod lock;
 mod overlays;
 mod power;
+mod search;
 mod start;
 #[cfg(test)]
 mod tests;
@@ -335,6 +336,8 @@ enum LockKey {
     Enter,
     Back,
     Clear,
+    Up,
+    Down,
     Other,
 }
 
@@ -424,6 +427,9 @@ pub struct State {
     icons: Vec<(String, String, TextureBuffer<Tex>)>,
     tray_raw: Vec<crate::tray::Icon>,
     frost_key: Option<[i64; 6]>,
+    search: Option<search::Search>,
+    search_font: Option<Font>,
+    search_icons: std::collections::HashMap<String, Option<drifter_core::Image>>,
     app_label: Option<(String, TextureBuffer<Tex>, Vec2)>,
     window_shadow: Option<(TextureBuffer<Tex>, f64)>,
     bounces: Vec<(String, Instant)>,
@@ -629,6 +635,9 @@ impl State {
             elements.push(Skin::Texture(element(buffer, target, 0.12)));
         }
 
+        if let Some((art, rect)) = self.search.as_ref().and_then(|open| open.art.as_ref()).filter(|_| live) {
+            elements.push(Skin::Texture(element(art, *rect, 1.0)));
+        }
         if let Some(open) = self.popover.as_ref().filter(|_| live) {
             elements.push(Skin::Texture(element(&open.art, open.rect, 1.0)));
         }

@@ -176,6 +176,7 @@ impl State {
             Action::Lock => {
                 self.lock_now();
             }
+            Action::Search => self.toggle_search(),
             Action::Power => {
                 let middle = self.screen * 0.5;
                 self.open_popover(drifter_core::power::items(), middle, Target::Desktop);
@@ -285,6 +286,7 @@ impl State {
         self.clock = None;
         self.stats = None;
         self.app_label = None;
+        self.search = None;
         self.titles.clear();
         let power = drifter_core::tray::paint_power(self.tray.button as u32, palette.ink);
         match upload(&mut self.renderer, Some(&power), "power") {

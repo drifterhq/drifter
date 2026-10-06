@@ -176,6 +176,7 @@ terminal = ""
 files = ""
 browser = ""
 settings = ""
+search = "super+space"
 
 [power]
 # Minutes with no input before the computer sleeps. 0 never sleeps.

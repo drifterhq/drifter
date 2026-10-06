@@ -104,7 +104,7 @@ impl Section {
         }
     }
 
-    fn words(self) -> &'static str {
+    pub fn words(self) -> &'static str {
         match self {
             Section::Desktop => "world workspace zoom pan hot corner camera",
             Section::Displays => "monitor screen scale rotation resolution refresh rate hz mode brightness night light warm",
