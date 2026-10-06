@@ -384,6 +384,8 @@ pub struct State {
     switch_mods: drifter_core::shortcut::Mods,
     swallowed: Vec<u32>,
     appearance: drifter_core::Appearance,
+    style: drifter_core::Style,
+    gtk_layout: String,
     asset_paths: [Option<PathBuf>; 4],
     holds: drifter_core::Modifier,
     last_title: Option<(Vec2, Instant)>,

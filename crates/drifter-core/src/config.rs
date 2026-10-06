@@ -174,6 +174,27 @@ impl Default for WindowConfig {
     }
 }
 
+impl ButtonName {
+    pub fn word(self) -> &'static str {
+        match self {
+            ButtonName::Close => "close",
+            ButtonName::Minimize => "minimize",
+            ButtonName::Maximize => "maximize",
+        }
+    }
+}
+
+impl WindowConfig {
+    pub fn gtk_layout(&self) -> String {
+        let names: Vec<&str> = self.order.iter().map(|name| name.word()).collect();
+        let names = names.join(",");
+        match self.buttons {
+            Side::Left => format!("{names}:"),
+            Side::Right => format!(":{names}"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LockConfig {
@@ -623,6 +644,7 @@ impl Default for Motion {
 pub enum Style {
     Light,
     Dark,
+    Auto,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -1157,7 +1179,7 @@ pub fn repo_config(exe: &Path) -> Vec<PathBuf> {
     candidates
 }
 
-fn xdg_dir(var: &str, fallback: &str) -> PathBuf {
+pub(crate) fn xdg_dir(var: &str, fallback: &str) -> PathBuf {
     resolve_xdg(std::env::var_os(var), std::env::var_os("HOME"), fallback)
 }
 
@@ -1762,6 +1784,14 @@ mod tests {
         assert_eq!(config.window.order[2], ButtonName::Close);
         assert!(!config.window.title);
         config.validate().unwrap();
+        assert_eq!(config.window.gtk_layout(), ":minimize,maximize,close");
+    }
+
+    #[test]
+    fn gtk_apps_get_the_buttons_on_drifters_side_in_drifters_order() {
+        assert_eq!(WindowConfig::default().gtk_layout(), "close,minimize,maximize:");
+        let config = Config::parse("[appearance]\nstyle = \"auto\"\n").unwrap();
+        assert_eq!(config.appearance.style, Some(Style::Auto));
     }
 
     #[test]

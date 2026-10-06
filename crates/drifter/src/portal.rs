@@ -13,6 +13,9 @@ pub fn announce(socket: &str) {
         std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_else(|_| "drifter".into()),
     );
     pairs.insert("XDG_SESSION_TYPE".into(), "wayland".into());
+    if let Ok(theme) = std::env::var("QT_QPA_PLATFORMTHEME") {
+        pairs.insert("QT_QPA_PLATFORMTHEME".into(), theme);
+    }
     if let Some(display) = crate::apps::x11_display() {
         pairs.insert("DISPLAY".into(), display);
     }

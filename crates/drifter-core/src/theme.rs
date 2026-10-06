@@ -1,4 +1,4 @@
-use crate::config::Style;
+use crate::config::{Night, Style};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Palette {
@@ -70,10 +70,106 @@ pub const LIGHT: Palette = Palette {
     drop: 56,
 };
 
-pub fn of(style: Option<Style>) -> Palette {
+pub fn resolve(style: Option<Style>, night: &Night, hour: u32) -> Style {
     match style {
-        Some(Style::Light) => LIGHT,
+        Some(Style::Light) => Style::Light,
+        Some(Style::Auto) => match crate::night::is_night(night.start, night.end, hour) {
+            true => Style::Dark,
+            false => Style::Light,
+        },
+        _ => Style::Dark,
+    }
+}
+
+pub fn now(style: Option<Style>, night: &Night) -> Style {
+    resolve(style, night, crate::night::hour_now())
+}
+
+pub fn of(style: Style) -> Palette {
+    match style {
+        Style::Light => LIGHT,
         _ => DARK,
+    }
+}
+
+pub const GTK_IMPORT: &str = "@import url(\"drifter.css\");";
+
+pub fn with_import(text: &str) -> Option<String> {
+    if text.lines().any(|line| line.trim() == GTK_IMPORT) {
+        return None;
+    }
+    Some(format!("{GTK_IMPORT}\n{text}"))
+}
+
+const SWITCH: &str = "--headerbar-border-color";
+
+fn between(light: [u8; 3], dark: [u8; 3]) -> String {
+    let channel = |at: usize| {
+        let step = (f64::from(dark[at]) - f64::from(light[at])) / 255.0;
+        let sign = if step < 0.0 { '-' } else { '+' };
+        format!("calc({} {sign} r * {:.6})", light[at], step.abs())
+    };
+    format!(
+        "rgb(from var({SWITCH}) {} {} {} / 1)",
+        channel(0),
+        channel(1),
+        channel(2)
+    )
+}
+
+pub fn adwaita_colors() -> Vec<(&'static str, [u8; 3], [u8; 3])> {
+    let (l, d) = (LIGHT, DARK);
+    vec![
+        ("window-bg-color", l.back, d.back),
+        ("window-fg-color", l.ink, d.ink),
+        ("view-bg-color", l.card, d.idle),
+        ("view-fg-color", l.ink, d.ink),
+        ("headerbar-bg-color", l.surface, d.surface),
+        ("headerbar-fg-color", l.ink, d.ink),
+        ("headerbar-backdrop-color", l.back, d.back),
+        ("sidebar-bg-color", l.surface, d.surface),
+        ("sidebar-fg-color", l.ink, d.ink),
+        ("sidebar-backdrop-color", l.back, d.back),
+        ("secondary-sidebar-bg-color", l.well, d.well),
+        ("secondary-sidebar-fg-color", l.ink, d.ink),
+        ("dialog-bg-color", l.surface, d.surface),
+        ("dialog-fg-color", l.ink, d.ink),
+        ("popover-bg-color", l.card, d.raised),
+        ("popover-fg-color", l.ink, d.ink),
+        ("card-fg-color", l.ink, d.ink),
+        ("thumbnail-bg-color", l.card, d.card),
+        ("thumbnail-fg-color", l.ink, d.ink),
+    ]
+}
+
+pub fn gtk4_css() -> String {
+    let lines: String = adwaita_colors()
+        .into_iter()
+        .map(|(name, light, dark)| format!("  --{name}: {};\n", between(light, dark)))
+        .collect();
+    format!(":root {{\n{lines}}}\n")
+}
+
+pub fn gtk4_dir() -> std::path::PathBuf {
+    crate::config::xdg_dir("XDG_CONFIG_HOME", ".config").join("gtk-4.0")
+}
+
+pub fn install_gtk4_css(dir: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    let ours = dir.join("drifter.css");
+    let css = gtk4_css();
+    if std::fs::read_to_string(&ours).ok().as_deref() != Some(css.as_str()) {
+        std::fs::write(&ours, css)?;
+    }
+    let main = dir.join("gtk.css");
+    let text = match std::fs::read_to_string(&main) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(error),
+    };
+    match with_import(&text) {
+        Some(text) => std::fs::write(&main, text),
+        None => Ok(()),
     }
 }
 
@@ -98,9 +194,88 @@ mod tests {
 
     #[test]
     fn only_light_asks_for_the_light_set() {
-        assert_eq!(of(Some(Style::Light)), LIGHT);
-        assert_eq!(of(Some(Style::Dark)), DARK);
-        assert_eq!(of(None), DARK);
+        assert_eq!(of(Style::Light), LIGHT);
+        assert_eq!(of(Style::Dark), DARK);
         assert!(light(LIGHT.back) > light(DARK.back));
+    }
+
+    #[test]
+    fn auto_is_dark_through_the_night_hours_and_light_in_the_day() {
+        let night = Night::default();
+        let auto = Some(Style::Auto);
+        assert_eq!(resolve(auto, &night, 21), Style::Dark);
+        assert_eq!(resolve(auto, &night, 2), Style::Dark);
+        assert_eq!(resolve(auto, &night, 7), Style::Light);
+        assert_eq!(resolve(auto, &night, 12), Style::Light);
+        assert_eq!(resolve(auto, &night, 20), Style::Light);
+        let day = Night { start: 9, end: 17, ..Night::default() };
+        assert_eq!(resolve(auto, &day, 10), Style::Dark);
+        assert_eq!(resolve(auto, &day, 18), Style::Light);
+    }
+
+    #[test]
+    fn a_fixed_style_ignores_the_hour_and_none_is_dark() {
+        let night = Night::default();
+        for hour in 0..24 {
+            assert_eq!(resolve(Some(Style::Light), &night, hour), Style::Light);
+            assert_eq!(resolve(Some(Style::Dark), &night, hour), Style::Dark);
+            assert_eq!(resolve(None, &night, hour), Style::Dark);
+        }
+    }
+
+    #[test]
+    fn the_gtk_import_goes_on_top_once_and_keeps_the_users_own_css() {
+        assert_eq!(with_import("").as_deref(), Some("@import url(\"drifter.css\");\n"));
+        let mine = "label { color: red; }\n";
+        let added = with_import(mine).unwrap();
+        assert!(added.starts_with(GTK_IMPORT));
+        assert!(added.ends_with(mine));
+        assert_eq!(with_import(&added), None);
+    }
+
+    #[test]
+    fn installing_the_gtk4_css_keeps_the_users_file_and_runs_twice_cleanly() {
+        let dir = std::env::temp_dir().join(format!("drifter-gtk4-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("gtk.css"), "label { color: red; }\n").unwrap();
+        install_gtk4_css(&dir).unwrap();
+        install_gtk4_css(&dir).unwrap();
+        let main = std::fs::read_to_string(dir.join("gtk.css")).unwrap();
+        assert_eq!(main, format!("{GTK_IMPORT}\nlabel {{ color: red; }}\n"));
+        assert_eq!(std::fs::read_to_string(dir.join("drifter.css")).unwrap(), gtk4_css());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_gtk4_css_lands_on_each_set_from_the_scheme_switch() {
+        let solve = |text: &str, r: f64| -> f64 {
+            let inner = text.trim_start_matches("calc(").trim_end_matches(')');
+            let parts: Vec<&str> = inner.split_whitespace().collect();
+            let base: f64 = parts[0].parse().unwrap();
+            let step: f64 = parts[4].parse().unwrap();
+            match parts[1] {
+                "-" => base - r * step,
+                _ => base + r * step,
+            }
+        };
+        for (_, light, dark) in adwaita_colors() {
+            let rule = between(light, dark);
+            let calcs: Vec<String> = rule
+                .split("calc(")
+                .skip(1)
+                .map(|part| format!("calc({}", &part[..part.find(')').unwrap() + 1]))
+                .collect();
+            assert_eq!(calcs.len(), 3, "{rule}");
+            for at in 0..3 {
+                assert_eq!(solve(&calcs[at], 0.0).round() as u8, light[at], "{rule}");
+                assert_eq!(solve(&calcs[at], 255.0).round() as u8, dark[at], "{rule}");
+            }
+        }
+        let css = gtk4_css();
+        assert!(css.starts_with(":root {\n"));
+        assert!(css.contains("--window-bg-color: rgb(from var(--headerbar-border-color) calc(248 - r * "));
+        assert!(!css.contains("--headerbar-border-color:"));
+        assert_eq!(css.matches('{').count(), css.matches('}').count());
     }
 }

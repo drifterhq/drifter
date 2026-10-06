@@ -316,11 +316,11 @@ impl Model {
                         Id::Style,
                         "Light or dark",
                         Control::Segments {
-                            options: vec!["As set", "Light", "Dark"],
+                            options: vec!["Light", "Dark", "Auto"],
                             chosen: match look.style {
-                                None => 0,
-                                Some(Style::Light) => 1,
-                                Some(Style::Dark) => 2,
+                                Some(Style::Light) => 0,
+                                None | Some(Style::Dark) => 1,
+                                Some(Style::Auto) => 2,
                             },
                         },
                     ),
@@ -336,7 +336,7 @@ impl Model {
                     ),
                 ],
                 footer: Some(
-                    "Apps that follow GNOME settings use these. As set leaves them alone.".into(),
+                    "Auto is dark from the night light start hour to its end hour, under Displays. GTK, libadwaita and Qt apps switch with Drifter.".into(),
                 ),
                 thumbs: None,
             },
@@ -1054,9 +1054,9 @@ impl Model {
             }
             (Id::Style, Value::Choice(n)) => {
                 self.appearance.style = match n {
-                    0 => None,
-                    1 => Some(Style::Light),
-                    _ => Some(Style::Dark),
+                    0 => Some(Style::Light),
+                    1 => Some(Style::Dark),
+                    _ => Some(Style::Auto),
                 }
             }
             (Id::AccentColor, Value::Choice(n)) => {
@@ -1303,6 +1303,7 @@ impl Model {
             let style = look.style.map(|style| match style {
                 Style::Light => "light",
                 Style::Dark => "dark",
+                Style::Auto => "auto",
             });
             optional(doc, "style", style);
         }
@@ -1455,7 +1456,7 @@ mod tests {
             m.choose(For::CursorTheme, "Bibata".into());
             m.choose_file(For::Pointer, "/p.png".into());
         });
-        assert_eq!(back.appearance.style, Some(Style::Dark));
+        assert_eq!(back.appearance.style, Some(Style::Auto));
         assert_eq!(back.appearance.accent, Some(Accent::Red));
         assert_eq!(back.appearance.cursor_size, 48);
         assert_eq!(back.appearance.icons, None);
