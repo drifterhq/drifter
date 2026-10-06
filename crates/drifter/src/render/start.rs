@@ -289,6 +289,11 @@ pub fn open(
     let shadow_image = drifter_core::window::shadow_patch(chrome.radius, drifter_core::window::SHADOW_BLUR);
     let window_shadow = upload(&mut renderer, Some(&shadow_image), "window shadow")?
         .map(|buffer| (buffer, f64::from(shadow_image.width - 1) / 2.0));
+    let control_icon = upload(
+        &mut renderer,
+        Some(&drifter_core::control::paint_icon(tray.button as u32, tray.ink)),
+        "control center button",
+    )?;
     let power_image = drifter_core::tray::paint_power(tray.button as u32, tray.ink);
     let power = upload(&mut renderer, Some(&power_image), "power")?;
     let lock_big = Font::find(config.font_path(), 56.0).ok();
@@ -444,11 +449,7 @@ pub fn open(
         tray_raw: Vec::new(),
         frost_key: None,
         control: None,
-        control_icon: upload(
-            &mut renderer,
-            Some(&drifter_core::control::paint_icon(tray.button as u32, tray.ink)),
-            "control center button",
-        )?,
+        control_icon,
         control_status: drifter_core::control::Status::default(),
         notes_panel: None,
         search: None,
