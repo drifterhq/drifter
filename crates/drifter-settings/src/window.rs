@@ -44,6 +44,61 @@ const START: (u32, u32) = (860, 640);
 const ICON: u32 = 22;
 const LOADERS: usize = 3;
 const WATCH: std::time::Duration = std::time::Duration::from_secs(1);
+const SAVE_EVERY: std::time::Duration = std::time::Duration::from_millis(50);
+const SETTLE: std::time::Duration = std::time::Duration::from_millis(16);
+const QUIET: std::time::Duration = std::time::Duration::from_millis(1500);
+
+enum Fresh {
+    Sound(Sound),
+    Power(Vec<(String, String)>, Option<drifter_core::settings::Profiles>),
+    Time(String, Option<bool>),
+    Net(Option<drifter_core::net::Wifi>, Option<drifter_core::net::Blue>),
+    Users(drifter_core::users::Users),
+}
+
+enum Hand {
+    Volume(&'static str, f64),
+    Mute(&'static str, bool),
+    Light(f64),
+}
+
+impl Hand {
+    fn replaces(&self, older: &Hand) -> bool {
+        match (self, older) {
+            (Hand::Volume(now, _), Hand::Volume(was, _)) => now == was,
+            (Hand::Light(_), Hand::Light(_)) => true,
+            _ => false,
+        }
+    }
+
+    fn run(&self) {
+        match self {
+            Hand::Volume(target, level) => wpctl(&["set-volume", target, &format!("{level:.2}")]),
+            Hand::Mute(target, muted) => wpctl(&["set-mute", target, if *muted { "1" } else { "0" }]),
+            Hand::Light(level) => set_brightness(*level),
+        }
+    }
+}
+
+fn hands() -> Sender<Hand> {
+    let (tx, rx) = std::sync::mpsc::channel::<Hand>();
+    let spawned = std::thread::Builder::new()
+        .name("settings-hands".to_string())
+        .spawn(move || {
+            while let Ok(first) = rx.recv() {
+                let batch: Vec<Hand> = std::iter::once(first).chain(rx.try_iter()).collect();
+                for (at, hand) in batch.iter().enumerate() {
+                    if !batch[at + 1..].iter().any(|later| later.replaces(hand)) {
+                        hand.run();
+                    }
+                }
+            }
+        });
+    if let Err(error) = spawned {
+        log!("drifter-settings: cannot start the volume and brightness thread: {error}");
+    }
+    tx
+}
 
 pub struct Settings {
     pub heads: crate::heads::Heads,
@@ -58,6 +113,11 @@ pub struct Settings {
     mods: Modifiers,
     chores: LoopSender<Option<String>>,
     net_done: LoopSender<(bool, Result<(), String>)>,
+    fresh: LoopSender<Fresh>,
+    hands: Sender<Hand>,
+    fetching: bool,
+    unsaved: bool,
+    saved_at: Option<std::time::Instant>,
     user_done: LoopSender<(For, Result<String, String>)>,
     parked: Option<Sheet>,
     searching: bool,
@@ -66,7 +126,7 @@ pub struct Settings {
     size: (u32, u32),
     exit: bool,
     resized: bool,
-    scrolled: bool,
+    stale: bool,
     shown: Option<std::time::Instant>,
     qh: QueueHandle<Settings>,
 
@@ -172,14 +232,23 @@ pub fn run() -> Result<(), String> {
                     settings.searching = false;
                 }
                 settings.model.net_note = result.err();
-                settings.read_net();
+                settings.fetch(Section::Network);
                 let shown = matches!(settings.section, Section::Network | Section::Bluetooth);
                 if shown && settings.sheet.is_none() {
-                    settings.draw();
+                    settings.stale = true;
                 }
             }
         })
         .map_err(|e| format!("cannot watch the network changes: {e}"))?;
+    let (fresh, fresh_back) = loop_channel::<Fresh>();
+    events
+        .handle()
+        .insert_source(fresh_back, |event, _, settings: &mut Settings| {
+            if let ChannelEvent::Msg(fresh) = event {
+                settings.take_fresh(fresh);
+            }
+        })
+        .map_err(|e| format!("cannot watch the system readings: {e}"))?;
     let (user_done, user_back) = loop_channel::<(For, Result<String, String>)>();
     events
         .handle()
@@ -228,6 +297,11 @@ pub fn run() -> Result<(), String> {
         mods: Modifiers::default(),
         chores,
         net_done,
+        fresh,
+        hands: hands(),
+        fetching: false,
+        unsaved: false,
+        saved_at: None,
         user_done,
         parked: None,
         searching: false,
@@ -236,7 +310,7 @@ pub fn run() -> Result<(), String> {
         size: START,
         exit: false,
         resized: false,
-        scrolled: false,
+        stale: false,
         shown: None,
         qh: qh.clone(),
         look,
@@ -266,11 +340,14 @@ pub fn run() -> Result<(), String> {
     while !settings.exit {
         events
             .dispatch(
-                settings.scrolled.then_some(std::time::Duration::from_millis(100)),
+                (settings.stale || settings.unsaved).then_some(SETTLE),
                 &mut settings,
             )
             .map_err(|e| format!("event loop: {e}"))?;
-        if std::mem::take(&mut settings.resized) || settings.scroll_due() {
+        if settings.save_due() {
+            settings.save();
+        }
+        if std::mem::take(&mut settings.resized) || settings.draw_due() {
             settings.draw();
         }
     }
@@ -647,15 +724,21 @@ impl Settings {
         }
     }
 
-    fn scroll_due(&self) -> bool {
-        self.scrolled
+    fn save_due(&self) -> bool {
+        self.unsaved
+            && (self.holding.is_none()
+                || self.saved_at.is_none_or(|at| at.elapsed() >= SAVE_EVERY))
+    }
+
+    fn draw_due(&self) -> bool {
+        self.stale
             && self
                 .shown
                 .is_none_or(|shown| shown.elapsed() >= std::time::Duration::from_millis(100))
     }
 
     fn draw(&mut self) {
-        self.scrolled = false;
+        self.stale = false;
         let (width, height) = self.size;
         let fonts = Fonts {
             body: &self.fonts.0,
@@ -820,60 +903,119 @@ impl Settings {
                 if stamp != self.history_seen {
                     self.history_seen = stamp;
                     self.refresh(Section::Notifications);
-                    self.draw();
+                    self.stale = true;
                 }
             }
             Section::Network | Section::Bluetooth => {
                 self.net_ticks += 1;
-                if self.net_ticks % 3 == 0 {
-                    let (wifi, blue) = (self.model.wifi.clone(), self.model.blue.clone());
-                    self.read_net();
-                    if wifi != self.model.wifi || blue != self.model.blue {
-                        self.draw();
-                    }
+                if self.net_ticks % 3 == 0 && !self.fetching {
+                    self.fetch(Section::Network);
                 }
             }
-            Section::Power => {
-                let cells = read_cells();
-                let profile = read_profile();
-                if cells != self.model.cells || profile != self.saved.profile {
-                    self.model.cells = cells.clone();
-                    self.saved.cells = cells;
-                    self.model.profile = profile.clone();
-                    self.saved.profile = profile;
-                    self.draw();
-                }
-            }
-            Section::Sound => {
-                let sound = read_sound();
-                if sound != self.model.sound {
-                    self.model.sound = sound.clone();
-                    self.saved.sound = sound;
-                    self.draw();
-                }
-            }
+            Section::Power | Section::Sound if !self.fetching => self.fetch(self.section),
             Section::Displays => {
                 let level = read_brightness();
                 let near = match (level, self.model.brightness) {
                     (Some(now), Some(shown)) => (now - shown).abs() < 0.015,
                     (now, shown) => now.is_none() && shown.is_none(),
                 };
-                if !near {
+                if !near && !self.lately_saved() {
                     self.model.brightness = level;
                     self.saved.brightness = level;
-                    self.draw();
+                    self.stale = true;
                 }
             }
             _ => {}
         }
     }
 
+    fn fetch(&mut self, section: Section) {
+        let searching = self.searching;
+        let job: Box<dyn FnOnce() -> Fresh + Send> = match section {
+            Section::Sound => Box::new(|| Fresh::Sound(read_sound())),
+            Section::Power => Box::new(|| Fresh::Power(read_cells(), read_profile())),
+            Section::Time => Box::new(|| {
+                let (zone, ntp) = read_time();
+                Fresh::Time(zone, ntp)
+            }),
+            Section::Network | Section::Bluetooth => Box::new(move || {
+                Fresh::Net(crate::net::read_wifi(), crate::net::read_blue(searching))
+            }),
+            Section::Users => Box::new(|| Fresh::Users(crate::users::read())),
+            _ => return,
+        };
+        let back = self.fresh.clone();
+        let spawned = std::thread::Builder::new()
+            .name("settings-read".to_string())
+            .spawn(move || {
+                let _ = back.send(job());
+            });
+        match spawned {
+            Ok(_) => self.fetching = true,
+            Err(error) => log!("drifter-settings: cannot read the system: {error}"),
+        }
+    }
+
+    fn lately_saved(&self) -> bool {
+        self.unsaved || self.saved_at.is_some_and(|at| at.elapsed() < QUIET)
+    }
+
+    fn take_fresh(&mut self, fresh: Fresh) {
+        self.fetching = false;
+        if self.holding.is_some() {
+            return;
+        }
+        let shown = match fresh {
+            Fresh::Sound(sound) => {
+                if sound == self.model.sound || self.lately_saved() {
+                    return;
+                }
+                self.model.sound = sound.clone();
+                self.saved.sound = sound;
+                Section::Sound
+            }
+            Fresh::Power(cells, profile) => {
+                if cells == self.model.cells && profile == self.saved.profile {
+                    return;
+                }
+                self.model.cells = cells.clone();
+                self.saved.cells = cells;
+                self.model.profile = profile.clone();
+                self.saved.profile = profile;
+                Section::Power
+            }
+            Fresh::Time(zone, ntp) => {
+                (self.model.zone, self.model.ntp) = (zone.clone(), ntp);
+                (self.saved.zone, self.saved.ntp) = (zone, ntp);
+                Section::Time
+            }
+            Fresh::Net(wifi, blue) => {
+                if wifi == self.model.wifi && blue == self.model.blue {
+                    return;
+                }
+                self.model.wifi = wifi.clone();
+                self.saved.wifi = wifi;
+                self.model.blue = blue.clone();
+                self.saved.blue = blue;
+                Section::Network
+            }
+            Fresh::Users(users) => {
+                self.take_users(users);
+                Section::Users
+            }
+        };
+        let here = match self.section {
+            Section::Bluetooth => Section::Network,
+            section => section,
+        };
+        if here == shown && self.sheet.is_none() {
+            self.stale = true;
+        }
+    }
+
     fn refresh(&mut self, section: Section) {
         match section {
-            Section::Sound => {
-                self.model.sound = read_sound();
-                self.saved.sound = self.model.sound.clone();
-            }
+            Section::Sound | Section::Power | Section::Time => self.fetch(section),
             Section::Notifications => {
                 read_recent(&mut self.model);
                 self.saved.recent = self.model.recent.clone();
@@ -882,14 +1024,9 @@ impl Settings {
                 self.model.brightness = read_brightness();
                 self.saved.brightness = self.model.brightness;
             }
-            Section::Time => {
-                let time = read_time();
-                (self.model.zone, self.model.ntp) = time.clone();
-                (self.saved.zone, self.saved.ntp) = time;
-            }
             Section::Network => {
                 self.model.net_note = None;
-                self.read_net();
+                self.fetch(section);
                 let done = self.net_done.clone();
                 let _ = std::thread::Builder::new()
                     .name("settings-rescan".to_string())
@@ -901,18 +1038,17 @@ impl Settings {
             }
             Section::Bluetooth => {
                 self.model.net_note = None;
-                self.read_net();
+                self.fetch(section);
             }
             Section::Users => {
                 self.model.user_note = None;
-                self.read_users();
+                self.fetch(section);
             }
             _ => {}
         }
     }
 
-    fn read_users(&mut self) {
-        let users = crate::users::read();
+    fn take_users(&mut self, users: drifter_core::users::Users) {
         self.model.users = Some(users.clone());
         self.saved.users = Some(users);
         let stock = self.model.faces.clone();
@@ -1049,7 +1185,7 @@ impl Settings {
                 self.model.user_note = Some(result.unwrap_or_else(|error| error));
             }
         }
-        self.read_users();
+        self.fetch(Section::Users);
         if self.section == Section::Users {
             self.draw();
         }
@@ -1123,15 +1259,6 @@ impl Settings {
                 }
             }
         }
-    }
-
-    pub fn read_net(&mut self) {
-        let wifi = crate::net::read_wifi();
-        let blue = crate::net::read_blue(self.searching);
-        self.model.wifi = wifi.clone();
-        self.saved.wifi = wifi;
-        self.model.blue = blue.clone();
-        self.saved.blue = blue;
     }
 
     fn net_job(&mut self, job: crate::net::Job, note: String) {
@@ -1500,8 +1627,8 @@ impl Settings {
             let before = self.model.clone();
             self.model.set(id, value);
             if self.model != before {
-                self.save();
-                self.draw();
+                self.unsaved = true;
+                self.stale = true;
             }
         }
     }
@@ -1510,7 +1637,7 @@ impl Settings {
         let size = self.view();
         if let Some(sheet) = self.sheet.as_mut() {
             sheet.scroll_by(size, by);
-            self.scrolled = true;
+            self.stale = true;
             return;
         }
         if self.at.x <= self.look.sidebar {
@@ -1518,7 +1645,7 @@ impl Settings {
             let before = self.look.side_scroll;
             self.look.side_scroll = (before + by).clamp(0.0, most);
             if self.look.side_scroll != before {
-                self.scrolled = true;
+                self.stale = true;
             }
             return;
         }
@@ -1526,7 +1653,7 @@ impl Settings {
         self.scroll += by;
         self.clamp_scroll();
         if self.scroll != before {
-            self.scrolled = true;
+            self.stale = true;
         }
     }
 
@@ -1760,10 +1887,10 @@ impl Settings {
         ];
         for (target, level, was_level, muted, was_muted) in levels {
             if !fresh && (level - was_level).abs() > 1e-6 {
-                wpctl(&["set-volume", target, &format!("{level:.2}")]);
+                let _ = self.hands.send(Hand::Volume(target, level));
             }
             if !fresh && muted != was_muted {
-                wpctl(&["set-mute", target, if muted { "1" } else { "0" }]);
+                let _ = self.hands.send(Hand::Mute(target, muted));
             }
         }
         if fresh {
@@ -1773,7 +1900,7 @@ impl Settings {
         if let Some(level) = self.model.brightness
             && self.model.brightness != before.brightness
         {
-            set_brightness(level);
+            let _ = self.hands.send(Hand::Light(level));
         }
 
         if self.model.autostarts != before.autostarts {
@@ -1841,6 +1968,8 @@ impl Settings {
     }
 
     fn save(&mut self) {
+        self.unsaved = false;
+        self.saved_at = Some(std::time::Instant::now());
         self.apply_live();
         let text = match std::fs::read_to_string(&self.path) {
             Ok(text) => text,

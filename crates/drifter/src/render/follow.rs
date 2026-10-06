@@ -416,6 +416,8 @@ impl State {
     }
 
     pub(super) fn apply(&mut self, config: &Config) {
+        let laid = (config.workspace.width, config.workspace.height) != self.screens_wide
+            || config.monitor != self.monitors;
         self.screens_wide = (config.workspace.width, config.workspace.height);
         self.monitors = config.monitor.clone();
         self.mode = config.workspace.wallpaper_mode;
@@ -473,7 +475,8 @@ impl State {
         }
         match self.wants_rescan() {
             true => self.scan_heads(),
-            false => self.relayout(repaint),
+            false if laid || repaint => self.relayout(repaint),
+            false => {}
         }
 
         if self.tray.size != config.tray.size {

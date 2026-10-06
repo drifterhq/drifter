@@ -442,7 +442,8 @@ impl State {
             }
         }
         if self.gauge_panel.as_ref().is_some_and(|panel| panel.gauge == Gauge::Volume) {
-            self.paint_gauge_panel(Gauge::Volume);
+            self.gauge_stale = true;
+            self.kick_now();
         }
     }
 
@@ -457,7 +458,16 @@ impl State {
             }
         }
         if self.gauge_panel.as_ref().is_some_and(|panel| panel.gauge == Gauge::Brightness) {
-            self.paint_gauge_panel(Gauge::Brightness);
+            self.gauge_stale = true;
+            self.kick_now();
+        }
+    }
+
+    pub(super) fn wind_the_gauge(&mut self) {
+        if std::mem::take(&mut self.gauge_stale)
+            && let Some(gauge) = self.gauge_panel.as_ref().map(|panel| panel.gauge)
+        {
+            self.paint_gauge_panel(gauge);
         }
     }
 
