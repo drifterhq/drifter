@@ -211,7 +211,7 @@ pub fn open(
     chrome.follow(&config.window);
 
     let panels = paint_panels(&mut renderer, screen.x, &shapes, &palette)?;
-    let drops = paint_drops(&mut renderer, &shapes, &palette);
+    let drops = paint_drops(&mut renderer, screen.x, &shapes, &palette);
 
     let tray = Tray {
         size: config.tray.size,

@@ -190,6 +190,7 @@ pub(super) fn tiles(piece: ChromePiece) -> bool {
 
 pub(super) fn paint_drops(
     renderer: &mut Painter,
+    width: f64,
     shapes: &[Panel; 2],
     palette: &drifter_core::theme::Palette,
 ) -> Vec<TextureBuffer<Tex>> {
@@ -198,7 +199,7 @@ pub(super) fn paint_drops(
         .filter_map(|edge| {
             let image = drawer::drop_shadow(
                 edge,
-                1,
+                width.max(1.0) as u32,
                 &shapes[edge.index()],
                 f64::from(palette.drop) / 255.0,
             );

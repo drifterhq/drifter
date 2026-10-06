@@ -171,11 +171,11 @@ fn depth(edge: Edge, px: f64, py: f64, width: f64, panel: &Panel) -> f64 {
 
     if radius > 0.0 && (px < radius || px > width - radius) {
         let cx = if px < radius { radius } else { width - radius };
-        let cy = inner + side * radius;
-        if side * (py - cy) <= 0.0 {
+        let cy = inner - side * radius;
+        if side * (py - cy) > 0.0 {
             let dx = px - cx;
             let dy = py - cy;
-            return (dx * dx + dy * dy).sqrt() - radius;
+            return radius - (dx * dx + dy * dy).sqrt();
         }
     }
 
@@ -208,19 +208,41 @@ pub fn rim(image: &mut Image, edge: Edge, panel: &Panel, color: [u8; 3], strengt
 }
 
 pub fn drop_shadow(edge: Edge, width: u32, panel: &Panel, strength: f64) -> Image {
-    let reach = panel.shadow.max(1.0);
-    let height = reach.round() as u32;
+    let reach = panel.shadow.max(1.0).round();
+    let radius = panel.radius.max(0.0).round();
+    let height = (reach + radius) as u32;
+    let w = f64::from(width);
     let mut rgba = vec![0u8; (width as usize) * (height as usize) * 4];
     let sigma = reach / 2.6;
     for y in 0..height {
-        let away = match edge {
-            Edge::Top => f64::from(y) + 0.5,
-            Edge::Bottom => f64::from(height - y) - 0.5,
+        let from_edge = match edge {
+            Edge::Top => f64::from(y) + 0.5 - radius,
+            Edge::Bottom => f64::from(height - y) - 0.5 - radius,
         };
-        let falloff = (-(away * away) / (2.0 * sigma * sigma)).exp();
-        let alpha = (strength * falloff * 255.0).round().clamp(0.0, 255.0) as u8;
-        for x in 0..width as usize {
-            rgba[(y as usize * width as usize + x) * 4 + 3] = alpha;
+        for x in 0..width {
+            let px = f64::from(x) + 0.5;
+            let corner = if px < radius {
+                Some(radius)
+            } else if px > w - radius {
+                Some(w - radius)
+            } else {
+                None
+            };
+            let away = match corner {
+                Some(cx) => {
+                    let dx = px - cx;
+                    let dy = from_edge + radius;
+                    (dx * dx + dy * dy).sqrt() - radius
+                }
+                None => from_edge,
+            };
+            if away <= 0.0 {
+                continue;
+            }
+            let falloff = (-(away * away) / (2.0 * sigma * sigma)).exp();
+            let fade_in = away.min(1.0);
+            let alpha = (strength * falloff * fade_in * 255.0).round().clamp(0.0, 255.0) as u8;
+            rgba[(y as usize * width as usize + x as usize) * 4 + 3] = alpha;
         }
     }
     Image {
@@ -232,11 +254,12 @@ pub fn drop_shadow(edge: Edge, width: u32, panel: &Panel, strength: f64) -> Imag
 
 pub fn shadow_rect(band: Rect, edge: Edge, panel: &Panel) -> Rect {
     let reach = panel.shadow.max(1.0).round();
+    let radius = panel.radius.max(0.0).round();
     let y = match edge {
-        Edge::Top => band.max().y,
+        Edge::Top => band.max().y - radius,
         Edge::Bottom => band.origin.y - reach,
     };
-    Rect::new(Vec2::new(band.origin.x, y), Vec2::new(band.size.x, reach))
+    Rect::new(Vec2::new(band.origin.x, y), Vec2::new(band.size.x, reach + radius))
 }
 
 pub fn paint_flat(edge: Edge, width: u32, panel: &Panel, color: [u8; 3], alpha: u8) -> Image {
@@ -524,32 +547,30 @@ mod tests {
     }
 
     #[test]
-    fn the_rounded_corner_belongs_to_the_viewport_not_the_drawer() {
+    fn the_drawer_has_its_own_rounded_corners_on_the_inner_edge() {
         let panel = panel();
         let screen = Vec2::new(f64::from(WIDTH), SCREEN.y);
         for edge in Edge::ALL {
             let image = paint(edge, WIDTH, &panel, [16, 18, 26], 255);
             let rect = opened(edge).rect(screen, &panel);
-            let just_past = match edge {
-                Edge::Top => panel.height + 1.0,
-                Edge::Bottom => screen.y - panel.height - 1.0,
+            let just_inside = match edge {
+                Edge::Top => panel.height - 0.5,
+                Edge::Bottom => screen.y - panel.height + 0.5,
             };
-
-            let corner = on_screen(&image, rect, Vec2::new(0.5, just_past));
-            assert_eq!(
-                corner[3], 255,
-                "{edge:?}: the screen corner is not filled, so the drawer is rounded \
-                 instead of the viewport"
-            );
-
-            let inward = on_screen(&image, rect, Vec2::new(panel.radius * 2.0, just_past));
-            assert_eq!(
-                inward[3], 0,
-                "{edge:?}: the drawer bleeds across the whole width past its edge"
-            );
-
-            let far_corner = on_screen(&image, rect, Vec2::new(f64::from(WIDTH) - 0.5, just_past));
-            assert_eq!(far_corner[3], 255, "{edge:?}: only one corner is filled");
+            let cut = on_screen(&image, rect, Vec2::new(0.5, just_inside));
+            assert_eq!(cut[3], 0, "{edge:?}: the corner is cut away");
+            let middle = on_screen(&image, rect, Vec2::new(f64::from(WIDTH) / 2.0, just_inside));
+            assert_eq!(middle[3], 255, "{edge:?}: the straight edge is solid");
+            let deep = match edge {
+                Edge::Top => panel.height - panel.radius - 1.0,
+                Edge::Bottom => screen.y - panel.height + panel.radius + 1.0,
+            };
+            assert_eq!(on_screen(&image, rect, Vec2::new(0.5, deep))[3], 255, "{edge:?}");
+            let past = match edge {
+                Edge::Top => panel.height + 2.0,
+                Edge::Bottom => screen.y - panel.height - 2.0,
+            };
+            assert_eq!(on_screen(&image, rect, Vec2::new(0.5, past))[3], 0, "{edge:?}: nothing past the edge");
         }
     }
 
@@ -557,11 +578,12 @@ mod tests {
     fn the_outer_shadow_is_darkest_by_the_drawer_and_fades_away() {
         let panel = panel();
         for edge in Edge::ALL {
-            let image = drop_shadow(edge, 4, &panel, 0.4);
-            let alpha = |y: u32| image.rgba[((y * image.width) * 4 + 3) as usize];
+            let image = drop_shadow(edge, 400, &panel, 0.4);
+            let alpha = |y: u32| image.rgba[((y * image.width + 200) * 4 + 3) as usize];
+            let r = panel.radius as u32;
             let (near, far) = match edge {
-                Edge::Top => (0, image.height - 1),
-                Edge::Bottom => (image.height - 1, 0),
+                Edge::Top => (r + 2, image.height - 1),
+                Edge::Bottom => (image.height - 3 - r, 0),
             };
             assert!(alpha(near) > 90, "{edge:?}: {}", alpha(near));
             assert!(alpha(far) < 5, "{edge:?}: {}", alpha(far));
@@ -575,10 +597,13 @@ mod tests {
         let screen = Vec2::new(f64::from(WIDTH), SCREEN.y);
         let top = opened(Edge::Top).band(screen, &panel);
         let below = shadow_rect(top, Edge::Top, &panel);
-        assert_eq!(below.origin.y, top.max().y);
+        assert_eq!(below.origin.y + panel.radius, top.max().y);
         let bottom = opened(Edge::Bottom).band(screen, &panel);
         let above = shadow_rect(bottom, Edge::Bottom, &panel);
-        assert_eq!(above.max().y, bottom.origin.y);
+        assert_eq!(above.max().y - panel.radius, bottom.origin.y);
+        let image = drop_shadow(Edge::Top, 400, &panel, 0.4);
+        let in_the_cut = image.rgba[(((panel.radius as u32 - 1) * 400) * 4 + 3) as usize];
+        assert!(in_the_cut > 0, "the shadow follows the corner into the cut");
     }
 
     #[test]

@@ -718,13 +718,10 @@ impl State {
                     1.0,
                 )));
                 if let Some(drop) = self.drops.get(edge.index()) {
-                    let reach = shape.shadow.max(1.0).round();
                     let band = drawer.band(self.screen, shape);
-                    elements.push(Skin::Texture(cropped(
-                        drop,
-                        Rect::new(Vec2::ZERO, Vec2::new(1.0, reach)),
-                        drifter_core::drawer::shadow_rect(band, edge, shape),
-                    )));
+                    let spot = drifter_core::drawer::shadow_rect(band, edge, shape);
+                    let size = Vec2::new(self.screen.x.max(1.0).floor(), spot.size.y);
+                    elements.push(Skin::Texture(cropped(drop, Rect::new(Vec2::ZERO, size), spot)));
                 }
             }
         }
