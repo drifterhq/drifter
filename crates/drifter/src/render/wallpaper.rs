@@ -108,7 +108,7 @@ impl Live {
                     &uniforms,
                 )
                 .map_err(|e| e.to_string())?;
-            frame.finish().map_err(|e| e.to_string())?;
+            let _ = frame.finish().map_err(|e| e.to_string())?;
         }
         let buffer = TextureBuffer::from_texture(&*renderer, Tex::Gles(texture.clone()), 1, Transform::Normal, None);
         self.arts.push(Art {
