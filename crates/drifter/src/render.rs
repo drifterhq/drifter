@@ -7,6 +7,7 @@ mod art;
 mod bars;
 mod camera;
 mod capture;
+mod dock;
 mod follow;
 mod heads;
 mod input;
@@ -186,6 +187,7 @@ enum Target {
         at: Vec2,
     },
     Window(u64),
+    Dock(String),
     Desktop,
 }
 
@@ -420,6 +422,15 @@ pub struct State {
     icons: Vec<(String, String, TextureBuffer<Tex>)>,
     tray_raw: Vec<crate::tray::Icon>,
     frost_key: Option<[i64; 6]>,
+    bounces: Vec<(String, Instant)>,
+    dock_press: Option<(usize, Vec2)>,
+    dock_drag: Option<dock::DockDrag>,
+    trash_full: bool,
+    trash_seen: Option<Instant>,
+    trash_full_art: Option<TextureBuffer<Tex>>,
+    dock_art_dir: Option<PathBuf>,
+    badges: std::collections::HashMap<String, dock::Badge>,
+    badge_art: std::collections::HashMap<String, (TextureBuffer<Tex>, Vec2)>,
     drops: Vec<TextureBuffer<Tex>>,
     frost_at: Option<Instant>,
     palette: drifter_core::theme::Palette,
@@ -503,6 +514,8 @@ impl State {
         self.drawers.iter().any(|drawer| !drawer.settled())
             || self.flight.is_some()
             || self.windows.iter().any(|window| window.motion.is_some())
+            || !self.bounces.is_empty()
+            || self.dock_drag.is_some()
             || self.heads.iter().enumerate().any(|(index, head)| {
                 index != self.at
                     && (head.flight.is_some() || head.drawers.iter().any(|d| !d.settled()))
@@ -623,54 +636,7 @@ impl State {
         }
 
         if let Some(band) = self.dock_band() {
-            let hidden = self.minimized();
-            let pinned = self.pinned.len();
-            for (index, (_, buffer)) in self.pinned.iter().enumerate() {
-                if let Some(buffer) = buffer {
-                    let rect = self
-                        .dock
-                        .slot_rect(band, pinned, hidden.len(), Slot::Pinned(index));
-                    elements.push(Skin::Texture(element(buffer, rect, 1.0)));
-                }
-            }
-            for (index, window) in hidden.iter().enumerate() {
-                if let Some(buffer) = self.app_icons.get(window.as_str()) {
-                    let rect =
-                        self.dock
-                            .slot_rect(band, pinned, hidden.len(), Slot::Minimized(index));
-                    elements.push(Skin::Texture(element(buffer, rect, 1.0)));
-                }
-            }
-            if let Some(buffer) = self.dot.as_ref() {
-                for (index, (item, _)) in self.pinned.iter().enumerate() {
-                    let name = item.name();
-                    let running = self
-                        .windows
-                        .iter()
-                        .any(|window| window.placed && window.app.as_str() == name.as_str());
-                    if running {
-                        let rect =
-                            self.dock
-                                .dot_rect(band, pinned, hidden.len(), Slot::Pinned(index));
-                        elements.push(Skin::Texture(element(buffer, rect, 0.9)));
-                    }
-                }
-            }
-            if let (true, Some(buffer)) = (self.dock.settings, self.cog.as_ref()) {
-                let rect = self
-                    .dock
-                    .slot_rect(band, pinned, hidden.len(), Slot::Settings);
-                elements.push(Skin::Texture(element(buffer, rect, 1.0)));
-            }
-            if let (true, Some(buffer)) = (self.dock.trash, self.trash.as_ref()) {
-                let rect = self.dock.slot_rect(band, pinned, hidden.len(), Slot::Trash);
-                elements.push(Skin::Texture(element(buffer, rect, 1.0)));
-            }
-            if let Some(buffer) = self.rule.as_ref() {
-                for rule in self.dock.dividers(band, pinned, hidden.len()) {
-                    elements.push(Skin::Texture(element(buffer, rule, 1.0)));
-                }
-            }
+            self.dock_elements(&mut elements, band);
         }
 
         if let (Some(_), Some((_, buffer, rect))) = (self.tray_band(), self.clock.as_ref()) {
@@ -982,6 +948,7 @@ impl State {
         self.wind_the_stats();
         self.wind_the_volume();
         self.wind_the_light();
+        self.settle_bounces();
 
         let scale = self.heads[at].scale;
         let shown: Vec<Shown> = self
@@ -1212,6 +1179,9 @@ impl State {
     fn wanted(&self) -> Option<Edge> {
         if self.held_by_fullscreen().is_some() {
             return None;
+        }
+        if self.dock_drag.is_some() {
+            return Some(Edge::Bottom);
         }
         if self
             .gauge_panel

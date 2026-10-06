@@ -14,7 +14,7 @@ impl State {
         let hidden = self.minimized().len();
         let seat = self.dock.slot_rect(
             band,
-            self.pinned.len(),
+            self.dock_apps().len(),
             hidden.max(1),
             Slot::Minimized(index),
         );

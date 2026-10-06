@@ -442,6 +442,9 @@ impl State {
     }
 
     pub(super) fn drag(&mut self) {
+        if self.drag_dock() {
+            return;
+        }
         if self.drag_gauge_panel() {
             return;
         }
@@ -491,6 +494,7 @@ impl State {
 
         let serial = SERIAL_COUNTER.next_serial();
         if state == ButtonState::Released {
+            self.release_dock();
             self.release_gauge_panel();
             self.release_overview();
             if let (Grab::Move { id, .. }, Some(zone)) = (&self.grab, self.zone)
@@ -576,7 +580,7 @@ impl State {
         if code == BTN_RIGHT && self.open_context() {
             return true;
         }
-        if self.press_dock() {
+        if self.press_dock(code) {
             return true;
         }
         if self.over_drawer() {

@@ -251,6 +251,8 @@ impl State {
         if paths[3] != self.asset_paths[3] {
             let side = self.dock.icon as u32;
             let (trash, cog, spare) = load_dock_art(&mut self.renderer, config, side, &self.palette);
+            self.trash_full_art = None;
+            self.dock_art_dir = config.dock_dir();
             self.trash = trash;
             self.cog = cog;
             self.dock_spare = spare;
@@ -291,6 +293,8 @@ impl State {
         self.chrome.follow(&config.window);
         let side = self.dock.icon as u32;
         let (trash, cog, spare) = load_dock_art(&mut self.renderer, config, side, &palette);
+        self.trash_full_art = None;
+        self.badge_art.clear();
         self.trash = trash;
         self.cog = cog;
         self.dock_spare = spare;

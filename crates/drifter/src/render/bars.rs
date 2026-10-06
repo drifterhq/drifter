@@ -17,59 +17,6 @@ impl State {
             .collect()
     }
 
-    pub(super) fn press_dock(&mut self) -> bool {
-        let Some(band) = self.dock_band() else {
-            return false;
-        };
-        let hidden = self.minimized();
-        let pinned = self.pinned.len();
-        let Some(slot) = self.dock.at(band, self.pointer, pinned, hidden.len()) else {
-            return false;
-        };
-
-        match slot {
-            Slot::Pinned(index) => {
-                let place = self.pinned[index]
-                    .0
-                    .command()
-                    .and_then(drifter_core::place::from_dock)
-                    .map(str::to_string);
-                match place {
-                    Some(name) => {
-                        if !self.go_to_named_place(&name) {
-                            eprintln!("drifter: the dock names a place that is gone: {name}");
-                        }
-                    }
-                    None => crate::apps::run(&self.pinned[index].0, &self.socket),
-                }
-            }
-            Slot::Settings => self.open_settings(),
-            Slot::Trash => {
-                let home = std::env::var("HOME").unwrap_or_default();
-                let trash = format!("{home}/.local/share/Trash/files");
-                let _ = std::fs::create_dir_all(&trash);
-                crate::apps::open_folder(&trash, self.apps_chosen.files.as_ref(), &self.socket);
-            }
-            Slot::Minimized(index) => {
-                let Some(place) = self
-                    .windows
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, window)| window.hidden)
-                    .map(|(at, _)| at)
-                    .nth(index)
-                else {
-                    return true;
-                };
-                let seat = self.dock_slot(index);
-                self.windows[place].hidden = false;
-                self.windows[place].motion = Some(Motion::new(Phase::Restoring, seat));
-                self.focus_window(place);
-            }
-        }
-        true
-    }
-
     pub(super) fn tray_band(&self) -> Option<Rect> {
         let drawer = self.drawers[Edge::Top.index()];
         drawer
@@ -201,6 +148,12 @@ impl State {
                 }
                 return true;
             }
+            Target::Dock(key) => {
+                let key = key.clone();
+                self.popover = None;
+                self.dock_menu_pick(&key, chosen.id);
+                return true;
+            }
             Target::Window(id) => {
                 let id = *id;
                 self.popover = None;
@@ -315,20 +268,9 @@ impl State {
             return;
         }
 
-        if let Some(band) = self.dock_band() {
-            let hidden = self.minimized();
-            let pinned = self.pinned.len();
-            if let Some(slot) = self.dock.at(band, self.pointer, pinned, hidden.len()) {
-                let rect = self.dock.slot_rect(band, pinned, hidden.len(), slot);
-                let text = match slot {
-                    Slot::Pinned(index) => self.pinned[index].0.name(),
-                    Slot::Minimized(index) => hidden[index].clone(),
-                    Slot::Settings => "Settings".to_string(),
-                    Slot::Trash => "Trash".to_string(),
-                };
-                self.show_tip(&text, rect, false);
-                return;
-            }
+        if let Some((text, rect)) = self.dock_tip() {
+            self.show_tip(&text, rect, false);
+            return;
         }
 
         self.tip = None;
@@ -354,9 +296,13 @@ impl State {
             return true;
         }
 
+        if self.dock_menu() {
+            return true;
+        }
+
         if let Some(band) = self.dock_band() {
             let hidden = self.minimized();
-            let pinned = self.pinned.len();
+            let pinned = self.dock_apps().len();
             if let Some(Slot::Minimized(index)) =
                 self.dock.at(band, self.pointer, pinned, hidden.len())
             {

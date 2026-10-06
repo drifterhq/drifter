@@ -436,6 +436,15 @@ pub fn open(
         palette,
         tray_raw: Vec::new(),
         frost_key: None,
+        bounces: Vec::new(),
+        dock_press: None,
+        dock_drag: None,
+        trash_full: false,
+        trash_seen: None,
+        trash_full_art: None,
+        dock_art_dir: config.dock_dir(),
+        badges: std::collections::HashMap::new(),
+        badge_art: std::collections::HashMap::new(),
         drops,
         frost_at: None,
         tip: None,
@@ -577,6 +586,28 @@ pub fn open(
                 }
             })
             .map_err(|e| format!("cannot watch the notifications: {e}"))?;
+    }
+
+    if live {
+        match crate::launcher::start() {
+            Ok(badges) => {
+                handle
+                    .insert_source(badges, |event, _, state: &mut State| {
+                        if let ChannelEvent::Msg(heard) = event {
+                            state.take_badge(
+                                heard.app,
+                                dock::Badge {
+                                    count: heard.count,
+                                    progress: heard.progress,
+                                    urgent: heard.urgent,
+                                },
+                            );
+                        }
+                    })
+                    .map_err(|e| format!("cannot watch the dock badges: {e}"))?;
+            }
+            Err(error) => eprintln!("drifter: {error}"),
+        }
     }
 
     if let Some(readings) = media_readings {
@@ -735,6 +766,7 @@ pub fn open(
                 state.watch_night();
                 state.evict_tiles();
                 state.watch_wallpaper();
+                state.watch_trash();
                 TimeoutAction::ToDuration(CONFIG_WATCH)
             },
         )

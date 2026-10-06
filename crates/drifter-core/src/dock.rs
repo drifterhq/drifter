@@ -155,6 +155,53 @@ impl Dock {
 }
 
 #[cfg(test)]
+mod app_tests {
+    use super::*;
+
+    #[test]
+    fn app_ids_match_desktop_names_loosely() {
+        assert!(same_app("org.gnome.Nautilus.desktop", "org.gnome.Nautilus"));
+        assert!(same_app("firefox-esr", "Firefox-ESR"));
+        assert!(same_app("org.gnome.Nautilus", "nautilus"));
+        assert!(!same_app("foot", "footclient-x"));
+        assert!(!same_app("", ""));
+    }
+
+    #[test]
+    fn a_launch_bounces_a_few_times_then_rests() {
+        assert_eq!(bounce(0.0, 44.0), 0.0);
+        assert!(bounce(0.21, 44.0) < -15.0, "the first hop is high");
+        assert!(bounce(0.42 + 0.21, 44.0) > bounce(0.21, 44.0), "later hops are lower");
+        assert_eq!(bounce(10.0, 44.0), 0.0);
+        assert!((0..100).all(|n| bounce(f64::from(n) * 0.02, 44.0) <= 0.0), "it only rises");
+    }
+
+    #[test]
+    fn the_badge_sits_on_the_top_right_and_grows_with_its_text() {
+        let icon = Rect::new(Vec2::new(100.0, 500.0), Vec2::splat(44.0));
+        let one = badge_rect(icon, 7.0);
+        let many = badge_rect(icon, 30.0);
+        assert!(one.max().x > icon.max().x && one.origin.y < icon.origin.y);
+        assert!(many.size.x > one.size.x);
+        assert_eq!(one.size.x, one.size.y, "a short count is a circle");
+        assert_eq!(badge_text(0), "");
+        assert_eq!(badge_text(12), "12");
+        assert_eq!(badge_text(5000), "999+");
+        let bar = progress_rect(icon);
+        assert!(bar.origin.y > icon.center().y && bar.max().y <= icon.max().y);
+    }
+
+    #[test]
+    fn a_full_trash_shows_paper_above_the_can() {
+        let empty = paint_trash(48, [255; 3]);
+        let full = paint_trash_full(48, [255; 3]);
+        let row = |image: &Image, y: u32| (0..48).map(|x| image.rgba[((y * 48 + x) * 4 + 3) as usize] as u32).sum::<u32>();
+        assert!(row(&full, 10) > row(&empty, 10) + 2000, "the lid lifts to make room for paper");
+        assert_ne!(empty.rgba, full.rgba);
+    }
+}
+
+#[cfg(test)]
 mod tail_tests {
     use super::*;
 
@@ -268,6 +315,14 @@ pub fn paint_dot(side: u32, color: [u8; 3]) -> Image {
 }
 
 pub fn paint_trash(side: u32, color: [u8; 3]) -> Image {
+    trash_with(side, color, false)
+}
+
+pub fn paint_trash_full(side: u32, color: [u8; 3]) -> Image {
+    trash_with(side, color, true)
+}
+
+fn trash_with(side: u32, color: [u8; 3], full: bool) -> Image {
     let size = f64::from(side.max(8));
     let mut rgba = vec![0u8; (side as usize) * (side as usize) * 4];
     let unit = size / 24.0;
@@ -276,7 +331,7 @@ pub fn paint_trash(side: u32, color: [u8; 3]) -> Image {
         let py = f64::from(y) + 0.5;
         for x in 0..side {
             let px = f64::from(x) + 0.5;
-            let ink = can_ink(px, py, size, unit);
+            let ink = can_ink(px, py, size, unit, full);
             if ink <= 0.0 {
                 continue;
             }
@@ -295,17 +350,80 @@ pub fn paint_trash(side: u32, color: [u8; 3]) -> Image {
     }
 }
 
-fn can_ink(px: f64, py: f64, size: f64, unit: f64) -> f64 {
+fn can_ink(px: f64, py: f64, size: f64, unit: f64, full: bool) -> f64 {
     let middle = size / 2.0;
     let dx = px - middle;
+    let lift = if full { 2.6 * unit } else { 0.0 };
 
-    let handle = bar(dx, py, 2.6 * unit, 4.4 * unit, 6.0 * unit, 0.9 * unit);
-    let lid = bar(dx, py, 8.4 * unit, 6.6 * unit, 8.6 * unit, 0.9 * unit);
+    let handle = bar(dx, py + lift, 2.6 * unit, 4.4 * unit, 6.0 * unit, 0.9 * unit);
+    let lid = bar(dx, py + lift, 8.4 * unit, 6.6 * unit, 8.6 * unit, 0.9 * unit);
     let body = can_body(dx, py, unit);
     let slots = slot_cut(dx, py, unit);
+    let paper = match full {
+        true => [(-3.4, 8.2, 2.1), (0.4, 7.4, 2.4), (3.8, 8.4, 1.9)]
+            .iter()
+            .map(|(x, y, r)| {
+                let d = ((dx - x * unit).powi(2) + (py - y * unit).powi(2)).sqrt();
+                (r * unit - d + 0.5).clamp(0.0, 1.0)
+            })
+            .fold(0.0, f64::max),
+        false => 0.0,
+    };
 
-    let solid = handle.max(lid).max(body);
+    let solid = handle.max(lid).max(body).max(paper);
     (solid - slots).clamp(0.0, 1.0)
+}
+
+pub fn same_app(a: &str, b: &str) -> bool {
+    let clean = |name: &str| {
+        name.trim()
+            .trim_end_matches(".desktop")
+            .to_lowercase()
+    };
+    let (a, b) = (clean(a), clean(b));
+    if a.is_empty() || b.is_empty() {
+        return false;
+    }
+    let last = |name: &str| name.rsplit('.').next().unwrap_or(name).to_string();
+    a == b || last(&a) == last(&b)
+}
+
+pub fn bounce(seconds: f64, icon: f64) -> f64 {
+    let hop = 0.42;
+    if seconds <= 0.0 || seconds >= hop * BOUNCES as f64 {
+        return 0.0;
+    }
+    let phase = (seconds % hop) / hop;
+    let height = icon * 0.45 * (1.0 - 0.15 * (seconds / hop).floor());
+    -height * (phase * std::f64::consts::PI).sin()
+}
+
+pub const BOUNCES: u32 = 4;
+
+pub fn badge_rect(icon: Rect, text_width: f64) -> Rect {
+    let tall = (icon.size.y * 0.42).round();
+    let wide = (text_width + tall * 0.55).max(tall).round();
+    Rect::new(
+        Vec2::new(icon.max().x - wide * 0.7, icon.origin.y - tall * 0.25).round(),
+        Vec2::new(wide, tall),
+    )
+}
+
+pub fn progress_rect(icon: Rect) -> Rect {
+    let tall = (icon.size.y * 0.12).max(3.0).round();
+    let inset = (icon.size.x * 0.1).round();
+    Rect::new(
+        Vec2::new(icon.origin.x + inset, icon.max().y - tall - inset * 0.4).round(),
+        Vec2::new(icon.size.x - inset * 2.0, tall),
+    )
+}
+
+pub fn badge_text(count: i64) -> String {
+    match count {
+        ..=0 => String::new(),
+        1..=999 => count.to_string(),
+        _ => "999+".to_string(),
+    }
 }
 
 fn bar(dx: f64, py: f64, half: f64, top: f64, bottom: f64, radius: f64) -> f64 {

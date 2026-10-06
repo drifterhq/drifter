@@ -1974,6 +1974,17 @@ fn button_word(name: ButtonName) -> &'static str {
     }
 }
 
+pub fn write_dock(text: &str, pinned: &[Launch], off: &[&str]) -> Result<String, String> {
+    let mut doc = text
+        .parse::<toml_edit::DocumentMut>()
+        .map_err(|error| format!("the config no longer parses: {error}"))?;
+    put(&mut doc, "dock", "pinned", launches(pinned));
+    for key in off {
+        put(&mut doc, "dock", key, toml_edit::Value::from(false));
+    }
+    Ok(doc.to_string())
+}
+
 fn launches(items: &[Launch]) -> toml_edit::Value {
     let list: toml_edit::Array = items.iter().map(launch).collect();
     toml_edit::Value::Array(list)
@@ -4058,6 +4069,16 @@ mod tests {
         let mut plain = after.clone();
         plain.set_icon(0, None);
         assert_eq!(plain.dock[0], Launch::App("foot".into()));
+    }
+
+    #[test]
+    fn the_dock_list_is_rewritten_and_a_removed_builtin_is_switched_off() {
+        let text = "[dock]\n# keep me\npinned = [\"foot\"]\nfiles = true\n";
+        let out = write_dock(text, &[Launch::App("firefox".into()), Launch::App("foot".into())], &["files"]).unwrap();
+        let back = Config::parse(&out).unwrap();
+        assert_eq!(back.dock.pinned, vec![Launch::App("firefox".into()), Launch::App("foot".into())]);
+        assert!(!back.dock.files);
+        assert!(out.contains("# keep me"), "comments survive");
     }
 
     #[test]

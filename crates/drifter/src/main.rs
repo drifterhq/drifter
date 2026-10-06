@@ -16,6 +16,7 @@ mod disks;
 #[cfg(target_os = "linux")]
 mod logind;
 #[cfg(target_os = "linux")]
+mod launcher;
 mod media;
 #[cfg(target_os = "linux")]
 mod notes;
