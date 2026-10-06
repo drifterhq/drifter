@@ -154,6 +154,12 @@ impl State {
                 self.dock_menu_pick(&key, chosen.id);
                 return true;
             }
+            Target::App(app) => {
+                let app = app.clone();
+                self.popover = None;
+                self.app_menu_pick(&app, chosen.id);
+                return true;
+            }
             Target::Window(id) => {
                 let id = *id;
                 self.popover = None;
@@ -331,6 +337,9 @@ impl State {
         let Some(band) = self.tray_band() else {
             return false;
         };
+        if code == BTN_LEFT && !had_menu && self.press_app_label() {
+            return true;
+        }
         if self
             .speaker_rect()
             .is_some_and(|rect| rect.contains(self.pointer))
@@ -689,8 +698,13 @@ impl State {
 
     pub(super) fn tray_layout(&self, band: Rect) -> (usize, bool) {
         let stats = self.stats.as_ref().map(|(_, size)| size.x);
-        self.tray
-            .layout(band, self.tray_right(band), self.icons.len(), stats)
+        self.tray.layout(
+            band,
+            self.tray_lead(),
+            self.tray_right(band),
+            self.icons.len(),
+            stats,
+        )
     }
 
     fn tray_right(&self, band: Rect) -> f64 {

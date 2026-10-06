@@ -443,6 +443,7 @@ pub fn open(
         palette,
         tray_raw: Vec::new(),
         frost_key: None,
+        app_label: None,
         window_shadow,
         bounces: Vec::new(),
         dock_press: None,

@@ -76,13 +76,29 @@ impl Tray {
         (space / step).floor().max(0.0) as usize
     }
 
-    pub fn stats_rect(&self, band: Rect, text: Vec2) -> Rect {
+    pub fn app_rect(&self, band: Rect, text: Vec2) -> Rect {
         let x = band.origin.x + self.margin;
         Rect::new(Vec2::new(x, self.centered(band, text.y)), text)
     }
 
-    pub fn layout(&self, band: Rect, right: f64, icons: usize, stats: Option<f64>) -> (usize, bool) {
-        let left = band.origin.x + self.margin;
+    pub fn lead(&self, app: Option<Vec2>) -> f64 {
+        app.map(|size| size.x + self.gap * 1.5).unwrap_or(0.0)
+    }
+
+    pub fn stats_rect(&self, band: Rect, lead: f64, text: Vec2) -> Rect {
+        let x = band.origin.x + self.margin + lead;
+        Rect::new(Vec2::new(x, self.centered(band, text.y)), text)
+    }
+
+    pub fn layout(
+        &self,
+        band: Rect,
+        lead: f64,
+        right: f64,
+        icons: usize,
+        stats: Option<f64>,
+    ) -> (usize, bool) {
+        let left = band.origin.x + self.margin + lead;
         let alone = icons.min(self.room(left, right));
         if let Some(width) = stats {
             let shown = icons.min(self.room(left + width + self.gap, right));
@@ -180,9 +196,23 @@ mod tests {
     }
 
     #[test]
+    fn the_app_name_comes_first_and_the_stats_follow_it() {
+        let tray = Tray::default();
+        let name = tray.app_rect(band(), Vec2::new(80.0, 16.0));
+        assert_eq!(name.origin.x, tray.margin);
+        let lead = tray.lead(Some(name.size));
+        let stats = tray.stats_rect(band(), lead, Vec2::new(200.0, 14.0));
+        assert!(stats.origin.x > name.max().x);
+        assert_eq!(tray.lead(None), 0.0);
+        let roomy = tray.layout(band(), 0.0, 400.0, 50, None).0;
+        let squeezed = tray.layout(band(), lead, 400.0, 50, None).0;
+        assert!(squeezed < roomy, "the name takes room from the icons");
+    }
+
+    #[test]
     fn the_stats_sit_at_the_left_margin() {
         let tray = Tray::default();
-        let rect = tray.stats_rect(band(), Vec2::new(200.0, 14.0));
+        let rect = tray.stats_rect(band(), 0.0, Vec2::new(200.0, 14.0));
         assert_eq!(rect.origin.x, tray.margin);
         assert_eq!(rect.center().y, band().center().y);
     }
@@ -208,19 +238,19 @@ mod tests {
     #[test]
     fn with_room_every_icon_and_the_stats_show() {
         let tray = Tray::default();
-        assert_eq!(tray.layout(band(), 1500.0, 4, Some(200.0)), (4, true));
-        assert_eq!(tray.layout(band(), 1500.0, 4, None), (4, false));
+        assert_eq!(tray.layout(band(), 0.0, 1500.0, 4, Some(200.0)), (4, true));
+        assert_eq!(tray.layout(band(), 0.0, 1500.0, 4, None), (4, false));
     }
 
     #[test]
     fn the_stats_give_way_to_the_icons() {
         let tray = Tray::default();
         let right = 400.0;
-        let alone = tray.layout(band(), right, 50, None).0;
-        assert_eq!(tray.layout(band(), right, 50, Some(200.0)), (alone, false));
-        let few = tray.layout(band(), right, 2, Some(200.0));
+        let alone = tray.layout(band(), 0.0, right, 50, None).0;
+        assert_eq!(tray.layout(band(), 0.0, right, 50, Some(200.0)), (alone, false));
+        let few = tray.layout(band(), 0.0, right, 2, Some(200.0));
         assert_eq!(few, (2, true));
-        let stats = tray.stats_rect(band(), Vec2::new(200.0, 14.0));
+        let stats = tray.stats_rect(band(), 0.0, Vec2::new(200.0, 14.0));
         assert!(stats.max().x + tray.gap <= tray.icon_rect(band(), right, 2, 0).origin.x);
     }
 
@@ -228,7 +258,7 @@ mod tests {
     fn icons_never_cross_the_left_margin() {
         let tray = Tray::default();
         let right = 300.0;
-        let (shown, _) = tray.layout(band(), right, 50, None);
+        let (shown, _) = tray.layout(band(), 0.0, right, 50, None);
         assert!(shown > 0);
         assert!(tray.icon_rect(band(), right, shown, 0).origin.x >= tray.margin);
         assert!(tray.icon_rect(band(), right, shown + 1, 0).origin.x < tray.margin);

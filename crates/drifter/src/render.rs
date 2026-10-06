@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 
 use crate::paint::{Painter, Scanout, Tex};
 
+mod appname;
 mod art;
 mod bars;
 mod camera;
@@ -188,6 +189,7 @@ enum Target {
     },
     Window(u64),
     Dock(String),
+    App(String),
     Desktop,
 }
 
@@ -422,6 +424,7 @@ pub struct State {
     icons: Vec<(String, String, TextureBuffer<Tex>)>,
     tray_raw: Vec<crate::tray::Icon>,
     frost_key: Option<[i64; 6]>,
+    app_label: Option<(String, TextureBuffer<Tex>, Vec2)>,
     window_shadow: Option<(TextureBuffer<Tex>, f64)>,
     bounces: Vec<(String, Instant)>,
     dock_press: Option<(usize, Vec2)>,
@@ -640,6 +643,9 @@ impl State {
             self.dock_elements(&mut elements, band);
         }
 
+        if let (Some(rect), Some((_, buffer, _))) = (self.app_label_rect(), self.app_label.as_ref()) {
+            elements.push(Skin::Texture(element(buffer, rect, 1.0)));
+        }
         if let (Some(_), Some((_, buffer, rect))) = (self.tray_band(), self.clock.as_ref()) {
             elements.push(Skin::Texture(element(buffer, *rect, 1.0)));
         }
@@ -661,7 +667,7 @@ impl State {
             if let (true, Some((buffer, size))) = (stats, self.stats.as_ref()) {
                 elements.push(Skin::Texture(element(
                     buffer,
-                    self.tray.stats_rect(band, *size),
+                    self.tray.stats_rect(band, self.tray_lead(), *size),
                     1.0,
                 )));
             }
@@ -949,6 +955,7 @@ impl State {
         }
         self.steer();
         self.wind_the_clock();
+        self.wind_the_app_label();
         self.wind_the_stats();
         self.wind_the_volume();
         self.wind_the_light();

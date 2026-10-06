@@ -91,6 +91,33 @@ impl Font {
         self.paint_with(text, color, None)
     }
 
+    pub fn paint_bold(&self, text: &str, color: [u8; 3]) -> Image {
+        let thin = self.paint(text, color);
+        let width = thin.width + 1;
+        let mut rgba = vec![0u8; (width * thin.height * 4) as usize];
+        for y in 0..thin.height {
+            for x in 0..width {
+                let take = |sx: u32| -> [u8; 4] {
+                    if sx >= thin.width {
+                        return [0; 4];
+                    }
+                    let at = ((y * thin.width + sx) * 4) as usize;
+                    [thin.rgba[at], thin.rgba[at + 1], thin.rgba[at + 2], thin.rgba[at + 3]]
+                };
+                let a = take(x);
+                let b = if x > 0 { take(x - 1) } else { [0; 4] };
+                let pick = if a[3] >= b[3] { a } else { b };
+                let at = ((y * width + x) * 4) as usize;
+                rgba[at..at + 4].copy_from_slice(&pick);
+            }
+        }
+        Image {
+            width,
+            height: thin.height,
+            rgba,
+        }
+    }
+
     pub fn paint_even_digits(&self, text: &str, color: [u8; 3]) -> Image {
         self.paint_with(text, color, Some(self.digit_cell()))
     }

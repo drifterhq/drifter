@@ -284,6 +284,7 @@ impl State {
         self.tray.ink = palette.ink;
         self.clock = None;
         self.stats = None;
+        self.app_label = None;
         self.titles.clear();
         let power = drifter_core::tray::paint_power(self.tray.button as u32, palette.ink);
         match upload(&mut self.renderer, Some(&power), "power") {
