@@ -340,6 +340,19 @@ impl State {
         if code == BTN_LEFT && !had_menu && self.press_app_label() {
             return true;
         }
+        if code == BTN_LEFT && self.control_rect().is_some_and(|rect| rect.contains(self.pointer)) {
+            self.toggle_control();
+            return true;
+        }
+        if code == BTN_LEFT
+            && self
+                .clock
+                .as_ref()
+                .is_some_and(|(_, _, rect)| rect.contains(self.pointer))
+        {
+            self.toggle_notes();
+            return true;
+        }
         if self
             .speaker_rect()
             .is_some_and(|rect| rect.contains(self.pointer))
@@ -640,7 +653,7 @@ impl State {
         }
     }
 
-    fn set_gauge(&mut self, gauge: Gauge, level: f64) {
+    pub(super) fn set_gauge(&mut self, gauge: Gauge, level: f64) {
         match gauge {
             Gauge::Brightness => {
                 let level = level.max(0.05);
@@ -708,6 +721,9 @@ impl State {
     }
 
     fn tray_right(&self, band: Rect) -> f64 {
+        if let Some(rect) = self.control_rect() {
+            return rect.origin.x;
+        }
         match (self.sun_rect(), self.speaker_rect(), self.clock.as_ref()) {
             (Some(rect), _, _) | (None, Some(rect), _) => rect.origin.x,
             (None, None, Some((_, _, rect))) => rect.origin.x,

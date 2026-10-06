@@ -8,6 +8,7 @@ mod art;
 mod bars;
 mod camera;
 mod capture;
+mod centers;
 mod dock;
 mod follow;
 mod heads;
@@ -427,6 +428,10 @@ pub struct State {
     icons: Vec<(String, String, TextureBuffer<Tex>)>,
     tray_raw: Vec<crate::tray::Icon>,
     frost_key: Option<[i64; 6]>,
+    control: Option<centers::Panel>,
+    control_icon: Option<TextureBuffer<Tex>>,
+    control_status: drifter_core::control::Status,
+    notes_panel: Option<(TextureBuffer<Tex>, Rect, usize)>,
     search: Option<search::Search>,
     search_font: Option<Font>,
     search_icons: std::collections::HashMap<String, Option<drifter_core::Image>>,
@@ -641,6 +646,12 @@ impl State {
         if let Some(open) = self.popover.as_ref().filter(|_| live) {
             elements.push(Skin::Texture(element(&open.art, open.rect, 1.0)));
         }
+        if let Some(open) = self.control.as_ref().filter(|_| live) {
+            elements.push(Skin::Texture(element(&open.art, open.rect, 1.0)));
+        }
+        if let Some((art, rect, _)) = self.notes_panel.as_ref().filter(|_| live) {
+            elements.push(Skin::Texture(element(art, *rect, 1.0)));
+        }
         if let Some(panel) = self.gauge_panel.as_ref().filter(|_| live) {
             elements.push(Skin::Texture(element(&panel.art, panel.rect, 1.0)));
         }
@@ -662,6 +673,9 @@ impl State {
             elements.push(Skin::Texture(element(buffer, rect, 1.0)));
         }
         if let (Some(rect), Some(buffer)) = (self.sun_rect(), self.sun.as_ref()) {
+            elements.push(Skin::Texture(element(buffer, rect, 1.0)));
+        }
+        if let (Some(rect), Some(buffer)) = (self.control_rect(), self.control_icon.as_ref()) {
             elements.push(Skin::Texture(element(buffer, rect, 1.0)));
         }
         if let (Some(band), Some(buffer)) = (self.tray_band(), self.power.as_ref()) {
@@ -1202,6 +1216,9 @@ impl State {
         }
         if self.dock_drag.is_some() {
             return Some(Edge::Bottom);
+        }
+        if self.control.is_some() || self.notes_panel.is_some() {
+            return Some(Edge::Top);
         }
         if self
             .gauge_panel

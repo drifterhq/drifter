@@ -287,6 +287,12 @@ impl State {
         self.stats = None;
         self.app_label = None;
         self.search = None;
+        self.control = None;
+        self.notes_panel = None;
+        let button = drifter_core::control::paint_icon(self.tray.button as u32, palette.ink);
+        if let Ok(Some(buffer)) = upload(&mut self.renderer, Some(&button), "control center button") {
+            self.control_icon = Some(buffer);
+        }
         self.titles.clear();
         let power = drifter_core::tray::paint_power(self.tray.button as u32, palette.ink);
         match upload(&mut self.renderer, Some(&power), "power") {

@@ -1,6 +1,8 @@
 pub mod autostart;
+pub mod calendar;
 pub mod camera;
 pub mod config;
+pub mod control;
 pub mod corner;
 pub mod cursor;
 pub mod desktop;

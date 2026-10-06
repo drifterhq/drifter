@@ -445,6 +445,9 @@ impl State {
         if self.drag_dock() {
             return;
         }
+        if self.drag_control() {
+            return;
+        }
         if self.drag_gauge_panel() {
             return;
         }
@@ -495,6 +498,7 @@ impl State {
         let serial = SERIAL_COUNTER.next_serial();
         if state == ButtonState::Released {
             self.release_dock();
+            self.release_control();
             self.release_gauge_panel();
             self.release_overview();
             if let (Grab::Move { id, .. }, Some(zone)) = (&self.grab, self.zone)
@@ -568,6 +572,9 @@ impl State {
             return true;
         }
         if self.press_overview_button(code) {
+            return true;
+        }
+        if self.press_centers(code) {
             return true;
         }
         if self.press_gauge_panel(code) {
