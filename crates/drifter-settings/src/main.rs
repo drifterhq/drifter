@@ -1,10 +1,3 @@
-macro_rules! out {
-    ($($arg:tt)*) => {{
-        use std::io::Write as _;
-        let _ = writeln!(std::io::stdout(), $($arg)*);
-    }};
-}
-
 macro_rules! log {
     ($($arg:tt)*) => {{
         use std::io::Write as _;

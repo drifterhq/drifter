@@ -362,7 +362,7 @@ impl State {
     pub(super) fn land(&mut self, index: usize, zone: Zone) {
         let view = self.camera.visible_rect(self.screen);
         let frame = self.snap.rect(zone, view);
-        let chrome = self.chrome;
+        let chrome = self.chrome_of(index);
         let want = Rect::new(
             Vec2::new(frame.origin.x + chrome.edge, frame.origin.y + chrome.title),
             Vec2::new(
@@ -385,6 +385,17 @@ impl State {
         window.toplevel.send_pending_configure();
     }
 
+    fn chrome_of(&self, index: usize) -> Chrome {
+        match self.windows.get(index) {
+            Some(window) if !window.decorated => Chrome {
+                title: 0.0,
+                edge: 0.0,
+                ..self.chrome
+            },
+            _ => self.chrome,
+        }
+    }
+
     pub(super) fn press_button(&mut self, index: usize, button: ChromeButton) {
         use wayland_protocols::xdg::shell::server::xdg_toplevel;
 
@@ -405,7 +416,7 @@ impl State {
                 self.focus_next(Some(id));
             }
             ChromeButton::Maximize | ChromeButton::Restore => {
-                let chrome = self.chrome;
+                let chrome = self.chrome_of(index);
                 let zone =
                     smithay::desktop::layer_map_for_output(&self.output).non_exclusive_zone();
                 let zone = Rect::new(

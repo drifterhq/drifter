@@ -856,40 +856,65 @@ impl State {
     }
 
     pub fn answer_wlr_toplevels(&mut self) {
-        use crate::wlr_toplevel::Ask;
-
         let asks = self.wayland.extras.wlr_toplevels.take_asks();
         if self.lock.is_some() {
             return;
         }
         for (id, ask) in asks {
-            let Some(place) = self.place_of(id) else {
-                continue;
-            };
-            let window = &self.windows[place];
-            let minimizing = window
-                .motion
-                .is_some_and(|motion| motion.phase == Phase::Minimizing);
-            match ask {
-                Ask::Activate => self.bring(place),
-                Ask::Close => self.press_button(place, ChromeButton::Close),
-                Ask::Minimize(true) if !window.hidden && !minimizing => {
-                    self.press_button(place, ChromeButton::Minimize)
-                }
-                Ask::Minimize(false) if window.hidden => self.bring(place),
-                Ask::Maximize(true) if window.restore.is_none() => {
-                    self.press_button(place, ChromeButton::Maximize)
-                }
-                Ask::Maximize(false) if window.restore.is_some() => {
-                    self.press_button(place, ChromeButton::Restore)
-                }
-                Ask::Fullscreen(true) => self.enter_fullscreen(place),
-                Ask::Fullscreen(false) => self.leave_fullscreen(place),
-                _ => {}
+            if let Some(place) = self.place_of(id) {
+                self.answer(place, ask);
             }
         }
         self.sync_wlr_toplevels();
         self.kick_now();
+    }
+
+    pub fn app_asks(
+        &mut self,
+        surface: &smithay::wayland::shell::xdg::ToplevelSurface,
+        ask: crate::wlr_toplevel::Ask,
+    ) {
+        let place = self
+            .windows
+            .iter()
+            .position(|window| &window.toplevel == surface);
+        match place {
+            Some(place) if self.lock.is_none() => self.answer(place, ask),
+            _ => {
+                surface.send_configure();
+            }
+        }
+        self.sync_wlr_toplevels();
+        self.kick_now();
+    }
+
+    fn answer(&mut self, place: usize, ask: crate::wlr_toplevel::Ask) {
+        use crate::wlr_toplevel::Ask;
+
+        let window = &self.windows[place];
+        let minimizing = window
+            .motion
+            .is_some_and(|motion| motion.phase == Phase::Minimizing);
+        match ask {
+            Ask::Activate => self.bring(place),
+            Ask::Close => self.press_button(place, ChromeButton::Close),
+            Ask::Minimize(true) if !window.hidden && !minimizing => {
+                self.press_button(place, ChromeButton::Minimize)
+            }
+            Ask::Minimize(false) if window.hidden => self.bring(place),
+            Ask::Maximize(true) if window.restore.is_none() => {
+                self.press_button(place, ChromeButton::Maximize)
+            }
+            Ask::Maximize(false) if window.restore.is_some() => {
+                self.press_button(place, ChromeButton::Restore)
+            }
+            Ask::Maximize(_) => {
+                window.toplevel.send_configure();
+            }
+            Ask::Fullscreen(true) => self.enter_fullscreen(place),
+            Ask::Fullscreen(false) => self.leave_fullscreen(place),
+            _ => {}
+        }
     }
 
     pub(super) fn close_focused(&mut self) {

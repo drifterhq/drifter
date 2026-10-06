@@ -30,6 +30,7 @@ use smithay::{
 use wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1::Mode as DecorationMode;
 
 use crate::render::State;
+use crate::wlr_toplevel::Ask;
 
 pub struct Wayland {
     pub handle: DisplayHandle,
@@ -242,6 +243,18 @@ impl XdgShellHandler for State {
         {
             self.leave_fullscreen(index);
         }
+    }
+
+    fn maximize_request(&mut self, surface: ToplevelSurface) {
+        self.app_asks(&surface, Ask::Maximize(true));
+    }
+
+    fn unmaximize_request(&mut self, surface: ToplevelSurface) {
+        self.app_asks(&surface, Ask::Maximize(false));
+    }
+
+    fn minimize_request(&mut self, surface: ToplevelSurface) {
+        self.app_asks(&surface, Ask::Minimize(true));
     }
 
     fn move_request(&mut self, surface: ToplevelSurface, _seat: WlSeat, _serial: Serial) {
