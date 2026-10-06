@@ -803,8 +803,9 @@ impl State {
                     zoom * stretch,
                 ))
             }));
-            if dressed && !maximized {
-                self.cast_shadow(shown, awake, fade, &mut elements);
+            let own_shadow = inset.x > 0.5 || inset.y > 0.5;
+            if !maximized && (dressed || !own_shadow) {
+                self.cast_shadow(shown, dressed, awake, fade, &mut elements);
             }
         }
 
