@@ -289,25 +289,6 @@ pub(crate) fn fill_round(image: &mut Image, rect: Rect, radius: f64, color: [u8;
     }
 }
 
-pub(crate) fn fill(image: &mut Image, rect: Rect, color: [u8; 3]) {
-    let from_y = rect.origin.y.max(0.0) as u32;
-    let to_y = (rect.max().y.min(f64::from(image.height))) as u32;
-    let from_x = rect.origin.x.max(0.0) as u32;
-    let to_x = (rect.max().x.min(f64::from(image.width))) as u32;
-    for y in from_y..to_y {
-        for x in from_x..to_x {
-            let index = ((y as usize) * (image.width as usize) + x as usize) * 4;
-            if image.rgba[index + 3] == 0 {
-                continue;
-            }
-            let a = f64::from(image.rgba[index + 3]) / 255.0;
-            for (channel, value) in color.iter().enumerate() {
-                image.rgba[index + channel] = (f64::from(*value) * a).round() as u8;
-            }
-        }
-    }
-}
-
 pub(crate) fn paint_rule(image: &mut Image, from: f64, to: f64, y: f64, color: [u8; 3]) {
     let row = y.round().max(0.0) as u32;
     if row >= image.height {
