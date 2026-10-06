@@ -247,7 +247,9 @@ impl State {
                 Some(Slot::Tool(tool)) => {
                     if let Some(shooter) = self.shooter.as_mut() {
                         shooter.tool = tool;
-                        shooter.chosen = None;
+                        if tool.pick != Pick::Portion {
+                            shooter.chosen = None;
+                        }
                     }
                     self.paint_shooter_bar();
                 }
