@@ -201,9 +201,17 @@ impl State {
         let look = config.appearance.clone();
         let paths = asset_paths(config);
         let was = std::mem::replace(&mut self.appearance, look.clone());
-        if was != look {
-            tell_gnome(Some(&was), &look);
+        let style = drifter_core::theme::now(look.style, &config.night);
+        let restyled = style != self.style;
+        self.style = style;
+        if was != look || restyled {
+            tell_gnome(Some(&was), &look, restyled.then_some(style));
             cursor_env(&look);
+        }
+        let layout = config.window.gtk_layout();
+        if layout != self.gtk_layout {
+            self.gtk_layout = layout.clone();
+            tell_buttons(layout);
         }
         if was.icons != look.icons {
             drifter_core::icon::set_theme(look.icons.clone());
@@ -215,7 +223,7 @@ impl State {
         if cursor_moved {
             self.named_cursors.clear();
         }
-        let palette = drifter_core::theme::of(look.style);
+        let palette = drifter_core::theme::of(style);
         if palette != self.palette {
             self.recolor(config, palette);
         }
@@ -389,6 +397,19 @@ impl State {
         }
     }
 
+    pub(super) fn watch_style(&mut self) {
+        if drifter_core::theme::now(self.appearance.style, &self.night) == self.style {
+            return;
+        }
+        match Config::load_from(&self.config_path) {
+            Ok(config) => {
+                self.follow_looks(&config);
+                self.kick_now();
+            }
+            Err(error) => log!("drifter: the look waits, the config did not load: {error}"),
+        }
+    }
+
     pub(super) fn apply(&mut self, config: &Config) {
         self.screens_wide = (config.workspace.width, config.workspace.height);
         self.monitors = config.monitor.clone();
@@ -527,9 +548,10 @@ pub(super) fn cursor_env(look: &drifter_core::Appearance) {
     crate::apps::set_env("XCURSOR_SIZE", Some(look.cursor_size.to_string()));
 }
 
+const FACE: &str = "org.gnome.desktop.interface";
+
 pub(super) fn tell_access(was: Option<&drifter_core::Access>, now: &drifter_core::Access) {
     let mut sets: Vec<(&'static str, &'static str, String)> = Vec::new();
-    const FACE: &str = "org.gnome.desktop.interface";
     const A11Y: &str = "org.gnome.desktop.a11y.interface";
     let moved = |pick: fn(&drifter_core::Access) -> bool| match was {
         Some(was) => pick(was) != pick(now),
@@ -548,13 +570,84 @@ pub(super) fn tell_access(was: Option<&drifter_core::Access>, now: &drifter_core
     if moved(|access| access.high_contrast) {
         sets.push((A11Y, "high-contrast", now.high_contrast.to_string()));
     }
+    gsettings(sets);
+}
+
+pub(super) fn tell_gnome(
+    was: Option<&drifter_core::Appearance>,
+    look: &drifter_core::Appearance,
+    style: Option<drifter_core::Style>,
+) {
+    let mut sets: Vec<(&'static str, &'static str, String)> = Vec::new();
+    let changed = |pick: fn(&drifter_core::Appearance) -> Option<String>| {
+        let now = pick(look);
+        now.clone()
+            .filter(|_| was.is_none_or(|was| pick(was) != now))
+    };
+    if let Some(style) = style {
+        let (scheme, theme) = match style {
+            drifter_core::Style::Light => ("default", "Adwaita"),
+            _ => ("prefer-dark", "Adwaita-dark"),
+        };
+        sets.push((FACE, "color-scheme", scheme.to_string()));
+        sets.push((FACE, "gtk-theme", theme.to_string()));
+    }
+    if let Some(accent) = changed(|look| look.accent.map(|a| a.word().to_string())) {
+        sets.push((FACE, "accent-color", accent));
+    }
+    if let Some(icons) = changed(|look| look.icons.clone()) {
+        sets.push((FACE, "icon-theme", icons));
+    }
+    if let Some(cursor) = changed(|look| look.cursor_theme.clone()) {
+        sets.push((FACE, "cursor-theme", cursor));
+    }
+    let size_moved = match was {
+        Some(was) => was.cursor_size != look.cursor_size,
+        None => look.cursor_size != drifter_core::Appearance::default().cursor_size,
+    };
+    if size_moved {
+        sets.push((FACE, "cursor-size", look.cursor_size.to_string()));
+    }
+    gsettings(sets);
+}
+
+pub(super) fn tell_buttons(layout: String) {
+    gsettings(vec![("org.gnome.desktop.wm.preferences", "button-layout", layout)]);
+}
+
+pub(super) fn dress_gtk4() {
+    let dir = drifter_core::theme::gtk4_dir();
+    if let Err(error) = drifter_core::theme::install_gtk4_css(&dir) {
+        log!(
+            "drifter: gtk 4 apps keep their own colors, {} is not writable: {error}",
+            dir.display()
+        );
+    }
+}
+
+fn gsettings(sets: Vec<(&'static str, &'static str, String)>) {
     if sets.is_empty() {
         return;
     }
     let spawned = std::thread::Builder::new()
-        .name("drifter-access".to_string())
+        .name("drifter-gsettings".to_string())
         .spawn(move || {
             for (schema, key, value) in sets {
+                if key == "gtk-theme" {
+                    let now = std::process::Command::new("gsettings")
+                        .args(["get", schema, key])
+                        .output()
+                        .map(|out| {
+                            String::from_utf8_lossy(&out.stdout)
+                                .trim()
+                                .trim_matches('\'')
+                                .to_string()
+                        })
+                        .unwrap_or_default();
+                    if now != "Adwaita" && now != "Adwaita-dark" {
+                        continue;
+                    }
+                }
                 let ran = std::process::Command::new("gsettings")
                     .args(["set", schema, key, &value])
                     .stderr(std::process::Stdio::null())
@@ -564,88 +657,6 @@ pub(super) fn tell_access(was: Option<&drifter_core::Access>, now: &drifter_core
                     Ok(_) => log!("drifter: gsettings has no {schema} {key} here"),
                     Err(error) => {
                         log!("drifter: apps keep their settings, gsettings did not run: {error}");
-                        return;
-                    }
-                }
-            }
-        });
-    if let Err(error) = spawned {
-        log!("drifter: cannot tell apps about accessibility: {error}");
-    }
-}
-
-pub(super) fn tell_gnome(was: Option<&drifter_core::Appearance>, look: &drifter_core::Appearance) {
-    use drifter_core::Style;
-    let mut sets: Vec<(&'static str, String)> = Vec::new();
-    let changed = |pick: fn(&drifter_core::Appearance) -> Option<String>| {
-        let now = pick(look);
-        now.clone()
-            .filter(|_| was.is_none_or(|was| pick(was) != now))
-    };
-    if let Some(style) = changed(|look| look.style.map(|s| format!("{s:?}"))) {
-        let scheme = if style == format!("{:?}", Style::Dark) {
-            "prefer-dark"
-        } else {
-            "default"
-        };
-        sets.push(("color-scheme", scheme.to_string()));
-        sets.push(("gtk-theme", style));
-    }
-    if let Some(accent) = changed(|look| look.accent.map(|a| a.word().to_string())) {
-        sets.push(("accent-color", accent));
-    }
-    if let Some(icons) = changed(|look| look.icons.clone()) {
-        sets.push(("icon-theme", icons));
-    }
-    if let Some(cursor) = changed(|look| look.cursor_theme.clone()) {
-        sets.push(("cursor-theme", cursor));
-    }
-    let size_moved = match was {
-        Some(was) => was.cursor_size != look.cursor_size,
-        None => look.cursor_size != drifter_core::Appearance::default().cursor_size,
-    };
-    if size_moved {
-        sets.push(("cursor-size", look.cursor_size.to_string()));
-    }
-    if sets.is_empty() {
-        return;
-    }
-    let spawned = std::thread::Builder::new()
-        .name("drifter-gsettings".to_string())
-        .spawn(move || {
-            const SCHEMA: &str = "org.gnome.desktop.interface";
-            for (key, value) in sets {
-                let value = match key {
-                    "gtk-theme" => {
-                        let now = std::process::Command::new("gsettings")
-                            .args(["get", SCHEMA, "gtk-theme"])
-                            .output()
-                            .map(|out| {
-                                String::from_utf8_lossy(&out.stdout)
-                                    .trim()
-                                    .trim_matches('\'')
-                                    .to_string()
-                            })
-                            .unwrap_or_default();
-                        if now != "Adwaita" && now != "Adwaita-dark" {
-                            continue;
-                        }
-                        match value.as_str() {
-                            "Dark" => "Adwaita-dark".to_string(),
-                            _ => "Adwaita".to_string(),
-                        }
-                    }
-                    _ => value,
-                };
-                let ran = std::process::Command::new("gsettings")
-                    .args(["set", SCHEMA, key, &value])
-                    .stderr(std::process::Stdio::null())
-                    .status();
-                match ran {
-                    Ok(status) if status.success() => {}
-                    Ok(_) => log!("drifter: gsettings has no {key} here"),
-                    Err(error) => {
-                        log!("drifter: apps keep their look, gsettings did not run: {error}");
                         return;
                     }
                 }

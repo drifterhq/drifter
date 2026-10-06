@@ -181,7 +181,10 @@ pub fn open(
     };
     crate::apps::set_env("DRIFTER_RENDERER", Some(gl.clone()));
     drifter_core::icon::set_theme(config.appearance.icons.clone());
-    tell_gnome(None, &config.appearance);
+    let style = drifter_core::theme::now(config.appearance.style, &config.night);
+    tell_gnome(None, &config.appearance, Some(style));
+    tell_buttons(config.window.gtk_layout());
+    dress_gtk4();
     tell_access(None, &config.access);
     cursor_env(&config.appearance);
     let shapes = [
@@ -206,7 +209,7 @@ pub fn open(
         probe.band(screen, &shapes[Edge::Top.index()])
     };
 
-    let palette = drifter_core::theme::of(config.appearance.style);
+    let palette = drifter_core::theme::of(style);
     let (skin, mut chrome) = load_skin(&mut renderer, config, &palette);
     chrome.follow(&config.window);
 
@@ -364,6 +367,8 @@ pub fn open(
         switch_mods: drifter_core::shortcut::Mods::default(),
         swallowed: Vec::new(),
         appearance: config.appearance.clone(),
+        style,
+        gtk_layout: config.window.gtk_layout(),
         asset_paths: asset_paths(config),
         holds: config.input.modifier,
         last_title: None,
@@ -790,6 +795,7 @@ pub fn open(
                 state.watch_config();
                 state.watch_idle();
                 state.watch_night();
+                state.watch_style();
                 state.evict_tiles();
                 state.watch_wallpaper();
                 state.watch_trash();

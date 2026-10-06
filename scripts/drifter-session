@@ -12,6 +12,7 @@ log=$state/crash.log
 export XDG_CURRENT_DESKTOP=drifter
 export XDG_SESSION_DESKTOP=drifter
 export XDG_SESSION_TYPE=wayland
+export QT_QPA_PLATFORMTHEME=${QT_QPA_PLATFORMTHEME:-gtk3}
 
 recent=()
 while true; do
