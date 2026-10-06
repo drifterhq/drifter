@@ -80,6 +80,7 @@ const LOCK_PATIENCE: Duration = Duration::from_secs(30);
 const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
 const BTN_MIDDLE: u32 = 0x112;
+const CLOSE_PATIENCE: Duration = Duration::from_secs(2);
 const PANEL_ALPHA: u8 = 235;
 const TICK: Duration = Duration::from_millis(8);
 const CONFIG_WATCH: Duration = Duration::from_millis(400);
@@ -532,6 +533,7 @@ impl State {
             || self.flight.is_some()
             || self.windows.iter().any(|window| window.motion.is_some())
             || !self.bounces.is_empty()
+            || self.windows.iter().any(|window| window.closed_at.is_some())
             || self.dock_drag.is_some()
             || self.heads.iter().enumerate().any(|(index, head)| {
                 index != self.at
@@ -734,7 +736,7 @@ impl State {
             .windows
             .iter()
             .rev()
-            .filter(|window| window.placed && !window.hidden)
+            .filter(|window| window.placed && !window.hidden && window.closed_at.is_none())
             .map(|window| {
                 let (shown, fade) = window
                     .motion

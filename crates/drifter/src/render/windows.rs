@@ -48,11 +48,25 @@ impl State {
                     self.wake_windows();
                 }
                 Some(Phase::Closing) => {
-                    window.toplevel.send_close();
-                    window.going = false;
+                    window.closed_at = Some(Instant::now());
                 }
                 _ => {}
             }
+        }
+        let mut back = false;
+        for window in self.windows.iter_mut() {
+            if window
+                .closed_at
+                .is_some_and(|at| at.elapsed() >= CLOSE_PATIENCE)
+            {
+                window.closed_at = None;
+                window.going = false;
+                window.motion = Some(Motion::new(Phase::Opening, window.content));
+                back = true;
+            }
+        }
+        if back {
+            self.wake_windows();
         }
     }
 

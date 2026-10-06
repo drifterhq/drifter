@@ -61,6 +61,7 @@ pub struct Window {
     pub wants_full: bool,
     pub motion: Option<drifter_core::motion::Motion>,
     pub going: bool,
+    pub closed_at: Option<std::time::Instant>,
     pub listed: Option<smithay::wayland::foreign_toplevel_list::ForeignToplevelHandle>,
 }
 
@@ -213,6 +214,7 @@ impl XdgShellHandler for State {
             wants_full: false,
             motion: Some(start),
             going: false,
+            closed_at: None,
             listed: None,
         });
     }

@@ -127,7 +127,7 @@ impl State {
     pub(super) fn window_hit(&self) -> Option<Hit> {
         let world = self.in_world(self.pointer);
         for (index, window) in self.windows.iter().enumerate().rev() {
-            if !window.placed || window.hidden {
+            if !window.placed || window.hidden || window.going {
                 continue;
             }
             let root = window.toplevel.wl_surface();
@@ -253,7 +253,11 @@ impl State {
             .enumerate()
             .rev()
             .filter(|(_, window)| {
-                window.placed && !window.hidden && window.decorated && window.full.is_none()
+                window.placed
+                    && !window.hidden
+                    && !window.going
+                    && window.decorated
+                    && window.full.is_none()
             })
             .find_map(|(index, window)| {
                 self.chrome
@@ -390,6 +394,7 @@ impl State {
                 let window = &mut self.windows[index];
                 if !window.going {
                     window.going = true;
+                    window.toplevel.send_close();
                     window.motion = Some(Motion::new(Phase::Closing, seat));
                 }
             }
