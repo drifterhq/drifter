@@ -84,7 +84,7 @@ impl State {
     }
 
     fn drag_target(&self, count: usize) -> Option<usize> {
-        let drag = self.dock_drag.as_ref()?;
+        self.dock_drag.as_ref()?;
         let band = self.dock_band()?;
         if self.pointer.y < band.origin.y - self.dock.icon * 1.5 {
             return None;
