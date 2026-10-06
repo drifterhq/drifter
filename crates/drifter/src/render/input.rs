@@ -558,6 +558,9 @@ impl State {
     }
 
     pub(super) fn press_own(&mut self, code: u32) -> bool {
+        if (self.desk_menu.is_some() || self.alert.is_some()) && self.press_desk_menu() {
+            return true;
+        }
         if self.launchpad.is_some()
             && !self
                 .popover
@@ -823,6 +826,16 @@ impl State {
             return;
         }
         if self.lock.is_none()
+            && (self.desk_menu.is_some() || self.alert.is_some())
+            && let InputEvent::Keyboard { event } = &event
+        {
+            if event.state() == KeyState::Pressed {
+                let key = self.read_key(event);
+                self.desk_menu_key(key);
+            }
+            return;
+        }
+        if self.lock.is_none()
             && self.launchpad.is_some()
             && let InputEvent::Keyboard { event } = &event
         {
@@ -923,6 +936,9 @@ impl State {
                     .map(|raw| -raw / 120.0)
                     .or_else(|| event.amount(Axis::Vertical).map(|raw| -raw / 10.0))
                     .unwrap_or(0.0);
+                if self.desk_menu.is_some() && self.scroll_desk_menu(steps) {
+                    return;
+                }
                 if self.scroll_launchpad(steps) {
                     return;
                 }

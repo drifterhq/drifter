@@ -48,8 +48,18 @@ pub fn read(id: &str, text: &str) -> Option<App> {
             "Exec" if exec.is_none() => exec = Some(value),
             "Type" => kind = Some(value),
             "Categories" => {
-                categories.extend(value.split(';').filter(|word| !word.is_empty()).map(str::to_string));
-                words.extend(value.split(';').filter(|word| !word.is_empty()).map(str::to_lowercase));
+                categories.extend(
+                    value
+                        .split(';')
+                        .filter(|word| !word.is_empty())
+                        .map(str::to_string),
+                );
+                words.extend(
+                    value
+                        .split(';')
+                        .filter(|word| !word.is_empty())
+                        .map(str::to_lowercase),
+                );
             }
             "GenericName" | "Keywords" => {
                 words.extend(
@@ -100,6 +110,68 @@ pub fn installed_in(roots: &[PathBuf]) -> Vec<App> {
     }
     found.sort_by_key(|app| app.name.to_lowercase());
     found
+}
+
+pub const GROUPS: [(&str, &[&str]); 10] = [
+    ("Internet", &["Network", "WebBrowser", "Email", "Chat"]),
+    (
+        "Office",
+        &["Office", "WordProcessor", "Spreadsheet", "Presentation"],
+    ),
+    ("Graphics", &["Graphics", "Photography", "Viewer"]),
+    ("Sound & Video", &["AudioVideo", "Audio", "Video", "Music"]),
+    ("Development", &["Development", "IDE"]),
+    ("Games", &["Game"]),
+    ("Education", &["Education", "Science"]),
+    (
+        "System",
+        &[
+            "System",
+            "Settings",
+            "Monitor",
+            "TerminalEmulator",
+            "FileManager",
+            "PackageManager",
+        ],
+    ),
+    (
+        "Accessories",
+        &[
+            "Utility",
+            "Accessibility",
+            "TextEditor",
+            "Calculator",
+            "Archiving",
+        ],
+    ),
+    ("Other", &[]),
+];
+
+pub fn group_of(app: &App) -> &'static str {
+    GROUPS
+        .iter()
+        .find(|(_, tags)| {
+            tags.iter()
+                .any(|tag| app.categories.iter().any(|held| held == tag))
+        })
+        .map(|(name, _)| *name)
+        .unwrap_or("Other")
+}
+
+pub fn grouped(apps: &[App]) -> Vec<(&'static str, Vec<App>)> {
+    let mut out: Vec<(&'static str, Vec<App>)> = Vec::new();
+    for (name, _) in GROUPS {
+        let mut members: Vec<App> = apps
+            .iter()
+            .filter(|app| group_of(app) == name)
+            .cloned()
+            .collect();
+        members.sort_by_key(|app| app.name.to_lowercase());
+        if !members.is_empty() {
+            out.push((name, members));
+        }
+    }
+    out
 }
 
 pub fn installed() -> Vec<App> {
@@ -311,6 +383,37 @@ pub fn set_default(text: &str, role: Role, id: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn apps_fall_into_their_first_matching_group() {
+        let app = |id: &str, cats: &str| {
+            read(
+                id,
+                &format!("[Desktop Entry]\nType=Application\nName={id}\nCategories={cats}\n"),
+            )
+            .unwrap()
+        };
+        let apps = vec![
+            app("firefox", "Network;WebBrowser;"),
+            app("foot", "System;TerminalEmulator;"),
+            app("gimp", "Graphics;2DGraphics;"),
+            app("odd", "Weird;"),
+            app("thunderbird", "Network;Email;"),
+        ];
+        let groups = grouped(&apps);
+        assert_eq!(groups[0].0, "Internet");
+        assert_eq!(
+            groups[0]
+                .1
+                .iter()
+                .map(|a| a.id.as_str())
+                .collect::<Vec<_>>(),
+            ["firefox", "thunderbird"]
+        );
+        assert_eq!(group_of(&apps[1]), "System");
+        assert_eq!(groups.last().unwrap().0, "Other");
+        assert!(groups.iter().all(|(_, members)| !members.is_empty()));
+    }
 
     const FOOT: &str = "[Desktop Entry]\nType=Application\nName=Foot\nName[de]=Fuß\nIcon=foot\nExec=foot\n\n[Desktop Action new]\nName=New window\nExec=foot --new\n";
 

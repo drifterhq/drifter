@@ -1,0 +1,606 @@
+use crate::geom::{Rect, Vec2};
+use crate::image::Image;
+use crate::paint::Canvas;
+use crate::text::Font;
+
+#[derive(Clone)]
+pub enum Kind {
+    Action(u32),
+    Submenu(Vec<Entry>),
+    Rule,
+    Disabled,
+}
+
+#[derive(Clone)]
+pub struct Entry {
+    pub label: String,
+    pub icon: Option<Image>,
+    pub kind: Kind,
+}
+
+impl Entry {
+    pub fn action(id: u32, label: &str) -> Entry {
+        Entry {
+            label: label.to_string(),
+            icon: None,
+            kind: Kind::Action(id),
+        }
+    }
+
+    pub fn submenu(label: &str, children: Vec<Entry>) -> Entry {
+        Entry {
+            label: label.to_string(),
+            icon: None,
+            kind: match children.is_empty() {
+                true => Kind::Disabled,
+                false => Kind::Submenu(children),
+            },
+        }
+    }
+
+    pub fn rule() -> Entry {
+        Entry {
+            label: String::new(),
+            icon: None,
+            kind: Kind::Rule,
+        }
+    }
+
+    pub fn with_icon(mut self, icon: Option<Image>) -> Entry {
+        self.icon = icon;
+        self
+    }
+
+    fn pickable(&self) -> bool {
+        matches!(self.kind, Kind::Action(_) | Kind::Submenu(_))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Key {
+    Up,
+    Down,
+    Left,
+    Right,
+    Enter,
+    Escape,
+    Letter(char),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outcome {
+    Nothing,
+    Changed,
+    Activate(u32),
+    Close,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Look {
+    pub item: f64,
+    pub rule: f64,
+    pub pad: f64,
+    pub radius: f64,
+    pub icon: f64,
+    pub least: f64,
+    pub back: [u8; 3],
+    pub back_alpha: f64,
+    pub ink: [u8; 3],
+    pub dim: [u8; 3],
+    pub rule_ink: [u8; 3],
+    pub accent: [u8; 3],
+}
+
+impl Look {
+    pub fn themed(p: &crate::theme::Palette, accent: [u8; 3]) -> Look {
+        Look {
+            item: 26.0,
+            rule: 9.0,
+            pad: 5.0,
+            radius: 10.0,
+            icon: 18.0,
+            least: 210.0,
+            back: p.back,
+            back_alpha: 0.96,
+            ink: p.ink,
+            dim: p.dim,
+            rule_ink: p.rule,
+            accent,
+        }
+    }
+
+    fn row(&self, entry: &Entry) -> f64 {
+        match entry.kind {
+            Kind::Rule => self.rule,
+            _ => self.item,
+        }
+    }
+
+    fn content(&self, items: &[Entry]) -> f64 {
+        items.iter().map(|entry| self.row(entry)).sum::<f64>() + self.pad * 2.0
+    }
+
+    pub fn size(&self, items: &[Entry], font: &Font, screen: Vec2) -> Vec2 {
+        let widest = items
+            .iter()
+            .map(|entry| font.width_of(&entry.label))
+            .fold(0.0f64, f64::max);
+        let has_icons = items.iter().any(|entry| entry.icon.is_some());
+        let lead = if has_icons { self.icon + 8.0 } else { 0.0 };
+        let width = (widest + lead + self.pad * 2.0 + 44.0)
+            .max(self.least)
+            .ceil();
+        let height = self.content(items).min(screen.y - 24.0).ceil();
+        Vec2::new(width, height)
+    }
+
+    pub fn item_top(&self, items: &[Entry], index: usize) -> f64 {
+        self.pad
+            + items
+                .iter()
+                .take(index)
+                .map(|entry| self.row(entry))
+                .sum::<f64>()
+    }
+
+    pub fn most_scroll(&self, items: &[Entry], size: Vec2) -> f64 {
+        (self.content(items) - size.y).max(0.0)
+    }
+
+    pub fn index_at(
+        &self,
+        items: &[Entry],
+        size: Vec2,
+        scroll: f64,
+        inside: Vec2,
+    ) -> Option<usize> {
+        if inside.x < 0.0 || inside.x > size.x || inside.y < 0.0 || inside.y > size.y {
+            return None;
+        }
+        let y = inside.y + scroll;
+        (0..items.len()).find(|at| {
+            let top = self.item_top(items, *at);
+            y >= top && y < top + self.row(&items[*at])
+        })
+    }
+
+    pub fn paint(
+        &self,
+        items: &[Entry],
+        size: Vec2,
+        hover: Option<usize>,
+        scroll: f64,
+        font: &Font,
+    ) -> Image {
+        let mut canvas = Canvas::new(size.x as u32, size.y as u32);
+        canvas.round_rect(
+            Rect::new(Vec2::ZERO, size),
+            self.radius,
+            self.back,
+            self.back_alpha,
+        );
+        let has_icons = items.iter().any(|entry| entry.icon.is_some());
+        for (index, entry) in items.iter().enumerate() {
+            let top = self.item_top(items, index) - scroll;
+            let tall = self.row(entry);
+            if top + tall < 0.0 || top > size.y {
+                continue;
+            }
+            if matches!(entry.kind, Kind::Rule) {
+                let line = Rect::new(
+                    Vec2::new(self.pad + 6.0, (top + tall / 2.0).round()),
+                    Vec2::new(size.x - self.pad * 2.0 - 12.0, 1.0),
+                );
+                canvas.round_rect(line, 0.0, self.rule_ink, 1.0);
+                continue;
+            }
+            let lit = hover == Some(index) && entry.pickable();
+            let row = Rect::new(
+                Vec2::new(self.pad, top),
+                Vec2::new(size.x - self.pad * 2.0, tall),
+            );
+            if lit {
+                canvas.round_rect(row, 6.0, self.accent, 1.0);
+            }
+            let ink = match (lit, &entry.kind) {
+                (true, _) => [255, 255, 255],
+                (false, Kind::Disabled) => self.dim,
+                _ => self.ink,
+            };
+            let mut x = row.origin.x + 8.0;
+            if has_icons {
+                if let Some(icon) = entry.icon.as_ref() {
+                    let at = Vec2::new(x, row.center().y - f64::from(icon.height) / 2.0).round();
+                    canvas.stamp(icon, at, 1.0);
+                }
+                x += self.icon + 8.0;
+            }
+            let text = font.paint(&entry.label, ink);
+            canvas.stamp(
+                &text,
+                Vec2::new(x, row.center().y - f64::from(text.height) / 2.0).round(),
+                1.0,
+            );
+            if matches!(entry.kind, Kind::Submenu(_)) {
+                let tip = Vec2::new(row.max().x - 10.0, row.center().y);
+                for step in 0..9 {
+                    let t = f64::from(step) / 8.0;
+                    let up = tip + Vec2::new(-4.0 * (1.0 - t), -4.5 * (1.0 - t));
+                    let down = tip + Vec2::new(-4.0 * (1.0 - t), 4.5 * (1.0 - t));
+                    canvas.circle(up, 0.9, ink, 1.0);
+                    canvas.circle(down, 0.9, ink, 1.0);
+                }
+            }
+        }
+        let most = self.most_scroll(items, size);
+        if most > 0.0 {
+            let dot = |canvas: &mut Canvas, y: f64| {
+                canvas.circle(Vec2::new(size.x / 2.0, y), 2.5, self.dim, 0.9);
+            };
+            if scroll > 0.5 {
+                dot(&mut canvas, 4.0);
+            }
+            if scroll < most - 0.5 {
+                dot(&mut canvas, size.y - 4.0);
+            }
+        }
+        canvas.image
+    }
+}
+
+#[derive(Clone)]
+pub struct Cascade {
+    pub root: Vec<Entry>,
+    pub path: Vec<usize>,
+    pub hover: Vec<Option<usize>>,
+    pub scroll: Vec<f64>,
+    pub origin: Vec2,
+}
+
+impl Cascade {
+    pub fn new(root: Vec<Entry>, origin: Vec2) -> Cascade {
+        Cascade {
+            root,
+            path: Vec::new(),
+            hover: vec![None],
+            scroll: vec![0.0],
+            origin,
+        }
+    }
+
+    pub fn levels(&self) -> usize {
+        self.path.len() + 1
+    }
+
+    pub fn items(&self, level: usize) -> &[Entry] {
+        let mut items: &[Entry] = &self.root;
+        for at in self.path.iter().take(level) {
+            match items.get(*at).map(|entry| &entry.kind) {
+                Some(Kind::Submenu(children)) => items = children,
+                _ => return &[],
+            }
+        }
+        items
+    }
+
+    pub fn panels(&self, look: &Look, font: &Font, screen: Vec2) -> Vec<Rect> {
+        let mut out: Vec<Rect> = Vec::new();
+        for level in 0..self.levels() {
+            let items = self.items(level);
+            let size = look.size(items, font, screen);
+            let rect = match out.last() {
+                None => {
+                    let x = self.origin.x.min(screen.x - size.x - 8.0).max(8.0);
+                    let y = self.origin.y.min(screen.y - size.y - 8.0).max(8.0);
+                    Rect::new(Vec2::new(x, y), size)
+                }
+                Some(parent) => {
+                    let parent_items = self.items(level - 1);
+                    let at = self.path[level - 1];
+                    let top = parent.origin.y + look.item_top(parent_items, at)
+                        - self.scroll[level - 1]
+                        - look.pad;
+                    let right = parent.max().x - 4.0;
+                    let x = match right + size.x <= screen.x - 4.0 {
+                        true => right,
+                        false => (parent.origin.x - size.x + 4.0).max(4.0),
+                    };
+                    let y = top.min(screen.y - size.y - 8.0).max(8.0);
+                    Rect::new(Vec2::new(x, y), size)
+                }
+            };
+            out.push(Rect::new(rect.origin.round(), rect.size));
+        }
+        out
+    }
+
+    pub fn hit(
+        &self,
+        look: &Look,
+        font: &Font,
+        screen: Vec2,
+        pointer: Vec2,
+    ) -> Option<(usize, Option<usize>)> {
+        let panels = self.panels(look, font, screen);
+        for level in (0..panels.len()).rev() {
+            let rect = panels[level];
+            if rect.contains(pointer) {
+                let items = self.items(level);
+                let index =
+                    look.index_at(items, rect.size, self.scroll[level], pointer - rect.origin);
+                return Some((
+                    level,
+                    index.filter(|at| {
+                        items[*at].pickable() || matches!(items[*at].kind, Kind::Disabled)
+                    }),
+                ));
+            }
+        }
+        None
+    }
+
+    pub fn point(&mut self, level: usize, index: Option<usize>) -> bool {
+        if level >= self.hover.len() || self.hover[level] == index {
+            return false;
+        }
+        self.hover[level] = index;
+        true
+    }
+
+    pub fn open(&mut self, level: usize, index: usize) -> bool {
+        let opens = matches!(
+            self.items(level).get(index).map(|entry| &entry.kind),
+            Some(Kind::Submenu(_))
+        );
+        let already = self.path.get(level) == Some(&index) && self.path.len() == level + 1;
+        self.path.truncate(level);
+        self.hover.truncate(level + 1);
+        self.scroll.truncate(level + 1);
+        self.hover[level] = Some(index);
+        if opens {
+            self.path.push(index);
+            self.hover.push(None);
+            self.scroll.push(0.0);
+        }
+        !already
+    }
+
+    pub fn close_below(&mut self, level: usize) -> bool {
+        if self.path.len() <= level {
+            return false;
+        }
+        self.path.truncate(level);
+        self.hover.truncate(level + 1);
+        self.scroll.truncate(level + 1);
+        true
+    }
+
+    pub fn scroll_by(
+        &mut self,
+        look: &Look,
+        font: &Font,
+        screen: Vec2,
+        level: usize,
+        by: f64,
+    ) -> bool {
+        let items = self.items(level).to_vec();
+        let size = look.size(&items, font, screen);
+        let most = look.most_scroll(&items, size);
+        let before = self.scroll[level];
+        self.scroll[level] = (before + by).clamp(0.0, most);
+        self.close_below(level);
+        self.scroll[level] != before
+    }
+
+    fn step(&self, level: usize, from: Option<usize>, down: bool) -> Option<usize> {
+        let items = self.items(level);
+        let count = items.len();
+        if count == 0 {
+            return None;
+        }
+        let mut at = match (from, down) {
+            (None, true) => count - 1,
+            (None, false) => 0,
+            (Some(at), _) => at,
+        };
+        for _ in 0..count {
+            at = match down {
+                true => (at + 1) % count,
+                false => (at + count - 1) % count,
+            };
+            if items[at].pickable() {
+                return Some(at);
+            }
+        }
+        None
+    }
+
+    pub fn key(&mut self, key: Key) -> Outcome {
+        let level = self.levels() - 1;
+        let current = self.hover[level];
+        match key {
+            Key::Down | Key::Up => {
+                let next = self.step(level, current, key == Key::Down);
+                match self.point(level, next) {
+                    true => Outcome::Changed,
+                    false => Outcome::Nothing,
+                }
+            }
+            Key::Right | Key::Enter => {
+                let Some(at) = current else {
+                    return match key {
+                        Key::Enter => Outcome::Nothing,
+                        _ => {
+                            let first = self.step(level, None, true);
+                            self.point(level, first);
+                            Outcome::Changed
+                        }
+                    };
+                };
+                match self.items(level)[at].kind {
+                    Kind::Submenu(_) => {
+                        self.open(level, at);
+                        let first = self.step(level + 1, None, true);
+                        self.point(level + 1, first);
+                        Outcome::Changed
+                    }
+                    Kind::Action(id) if key == Key::Enter => Outcome::Activate(id),
+                    _ => Outcome::Nothing,
+                }
+            }
+            Key::Left | Key::Escape => match level {
+                0 if key == Key::Escape => Outcome::Close,
+                0 => Outcome::Nothing,
+                _ => {
+                    self.close_below(level - 1);
+                    Outcome::Changed
+                }
+            },
+            Key::Letter(letter) => {
+                let wanted = letter.to_lowercase().next().unwrap_or(letter);
+                let items = self.items(level);
+                let start = current.map(|at| at + 1).unwrap_or(0);
+                let found = (0..items.len())
+                    .map(|step| (start + step) % items.len().max(1))
+                    .find(|at| {
+                        items[*at].pickable() && items[*at].label.to_lowercase().starts_with(wanted)
+                    });
+                match found.map(|at| self.point(level, Some(at))) {
+                    Some(true) => Outcome::Changed,
+                    _ => Outcome::Nothing,
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn font() -> Font {
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fonts/WorkSans.ttf");
+        Font::load(&path, 13.0).unwrap()
+    }
+
+    fn menu() -> Vec<Entry> {
+        vec![
+            Entry::submenu(
+                "Applications",
+                vec![
+                    Entry::submenu(
+                        "Internet",
+                        vec![Entry::action(10, "Firefox"), Entry::action(11, "Mail")],
+                    ),
+                    Entry::submenu("Office", vec![Entry::action(20, "Writer")]),
+                ],
+            ),
+            Entry::rule(),
+            Entry::action(1, "Settings…"),
+            Entry::action(2, "Lock Screen"),
+            Entry::submenu("Empty", Vec::new()),
+        ]
+    }
+
+    const SCREEN: Vec2 = Vec2::new(1200.0, 800.0);
+
+    #[test]
+    fn submenus_open_beside_their_item_and_flip_at_the_edge() {
+        let look = Look::themed(&crate::theme::DARK, [10, 122, 255]);
+        let font = font();
+        let mut menu = Cascade::new(menu(), Vec2::new(100.0, 100.0));
+        menu.open(0, 0);
+        menu.open(1, 0);
+        let panels = menu.panels(&look, &font, SCREEN);
+        assert_eq!(panels.len(), 3);
+        assert!(
+            panels[1].origin.x > panels[0].origin.x + 100.0,
+            "to the right"
+        );
+        assert_eq!(menu.items(2)[0].label, "Firefox");
+        let mut edge = Cascade::new(menu.root.clone(), Vec2::new(1150.0, 100.0));
+        edge.open(0, 0);
+        let panels = edge.panels(&look, &font, SCREEN);
+        assert!(
+            panels[0].max().x <= SCREEN.x,
+            "the first panel stays on screen"
+        );
+        assert!(
+            panels[1].max().x <= panels[0].origin.x + 5.0,
+            "the submenu flips left"
+        );
+    }
+
+    #[test]
+    fn the_pointer_finds_items_in_the_deepest_panel_first() {
+        let look = Look::themed(&crate::theme::DARK, [10, 122, 255]);
+        let font = font();
+        let mut menu = Cascade::new(menu(), Vec2::new(100.0, 100.0));
+        menu.open(0, 0);
+        let panels = menu.panels(&look, &font, SCREEN);
+        let office = panels[1].origin + Vec2::new(30.0, look.item_top(menu.items(1), 1) + 5.0);
+        assert_eq!(menu.hit(&look, &font, SCREEN, office), Some((1, Some(1))));
+        let rule = panels[0].origin + Vec2::new(30.0, look.item_top(menu.items(0), 1) + 2.0);
+        assert_eq!(
+            menu.hit(&look, &font, SCREEN, rule),
+            Some((0, None)),
+            "a rule is not an item"
+        );
+        assert_eq!(menu.hit(&look, &font, SCREEN, Vec2::new(5.0, 5.0)), None);
+    }
+
+    #[test]
+    fn the_keyboard_walks_in_and_out_and_picks() {
+        let mut menu = Cascade::new(menu(), Vec2::ZERO);
+        assert_eq!(menu.key(Key::Down), Outcome::Changed);
+        assert_eq!(menu.hover[0], Some(0));
+        assert_eq!(menu.key(Key::Right), Outcome::Changed);
+        assert_eq!(menu.levels(), 2);
+        assert_eq!(menu.hover[1], Some(0));
+        menu.key(Key::Enter);
+        assert_eq!(menu.levels(), 3);
+        assert_eq!(menu.key(Key::Enter), Outcome::Activate(10));
+        assert_eq!(menu.key(Key::Left), Outcome::Changed);
+        assert_eq!(menu.levels(), 2);
+        menu.key(Key::Escape);
+        assert_eq!(menu.key(Key::Escape), Outcome::Close);
+        let mut menu = Cascade::new(menu.root.clone(), Vec2::ZERO);
+        menu.key(Key::Down);
+        menu.key(Key::Up);
+        assert_eq!(
+            menu.hover[0],
+            Some(3),
+            "up wraps and skips the disabled item"
+        );
+        assert_eq!(menu.key(Key::Letter('s')), Outcome::Changed);
+        assert_eq!(menu.hover[0], Some(2));
+    }
+
+    #[test]
+    fn a_long_list_scrolls_inside_its_panel() {
+        let look = Look::themed(&crate::theme::DARK, [10, 122, 255]);
+        let font = font();
+        let many: Vec<Entry> = (0..80)
+            .map(|n| Entry::action(n, &format!("App {n}")))
+            .collect();
+        let mut menu = Cascade::new(vec![Entry::submenu("Apps", many)], Vec2::new(10.0, 10.0));
+        menu.open(0, 0);
+        let panels = menu.panels(&look, &font, SCREEN);
+        assert!(panels[1].size.y <= SCREEN.y - 24.0);
+        assert!(menu.scroll_by(&look, &font, SCREEN, 1, 300.0));
+        assert!(menu.scroll_by(&look, &font, SCREEN, 1, 1.0e6));
+        assert!(
+            !menu.scroll_by(&look, &font, SCREEN, 1, 10.0),
+            "it stops at the end"
+        );
+        let size = look.size(menu.items(1), &font, SCREEN);
+        let last = look.index_at(
+            menu.items(1),
+            size,
+            menu.scroll[1],
+            Vec2::new(20.0, size.y - 8.0),
+        );
+        assert_eq!(last, Some(79));
+    }
+}

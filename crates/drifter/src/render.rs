@@ -9,6 +9,7 @@ mod bars;
 mod camera;
 mod capture;
 mod centers;
+mod deskmenu;
 mod dock;
 mod follow;
 mod heads;
@@ -460,6 +461,9 @@ pub struct State {
     frost_at: Option<Instant>,
     palette: drifter_core::theme::Palette,
     popover: Option<Popover>,
+    desk_menu: Option<deskmenu::DeskMenu>,
+    ripple: Option<deskmenu::Ripple>,
+    alert: Option<deskmenu::Alert>,
     switch: Option<Switch>,
     lock: Option<Lock>,
     client_lock: Option<ClientLock>,
@@ -543,6 +547,7 @@ impl State {
             || self.fading.is_some()
             || self.windows.iter().any(|window| window.closed_at.is_some())
             || self.dock_drag.is_some()
+            || self.desk_menu_busy()
             || self.heads.iter().enumerate().any(|(index, head)| {
                 index != self.at
                     && (head.flight.is_some() || head.drawers.iter().any(|d| !d.settled()))
@@ -655,6 +660,10 @@ impl State {
         if let Some((art, rect)) = self.search.as_ref().and_then(|open| open.art.as_ref()).filter(|_| live) {
             elements.push(Skin::Texture(element(art, *rect, 1.0)));
             self.modal_shadow(*rect, &mut elements);
+        }
+        if live {
+            self.alert_elements(&mut elements);
+            self.desk_menu_elements(&mut elements);
         }
         if let Some(open) = self.popover.as_ref().filter(|_| live) {
             elements.push(Skin::Texture(element(&open.art, open.rect, 1.0)));
@@ -847,6 +856,9 @@ impl State {
             .as_ref()
             .map(|(_, since)| drifter_core::motion::smooth(since.elapsed().as_secs_f64() / PAPER_FADE.as_secs_f64()));
         let view = (self.mode, self.screen, self.world, self.camera);
+        if let Some((art, area)) = self.ripple.as_ref().and_then(|ripple| ripple.art.as_ref().map(|art| (art, ripple.area))) {
+            elements.push(Skin::Texture(element(art, area, 1.0)));
+        }
         if let Some(paper) = self.wallpaper.as_mut() {
             let alpha = fading.unwrap_or(1.0) as f32;
             paper_pieces(&mut self.renderer, paper, view, alpha, &mut elements);
@@ -993,6 +1005,8 @@ impl State {
         self.wind_the_stats();
         self.wind_the_volume();
         self.wind_the_light();
+        self.wind_the_ripple();
+        self.wind_the_desk_menu();
         self.settle_bounces();
         self.settle_fade();
 
@@ -1152,6 +1166,7 @@ impl State {
     fn hover(&mut self) {
         self.watch_corner();
         self.repaint_popover();
+        self.hover_desk_menu();
         if self.hover_since.is_none() {
             self.hover_since = Some((self.pointer, Instant::now()));
         } else if let Some((at, _)) = self.hover_since

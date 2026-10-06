@@ -1,6 +1,8 @@
+pub mod alert;
 pub mod autostart;
 pub mod calendar;
 pub mod camera;
+pub mod cascade;
 pub mod config;
 pub mod control;
 pub mod corner;
@@ -21,14 +23,15 @@ pub mod livepaper;
 pub mod lock;
 pub mod menu;
 pub mod mode;
-pub mod net;
 pub mod motion;
+pub mod net;
 pub mod night;
 pub mod notify;
 pub mod paint;
 pub mod place;
 pub mod power;
 pub mod prompt;
+pub mod ripple;
 pub mod screens;
 pub mod search;
 pub mod settings;
@@ -49,9 +52,9 @@ pub mod window;
 
 pub use camera::Camera;
 pub use config::{
-    Accent, Access, Appearance, AppsConfig, Assets, ButtonName, Config, DockConfig, Keyboard, Keys, Launch,
-    Lid, Modifier, Motion, Mouse, Night, Notify, Power, PowerKey, Side, Style, ThreeTap, Touchpad,
-    ShotFormat, Shots, TrayConfig, Tunables, WallpaperMode, WallpaperOrder,
+    Accent, Access, Appearance, AppsConfig, Assets, ButtonName, Config, DockConfig, Keyboard, Keys,
+    Launch, Lid, Modifier, Motion, Mouse, Night, Notify, Power, PowerKey, ShotFormat, Shots, Side,
+    Style, ThreeTap, Touchpad, TrayConfig, Tunables, WallpaperMode, WallpaperOrder,
 };
 pub use cursor::Cursor;
 pub use drawer::{Drawer, Edge, Panel};

@@ -305,10 +305,7 @@ impl State {
         }
 
         if !self.over_drawer() && self.surface_under().is_none() && self.grip_under().is_none() {
-            let at = self.pointer;
-            let mut items = vec![Item::line(0, "Settings"), Item::rule(1)];
-            items.extend(drifter_core::power::items());
-            self.open_popover(items, at, Target::Desktop);
+            self.open_desk_menu(self.pointer);
             return true;
         }
 
