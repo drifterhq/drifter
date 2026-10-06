@@ -14,6 +14,7 @@ pub mod drawer;
 pub mod exec;
 pub mod frost;
 pub mod geom;
+pub mod grab;
 pub mod hud;
 pub mod icon;
 pub mod image;

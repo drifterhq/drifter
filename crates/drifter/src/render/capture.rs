@@ -110,7 +110,7 @@ impl State {
             .bind(&mut texture)
             .map_err(|e| format!("cannot draw offscreen: {e}"))?;
         let shown = match cursor {
-            true => elements,
+            true => &elements[self.own_count.min(elements.len())..],
             false => &elements[self.cursor_count.min(elements.len())..],
         };
         let mut tracker = OutputDamageTracker::new(size, 1.0, Transform::Normal);
@@ -151,7 +151,7 @@ impl State {
         }
         let size = Size::<i32, Physical>::from((size.w, size.h));
         let shown = match cursor {
-            true => elements,
+            true => &elements[self.own_count.min(elements.len())..],
             false => &elements[self.cursor_count.min(elements.len())..],
         };
         let clear = self.clear;
@@ -254,16 +254,29 @@ impl State {
         for pixel in bytes.as_chunks::<4>().0 {
             rgba.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 255]);
         }
-        let image = drifter_core::Image {
+        let whole_image = drifter_core::Image {
             width,
             height,
             rgba,
         };
+        let scale = whole.x / self.screen.x.max(1.0);
+        let image = match self.shot_crop.take() {
+            Some(rect) => drifter_core::grab::crop(
+                &whole_image,
+                Rect::new(rect.origin * scale, rect.size * scale),
+            ),
+            None => whole_image,
+        };
+        self.show_thumb(&image);
         let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
         let folder = self.shots.folder_in(&home);
         let format = self.shots.format;
-        let stamp = drifter_core::tray::now("%Y-%m-%d %H.%M.%S").unwrap_or_default();
-        let path = folder.join(format!("Screenshot {stamp}.{}", format.extension()));
+        let stamp = drifter_core::tray::now("%Y-%m-%d at %H.%M.%S").unwrap_or_default();
+        let path = folder.join(drifter_core::grab::file_name(
+            drifter_core::grab::Take::Still,
+            &stamp,
+            format.extension(),
+        ));
         let reply = self.shot_tx.clone();
         let spawned = std::thread::Builder::new()
             .name("drifter-screenshot".to_string())
@@ -311,6 +324,10 @@ impl State {
         };
         let (summary, body) = match saved {
             Ok(path) => {
+                if let Some(thumb) = self.thumb.as_mut() {
+                    thumb.path = Some(path);
+                    return;
+                }
                 if let Some(folder) = path.parent() {
                     self.note_folders.insert(id, folder.to_path_buf());
                 }

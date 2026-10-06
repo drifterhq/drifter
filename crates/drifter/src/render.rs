@@ -14,6 +14,7 @@ mod dock;
 mod follow;
 mod heads;
 mod launchpad;
+mod shoot;
 mod input;
 mod lock;
 mod overlays;
@@ -200,6 +201,7 @@ enum Target {
     PadApp(String),
     App(String),
     Desktop,
+    Shooter,
 }
 
 struct Switch {
@@ -515,6 +517,14 @@ pub struct State {
     copied: std::collections::HashSet<smithay::reexports::wayland_server::backend::ClientId>,
     cursor_count: usize,
     shot_wanted: bool,
+    shot_crop: Option<Rect>,
+    shot_tool: drifter_core::grab::Tool,
+    shot_inks: Option<([u8; 3], shoot::Inks)>,
+    shooter: Option<shoot::Shooter>,
+    recording: Option<shoot::Recording>,
+    thumb: Option<shoot::Thumb>,
+    sound_from: Option<String>,
+    own_count: usize,
     cards: Vec<Card>,
     hud: Option<(TextureBuffer<Tex>, Rect, Instant)>,
     drawers: [Drawer; 2],
@@ -549,6 +559,7 @@ impl State {
             || self.windows.iter().any(|window| window.closed_at.is_some())
             || self.dock_drag.is_some()
             || self.desk_menu_busy()
+            || self.thumb_moving()
             || self.heads.iter().enumerate().any(|(index, head)| {
                 index != self.at
                     && (head.flight.is_some() || head.drawers.iter().any(|d| !d.settled()))
@@ -590,6 +601,7 @@ impl State {
 
     fn elements(&mut self) -> Vec<Skin> {
         let live = self.at == self.hand;
+        self.own_count = 0;
         if self.client_lock.is_some() {
             let mut elements = match live {
                 true => self.cursor_elements(),
@@ -603,12 +615,20 @@ impl State {
             self.cursor_count = 0;
             return self.lock_elements();
         }
-        let mut elements: Vec<Skin> = match live {
-            true => self.cursor_elements(),
-            false => Vec::new(),
-        };
+        let mut elements: Vec<Skin> = Vec::new();
+        if live {
+            self.own_elements(&mut elements);
+        }
+        self.own_count = elements.len();
+        if live {
+            match self.shooter_cursor() {
+                Some(cross) => elements.extend(cross),
+                None => elements.extend(self.cursor_elements()),
+            }
+        }
         self.cursor_count = elements.len();
         if live {
+            self.shooter_elements(&mut elements);
             if let Some((art, rect)) = self.prompt_art.as_ref() {
                 elements.push(Skin::Texture(element(art, *rect, 1.0)));
             }
@@ -666,7 +686,7 @@ impl State {
             self.alert_elements(&mut elements);
             self.desk_menu_elements(&mut elements);
         }
-        if let Some(open) = self.popover.as_ref().filter(|_| live) {
+        if let Some(open) = self.popover.as_ref().filter(|_| live && self.shooter.is_none()) {
             elements.push(Skin::Texture(element(&open.art, open.rect, 1.0)));
         }
         if let Some(pad) = self.launchpad.as_ref().filter(|_| live)
@@ -1166,6 +1186,7 @@ impl State {
     }
 
     fn hover(&mut self) {
+        self.aim_shooter();
         self.watch_corner();
         self.repaint_popover();
         self.hover_desk_menu();

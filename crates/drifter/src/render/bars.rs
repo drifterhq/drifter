@@ -160,6 +160,10 @@ impl State {
                 self.pad_menu_pick(&key, chosen.id);
                 return true;
             }
+            Target::Shooter => {
+                self.shooter_menu_pick(chosen.id);
+                return true;
+            }
             Target::DockBar => {
                 self.dock_bar_pick(chosen.id);
                 return true;

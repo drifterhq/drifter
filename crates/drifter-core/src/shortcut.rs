@@ -13,10 +13,13 @@ pub enum Action {
     Browser,
     Settings,
     Search,
+    ShotScreen,
+    ShotPart,
+    ShotBar,
 }
 
 impl Action {
-    pub const ALL: [Action; 11] = [
+    pub const ALL: [Action; 14] = [
         Action::Switch,
         Action::Close,
         Action::Screenshot,
@@ -28,6 +31,9 @@ impl Action {
         Action::Browser,
         Action::Settings,
         Action::Search,
+        Action::ShotScreen,
+        Action::ShotPart,
+        Action::ShotBar,
     ];
 
     pub fn key(self) -> &'static str {
@@ -43,6 +49,9 @@ impl Action {
             Action::Browser => "browser",
             Action::Settings => "settings",
             Action::Search => "search",
+            Action::ShotScreen => "shot_screen",
+            Action::ShotPart => "shot_part",
+            Action::ShotBar => "shot_bar",
         }
     }
 
@@ -59,6 +68,9 @@ impl Action {
             Action::Browser => "Open the web browser",
             Action::Settings => "Open Settings",
             Action::Search => "Search",
+            Action::ShotScreen => "Screenshot of the screen",
+            Action::ShotPart => "Screenshot of a part or a window",
+            Action::ShotBar => "Screenshot and recording bar",
         }
     }
 
@@ -75,6 +87,9 @@ impl Action {
             Action::Browser => "",
             Action::Settings => "",
             Action::Search => "super+space",
+            Action::ShotScreen => "shift+super+3",
+            Action::ShotPart => "shift+super+4",
+            Action::ShotBar => "shift+super+5",
         }
     }
 }

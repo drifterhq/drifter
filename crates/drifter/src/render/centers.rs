@@ -65,6 +65,11 @@ impl State {
     }
 
     pub(super) fn paint_control(&mut self) {
+        self.paint_control_art();
+        self.kick_now();
+    }
+
+    fn paint_control_art(&mut self) {
         let Some(font) = self.font.as_ref() else {
             return;
         };
@@ -81,7 +86,6 @@ impl State {
         };
         let held = self.control.as_ref().and_then(|open| open.held);
         self.control = Some(Panel { rect, art, held });
-        self.kick_now();
     }
 
     fn close_panels(&mut self) {
@@ -174,7 +178,7 @@ impl State {
 
     pub(super) fn wind_the_control(&mut self) {
         if std::mem::take(&mut self.control_stale) && self.control.is_some() {
-            self.paint_control();
+            self.paint_control_art();
         }
     }
 

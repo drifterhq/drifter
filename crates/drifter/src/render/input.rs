@@ -515,6 +515,7 @@ impl State {
         if state == ButtonState::Released {
             self.release_dock();
             self.release_control();
+            self.release_shooter();
             self.release_gauge_panel();
             self.release_overview();
             if let (Grab::Move { id, .. }, Some(zone)) = (&self.grab, self.zone)
@@ -569,6 +570,16 @@ impl State {
     }
 
     pub(super) fn press_own(&mut self, code: u32) -> bool {
+        if self.press_stop(code) || self.press_thumb(code) {
+            return true;
+        }
+        if self.shooter.is_some() {
+            if self.popover.as_ref().is_some_and(|open| open.rect.contains(self.pointer)) {
+                return self.press_popover();
+            }
+            self.popover = None;
+            return self.press_shooter(code);
+        }
         if (self.desk_menu.is_some() || self.alert.is_some()) && self.press_desk_menu() {
             return true;
         }
@@ -848,6 +859,15 @@ impl State {
                 let key = self.read_key(event);
                 self.desk_menu_key(key);
             }
+            return;
+        }
+        if self.lock.is_none()
+            && self.shooter.is_some()
+            && let InputEvent::Keyboard { event } = &event
+            && event.state() == KeyState::Pressed
+        {
+            let key = self.read_key(event);
+            self.shooter_key(key);
             return;
         }
         if self.lock.is_none()

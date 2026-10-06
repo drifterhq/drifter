@@ -169,10 +169,15 @@ impl State {
         match action {
             Action::Switch => self.switch_step(shift),
             Action::Close => self.close_focused(),
-            Action::Screenshot => {
-                self.shot_wanted = true;
-                self.kick_now();
+            Action::Screenshot | Action::ShotScreen => self.take_still(None),
+            Action::ShotPart => {
+                use drifter_core::grab::{Pick, Take, Tool};
+                self.open_shooter(Tool::new(Take::Still, Pick::Portion), false);
             }
+            Action::ShotBar => match self.recording.is_some() {
+                true => self.stop_recording(),
+                false => self.open_shooter(self.shot_tool, true),
+            },
             Action::Lock => {
                 self.lock_now();
             }

@@ -796,6 +796,24 @@ pub struct Keys {
     pub settings: String,
     #[serde(default = "key_search")]
     pub search: String,
+    #[serde(default = "key_shot_screen")]
+    pub shot_screen: String,
+    #[serde(default = "key_shot_part")]
+    pub shot_part: String,
+    #[serde(default = "key_shot_bar")]
+    pub shot_bar: String,
+}
+
+fn key_shot_screen() -> String {
+    Action::ShotScreen.default_combo().into()
+}
+
+fn key_shot_part() -> String {
+    Action::ShotPart.default_combo().into()
+}
+
+fn key_shot_bar() -> String {
+    Action::ShotBar.default_combo().into()
 }
 
 fn key_search() -> String {
@@ -836,6 +854,9 @@ impl Default for Keys {
             browser: String::new(),
             settings: String::new(),
             search: String::new(),
+            shot_screen: String::new(),
+            shot_part: String::new(),
+            shot_bar: String::new(),
         };
         for action in Action::ALL {
             *keys.get_mut(action) = action.default_combo().to_string();
@@ -858,6 +879,9 @@ impl Keys {
             Action::Browser => &self.browser,
             Action::Settings => &self.settings,
             Action::Search => &self.search,
+            Action::ShotScreen => &self.shot_screen,
+            Action::ShotPart => &self.shot_part,
+            Action::ShotBar => &self.shot_bar,
         }
     }
 
@@ -874,6 +898,9 @@ impl Keys {
             Action::Browser => &mut self.browser,
             Action::Settings => &mut self.settings,
             Action::Search => &mut self.search,
+            Action::ShotScreen => &mut self.shot_screen,
+            Action::ShotPart => &mut self.shot_part,
+            Action::ShotBar => &mut self.shot_bar,
         }
     }
 
