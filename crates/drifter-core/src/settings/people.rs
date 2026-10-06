@@ -32,10 +32,14 @@ impl Model {
         let change = || Control::Buttons(vec![Mark::Text("Change")]);
         let mut groups = Vec::new();
         if let Some(me) = &users.me {
+            let full = match me.full.trim().is_empty() {
+                true => "Not set",
+                false => me.full.trim(),
+            };
             groups.push(Group {
                 header: Some("Your account"),
                 rows: vec![
-                    Row::new(Id::MyName, "Full name", change()).detail(me.shown()),
+                    Row::new(Id::MyName, "Full name", change()).detail(full),
                     Row::new(Id::MyPicture, "Picture", change())
                         .detail("Shown when you log in"),
                     Row::new(Id::MyPassword, "Password", change())

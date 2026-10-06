@@ -1545,6 +1545,23 @@ mod tests {
     }
 
     #[test]
+    fn a_form_with_no_fields_still_submits_from_its_button() {
+        let sheet = Sheet::form(For::RemoveUser(0), "Remove Ann?", Vec::new(), "Remove")
+            .with_switch("Delete the home folder too", false)
+            .with_note("If you keep it, /home/ann stays on this computer.");
+        let size = Vec2::new(866.0, 640.0);
+        let button = frame(size, &sheet).primary.center();
+        assert_eq!(
+            sheet.hit(size, button),
+            Some(Pick::Submit {
+                texts: Vec::new(),
+                on: false,
+            })
+        );
+        assert_eq!(sheet.enter(), Some(Pick::Submit { texts: Vec::new(), on: false }));
+    }
+
+    #[test]
     fn face_keys_carry_their_size_and_path() {
         let key = face_key(Path::new("/var/lib/AccountsService/icons/dh"), 72);
         assert_eq!(key, "face:72:/var/lib/AccountsService/icons/dh");
