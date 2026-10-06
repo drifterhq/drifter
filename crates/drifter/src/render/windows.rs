@@ -743,6 +743,7 @@ impl State {
         let art = crate::apps::find(&name)
             .and_then(|entry| entry.icon)
             .and_then(|path| drifter_core::image::load_sized(&path, wanted).ok())
+            .or_else(|| self.dock_spare.clone())
             .map(|image| image.scaled(wanted, wanted));
         let Some(image) = art else {
             eprintln!("drifter: no dock icon for {name}");

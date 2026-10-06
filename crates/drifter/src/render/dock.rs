@@ -46,6 +46,7 @@ impl State {
             .windows
             .iter()
             .filter(|window| window.placed && !window.going && !window.app.is_empty())
+            .filter(|window| window.app != SETTINGS_APP)
         {
             if apps
                 .iter()
@@ -507,6 +508,21 @@ impl State {
     }
 
     pub(super) fn dock_elements(&mut self, elements: &mut Vec<Skin>, band: Rect) {
+        let missing: Vec<usize> = self
+            .windows
+            .iter()
+            .enumerate()
+            .filter(|(_, window)| {
+                window.placed
+                    && !window.app.is_empty()
+                    && !self.app_icons.contains_key(&window.app)
+                    && !self.no_icon.contains(&window.app)
+            })
+            .map(|(at, _)| at)
+            .collect();
+        for at in missing {
+            self.remember_icon(at);
+        }
         let hidden = self.minimized();
         let apps = self.dock_apps();
         let count = apps.len();
@@ -583,6 +599,14 @@ impl State {
         if let (true, Some(buffer)) = (self.dock.settings, self.cog.as_ref()) {
             let rect = self.dock.slot_rect(band, count, hidden.len(), Slot::Settings);
             elements.push(Skin::Texture(element(buffer, rect, 1.0)));
+            let open = self
+                .windows
+                .iter()
+                .any(|window| window.placed && !window.going && window.app == SETTINGS_APP);
+            if let (true, Some(dot)) = (open, self.dot.as_ref()) {
+                let spot = self.dock.dot_rect(band, count, hidden.len(), Slot::Settings);
+                elements.push(Skin::Texture(element(dot, spot, 1.0)));
+            }
         }
         if self.dock.trash {
             let art = match self.trash_full {

@@ -28,8 +28,17 @@ fn write(dir: &std::path::Path, name: &str, image: &drifter_core::Image) {
 }
 
 fn main() {
-    let chrome = Chrome::default();
-    let dir = out_dir();
+    for (chrome, dir) in [
+        (Chrome::themed(&drifter_core::theme::DARK), out_dir()),
+        (Chrome::themed(&drifter_core::theme::LIGHT), out_dir().join("light")),
+    ] {
+        std::fs::create_dir_all(&dir).expect("cannot make the light folder");
+        write_all(&chrome, &dir);
+    }
+}
+
+fn write_all(chrome: &Chrome, dir: &std::path::Path) {
+    let chrome = *chrome;
 
     for piece in Piece::ALL {
         for active in [true, false] {

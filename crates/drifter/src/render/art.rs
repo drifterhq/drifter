@@ -97,7 +97,13 @@ pub(super) fn load_skin(
     palette: &drifter_core::theme::Palette,
 ) -> (SkinSet, Chrome) {
     let mut skin = std::collections::HashMap::new();
-    let dir = config.window_dir();
+    let dir = config.window_dir().map(|dir| {
+        let light = dir.join("light");
+        match *palette == drifter_core::theme::LIGHT && light.is_dir() {
+            true => light,
+            false => dir,
+        }
+    });
     let drawn = Chrome::themed(palette);
     for name in crate::shell::skin_names() {
         let from_file = dir.as_ref().and_then(|dir| {
