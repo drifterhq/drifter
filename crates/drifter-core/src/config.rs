@@ -1141,10 +1141,8 @@ pub fn resolve_picture(
     livepapers: &[PathBuf],
     beside: impl Fn(&Path) -> PathBuf,
 ) -> PathBuf {
-    if !crate::livepaper::is_livepaper(asked) || asked.components().count() != 1 {
-        return beside(asked);
-    }
-    if let Some(found) = crate::livepaper::find(&asked.to_string_lossy(), livepapers) {
+    let named = crate::livepaper::is_livepaper(asked) && asked.components().count() == 1;
+    if named && let Some(found) = crate::livepaper::find(&asked.to_string_lossy(), livepapers) {
         return found;
     }
     let near = beside(asked);
@@ -1924,6 +1922,13 @@ mod tests {
             resolve_picture(Path::new("ink.shader"), &folders, beside),
             shelf.join(FALLBACK_WALLPAPER)
         );
+        assert_eq!(
+            resolve_picture(Path::new("../img/gone.png"), &folders, beside),
+            shelf.join(FALLBACK_WALLPAPER)
+        );
+        std::fs::create_dir_all(root.join("img")).unwrap();
+        std::fs::create_dir_all(root.join("conf")).unwrap();
+        std::fs::write(root.join("img/a.png"), b"p").unwrap();
         assert_eq!(
             resolve_picture(Path::new("../img/a.png"), &folders, beside),
             root.join("conf/../img/a.png")
