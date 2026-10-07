@@ -40,6 +40,7 @@ pub enum For {
     RemoveUser(usize),
     MakeAdmin(usize),
     PlaceName(usize),
+    DockItem(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -181,6 +182,8 @@ pub enum Sheet {
         focus: usize,
         switch: Option<(&'static str, bool)>,
         face: Option<Option<PathBuf>>,
+        art: Option<String>,
+        shape: Option<usize>,
         note: Option<String>,
         busy: bool,
         go: &'static str,
@@ -208,6 +211,7 @@ pub enum Pick {
     Toggle,
     Face,
     Browse,
+    Shape(usize),
     Submit { texts: Vec<String>, on: bool },
 }
 
@@ -217,8 +221,20 @@ const FIELD: f64 = 58.0;
 const SWITCH: f64 = 38.0;
 const AVATAR: f64 = 72.0;
 const NOTE: f64 = 34.0;
+pub const SHAPES: [&str; 4] = ["As drawn", "Square", "Circle", "Squircle"];
 pub const FACE_CELL: f64 = 72.0;
 const FACE_GAP: f64 = 14.0;
+
+pub fn art_key(shape: usize, background: bool, inner: &str) -> String {
+    format!("art:{shape}:{}:{inner}", u8::from(background))
+}
+
+pub fn art_of(key: &str) -> Option<(usize, bool, &str)> {
+    let rest = key.strip_prefix("art:")?;
+    let (shape, rest) = rest.split_once(':')?;
+    let (on, inner) = rest.split_once(':')?;
+    Some((shape.parse().ok()?, on == "1", inner))
+}
 
 pub fn face_key(path: &Path, px: u32) -> String {
     format!("face:{px}:{}", path.display())
@@ -327,6 +343,8 @@ impl Sheet {
             focus: 0,
             switch: None,
             face: None,
+            art: None,
+            shape: None,
             note: None,
             busy: false,
             go,
@@ -345,6 +363,53 @@ impl Sheet {
             *face = Some(picture);
         }
         self
+    }
+
+    pub fn with_art(mut self, own: Option<PathBuf>, fallback: &str, shape: usize) -> Sheet {
+        if let Sheet::Form { face, art, shape: held, .. } = &mut self {
+            *face = Some(own);
+            *art = Some(fallback.to_string());
+            *held = Some(shape.min(SHAPES.len() - 1));
+        }
+        self
+    }
+
+    pub fn clear_face(&mut self) {
+        if let Sheet::Form { face: Some(face), .. } = self {
+            *face = None;
+        }
+    }
+
+    pub fn shape(&self) -> Option<usize> {
+        match self {
+            Sheet::Form { shape, .. } => *shape,
+            _ => None,
+        }
+    }
+
+    pub fn set_shape(&mut self, at: usize) {
+        if let Sheet::Form { shape: Some(held), .. } = self {
+            *held = at.min(SHAPES.len() - 1);
+        }
+    }
+
+    pub fn art_key(&self) -> Option<String> {
+        let Sheet::Form {
+            face: Some(face),
+            art: Some(art),
+            shape,
+            switch,
+            ..
+        } = self
+        else {
+            return None;
+        };
+        let inner = match face {
+            Some(path) => format!("file:{}", path.display()),
+            None => art.clone(),
+        };
+        let on = switch.is_none_or(|(_, on)| on);
+        Some(art_key(shape.unwrap_or(0), on, &inner))
     }
 
     pub fn with_note(mut self, words: &str) -> Sheet {
@@ -690,6 +755,7 @@ impl Sheet {
             For::RemoveUser(_) => "Remove a user",
             For::MakeAdmin(_) => "Change a user",
             For::PlaceName(_) => "Rename this place",
+            For::DockItem(_) => "Dock item",
         }
     }
 
@@ -716,6 +782,9 @@ impl Sheet {
             }
             if form.face.is_some_and(|rect| rect.contains(pointer)) {
                 return Some(Pick::Face);
+            }
+            if let Some(at) = form.shapes.iter().position(|rect| rect.contains(pointer)) {
+                return Some(Pick::Shape(at));
             }
             return None;
         }
@@ -988,6 +1057,8 @@ impl Sheet {
             focus,
             switch,
             face,
+            art,
+            shape,
             note,
             busy,
             ..
@@ -997,10 +1068,21 @@ impl Sheet {
         };
         let form = form_frame(card, self);
         if let (Some(spot), Some(picture)) = (form.face, face) {
-            paint_face(canvas, look, icons, spot, picture.as_deref());
-            let hint = fonts
-                .small
-                .paint("Click the picture to choose another.", look.dim);
+            let words = match art {
+                Some(_) => {
+                    let found = self.art_key().and_then(|key| icons.get(&key));
+                    match found {
+                        Some(image) => canvas.stamp(image, spot.center() - crate::paint::logical(image) / 2.0, 1.0),
+                        None => canvas.round_rect(spot, spot.size.x * 0.22, look.off, 1.0),
+                    }
+                    "Click the icon to choose another."
+                }
+                None => {
+                    paint_face(canvas, look, icons, spot, picture.as_deref());
+                    "Click the picture to choose another."
+                }
+            };
+            let hint = fonts.small.paint(words, look.dim);
             let at = Vec2::new(
                 spot.max().x + 16.0,
                 spot.center().y - crate::paint::logical(&hint).y / 2.0,
@@ -1038,6 +1120,21 @@ impl Sheet {
                     Vec2::new(1.5, 16.0),
                 );
                 canvas.round_rect(caret, 0.0, look.accent, 1.0);
+            }
+        }
+        if let (Some(row), Some(chosen)) = (form.shape_row, shape) {
+            let label = fonts.small.paint("Shape", look.dim);
+            canvas.stamp(&label, row.origin - Vec2::new(-2.0, 20.0), 1.0);
+            canvas.round_rect(row, 7.0, look.rule, 1.0);
+            for (at, (rect, name)) in form.shapes.iter().zip(SHAPES).enumerate() {
+                let inner = Rect::new(rect.origin + Vec2::splat(2.0), rect.size - Vec2::splat(4.0));
+                let mine = at == *chosen;
+                if mine {
+                    canvas.round_rect(inner, 5.0, look.accent, 1.0);
+                }
+                let ink = if mine { [255, 255, 255] } else { look.ink };
+                let text = fonts.small.paint(&fit_left(fonts.small, name, inner.size.x - 8.0), ink);
+                canvas.stamp(&text, inner.center() - crate::paint::logical(&text) / 2.0, 1.0);
             }
         }
         if let (Some(row), Some((label, on))) = (form.switch, switch) {
@@ -1314,6 +1411,8 @@ fn fit_left(font: &crate::text::Font, text: &str, width: f64) -> String {
 struct FormFrame {
     face: Option<Rect>,
     fields: Vec<Rect>,
+    shape_row: Option<Rect>,
+    shapes: Vec<Rect>,
     switch: Option<Rect>,
     note: Rect,
 }
@@ -1323,6 +1422,7 @@ fn form_tall(sheet: &Sheet) -> f64 {
         fields,
         switch,
         face,
+        shape,
         ..
     } = sheet
     else {
@@ -1330,21 +1430,23 @@ fn form_tall(sheet: &Sheet) -> f64 {
     };
     let face = if face.is_some() { AVATAR + 14.0 } else { 0.0 };
     let switch = if switch.is_some() { SWITCH } else { 0.0 };
-    56.0 + face + fields.len() as f64 * FIELD + switch + NOTE + 50.0
+    let shape = if shape.is_some() { FIELD } else { 0.0 };
+    56.0 + face + fields.len() as f64 * FIELD + shape + switch + NOTE + 50.0
 }
 
 fn form_frame(card: Rect, sheet: &Sheet) -> FormFrame {
     let x = card.origin.x + 20.0;
     let width = card.size.x - 40.0;
     let mut y = card.origin.y + 56.0;
-    let (count, has_switch, has_face) = match sheet {
+    let (count, has_switch, has_face, has_shape) = match sheet {
         Sheet::Form {
             fields,
             switch,
             face,
+            shape,
             ..
-        } => (fields.len(), switch.is_some(), face.is_some()),
-        _ => (0, false, false),
+        } => (fields.len(), switch.is_some(), face.is_some(), shape.is_some()),
+        _ => (0, false, false, false),
     };
     let face = has_face.then(|| {
         let spot = Rect::new(Vec2::new(x, y), Vec2::splat(AVATAR));
@@ -1358,6 +1460,19 @@ fn form_frame(card: Rect, sheet: &Sheet) -> FormFrame {
             rect
         })
         .collect();
+    let shape_row = has_shape.then(|| {
+        let row = Rect::new(Vec2::new(x, y + 20.0), Vec2::new(width, 32.0));
+        y += FIELD;
+        row
+    });
+    let shapes = shape_row
+        .map(|row| {
+            let each = row.size.x / SHAPES.len() as f64;
+            (0..SHAPES.len())
+                .map(|at| Rect::new(row.origin + Vec2::new(each * at as f64, 0.0), Vec2::new(each, row.size.y)))
+                .collect()
+        })
+        .unwrap_or_default();
     let switch = has_switch.then(|| {
         let row = Rect::new(Vec2::new(x, y), Vec2::new(width, 30.0));
         y += SWITCH;
@@ -1367,6 +1482,8 @@ fn form_frame(card: Rect, sheet: &Sheet) -> FormFrame {
     FormFrame {
         face,
         fields,
+        shape_row,
+        shapes,
         switch,
         note,
     }

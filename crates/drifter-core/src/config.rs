@@ -87,10 +87,89 @@ pub enum Launch {
         command: Option<String>,
         #[serde(default)]
         icon: Option<PathBuf>,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        shape: Option<IconShape>,
+        #[serde(default)]
+        background: Option<bool>,
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum IconShape {
+    Square,
+    Circle,
+    Squircle,
+}
+
+impl IconShape {
+    pub const ALL: [IconShape; 3] = [IconShape::Square, IconShape::Circle, IconShape::Squircle];
+
+    pub fn word(self) -> &'static str {
+        match self {
+            IconShape::Square => "square",
+            IconShape::Circle => "circle",
+            IconShape::Squircle => "squircle",
+        }
+    }
+}
+
 impl Launch {
+    pub fn command_line(command: &str) -> Launch {
+        Launch::Full {
+            app: None,
+            command: Some(command.to_string()),
+            icon: None,
+            name: None,
+            shape: None,
+            background: None,
+        }
+    }
+
+    pub fn dressed(
+        app: Option<String>,
+        command: Option<String>,
+        icon: Option<PathBuf>,
+        name: Option<String>,
+        shape: Option<IconShape>,
+        background: Option<bool>,
+    ) -> Launch {
+        match (app, command, icon, name, shape, background) {
+            (Some(app), None, None, None, None, None) => Launch::App(app),
+            (app, command, icon, name, shape, background) => Launch::Full {
+                app,
+                command,
+                icon,
+                name,
+                shape,
+                background,
+            },
+        }
+    }
+
+    pub fn title(&self) -> Option<&str> {
+        match self {
+            Launch::App(_) => None,
+            Launch::Full { name, .. } => name.as_deref(),
+        }
+    }
+
+    pub fn shape(&self) -> Option<IconShape> {
+        match self {
+            Launch::App(_) => None,
+            Launch::Full { shape, .. } => *shape,
+        }
+    }
+
+    pub fn background(&self) -> bool {
+        match self {
+            Launch::App(_) => true,
+            Launch::Full { background, .. } => background.unwrap_or(true),
+        }
+    }
+
     pub fn app(&self) -> Option<&str> {
         match self {
             Launch::App(app) => Some(app),

@@ -21,11 +21,7 @@ pub const ASSETS: [(&str, &str, &str); 4] = [
 ];
 
 pub fn place_button(name: &str) -> crate::config::Launch {
-    crate::config::Launch::Full {
-        app: None,
-        command: Some(crate::place::dock_command(name)),
-        icon: None,
-    }
+    crate::config::Launch::command_line(&crate::place::dock_command(name))
 }
 
 pub const ASSET_FOR: [For; 4] = [For::Pointer, For::Font, For::WindowArt, For::DockArt];

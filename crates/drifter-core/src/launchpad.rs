@@ -7,11 +7,7 @@ use crate::text::Font;
 pub const DOCK_COMMAND: &str = "drifter:apps";
 
 pub fn button() -> Launch {
-    Launch::Full {
-        app: None,
-        command: Some(DOCK_COMMAND.to_string()),
-        icon: None,
-    }
+    Launch::command_line(DOCK_COMMAND)
 }
 
 pub fn is_button(item: &Launch) -> bool {

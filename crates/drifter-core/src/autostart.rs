@@ -426,11 +426,7 @@ mod tests {
                 on: false,
             },
         ];
-        let login = vec![crate::Launch::Full {
-            app: None,
-            command: Some("blueman-applet --x".into()),
-            icon: None,
-        }];
+        let login = vec![crate::Launch::command_line("blueman-applet --x")];
         let started: Vec<String> = to_start(&entries, &login)
             .into_iter()
             .map(|e| e.exec)

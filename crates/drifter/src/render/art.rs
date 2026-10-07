@@ -48,6 +48,10 @@ pub(super) fn dock_items(
                 }
             })
             .map(|image| image.scaled(dense(side), dense(side)))
+            .map(|image| match item.shape() {
+                Some(shape) => drifter_core::dress::dress(&image, shape, item.background()),
+                None => image,
+            })
             .or_else(|| marked.then(|| drifter_core::place::icon(side)))
             .or_else(|| {
                 drifter_core::launchpad::is_button(&item)

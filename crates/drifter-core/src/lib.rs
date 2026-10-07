@@ -10,6 +10,7 @@ pub mod corner;
 pub mod cursor;
 pub mod desktop;
 pub mod disks;
+pub mod dress;
 pub mod dock;
 pub mod drawer;
 pub mod exec;

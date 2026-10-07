@@ -211,6 +211,7 @@ pub enum Ask {
     Reset,
     User(UserAsk),
     RenamePlace(usize),
+    EditDock(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -863,6 +864,9 @@ impl Model {
     }
 
     pub fn name_of(&self, item: &Launch) -> String {
+        if let Some(title) = item.title() {
+            return title.to_string();
+        }
         match (item.app(), item.command()) {
             (Some(app), _) => self
                 .names
@@ -1007,7 +1011,7 @@ impl Model {
                         self.launch_row(
                             Id::Dock(at),
                             item,
-                            vec![Mark::Up, Mark::Down, Mark::Text("Icon"), Mark::Minus],
+                            vec![Mark::Up, Mark::Down, Mark::Text("Edit"), Mark::Minus],
                         )
                     })
                     .collect();
@@ -1757,7 +1761,7 @@ impl Model {
             (Id::Dock(at), 0) if at > 0 && at < self.dock.len() => self.dock.swap(at, at - 1),
             (Id::Dock(at), 1) if at + 1 < self.dock.len() => self.dock.swap(at, at + 1),
             (Id::Dock(at), 2) if at < self.dock.len() => {
-                return Some(Ask::Files(For::DockIcon(at)));
+                return Some(Ask::EditDock(at));
             }
             (Id::Dock(at), 3) if at < self.dock.len() => {
                 self.dock.remove(at);
@@ -1791,16 +1795,24 @@ impl Model {
         }
     }
 
-    pub fn set_icon(&mut self, at: usize, icon: Option<PathBuf>) {
+    pub fn edit_dock(&mut self, at: usize, edit: DockEdit) -> Result<(), String> {
+        let target = edit.target.trim().to_string();
+        if target.is_empty() {
+            return Err("Type an app or a command.".to_string());
+        }
+        let (app, command) = match edit.app {
+            true => (Some(target), None),
+            false => (None, Some(target)),
+        };
+        let plain = Launch::dressed(app.clone(), command.clone(), None, None, None, None);
+        let name = edit.name.trim();
+        let name = (!name.is_empty() && name != self.name_of(&plain)).then(|| name.to_string());
+        let background = (edit.shape.is_some() && !edit.background).then_some(false);
         let Some(item) = self.dock.get_mut(at) else {
-            return;
+            return Err("That dock item is gone.".to_string());
         };
-        let app = item.app().map(str::to_string);
-        let command = item.command().map(str::to_string);
-        *item = match (app, command, icon) {
-            (Some(app), None, None) => Launch::App(app),
-            (app, command, icon) => Launch::Full { app, command, icon },
-        };
+        *item = Launch::dressed(app, command, edit.icon, name, edit.shape, background);
+        Ok(())
     }
 
     pub fn choose_folder(&mut self, folder: PathBuf) {
@@ -2220,6 +2232,50 @@ pub fn write_scale(text: &str, name: &str, scale: f64) -> Result<String, String>
     Ok(doc.to_string())
 }
 
+const ASK_FRESH: std::time::Duration = std::time::Duration::from_secs(15);
+const ASK_DOCK: &str = "dock-item";
+
+fn ask_path() -> PathBuf {
+    Config::state_dir().join("settings-ask")
+}
+
+pub fn ask_dock_item(at: usize) -> Result<(), String> {
+    let path = ask_path();
+    if let Some(folder) = path.parent() {
+        std::fs::create_dir_all(folder).map_err(|error| error.to_string())?;
+    }
+    std::fs::write(&path, format!("{ASK_DOCK} {at}\n")).map_err(|error| error.to_string())
+}
+
+pub fn take_dock_ask() -> Option<usize> {
+    let path = ask_path();
+    let fresh = std::fs::metadata(&path)
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|stamp| stamp.elapsed().ok())
+        .is_some_and(|age| age < ASK_FRESH);
+    let text = std::fs::read_to_string(&path).ok()?;
+    let _ = std::fs::remove_file(&path);
+    if !fresh {
+        return None;
+    }
+    read_dock_ask(&text)
+}
+
+fn read_dock_ask(text: &str) -> Option<usize> {
+    text.trim().strip_prefix(ASK_DOCK)?.trim().parse().ok()
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DockEdit {
+    pub name: String,
+    pub target: String,
+    pub app: bool,
+    pub icon: Option<PathBuf>,
+    pub shape: Option<crate::config::IconShape>,
+    pub background: bool,
+}
+
 pub fn write_dock(text: &str, pinned: &[Launch], off: &[&str]) -> Result<String, String> {
     let mut doc = text
         .parse::<toml_edit::DocumentMut>()
@@ -2239,8 +2295,18 @@ fn launches(items: &[Launch]) -> toml_edit::Value {
 fn launch(item: &Launch) -> toml_edit::Value {
     match item {
         Launch::App(app) => toml_edit::Value::from(app.as_str()),
-        Launch::Full { app, command, icon } => {
+        Launch::Full {
+            app,
+            command,
+            icon,
+            name,
+            shape,
+            background,
+        } => {
             let mut table = toml_edit::InlineTable::new();
+            if let Some(name) = name {
+                table.insert("name", toml_edit::Value::from(name.as_str()));
+            }
             if let Some(app) = app {
                 table.insert("app", toml_edit::Value::from(app.as_str()));
             }
@@ -2252,6 +2318,12 @@ fn launch(item: &Launch) -> toml_edit::Value {
                     "icon",
                     toml_edit::Value::from(icon.to_string_lossy().as_ref()),
                 );
+            }
+            if let Some(shape) = shape {
+                table.insert("shape", toml_edit::Value::from(shape.word()));
+            }
+            if let Some(background) = background {
+                table.insert("background", toml_edit::Value::from(*background));
             }
             toml_edit::Value::InlineTable(table)
         }
@@ -4482,14 +4554,18 @@ mod tests {
         after.add(For::Login, Launch::App("firefox".into()));
         after.add(
             For::Login,
-            Launch::Full {
-                app: None,
-                command: Some("foot -e htop".into()),
-                icon: None,
-            },
+            Launch::command_line("foot -e htop"),
         );
         after.add(For::Dock, Launch::App("foot".into()));
-        after.set_icon(0, Some(PathBuf::from("/icons/foot.png")));
+        let edit = |icon: Option<&str>| DockEdit {
+            name: String::new(),
+            target: "foot".into(),
+            app: true,
+            icon: icon.map(PathBuf::from),
+            shape: None,
+            background: true,
+        };
+        after.edit_dock(0, edit(Some("/icons/foot.png"))).unwrap();
         let back = Config::parse(&after.write(&before, "").unwrap()).unwrap();
         assert_eq!(back.login.start, after.login);
         assert_eq!(
@@ -4498,8 +4574,56 @@ mod tests {
         );
         back.validate().unwrap();
         let mut plain = after.clone();
-        plain.set_icon(0, None);
+        plain.edit_dock(0, edit(None)).unwrap();
         assert_eq!(plain.dock[0], Launch::App("foot".into()));
+    }
+
+    #[test]
+    fn the_dock_ask_names_one_item() {
+        assert_eq!(read_dock_ask("dock-item 3\n"), Some(3));
+        assert_eq!(read_dock_ask("dock-item x"), None);
+        assert_eq!(read_dock_ask("other 3"), None);
+    }
+
+    #[test]
+    fn a_dock_item_keeps_its_own_name_target_shape_and_background() {
+        let before = model(&Config::default());
+        let mut after = before.clone();
+        after.names.insert("foot".into(), "Foot".into());
+        after.add(For::Dock, Launch::App("foot".into()));
+        let edit = DockEdit {
+            name: "Shell".into(),
+            target: "foot -e htop".into(),
+            app: false,
+            icon: None,
+            shape: Some(crate::config::IconShape::Squircle),
+            background: false,
+        };
+        after.edit_dock(0, edit.clone()).unwrap();
+        let back = Config::parse(&after.write(&before, "").unwrap()).unwrap();
+        back.validate().unwrap();
+        let item = &back.dock.pinned[0];
+        assert_eq!(item.command(), Some("foot -e htop"));
+        assert_eq!(item.title(), Some("Shell"));
+        assert_eq!(after.name_of(item), "Shell");
+        assert_eq!(item.shape(), Some(crate::config::IconShape::Squircle));
+        assert!(!item.background());
+
+        let same = DockEdit {
+            name: "Foot".into(),
+            target: "foot".into(),
+            app: true,
+            shape: None,
+            background: false,
+            ..edit.clone()
+        };
+        after.edit_dock(0, same).unwrap();
+        assert_eq!(after.dock[0], Launch::App("foot".into()), "the app's own name is not stored");
+        let blank = DockEdit {
+            target: "  ".into(),
+            ..edit
+        };
+        assert!(after.edit_dock(0, blank).is_err());
     }
 
     #[test]
@@ -4588,14 +4712,14 @@ mod tests {
     }
 
     #[test]
-    fn the_add_rows_ask_for_the_picker_and_icon_asks_for_files() {
+    fn the_add_rows_ask_for_the_picker_and_edit_opens_the_item() {
         let mut model = model(&Config::default());
         assert_eq!(model.press(Id::LoginAdd, 0), Some(Ask::Pick(For::Login)));
         assert_eq!(model.press(Id::DockAdd, 0), Some(Ask::Pick(For::Dock)));
         model.add(For::Dock, Launch::App("foot".into()));
         assert_eq!(
             model.press(Id::Dock(0), 2),
-            Some(Ask::Files(For::DockIcon(0)))
+            Some(Ask::EditDock(0))
         );
         assert_eq!(model.press(Id::Folder, 0), Some(Ask::Files(For::Folder)));
         assert_eq!(model.press(Id::Dock(0), 3), None);

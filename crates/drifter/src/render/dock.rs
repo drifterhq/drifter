@@ -377,6 +377,7 @@ impl State {
                         false => "Keep in Dock",
                     },
                 ));
+                items.push(Item::line(4, "Settings…"));
                 if !self.windows_of(&app.key).is_empty() {
                     items.push(Item::rule(98));
                     items.push(Item::line(3, "Quit"));
@@ -541,6 +542,7 @@ impl State {
                     self.windows[at].toplevel.send_close();
                 }
             }
+            4 => self.edit_dock_item(&apps, index),
             n if n >= 100 => {
                 if let Some(&at) = windows.get((n - 100) as usize) {
                     self.bring(at);
@@ -548,6 +550,34 @@ impl State {
             }
             _ => {}
         }
+    }
+
+    fn edit_dock_item(&mut self, apps: &[DockApp], index: usize) {
+        let Some(app) = apps.get(index) else {
+            return;
+        };
+        let mut pinned: Vec<drifter_core::Launch> = apps
+            .iter()
+            .filter(|other| other.pinned)
+            .map(|other| other.launch.clone())
+            .collect();
+        let at = match app.pinned {
+            true => index,
+            false => {
+                pinned.push(app.launch.clone());
+                pinned.len() - 1
+            }
+        };
+        let off: Vec<&str> = self
+            .builtin_switch(&app.launch)
+            .filter(|key| *key != "apps")
+            .into_iter()
+            .collect();
+        self.save_dock(&pinned, &off);
+        if let Err(error) = drifter_core::settings::ask_dock_item(at) {
+            log!("drifter: cannot ask Settings for the dock item: {error}");
+        }
+        self.open_settings_at("dock");
     }
 
     pub(super) fn watch_trash(&mut self) {
@@ -781,7 +811,10 @@ impl State {
         let slot = self.dock.at(band, self.pointer, apps.len(), hidden.len())?;
         let rect = self.dock.slot_rect(band, apps.len(), hidden.len(), slot);
         let text = match slot {
-            Slot::Pinned(index) => apps.get(index)?.launch.name(),
+            Slot::Pinned(index) => {
+                let launch = &apps.get(index)?.launch;
+                launch.title().map(str::to_string).unwrap_or_else(|| launch.name())
+            }
             Slot::Minimized(index) => hidden.get(index)?.clone(),
             Slot::Settings => "Settings".to_string(),
             Slot::Trash => "Trash".to_string(),

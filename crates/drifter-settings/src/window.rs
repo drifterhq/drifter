@@ -363,6 +363,7 @@ pub fn run() -> Result<(), String> {
     };
     settings.load_row_icons();
     settings.refresh(settings.section);
+    settings.take_ask(false);
     if let Some(role) = std::env::args().nth(2).and_then(|word| drifter_core::desktop::Role::from_key(&word)) {
         settings.open_picker(For::Default(role));
     }
@@ -694,6 +695,20 @@ impl Settings {
         if key.starts_with("letter:") {
             return None;
         }
+        if let Some((shape, background, inner)) = drifter_core::sheet::art_of(key) {
+            let side = drifter_core::sheet::FACE_CELL as u32 * scale();
+            let image = drifter_core::image::load_sized(&self.icon_path(inner)?, side)
+                .ok()?
+                .scaled(side, side);
+            return Some(match shape.checked_sub(1).and_then(|at| drifter_core::config::IconShape::ALL.get(at)) {
+                Some(shape) => drifter_core::dress::dress(&image, *shape, background),
+                None => image,
+            });
+        }
+        icon_image(&self.icon_path(key)?)
+    }
+
+    fn icon_path(&self, key: &str) -> Option<PathBuf> {
         let path = if let Some(id) = key.strip_prefix("app:") {
             let app = self.apps.iter().find(|app| app.id == id)?;
             icon_file(app.icon.as_deref()?)?
@@ -705,7 +720,7 @@ impl Settings {
                 .or_else(|| key.strip_prefix("icon:"))?;
             icon_file(name)?
         };
-        icon_image(&path)
+        Some(path)
     }
 
     fn want_icon(&mut self, key: String) {
@@ -1110,6 +1125,7 @@ impl Settings {
                 Some(Ask::Reset) => self.reset_all(),
                 Some(Ask::Net(ask)) => self.net_ask(ask),
                 Some(Ask::User(ask)) => self.user_ask(ask),
+                Some(Ask::EditDock(at)) => self.edit_dock(at),
                 Some(Ask::RenamePlace(at)) => {
                     let name = self.model.places.get(at).map(|place| place.name.clone()).unwrap_or_default();
                     self.sheet = Some(Sheet::form(
@@ -1171,6 +1187,7 @@ impl Settings {
     }
 
     fn watch(&mut self) {
+        self.take_ask(true);
         if self.sheet.is_some() || self.holding.is_some() {
             return;
         }
@@ -1433,6 +1450,61 @@ impl Settings {
         }
     }
 
+    fn edit_dock(&mut self, at: usize) {
+        let Some(item) = self.model.dock.get(at).cloned() else {
+            return;
+        };
+        let target = item.command().or(item.app()).unwrap_or_default().to_string();
+        let plain = drifter_core::Launch::dressed(
+            item.app().map(str::to_string),
+            item.command().map(str::to_string),
+            None,
+            None,
+            None,
+            None,
+        );
+        let shape = item
+            .shape()
+            .and_then(|shape| drifter_core::config::IconShape::ALL.iter().position(|each| *each == shape))
+            .map_or(0, |at| at + 1);
+        self.sheet = Some(
+            Sheet::form(
+                For::DockItem(at),
+                "Dock item",
+                vec![
+                    Field::plain("Name", &self.model.name_of(&item)),
+                    Field::plain("Target: an app id or a command", &target),
+                ],
+                "Save",
+            )
+            .with_art(item.icon().map(Path::to_path_buf), &Model::icon_key(&plain), shape)
+            .with_switch("Fill clear parts with a color", item.background()),
+        );
+        self.want_art();
+    }
+
+    fn want_art(&mut self) {
+        if let Some(key) = self.sheet.as_ref().and_then(Sheet::art_key) {
+            self.want_icon(key);
+        }
+    }
+
+    fn take_ask(&mut self, running: bool) {
+        let Some(at) = drifter_core::settings::take_dock_ask() else {
+            return;
+        };
+        if running {
+            if self.unsaved {
+                self.save();
+            }
+            self.reload();
+        }
+        self.parked = None;
+        self.go_to(Section::Dock);
+        self.edit_dock(at);
+        self.stale = true;
+    }
+
     fn user_job(&mut self, purpose: For, job: crate::users::Job) {
         let done = self.user_done.clone();
         let spawned = std::thread::Builder::new()
@@ -1475,6 +1547,33 @@ impl Settings {
         use crate::users::Job;
 
         let text = |at: usize| texts.get(at).cloned().unwrap_or_default();
+        if let For::DockItem(at) = purpose {
+            let target = text(1).trim().to_string();
+            let was_app = self.model.dock.get(at).and_then(|item| item.app()) == Some(target.as_str());
+            let shape = self.sheet.as_ref().and_then(Sheet::shape).unwrap_or(0);
+            let edit = drifter_core::settings::DockEdit {
+                name: text(0),
+                app: was_app || self.apps.iter().any(|app| app.id == target),
+                target,
+                icon: self.sheet.as_ref().and_then(Sheet::face),
+                shape: shape.checked_sub(1).and_then(|at| drifter_core::config::IconShape::ALL.get(at).copied()),
+                background: on,
+            };
+            match self.model.edit_dock(at, edit) {
+                Ok(()) => {
+                    self.sheet = None;
+                    self.load_row_icons();
+                    self.save();
+                    self.stale = true;
+                }
+                Err(error) => {
+                    if let Some(sheet) = self.sheet.as_mut() {
+                        sheet.work(Some(&error), false);
+                    }
+                }
+            }
+            return;
+        }
         if let For::PlaceName(at) = purpose {
             match self.model.rename_place(at, &text(0)) {
                 Ok(()) => {
@@ -1683,7 +1782,7 @@ impl Settings {
             return;
         };
         match pick {
-            Pick::Cancel if purpose == For::NewFace && self.parked.is_some() => {
+            Pick::Cancel if matches!(purpose, For::NewFace | For::DockIcon(_)) && self.parked.is_some() => {
                 self.sheet = self.parked.take();
             }
             Pick::Cancel => {
@@ -1699,6 +1798,20 @@ impl Settings {
                 if let Some(sheet) = self.sheet.as_mut() {
                     sheet.toggle();
                 }
+                self.want_art();
+            }
+            Pick::Shape(at) => {
+                if let Some(sheet) = self.sheet.as_mut() {
+                    sheet.set_shape(at);
+                }
+                self.want_art();
+            }
+            Pick::Face if matches!(purpose, For::DockItem(_)) => {
+                let For::DockItem(at) = purpose else {
+                    return;
+                };
+                self.parked = self.sheet.take();
+                self.open_files(For::DockIcon(at));
             }
             Pick::Face => {
                 let chosen = self.sheet.as_ref().and_then(Sheet::face);
@@ -1715,6 +1828,20 @@ impl Settings {
                 self.sheet = None;
                 self.model.user_note = Some("Changing your picture…".to_string());
                 self.user_job(For::MyFace, crate::users::Job::Face(file));
+            }
+            Pick::File(file) if matches!(purpose, For::DockIcon(_)) && self.parked.is_some() => {
+                self.sheet = self.parked.take();
+                if let Some(sheet) = self.sheet.as_mut() {
+                    sheet.put_face(file);
+                }
+                self.want_art();
+            }
+            Pick::Default if matches!(purpose, For::DockIcon(_)) && self.parked.is_some() => {
+                self.sheet = self.parked.take();
+                if let Some(sheet) = self.sheet.as_mut() {
+                    sheet.clear_face();
+                }
+                self.want_art();
             }
             Pick::File(file) if purpose == For::NewFace => {
                 self.sheet = self.parked.take();
@@ -1757,11 +1884,7 @@ impl Settings {
             Pick::Command(text) if !text.is_empty() => {
                 self.finish_add(
                     purpose,
-                    Launch::Full {
-                        app: None,
-                        command: Some(text),
-                        icon: None,
-                    },
+                    Launch::command_line(&text),
                 );
             }
             Pick::Command(_) => {}
@@ -1785,13 +1908,7 @@ impl Settings {
                 self.want_thumbs();
             }
             Pick::File(file) => {
-                match purpose {
-                    For::DockIcon(at) => {
-                        self.model.set_icon(at, Some(file));
-                        self.load_row_icons();
-                    }
-                    _ => self.model.choose_file(purpose, file),
-                }
+                self.model.choose_file(purpose, file);
                 self.sheet = None;
                 self.save();
                 if purpose == For::Picture {
@@ -1804,15 +1921,8 @@ impl Settings {
                 self.save();
             }
             Pick::Default => {
-                match purpose {
-                    For::DockIcon(at) => {
-                        self.model.set_icon(at, None);
-                        self.load_row_icons();
-                    }
-                    For::Shortcut(at) => {
-                        let _ = self.model.set_shortcut(at, None);
-                    }
-                    _ => {}
+                if let For::Shortcut(at) = purpose {
+                    let _ = self.model.set_shortcut(at, None);
                 }
                 self.sheet = None;
                 self.save();

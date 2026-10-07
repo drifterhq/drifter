@@ -153,11 +153,7 @@ mod tests {
         assert_eq!(from_dock(&command), Some("Place 4"));
         assert_eq!(from_dock("foot -e htop"), None);
         assert_eq!(from_dock(DOCK_PREFIX), None);
-        let button = crate::config::Launch::Full {
-            app: None,
-            command: Some(command),
-            icon: None,
-        };
+        let button = crate::config::Launch::command_line(&command);
         assert_eq!(button.name(), "Place 4", "the dock tip names the place");
     }
 

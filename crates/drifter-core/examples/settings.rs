@@ -53,11 +53,7 @@ fn main() {
     model.add(For::Login, Launch::App("firefox".into()));
     model.add(
         For::Login,
-        Launch::Full {
-            app: None,
-            command: Some("foot -e htop".into()),
-            icon: None,
-        },
+        Launch::command_line("foot -e htop"),
     );
     model.see_monitors(&[
         ("eDP-1".into(), Vec2::new(2880.0, 1800.0)),
@@ -102,7 +98,27 @@ fn main() {
             .map(PathBuf::from)
             .unwrap_or_default(),
     );
-    for (name, sheet) in [("picker", &picker), ("files", &files)] {
+    let sample = drifter_core::image::load_sized(std::path::Path::new("img/dock/files.png"), 72)
+        .map(|image| image.scaled(72, 72))
+        .ok();
+    let mut item = Sheet::form(
+        For::DockItem(0),
+        "Dock item",
+        vec![
+            drifter_core::sheet::Field::plain("Name", "Files"),
+            drifter_core::sheet::Field::plain("Target: an app id or a command", "pcmanfm"),
+        ],
+        "Save",
+    )
+    .with_art(Some(PathBuf::from("img/dock/files.png")), "app:pcmanfm", 3)
+    .with_switch("Fill clear parts with a color", true);
+    let mut icons = icons;
+    if let (Some(sample), Some(key)) = (sample, item.art_key()) {
+        let shape = drifter_core::config::IconShape::Squircle;
+        icons.insert(key, drifter_core::dress::dress(&sample, shape, true));
+    }
+    item.focus(0);
+    for (name, sheet) in [("picker", &picker), ("files", &files), ("dockitem", &item)] {
         let art = Art {
             wallpaper: wallpaper.as_ref(),
             icons: &icons,
