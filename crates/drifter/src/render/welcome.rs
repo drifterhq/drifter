@@ -7,7 +7,6 @@ const SLIDE_STILL: Duration = Duration::from_millis(140);
 const INTRO: Duration = Duration::from_millis(1400);
 const CLOSING: Duration = Duration::from_millis(260);
 const NUDGE: f64 = 28.0;
-const LOGO_PACE: f64 = 1.2;
 const DIM: f32 = 0.12;
 const KEY_ESCAPE: u32 = 9;
 const KEY_RETURN: u32 = 36;
@@ -425,7 +424,7 @@ impl State {
         };
         let now = Instant::now();
         let (then, at) = open.logo_clock;
-        let clock = then + now.duration_since(at).as_secs_f64() * logo_pace(open.view.motion, self.access.reduce_motion);
+        let clock = then + now.duration_since(at).as_secs_f64() * drifter_core::welcome::logo_pace(open.view.motion, self.access.reduce_motion);
         open.logo_clock = (clock, now);
         clock
     }
@@ -595,7 +594,7 @@ impl State {
         open.closing.is_some()
             || (open.view.card == Card::Hello
                 && open.logo.is_some()
-                && logo_pace(open.view.motion, self.access.reduce_motion) > 0.0)
+                && drifter_core::welcome::logo_pace(open.view.motion, self.access.reduce_motion) > 0.0)
             || (open.intro && now.duration_since(open.opened) < INTRO)
             || now.duration_since(open.moved) < SLIDE
             || (open.view.card == Card::Look && open.hovered.is_some())
@@ -1157,13 +1156,6 @@ fn scan_apps(config_path: &Path) -> Vec<Shelf> {
 }
 
 
-fn logo_pace(motion: Motion, reduce: bool) -> f64 {
-    match (reduce, motion) {
-        (true, _) | (_, Motion::Still) => 0.0,
-        (_, Motion::Calm) => LOGO_PACE * 0.6,
-        (_, Motion::Full) => LOGO_PACE,
-    }
-}
 
 fn title_case(word: &str) -> String {
     let mut chars = word.chars();
