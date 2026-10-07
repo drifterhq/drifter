@@ -603,6 +603,22 @@ impl State {
     }
 
     fn pending(&self) -> Option<Duration> {
+        let rest = self.waiting();
+        if self.dark || self.lock.is_some() {
+            return rest;
+        }
+        let live = self
+            .wallpaper
+            .as_ref()
+            .and_then(|paper| paper.live.as_ref())
+            .map(|live| live.wait(self.live_every()));
+        match (rest, live) {
+            (Some(rest), Some(live)) => Some(rest.min(live)),
+            (rest, live) => rest.or(live),
+        }
+    }
+
+    fn waiting(&self) -> Option<Duration> {
         if self.dark {
             return None;
         }
@@ -631,9 +647,6 @@ impl State {
         }
         if self.drawers[Edge::Top.index()].visible() && self.font.is_some() {
             return Some(SECOND_TICK);
-        }
-        if let Some(live) = self.wallpaper.as_ref().and_then(|paper| paper.live.as_ref()) {
-            return Some(live.wait(self.live_every()));
         }
         None
     }
