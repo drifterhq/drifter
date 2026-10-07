@@ -174,11 +174,11 @@ struct Backdrop {
     resident: std::collections::HashMap<(usize, u32, u32), (TextureBuffer<Tex>, Instant)>,
     frost: drifter_core::frost::Frost,
     live: Option<wallpaper::Live>,
-    fixed: bool,
+    shader: bool,
 }
 
 impl Backdrop {
-    fn new(pyramid: drifter_core::tiles::Pyramid, live: Option<wallpaper::Live>, fixed: bool) -> Backdrop {
+    fn new(pyramid: drifter_core::tiles::Pyramid, live: Option<wallpaper::Live>, shader: bool) -> Backdrop {
         let smallest = &pyramid.levels[pyramid.levels.len() - 1];
         let frost = drifter_core::frost::Frost::build(smallest);
         Backdrop {
@@ -186,8 +186,26 @@ impl Backdrop {
             resident: std::collections::HashMap::new(),
             frost,
             live,
-            fixed,
+            shader,
         }
+    }
+
+    fn paper(&self, screen: Vec2) -> Vec2 {
+        match self.shader {
+            true => drifter_core::wallpaper::shader_paper(screen),
+            false => self.pyramid.size(),
+        }
+    }
+
+    fn laid(
+        &self,
+        mode: drifter_core::WallpaperMode,
+        screen: Vec2,
+        world: Vec2,
+        camera: &Camera,
+    ) -> drifter_core::wallpaper::Placement {
+        let paper = self.paper(screen);
+        drifter_core::wallpaper::place(mode, paper, screen, world, camera).onto(paper, self.pyramid.size())
     }
 }
 
@@ -454,7 +472,7 @@ pub struct State {
     sampled: Option<Instant>,
     icons: Vec<(String, String, TextureBuffer<Tex>)>,
     tray_raw: Vec<crate::tray::Icon>,
-    frost_key: Option<[i64; 6]>,
+    frost_key: Option<[i64; 8]>,
     fading: Option<(Backdrop, Instant)>,
     control: Option<centers::Panel>,
     control_icon: Option<TextureBuffer<Tex>>,
@@ -1431,20 +1449,17 @@ fn paper_pieces(
     (clock, every): (f64, Option<Duration>),
     elements: &mut Vec<Skin>,
 ) {
+    let whole = paper.paper(screen);
+    let seen = drifter_core::wallpaper::place(mode, whole, screen, world, &camera).seen(screen);
     if let Some((buffer, size)) = paper
         .live
         .as_mut()
-        .and_then(|live| live.draw(renderer, screen, clock, every))
+        .and_then(|live| live.draw(renderer, &seen, whole, clock, every))
     {
-        let whole = Rect::new(Vec2::ZERO, size);
-        elements.push(Skin::Texture(faded(&buffer, whole, Rect::new(Vec2::ZERO, screen), alpha)));
+        elements.push(Skin::Texture(faded(&buffer, Rect::new(Vec2::ZERO, size), seen.target, alpha)));
         return;
     }
-    let mode = match paper.fixed {
-        true => drifter_core::WallpaperMode::Fixed,
-        false => mode,
-    };
-    let laid = drifter_core::wallpaper::place(mode, paper.pyramid.size(), screen, world, &camera);
+    let laid = paper.laid(mode, screen, world, &camera);
     let now = Instant::now();
     for piece in paper.pyramid.pieces(laid.source, laid.target) {
         if !paper.resident.contains_key(&piece.key) {

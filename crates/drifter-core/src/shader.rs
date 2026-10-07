@@ -14,6 +14,9 @@ precision highp float;
 precision mediump float;
 #endif
 uniform vec2 size;
+uniform vec2 O;
+uniform vec2 S;
+uniform vec2 W;
 uniform float alpha;
 varying vec2 v_coords;
 #if defined(DEBUG_FLAGS)
@@ -26,7 +29,7 @@ uniform vec3 S1;
 uniform vec3 A;
 uniform vec3 B;
 uniform vec3 C;
-#define R size
+#define R W
 float h(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
 float n(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
  return mix(mix(h(i),h(i+vec2(1.,0.)),f.x),mix(h(i+vec2(0.,1.)),h(i+1.),f.x),f.y);}
@@ -36,7 +39,8 @@ float fbm(vec2 p){float v=0.,a=.5;mat2 m=mat2(1.6,1.2,-1.2,1.6);
 
 pub const FOOT: &str = "
 void main(){
- vec2 P=vec2(v_coords.x,1.-v_coords.y)*R;
+ vec2 Q=O+v_coords*S;
+ vec2 P=vec2(Q.x,W.y-Q.y);
  vec3 c=wall(P)+(h(P)-.5)/255.;
  gl_FragColor=vec4(clamp(c,0.,1.),1.)*alpha;
 }

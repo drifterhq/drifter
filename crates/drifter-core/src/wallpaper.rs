@@ -46,6 +46,44 @@ pub struct Placement {
     pub target: Rect,
 }
 
+impl Placement {
+    pub fn seen(&self, screen: Vec2) -> Placement {
+        let target = self.target;
+        let lo = target.origin.max(Vec2::ZERO);
+        let hi = (target.origin + target.size).min(screen);
+        let size = (hi - lo).max(Vec2::ZERO);
+        let scale = |v: Vec2| {
+            Vec2::new(
+                v.x * self.source.size.x / target.size.x.max(f64::MIN_POSITIVE),
+                v.y * self.source.size.y / target.size.y.max(f64::MIN_POSITIVE),
+            )
+        };
+        Placement {
+            source: Rect::new(self.source.origin + scale(lo - target.origin), scale(size)),
+            target: Rect::new(lo, size),
+        }
+    }
+
+    pub fn onto(&self, from: Vec2, to: Vec2) -> Placement {
+        let scale = |v: Vec2| {
+            Vec2::new(
+                v.x * to.x / from.x.max(f64::MIN_POSITIVE),
+                v.y * to.y / from.y.max(f64::MIN_POSITIVE),
+            )
+        };
+        Placement {
+            source: Rect::new(scale(self.source.origin), scale(self.source.size)),
+            target: self.target,
+        }
+    }
+}
+
+pub const SHADER_ROOM: f64 = 4.0 / 3.0;
+
+pub fn shader_paper(screen: Vec2) -> Vec2 {
+    screen * SHADER_ROOM
+}
+
 pub fn cover(image: Vec2, area: Vec2) -> Rect {
     if image.x <= 0.0 || image.y <= 0.0 || area.x <= 0.0 || area.y <= 0.0 {
         return Rect::new(Vec2::ZERO, image);
@@ -154,6 +192,54 @@ pub fn next_picture(
         (crate::config::WallpaperOrder::Random, None, _) => (seed % count as u64) as usize,
     };
     pictures.get(index).cloned()
+}
+
+#[cfg(test)]
+mod shader_tests {
+    use super::*;
+
+    #[test]
+    fn a_shader_paper_leaves_parallax_room_past_the_screen() {
+        let screen = Vec2::new(1920.0, 1080.0);
+        let world = Vec2::new(8000.0, 6000.0);
+        let paper = shader_paper(screen);
+        assert_eq!(paper, Vec2::new(2560.0, 1440.0));
+        let home = Camera::new(Vec2::new(1000.0, 1000.0), 1.0);
+        let away = Camera::new(Vec2::new(5000.0, 1000.0), 1.0);
+        let from = place(WallpaperMode::Parallax, paper, screen, world, &home);
+        let to = place(WallpaperMode::Parallax, paper, screen, world, &away);
+        assert_eq!(from.source.size, screen);
+        assert!(to.source.origin.x > from.source.origin.x);
+        assert!(to.source.origin.x + to.source.size.x <= paper.x + 1e-9);
+    }
+
+    #[test]
+    fn a_placement_moves_onto_a_smaller_still() {
+        let laid = Placement {
+            source: Rect::new(Vec2::new(320.0, 180.0), Vec2::new(1920.0, 1080.0)),
+            target: Rect::new(Vec2::ZERO, Vec2::new(1920.0, 1080.0)),
+        };
+        let small = laid.onto(Vec2::new(2560.0, 1440.0), Vec2::new(960.0, 540.0));
+        assert_eq!(small.source, Rect::new(Vec2::new(120.0, 67.5), Vec2::new(720.0, 405.0)));
+        assert_eq!(small.target, laid.target);
+    }
+
+    #[test]
+    fn only_the_part_on_the_screen_is_seen() {
+        let screen = Vec2::new(100.0, 100.0);
+        let laid = Placement {
+            source: Rect::new(Vec2::ZERO, Vec2::new(400.0, 400.0)),
+            target: Rect::new(Vec2::new(-100.0, -50.0), Vec2::new(800.0, 800.0)),
+        };
+        let seen = laid.seen(screen);
+        assert_eq!(seen.target, Rect::new(Vec2::ZERO, screen));
+        assert_eq!(seen.source, Rect::new(Vec2::new(50.0, 25.0), Vec2::new(50.0, 50.0)));
+        let whole = Placement {
+            source: Rect::new(Vec2::new(5.0, 5.0), Vec2::new(10.0, 10.0)),
+            target: Rect::new(Vec2::ZERO, screen),
+        };
+        assert_eq!(whole.seen(screen), whole);
+    }
 }
 
 #[cfg(test)]

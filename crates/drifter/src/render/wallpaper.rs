@@ -4,6 +4,7 @@ use smithay::backend::renderer::{Bind, Frame, Offscreen, Renderer};
 
 struct Art {
     size: (i32, i32),
+    view: (Rect, Vec2),
     texture: GlesTexture,
     buffer: TextureBuffer<Tex>,
     drawn: Instant,
@@ -31,6 +32,7 @@ impl Live {
             UniformName::new("T", UniformType::_1f),
             UniformName::new("L", UniformType::_1f),
         ];
+        names.extend(["O", "S", "W"].map(|name| UniformName::new(name, UniformType::_2f)));
         names.extend(["S0", "S1", "A", "B", "C"].map(|name| UniformName::new(name, UniformType::_3f)));
         match gles.compile_custom_pixel_shader(drifter_core::shader::source(&body), &names) {
             Ok(program) => Some(Live {
@@ -48,21 +50,26 @@ impl Live {
     pub(super) fn draw(
         &mut self,
         renderer: &mut Painter,
-        screen: Vec2,
+        seen: &drifter_core::wallpaper::Placement,
+        paper: Vec2,
         clock: f64,
         every: Option<Duration>,
     ) -> Option<(TextureBuffer<Tex>, Vec2)> {
         let div = if self.half { 2.0 } else { 1.0 };
         let size = (
-            ((screen.x / div).round() as i32).max(1),
-            ((screen.y / div).round() as i32).max(1),
+            ((seen.target.size.x / div).round() as i32).max(1),
+            ((seen.target.size.y / div).round() as i32).max(1),
         );
+        let view = (seen.source, paper);
         let at = self.arts.iter().position(|art| art.size == size);
         let stale = match at {
             None => true,
-            Some(at) => every.is_some_and(|every| self.arts[at].drawn.elapsed() >= every),
+            Some(at) => {
+                self.arts[at].view != view
+                    || every.is_some_and(|every| self.arts[at].drawn.elapsed() >= every)
+            }
         };
-        if stale && let Err(error) = self.paint(renderer, size, clock, at) {
+        if stale && let Err(error) = self.paint(renderer, size, view, clock, at) {
             log!("drifter: the live wallpaper did not draw: {error}");
         }
         self.arts
@@ -75,6 +82,7 @@ impl Live {
         &mut self,
         renderer: &mut Painter,
         size: (i32, i32),
+        view: (Rect, Vec2),
         clock: f64,
         at: Option<usize>,
     ) -> Result<(), String> {
@@ -90,6 +98,9 @@ impl Live {
         let mut uniforms = vec![
             Uniform::new("T", clock as f32),
             Uniform::new("L", sky.light as f32),
+            Uniform::new("O", (view.0.origin.x as f32, view.0.origin.y as f32)),
+            Uniform::new("S", (view.0.size.x as f32, view.0.size.y as f32)),
+            Uniform::new("W", (view.1.x as f32, view.1.y as f32)),
         ];
         uniforms.extend(sky.uniforms().map(|(name, value)| Uniform::new(name, value)));
         {
@@ -113,6 +124,7 @@ impl Live {
         let buffer = TextureBuffer::from_texture(&*renderer, Tex::Gles(texture.clone()), 1, Transform::Normal, None);
         self.arts.push(Art {
             size,
+            view,
             texture,
             buffer,
             drawn: Instant::now(),
@@ -180,7 +192,7 @@ impl State {
         let reply = self.paper_tx.clone();
         let (world, screen) = (self.world, self.screen);
         let cover = match drifter_core::shader::is_shader(&path) {
-            true => screen,
+            true => drifter_core::wallpaper::shader_paper(screen),
             false => world,
         };
         let spawned = std::thread::Builder::new()
@@ -225,13 +237,8 @@ impl State {
 
     pub(super) fn laid_paper(&self) -> Option<(drifter_core::wallpaper::Placement, Vec2)> {
         let paper = self.wallpaper.as_ref()?;
-        let size = paper.pyramid.size();
-        let mode = match paper.fixed {
-            true => drifter_core::WallpaperMode::Fixed,
-            false => self.mode,
-        };
-        let laid = drifter_core::wallpaper::place(mode, size, self.screen, self.world, &self.camera);
-        Some((laid, size))
+        let laid = paper.laid(self.mode, self.screen, self.world, &self.camera);
+        Some((laid, paper.pyramid.size()))
     }
 
     pub(super) fn frosted(&self, image: &mut drifter_core::Image, origin: Vec2, solid: f64) {
@@ -255,11 +262,14 @@ impl State {
             return;
         };
         let q = |v: f64| (v / 6.0).round() as i64;
+        let zoom = laid.target.size.x / laid.source.size.x.max(f64::MIN_POSITIVE);
         let key = [
             q(laid.target.origin.x),
             q(laid.target.origin.y),
             q(laid.target.size.x),
             q(laid.target.size.y),
+            q(laid.source.origin.x * zoom),
+            q(laid.source.origin.y * zoom),
             q(self.screen.x),
             i64::from(self.palette.veil) * 1000 + i64::from(self.palette.bar[0]),
         ];

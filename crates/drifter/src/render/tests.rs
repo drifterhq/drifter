@@ -1674,3 +1674,33 @@ fn the_overview_moves_a_dragged_window_and_flies_to_a_clicked_one() {
     stop.store(true, Ordering::Relaxed);
     let _ = client.join();
 }
+
+#[test]
+fn a_shader_wallpaper_moves_with_parallax() {
+    let mut run = start("shader-parallax", &Config::default(), Some(pattern(1600, 1200)));
+    run.screen.state.wallpaper.as_mut().expect("a wallpaper").shader = true;
+    run.screen.state.mode = WallpaperMode::Parallax;
+    let home = run.screen.state.camera;
+    let away = Camera::new(home.center + Vec2::new(200.0, 0.0), home.zoom);
+    look_at(&mut run.screen.state, home);
+    let before = run.shot("shader-home");
+    look_at(&mut run.screen.state, away);
+    let after = run.shot("shader-away");
+    let state = &run.screen.state;
+    let paper = drifter_core::wallpaper::shader_paper(state.screen);
+    let place = |camera: &Camera| {
+        drifter_core::wallpaper::place(WallpaperMode::Parallax, paper, state.screen, state.world, camera)
+    };
+    let (from, to) = (place(&home), place(&away));
+    let expected =
+        (to.source.origin.x - from.source.origin.x) * from.target.size.x / from.source.size.x;
+    let (shift, score) = best_shift(&before, &after, 260);
+    assert!(
+        expected > 5.0 && expected < 195.0,
+        "a shader moves slower than the camera: {expected}"
+    );
+    assert!(
+        (f64::from(shift) - expected).abs() <= 1.5 && score > 0.9,
+        "a shader wallpaper moves {expected:.1} px, not {shift} ({score})"
+    );
+}
