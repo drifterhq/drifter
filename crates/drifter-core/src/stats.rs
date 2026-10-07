@@ -21,12 +21,16 @@ pub fn paint(font: &Font, fields: &[(&str, u8)], color: [u8; 3]) -> Image {
         if index > 0 {
             pen += between;
         }
-        pieces.push((pen, font.paint(label, color)));
+        pieces.push((pen, font.paint(label, color), None));
         pen += font.width_of(label) + space + slot;
         let percent = (pen - font.width_of("%")).round();
         let digits = value.to_string();
-        pieces.push((percent, font.paint("%", color)));
-        pieces.push((percent - font.width_of(&digits), font.paint(&digits, color)));
+        pieces.push((percent, font.paint("%", color), None));
+        pieces.push((
+            percent - font.width_of(&digits),
+            font.paint(&digits, color),
+            Some(percent as i64),
+        ));
     }
 
     let width = pen.ceil().max(1.0) as u32;
@@ -36,17 +40,20 @@ pub fn paint(font: &Font, fields: &[(&str, u8)], color: [u8; 3]) -> Image {
         height,
         rgba: vec![0; (width as usize) * (height as usize) * 4],
     };
-    for (x, piece) in pieces {
-        stamp(&mut canvas, &piece, x.round() as i64);
+    for (x, piece, right) in pieces {
+        stamp(&mut canvas, &piece, x.round() as i64, right);
     }
     canvas
 }
 
-fn stamp(canvas: &mut Image, piece: &Image, left: i64) {
+fn stamp(canvas: &mut Image, piece: &Image, left: i64, right: Option<i64>) {
+    let right = right
+        .unwrap_or(i64::from(canvas.width))
+        .min(i64::from(canvas.width));
     for y in 0..piece.height.min(canvas.height) {
         for x in 0..piece.width {
             let to = left + i64::from(x);
-            if to < 0 || to >= i64::from(canvas.width) {
+            if to < 0 || to >= right {
                 continue;
             }
             let from = ((y * piece.width + x) * 4) as usize;
@@ -200,7 +207,10 @@ pub fn battery_rows(read: impl Fn(&str) -> Option<String>) -> Vec<(String, Strin
         "Not charging" => "plugged in, not charging",
         _ => "on battery",
     };
-    let mut rows = vec![("Charge".to_string(), format!("{}%, {state}", percent.round()))];
+    let mut rows = vec![(
+        "Charge".to_string(),
+        format!("{}%, {state}", percent.round()),
+    )];
     if let (Some(rate), Some(now), Some(full)) = (rate, now, full) {
         let hours = match status.trim() {
             "Charging" => Some((full - now).max(0.0) / rate),
@@ -213,7 +223,10 @@ pub fn battery_rows(read: impl Fn(&str) -> Option<String>) -> Vec<(String, Strin
                 "Charging" => "Full in",
                 _ => "Time left",
             };
-            rows.push((label.to_string(), format!("{}:{:02}", minutes / 60, minutes % 60)));
+            rows.push((
+                label.to_string(),
+                format!("{}:{:02}", minutes / 60, minutes % 60),
+            ));
         }
     }
     if let (Some(full), Some(design)) = (full, design)
@@ -349,7 +362,11 @@ mod tests {
     #[test]
     fn mains_power_and_a_bare_capacity_are_handled() {
         assert!(battery_rows(supply(&[("type", "Mains"), ("online", "1")])).is_empty());
-        let rows = battery_rows(supply(&[("type", "Battery"), ("capacity", "64"), ("status", "Full")]));
+        let rows = battery_rows(supply(&[
+            ("type", "Battery"),
+            ("capacity", "64"),
+            ("status", "Full"),
+        ]));
         assert_eq!(rows, [("Charge".to_string(), "64%, full".to_string())]);
     }
 

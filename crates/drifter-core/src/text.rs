@@ -1,5 +1,13 @@
 use std::path::{Path, PathBuf};
 
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+use swash::scale::{Render, ScaleContext, Source, image::Content};
+use swash::shape::ShapeContext;
+use swash::zeno::{Format, Vector};
+use swash::{FontRef, NormalizedCoord};
+
 use crate::geom::Vec2;
 use crate::image::Image;
 
@@ -26,23 +34,66 @@ pub fn font_path(chosen: Option<PathBuf>) -> Option<PathBuf> {
         .find(|path| path.is_file())
 }
 
-type Glyph = std::sync::Arc<(fontdue::Metrics, Vec<u8>)>;
+const STEPS: f32 = 4.0;
+const SHAPES_KEPT: usize = 4096;
+const REGULAR: f32 = 400.0;
+const BOLD: f32 = 650.0;
+
+#[derive(Clone, Copy)]
+struct Placed {
+    id: u16,
+    x: f32,
+    advance: f32,
+}
+
+struct Raster {
+    left: i32,
+    top: i32,
+    width: u32,
+    height: u32,
+    coverage: Vec<u8>,
+}
+
+struct Kit {
+    shape: ShapeContext,
+    scale: ScaleContext,
+    shapes: HashMap<(String, u32), Arc<Vec<Placed>>>,
+    glyphs: HashMap<(u16, u8, u32), Arc<Raster>>,
+}
 
 pub struct Font {
-    inner: fontdue::Font,
+    data: Vec<u8>,
     px: f32,
-    glyphs: std::sync::Mutex<std::collections::HashMap<char, Glyph>>,
+    darken: f32,
+    variable: bool,
+    ascent: f64,
+    descent: f64,
+    kit: Mutex<Kit>,
 }
 
 impl Font {
     pub fn load(path: &Path, px: f64) -> Result<Font, String> {
-        let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
-        let inner = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default())
-            .map_err(|e| format!("{}: {e}", path.display()))?;
+        let data = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let font = FontRef::from_index(&data, 0)
+            .ok_or_else(|| format!("{}: not a font", path.display()))?;
+        let variable = font
+            .variations()
+            .any(|axis| axis.tag() == swash::tag_from_bytes(b"wght"));
+        let metrics = font.metrics(&[]).scale(px as f32);
+        let (ascent, descent) = (f64::from(metrics.ascent), f64::from(metrics.descent));
         Ok(Font {
-            inner,
+            data,
             px: px as f32,
-            glyphs: std::sync::Mutex::new(std::collections::HashMap::new()),
+            darken: darken_for(px as f32),
+            variable,
+            ascent,
+            descent,
+            kit: Mutex::new(Kit {
+                shape: ShapeContext::new(),
+                scale: ScaleContext::new(),
+                shapes: HashMap::new(),
+                glyphs: HashMap::new(),
+            }),
         })
     }
 
@@ -56,139 +107,228 @@ impl Font {
     }
 
     pub fn ascent(&self) -> f64 {
-        self.line()
-            .map(|line| f64::from(line.ascent))
-            .unwrap_or(0.0)
+        self.ascent
     }
 
     pub fn line_height(&self) -> f64 {
-        self.line()
-            .map(|line| f64::from(line.ascent - line.descent))
-            .unwrap_or(0.0)
+        self.ascent + self.descent
     }
 
     pub fn width_of(&self, text: &str) -> f64 {
-        self.width_with(text, None)
+        self.shaped(text, REGULAR)
+            .last()
+            .map_or(0.0, |last| f64::from(last.x + last.advance))
     }
 
     pub fn measure(&self, text: &str) -> Vec2 {
         Vec2::new(self.width_of(text), self.line_height())
     }
 
-    fn glyph(&self, glyph: char) -> Glyph {
-        let mut glyphs = self.glyphs.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        glyphs
-            .entry(glyph)
-            .or_insert_with(|| std::sync::Arc::new(self.inner.rasterize(glyph, self.px)))
-            .clone()
-    }
-
-    fn digit_cell(&self) -> f64 {
-        ('0'..='9')
-            .map(|digit| f64::from(self.glyph(digit).0.advance_width))
-            .fold(0.0, f64::max)
-    }
-
-    fn advance(&self, glyph: char, cell: Option<f64>) -> f64 {
-        match cell {
-            Some(cell) if glyph.is_ascii_digit() => cell,
-            _ => f64::from(self.glyph(glyph).0.advance_width),
-        }
-    }
-
-    fn width_with(&self, text: &str, cell: Option<f64>) -> f64 {
-        text.chars().map(|glyph| self.advance(glyph, cell)).sum()
-    }
-
     pub fn paint(&self, text: &str, color: [u8; 3]) -> Image {
-        self.paint_with(text, color, None)
+        let placed = self.shaped(text, REGULAR);
+        self.lay(&placed, REGULAR, 0.0, color)
     }
 
     pub fn paint_bold(&self, text: &str, color: [u8; 3]) -> Image {
-        let thin = self.paint(text, color);
-        let width = thin.width + 1;
-        let mut rgba = vec![0u8; (width * thin.height * 4) as usize];
-        for y in 0..thin.height {
-            for x in 0..width {
-                let take = |sx: u32| -> [u8; 4] {
-                    if sx >= thin.width {
-                        return [0; 4];
-                    }
-                    let at = ((y * thin.width + sx) * 4) as usize;
-                    [thin.rgba[at], thin.rgba[at + 1], thin.rgba[at + 2], thin.rgba[at + 3]]
-                };
-                let a = take(x);
-                let b = if x > 0 { take(x - 1) } else { [0; 4] };
-                let pick = if a[3] >= b[3] { a } else { b };
-                let at = ((y * width + x) * 4) as usize;
-                rgba[at..at + 4].copy_from_slice(&pick);
+        match self.variable {
+            true => {
+                let placed = self.shaped(text, BOLD);
+                self.lay(&placed, BOLD, 0.0, color)
             }
-        }
-        Image {
-            width,
-            height: thin.height,
-            rgba,
+            false => {
+                let placed = self.shaped(text, REGULAR);
+                self.lay(&placed, REGULAR, self.px * 0.03, color)
+            }
         }
     }
 
     pub fn paint_even_digits(&self, text: &str, color: [u8; 3]) -> Image {
-        self.paint_with(text, color, Some(self.digit_cell()))
+        let cell = ('0'..='9')
+            .map(|digit| self.width_of(&digit.to_string()))
+            .fold(0.0, f64::max) as f32;
+        let mut placed = Vec::new();
+        let mut pen = 0.0f32;
+        for glyph in text.chars() {
+            let one = self.shaped(&glyph.to_string(), REGULAR);
+            let natural = one.last().map_or(0.0, |last| last.x + last.advance);
+            let room = if glyph.is_ascii_digit() {
+                cell
+            } else {
+                natural
+            };
+            let centering = (room - natural) / 2.0;
+            placed.extend(one.iter().map(|each| Placed {
+                x: pen + centering + each.x,
+                ..*each
+            }));
+            if let Some(last) = placed.last_mut() {
+                last.advance = pen + room - last.x;
+            }
+            pen += room;
+        }
+        self.lay(&placed, REGULAR, 0.0, color)
     }
 
-    fn paint_with(&self, text: &str, color: [u8; 3], cell: Option<f64>) -> Image {
-        let size = Vec2::new(self.width_with(text, cell), self.line_height());
-        let width = size.x.ceil().max(1.0) as u32;
-        let height = size.y.ceil().max(1.0) as u32;
+    fn font(&self) -> FontRef<'_> {
+        FontRef::from_index(&self.data, 0).expect("the font read when it loaded")
+    }
+
+    fn coords(&self, weight: f32) -> Vec<NormalizedCoord> {
+        match self.variable {
+            true => self
+                .font()
+                .variations()
+                .normalized_coords([("wght", weight)])
+                .collect(),
+            false => Vec::new(),
+        }
+    }
+
+    fn shaped(&self, text: &str, weight: f32) -> Arc<Vec<Placed>> {
+        let key = (text.to_string(), weight.to_bits());
+        let mut kit = self
+            .kit
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(found) = kit.shapes.get(&key) {
+            return found.clone();
+        }
+        let font = self.font();
+        let coords = self.coords(weight);
+        let mut out = Vec::new();
+        let mut pen = 0.0f32;
+        {
+            let mut shaper = kit
+                .shape
+                .builder(font)
+                .size(self.px)
+                .normalized_coords(&coords)
+                .build();
+            shaper.add_str(text);
+            shaper.shape_with(|cluster| {
+                for glyph in cluster.glyphs {
+                    out.push(Placed {
+                        id: glyph.id,
+                        x: pen + glyph.x,
+                        advance: glyph.advance,
+                    });
+                    pen += glyph.advance;
+                }
+            });
+        }
+        if let Some(last) = out.last_mut() {
+            last.advance = pen - last.x;
+        }
+        if kit.shapes.len() >= SHAPES_KEPT {
+            kit.shapes.clear();
+        }
+        let out = Arc::new(out);
+        kit.shapes.insert(key, out.clone());
+        out
+    }
+
+    fn raster(&self, id: u16, step: u8, weight: f32, darken: f32) -> Arc<Raster> {
+        let key = (
+            id,
+            step,
+            weight.to_bits() ^ darken.to_bits().rotate_left(16),
+        );
+        let mut kit = self
+            .kit
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(found) = kit.glyphs.get(&key) {
+            return found.clone();
+        }
+        let font = self.font();
+        let coords = self.coords(weight);
+        let mut scaler = kit
+            .scale
+            .builder(font)
+            .size(self.px)
+            .hint(false)
+            .normalized_coords(&coords)
+            .build();
+        let mut render = Render::new(&[Source::Outline]);
+        render
+            .format(Format::Alpha)
+            .offset(Vector::new(f32::from(step) / STEPS, 0.0));
+        if darken > 0.0 {
+            render.embolden(darken);
+        }
+        let raster = match render.render(&mut scaler, id) {
+            Some(image) if image.content == Content::Mask => Raster {
+                left: image.placement.left,
+                top: image.placement.top,
+                width: image.placement.width,
+                height: image.placement.height,
+                coverage: image.data,
+            },
+            _ => Raster {
+                left: 0,
+                top: 0,
+                width: 0,
+                height: 0,
+                coverage: Vec::new(),
+            },
+        };
+        let raster = Arc::new(raster);
+        kit.glyphs.insert(key, raster.clone());
+        raster
+    }
+
+    fn lay(&self, placed: &[Placed], weight: f32, extra: f32, color: [u8; 3]) -> Image {
+        let wide = placed
+            .last()
+            .map_or(0.0, |last| f64::from(last.x + last.advance));
+        let width = (wide + f64::from(extra) * 2.0).ceil().max(1.0) as u32;
+        let height = self.line_height().ceil().max(1.0) as u32;
         let mut rgba = vec![0u8; (width as usize) * (height as usize) * 4];
-        let baseline = self.ascent();
-        let mut pen = 0.0f64;
-
-        for glyph in text.chars() {
-            let shape = self.glyph(glyph);
-            let (metrics, coverage) = (&shape.0, &shape.1);
-            let room = self.advance(glyph, cell);
-            let centering = (room - f64::from(metrics.advance_width)) / 2.0;
-            let left = pen + centering + f64::from(metrics.xmin);
-            let top = baseline - f64::from(metrics.height as i32 + metrics.ymin);
-
-            for row in 0..metrics.height {
-                let y = top + row as f64;
-                if y < 0.0 || y >= f64::from(height) {
+        let baseline = self.ascent.round() as i64;
+        for glyph in placed {
+            let x = glyph.x + extra;
+            let whole = x.floor();
+            let step = ((x - whole) * STEPS).round() as i64;
+            let (whole, step) = match step >= STEPS as i64 {
+                true => (whole as i64 + 1, 0u8),
+                false => (whole as i64, step as u8),
+            };
+            let raster = self.raster(glyph.id, step, weight, self.darken + extra);
+            for row in 0..raster.height as i64 {
+                let y = baseline - i64::from(raster.top) + row;
+                if y < 0 || y >= i64::from(height) {
                     continue;
                 }
-                for column in 0..metrics.width {
-                    let x = left + column as f64;
-                    if x < 0.0 || x >= f64::from(width) {
+                for column in 0..raster.width as i64 {
+                    let x = whole + i64::from(raster.left) + column;
+                    if x < 0 || x >= i64::from(width) {
                         continue;
                     }
-                    let ink = f64::from(coverage[row * metrics.width + column]) / 255.0;
-                    if ink <= 0.0 {
+                    let ink = u32::from(
+                        raster.coverage[(row * i64::from(raster.width) + column) as usize],
+                    );
+                    if ink == 0 {
                         continue;
                     }
                     let index = ((y as usize) * (width as usize) + x as usize) * 4;
-                    let was = f64::from(rgba[index + 3]) / 255.0;
-                    let now = (was + ink).min(1.0);
+                    let now = (u32::from(rgba[index + 3]) + ink).min(255);
                     for (channel, value) in color.iter().enumerate() {
-                        rgba[index + channel] =
-                            (f64::from(*value) * now).round().clamp(0.0, 255.0) as u8;
+                        rgba[index + channel] = ((u32::from(*value) * now + 127) / 255) as u8;
                     }
-                    rgba[index + 3] = (now * 255.0).round().clamp(0.0, 255.0) as u8;
+                    rgba[index + 3] = now as u8;
                 }
             }
-
-            pen += room;
         }
-
         Image {
             width,
             height,
             rgba,
         }
     }
+}
 
-    fn line(&self) -> Option<fontdue::LineMetrics> {
-        self.inner.horizontal_line_metrics(self.px)
-    }
+fn darken_for(px: f32) -> f32 {
+    (px * 0.012).clamp(0.0, 0.35)
 }
 
 #[cfg(test)]
