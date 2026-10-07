@@ -248,6 +248,7 @@ impl State {
     pub(super) fn paint_prompt(&mut self) {
         let (Some(pending), Some(font)) = (self.prompts.first(), self.font.clone()) else {
             self.prompt_art = None;
+            self.prompt_haze = None;
             self.kick_now();
             return;
         };
@@ -258,6 +259,21 @@ impl State {
             error: pending.error.clone(),
             busy: pending.busy,
         };
+        if self.prompt_haze.is_none() {
+            let frosting = self.frosting();
+            let screen = self.screen;
+            self.paint_in_lane(
+                "password haze",
+                |state| Some(&mut state.haze_lane),
+                |_| {},
+                move || Some(worker::haze(&frosting, screen, 0.4, 0.7)),
+                |state, art| {
+                    if !state.prompts.is_empty() {
+                        state.prompt_haze = Some(art);
+                    }
+                },
+            );
+        }
         let look = drifter_core::prompt::Look::themed(&self.palette);
         let rect = look.rect(self.screen, &ask, &font);
         self.paint_in_lane(

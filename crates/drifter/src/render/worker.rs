@@ -58,6 +58,28 @@ impl Frosting {
     }
 }
 
+pub(super) fn haze(frosting: &Option<Frosting>, screen: Vec2, cover: f64, light: f64) -> drifter_core::Image {
+    let Some(frosting) = frosting else {
+        let dark = (cover * 255.0).round() as u8;
+        return drifter_core::Image { width: 1, height: 1, rgba: vec![0, 0, 0, dark] };
+    };
+    let step = 8.0;
+    let width = (screen.x / step).ceil().max(1.0) as u32;
+    let height = (screen.y / step).ceil().max(1.0) as u32;
+    let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+    for y in 0..height {
+        for x in 0..width {
+            let point = Vec2::new(f64::from(x) + 0.5, f64::from(y) + 0.5) * step;
+            let back = frosting.frost.behind(&frosting.laid, frosting.size, point);
+            for c in back {
+                rgba.push((c * light * cover).round().clamp(0.0, 255.0) as u8);
+            }
+            rgba.push((cover * 255.0).round() as u8);
+        }
+    }
+    drifter_core::Image { width, height, rgba }
+}
+
 pub(super) fn frost(frosting: &Option<Frosting>, image: &mut drifter_core::Image, origin: Vec2, solid: f64) {
     if let Some(frosting) = frosting {
         frosting.under(image, origin, solid);

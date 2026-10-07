@@ -544,6 +544,7 @@ pub struct State {
     hud_lane: worker::Lane,
     hud_want: Option<drifter_core::hud::Reading>,
     prompt_lane: worker::Lane,
+    haze_lane: worker::Lane,
     icon_jobs: worker::Icons,
     snap: Snap,
     config_seen: Option<(std::time::SystemTime, u64, u64)>,
@@ -574,6 +575,7 @@ pub struct State {
     copies: Vec<crate::screencopy::Copy>,
     prompts: Vec<Pending>,
     prompt_art: Option<(TextureBuffer<Tex>, Rect)>,
+    prompt_haze: Option<TextureBuffer<Tex>>,
     checked: smithay::reexports::calloop::channel::Sender<(String, crate::polkit::Outcome)>,
     copied: std::collections::HashSet<smithay::reexports::wayland_server::backend::ClientId>,
     cursor_count: usize,
@@ -709,6 +711,9 @@ impl State {
             self.shooter_elements(&mut elements);
             if let Some((art, rect)) = self.prompt_art.as_ref() {
                 elements.push(Skin::Texture(element(art, *rect, 1.0)));
+                if let Some(haze) = self.prompt_haze.as_ref() {
+                    elements.push(Skin::Texture(element(haze, Rect::new(Vec2::ZERO, self.screen), 1.0)));
+                }
             }
             if let Some((art, rect, _)) = self.hud.as_ref() {
                 elements.push(Skin::Texture(element(art, *rect, 1.0)));
