@@ -3,6 +3,7 @@ use smithay::backend::renderer::gles::{GlesPixelProgram, GlesTexture, Uniform, U
 use smithay::backend::renderer::{Bind, Frame, Offscreen, Renderer};
 
 const STRIPS: i32 = 15;
+const GPU_STILL: u32 = 240;
 const FROST_SETTLE: Duration = Duration::from_millis(150);
 const ART_KEEP: Duration = Duration::from_secs(5);
 
@@ -264,14 +265,25 @@ impl State {
     pub(super) fn load_wallpaper(&self, path: PathBuf) {
         let reply = self.paper_tx.clone();
         let (world, screen) = (self.world, self.screen);
-        let cover = match drifter_core::shader::is_shader(&path) {
+        let shader = drifter_core::shader::is_shader(&path);
+        let cover = match shader {
             true => drifter_core::wallpaper::shader_paper(screen),
             false => world,
         };
+        let gpu = matches!(self.renderer, Painter::Gles(_));
         let spawned = std::thread::Builder::new()
             .name("drifter-wallpaper".to_string())
             .spawn(
-                move || match drifter_core::image::load_covering(&path, cover.x, cover.y) {
+                move || match match shader && gpu {
+                    true => Ok(drifter_core::shader::still(
+                        &path,
+                        GPU_STILL,
+                        ((f64::from(GPU_STILL) * cover.y / cover.x.max(1.0)).round() as u32).max(1),
+                        0.0,
+                        drifter_core::shader::hour_now(),
+                    )),
+                    false => drifter_core::image::load_covering(&path, cover.x, cover.y),
+                } {
                     Ok(image) => {
                         let pyramid = drifter_core::tiles::Pyramid::build(image, world, screen);
                         let _ = reply.send((path, Some(pyramid)));
