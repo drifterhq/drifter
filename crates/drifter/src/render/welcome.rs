@@ -45,6 +45,12 @@ pub(super) struct Welcome {
     scan: worker::Lane,
     apps: Option<std::sync::Arc<Vec<Shelf>>>,
     swap: Option<f64>,
+    logo: Option<Logo>,
+}
+
+pub(super) struct Logo {
+    program: smithay::backend::renderer::gles::GlesPixelProgram,
+    sheet: Option<(wallpaper::Sheet, (i32, i32))>,
 }
 
 #[derive(Clone)]
@@ -158,7 +164,13 @@ impl State {
             scan: worker::Lane::default(),
             apps: None,
             swap: None,
+            logo: None,
         });
+        let logo = wallpaper::logo_program(&mut self.renderer).map(|program| Logo { program, sheet: None });
+        if let Some(open) = self.welcome.as_mut() {
+            open.view.live_logo = logo.is_some();
+            open.logo = logo;
+        }
         self.welcome_read(&config);
         self.welcome_scan();
         self.welcome_pictures();
@@ -501,6 +513,16 @@ impl State {
                 }
             }
         }
+        let hello = open.view.card == Card::Hello && open.closing.is_none() && open.art.is_some();
+        let logo_rect = look.logo_rect();
+        let clock = now.duration_since(open.opened).as_secs_f64() + 20.0;
+        if hello && let Some(buffer) = self.welcome_logo(clock) {
+            let target = Rect::new(here.origin + logo_rect.origin, logo_rect.size);
+            elements.push(Skin::Texture(element(&buffer, target, (fade * t) as f32)));
+        }
+        let Some(open) = self.welcome.as_ref() else {
+            return;
+        };
         if let Some(art) = open.art.as_ref() {
             elements.push(Skin::Texture(element(art, here, (fade * t) as f32)));
         }
@@ -525,12 +547,41 @@ impl State {
         }
     }
 
+    fn welcome_logo(&mut self, clock: f64) -> Option<TextureBuffer<Tex>> {
+        let side = dense(drifter_core::welcome::LOGO_SIDE as u32) as i32;
+        let size = (side, side);
+        let mut logo = self.welcome.as_mut()?.logo.take()?;
+        if logo.sheet.as_ref().is_none_or(|(_, had)| *had != size) {
+            match wallpaper::sheet(&mut self.renderer, size) {
+                Ok(sheet) => logo.sheet = Some((sheet, size)),
+                Err(error) => log!("drifter: the welcome logo has no texture: {error}"),
+            }
+        }
+        let hour = drifter_core::shader::hour_now();
+        let mut drawn = None;
+        if let Some((sheet, _)) = logo.sheet.as_mut() {
+            match wallpaper::paint_logo(&logo.program, &mut self.renderer, sheet, size, clock, hour) {
+                Ok(()) => drawn = Some(sheet.buffer.clone()),
+                Err(error) => log!("drifter: the welcome logo did not draw: {error}"),
+            }
+        }
+        if let Some(open) = self.welcome.as_mut() {
+            open.logo = Some(logo);
+        }
+        let density = drifter_core::paint::density() as i32;
+        drawn.map(|buffer| match density {
+            1 => buffer,
+            _ => TextureBuffer::from_texture(&self.renderer, buffer.texture().clone(), density, Transform::Normal, None),
+        })
+    }
+
     pub(super) fn welcome_busy(&self) -> bool {
         let Some(open) = self.welcome.as_ref() else {
             return false;
         };
         let now = Instant::now();
         open.closing.is_some()
+            || (open.view.card == Card::Hello && open.logo.is_some())
             || (open.intro && now.duration_since(open.opened) < INTRO)
             || now.duration_since(open.moved) < SLIDE
             || (open.view.card == Card::Look && open.hovered.is_some())

@@ -7,9 +7,9 @@ const GPU_STILL: u32 = 240;
 const FROST_SETTLE: Duration = Duration::from_millis(150);
 const ART_KEEP: Duration = Duration::from_secs(5);
 
-struct Sheet {
+pub(super) struct Sheet {
     texture: GlesTexture,
-    buffer: TextureBuffer<Tex>,
+    pub buffer: TextureBuffer<Tex>,
 }
 
 struct Art {
@@ -155,7 +155,7 @@ impl Live {
     }
 }
 
-fn sheet(renderer: &mut Painter, size: (i32, i32)) -> Result<Sheet, String> {
+pub(super) fn sheet(renderer: &mut Painter, size: (i32, i32)) -> Result<Sheet, String> {
     let Painter::Gles(gles) = renderer else {
         return Err("the live wallpaper needs the gles renderer".to_string());
     };
@@ -199,6 +199,64 @@ fn paint(
             whole,
             size.into(),
             band.as_ref().map(|band| band.as_slice()),
+            1.0,
+            &uniforms,
+        )
+        .map_err(|e| e.to_string())?;
+    let _ = frame.finish().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub(super) fn logo_program(renderer: &mut Painter) -> Option<GlesPixelProgram> {
+    let Painter::Gles(gles) = renderer else {
+        return None;
+    };
+    let mut names = vec![
+        UniformName::new("T", UniformType::_1f),
+        UniformName::new("L", UniformType::_1f),
+        UniformName::new("W", UniformType::_2f),
+    ];
+    names.extend(["S0", "S1", "A", "B", "C"].map(|name| UniformName::new(name, UniformType::_3f)));
+    match gles.compile_custom_pixel_shader(drifter_core::welcome::logo_source(), &names) {
+        Ok(program) => Some(program),
+        Err(error) => {
+            log!("drifter: the welcome logo does not compile: {error}");
+            None
+        }
+    }
+}
+
+pub(super) fn paint_logo(
+    program: &GlesPixelProgram,
+    renderer: &mut Painter,
+    sheet: &mut Sheet,
+    size: (i32, i32),
+    clock: f64,
+    hour: f64,
+) -> Result<(), String> {
+    let Painter::Gles(gles) = renderer else {
+        return Err("the welcome logo needs the gles renderer".to_string());
+    };
+    let sky = drifter_core::shader::sky(hour);
+    let mut uniforms = vec![
+        Uniform::new("T", clock as f32),
+        Uniform::new("L", sky.light as f32),
+        Uniform::new("W", (size.0 as f32, size.1 as f32)),
+    ];
+    uniforms.extend(sky.uniforms().map(|(name, value)| Uniform::new(name, value)));
+    let whole = smithay::utils::Rectangle::from_size(size.into());
+    let mut target = gles.bind(&mut sheet.texture).map_err(|e| e.to_string())?;
+    let mut frame = gles
+        .render(&mut target, size.into(), Transform::Normal)
+        .map_err(|e| e.to_string())?;
+    frame.clear(Color32F::TRANSPARENT, &[whole]).map_err(|e| e.to_string())?;
+    frame
+        .render_pixel_shader_to(
+            program,
+            smithay::utils::Rectangle::from_size((f64::from(size.0), f64::from(size.1)).into()),
+            whole,
+            size.into(),
+            None,
             1.0,
             &uniforms,
         )
