@@ -1582,3 +1582,22 @@ mod tests {
         assert_eq!(Card::Apps.back(), Some(Card::Keys));
     }
 }
+
+#[cfg(test)]
+mod note_tests {
+    use super::*;
+
+    #[test]
+    fn the_comfort_card_and_its_note_paint() {
+        let fonts = Fonts::load(None, false).unwrap();
+        for palette in [crate::theme::DARK, crate::theme::LIGHT] {
+            let look = Look::themed(&palette, [53, 132, 228]);
+            let mut view = View::new(Card::Comfort);
+            view.live_note = true;
+            let card = look.paint(&view, &fonts, 0.8);
+            assert_eq!(logical(&card), SIZE);
+            let note = look.paint_note(&fonts);
+            assert_eq!(logical(&note), look.note_size() + Vec2::splat(NOTE_MARGIN * 2.0));
+        }
+    }
+}
