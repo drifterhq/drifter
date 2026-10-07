@@ -2,7 +2,7 @@ use super::*;
 use smithay::backend::renderer::gles::{GlesPixelProgram, GlesTexture, Uniform, UniformName, UniformType};
 use smithay::backend::renderer::{Bind, Frame, Offscreen, Renderer};
 
-const STRIPS: i32 = 6;
+const STRIPS: i32 = 15;
 const FROST_SETTLE: Duration = Duration::from_millis(150);
 const ART_KEEP: Duration = Duration::from_secs(5);
 
