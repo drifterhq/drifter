@@ -489,6 +489,7 @@ pub fn open(
         notes_panel: None,
         glance_panel: None,
         activity_launched: None,
+        fn_key: drifter_core::fnkey::FnKey::default(),
         search: None,
         launchpad: None,
         welcome: None,

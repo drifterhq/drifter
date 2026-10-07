@@ -528,6 +528,7 @@ pub struct State {
     notes_panel: Option<(TextureBuffer<Tex>, Rect, usize)>,
     glance_panel: Option<activity::GlancePanel>,
     activity_launched: Option<Instant>,
+    fn_key: drifter_core::fnkey::FnKey,
     search: Option<search::Search>,
     launchpad: Option<launchpad::Pad>,
     welcome: Option<welcome::Welcome>,

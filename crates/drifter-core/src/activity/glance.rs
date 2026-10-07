@@ -103,8 +103,8 @@ impl Layout {
 
     fn open_rect(&self, tops: usize, open: Option<usize>, font: &Font) -> Rect {
         let height = self.height(tops, open);
-        let width = font.width_of("Open Activity") + 28.0;
-        Rect::new(Vec2::new(PAD, height - FOOT + 12.0), Vec2::new(width, 28.0))
+        let width = font.width_of(OPEN) + 22.0;
+        Rect::new(Vec2::new(PAD - 4.0, height - FOOT + 12.0), Vec2::new(width, 28.0))
     }
 
     fn reopen_rect(&self, tops: usize, open: Option<usize>, font: &Font, name: &str) -> Rect {
@@ -156,7 +156,10 @@ pub struct Paint<'a> {
     pub accent: [u8; 3],
     pub undo: Option<&'a str>,
     pub ready: bool,
+    pub over_open: bool,
 }
+
+const OPEN: &str = "Open Activity";
 
 fn reopen_words(name: &str) -> String {
     let short: String = match name.chars().count() > 16 {
@@ -235,14 +238,19 @@ pub fn paint(layout: &Layout, what: &Paint) -> Image {
     let foot = size.y - FOOT;
     canvas.round_rect(Rect::new(Vec2::new(PAD, foot), Vec2::new(card.width - PAD * 2.0, 1.0)), 0.0, card.ink, 0.1);
     let button = layout.open_rect(what.tops.len(), what.open, what.font);
-    canvas.round_rect(button, 7.0, what.accent, 1.0);
-    let label = what.bold.paint_bold("Open Activity", [255, 255, 255]);
-    canvas.stamp(&label, (button.center() - logical(&label) / 2.0).round(), 1.0);
+    if what.over_open {
+        canvas.round_rect(button, 7.0, what.accent, 0.14);
+    }
+    let label = what.font.paint_weight(OPEN, what.accent, 600.0);
+    let at = Vec2::new(button.origin.x + 4.0, button.center().y - logical(&label).y / 2.0).round();
+    canvas.stamp(&label, at, 1.0);
+    let tip = Vec2::new(at.x + logical(&label).x + 9.0, button.center().y);
+    canvas.line(tip + Vec2::new(-3.0, -3.5), tip, 1.6, what.accent, 1.0);
+    canvas.line(tip, tip + Vec2::new(-3.0, 3.5), 1.6, what.accent, 1.0);
     match what.undo {
         Some(name) => {
             let rect = layout.reopen_rect(what.tops.len(), what.open, what.font, name);
-            canvas.round_rect(rect, 7.0, card.ink, 0.1);
-            let words = what.font.paint(&reopen_words(name), what.accent);
+            let words = what.font.paint_weight(&reopen_words(name), what.accent, 600.0);
             canvas.stamp(&words, (rect.center() - logical(&words) / 2.0).round(), 1.0);
         }
         None => {

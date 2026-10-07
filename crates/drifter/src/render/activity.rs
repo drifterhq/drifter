@@ -13,6 +13,7 @@ pub(super) struct GlancePanel {
     pub lane: worker::Lane,
     pub pinned: bool,
     pub ready: bool,
+    pub over_open: bool,
 }
 
 impl State {
@@ -59,6 +60,7 @@ impl State {
             lane: worker::Lane::default(),
             pinned,
             ready: false,
+            over_open: false,
         });
         self.refresh_glance();
     }
@@ -125,11 +127,11 @@ impl State {
         let rect = Rect::new(Vec2::new(x, y).round(), Vec2::new(layout.card.width, height.ceil()));
         panel.rect = rect;
         let tops = panel.tops.clone();
-        let (open, hover, counts, ready) = (panel.open, panel.hover, panel.counts, panel.ready);
+        let (open, hover, counts, ready, over_open) = (panel.open, panel.hover, panel.counts, panel.ready, panel.over_open);
         let undo = panel.undo.as_ref().map(|gone| gone.name.clone());
         let fields = self.glance_fields.clone();
         let history = self.cpu_history.clone();
-        let accent = drifter_core::menu::ACCENT;
+        let accent = self.look.accent;
         let frosting = self.frosting();
         let solid = layout.card.back_alpha;
         self.paint_in_lane(
@@ -150,6 +152,7 @@ impl State {
                     accent,
                     undo: undo.as_deref(),
                     ready,
+                    over_open,
                 };
                 let mut image = glance::paint(&layout, &paint);
                 worker::frost(&frosting, &mut image, rect.origin, solid);
@@ -195,15 +198,18 @@ impl State {
         };
         let local = pointer - panel.rect.origin;
         let undo = panel.undo.as_ref().map(|gone| gone.name.clone());
-        let hover = match panel.rect.contains(pointer) {
-            true => match layout.hit(panel.tops.len(), panel.open, &font, undo.as_deref(), local) {
-                Some(GlanceHit::Row(at)) => Some(at),
-                _ => None,
-            },
+        let hit = match panel.rect.contains(pointer) {
+            true => layout.hit(panel.tops.len(), panel.open, &font, undo.as_deref(), local),
             false => None,
         };
-        if hover != panel.hover {
+        let hover = match hit {
+            Some(GlanceHit::Row(at)) => Some(at),
+            _ => None,
+        };
+        let over_open = hit == Some(GlanceHit::Open);
+        if hover != panel.hover || over_open != panel.over_open {
             panel.hover = hover;
+            panel.over_open = over_open;
             self.paint_glance();
         }
     }

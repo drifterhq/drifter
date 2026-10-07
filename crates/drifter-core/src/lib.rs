@@ -13,6 +13,7 @@ pub mod disks;
 pub mod dock;
 pub mod drawer;
 pub mod exec;
+pub mod fnkey;
 pub mod frost;
 pub mod geom;
 pub mod glance;

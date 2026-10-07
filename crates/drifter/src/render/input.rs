@@ -725,6 +725,12 @@ impl State {
     }
 
     pub(super) fn key_in(&mut self, code: u32, pressed: bool, time: u32) {
+        for (code, pressed) in self.fn_key.key(code, pressed) {
+            self.key_through(code, pressed, time);
+        }
+    }
+
+    fn key_through(&mut self, code: u32, pressed: bool, time: u32) {
         if !self.access.sticky_keys {
             self.feed_key(code, pressed, time);
             return;

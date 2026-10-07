@@ -94,7 +94,7 @@ impl Action {
     }
 }
 
-const BUILT_IN: [(&str, Action); 1] = [("XF86Search", Action::Search)];
+const BUILT_IN: [(&str, Action); 2] = [("XF86Search", Action::Search), ("XF86LaunchA", Action::Overview)];
 
 pub fn built_in(held: Mods, names: &[String]) -> Option<Action> {
     if held != Mods::default() {
