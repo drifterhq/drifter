@@ -30,6 +30,7 @@ use smithay_client_toolkit::shell::xdg::window::{
     Window, WindowConfigure, WindowDecorations, WindowHandler,
 };
 use smithay_client_toolkit::shm::slot::SlotPool;
+use smithay_client_toolkit::subcompositor::SubcompositorState;
 use smithay_client_toolkit::shm::{Shm, ShmHandler};
 use smithay_client_toolkit::{
     delegate_compositor, delegate_keyboard, delegate_output, delegate_pointer, delegate_registry,
@@ -149,6 +150,10 @@ pub struct Settings {
     thumbs: HashMap<PathBuf, Image>,
     asked: HashSet<PathBuf>,
     loads: Sender<PathBuf>,
+    connection: Connection,
+    subcompositor: Option<SubcompositorState>,
+    logo: Option<crate::logo::Logo>,
+    logo_failed: bool,
 }
 
 struct Moving {
@@ -192,6 +197,8 @@ pub fn run() -> Result<(), String> {
         CompositorState::bind(&globals, &qh).map_err(|e| format!("no wl_compositor: {e}"))?;
     let shell = XdgShell::bind(&globals, &qh).map_err(|e| format!("no xdg shell: {e}"))?;
     let shm = Shm::bind(&globals, &qh).map_err(|e| format!("no wl_shm: {e}"))?;
+    let subcompositor = SubcompositorState::bind(compositor.wl_compositor().clone(), &globals, &qh).ok();
+    let held_connection = connection.clone();
 
     let surface = compositor.create_surface(&qh);
     let window = shell.create_window(surface, WindowDecorations::RequestServer, &qh);
@@ -337,6 +344,10 @@ pub fn run() -> Result<(), String> {
         thumbs: HashMap::new(),
         asked: HashSet::new(),
         loads,
+        connection: held_connection,
+        subcompositor,
+        logo: None,
+        logo_failed: false,
     };
     settings.load_row_icons();
     settings.refresh(settings.section);
@@ -748,8 +759,59 @@ impl Settings {
                 .is_none_or(|shown| shown.elapsed() >= std::time::Duration::from_millis(100))
     }
 
+    fn sync_logo(&mut self) {
+        let wanted = self.section == Section::About && self.sheet.is_none();
+        if !wanted {
+            self.logo = None;
+            self.model.live_logo = false;
+            return;
+        }
+        if self.logo.is_none() && !self.logo_failed {
+            let Some(sub) = self.subcompositor.as_ref() else {
+                self.logo_failed = true;
+                return;
+            };
+            match crate::logo::Logo::new(&self.connection, sub, self.window.wl_surface(), &self.qh) {
+                Ok(logo) => self.logo = Some(logo),
+                Err(error) => {
+                    log!("drifter-settings: no live logo: {error}");
+                    self.logo_failed = true;
+                }
+            }
+        }
+        let rect = self.look.about_logo_rect(self.view(), self.scroll);
+        let motion = drifter_core::welcome::Motion::of(self.model.access.reduce_motion, self.model.drift);
+        let pace = drifter_core::welcome::logo_pace(motion, self.model.access.reduce_motion);
+        let mut broken = false;
+        if let Some(logo) = self.logo.as_mut() {
+            logo.set_pace(pace);
+            if let Err(error) = logo.place(rect.origin.x.round() as i32, rect.origin.y.round() as i32, rect.size.x.round() as i32, scale() as i32) {
+                log!("drifter-settings: no live logo: {error}");
+                broken = true;
+            }
+        }
+        if broken {
+            self.logo = None;
+            self.logo_failed = true;
+        }
+        self.model.live_logo = self.logo.is_some();
+    }
+
+    fn draw_logo(&mut self) {
+        let Some(logo) = self.logo.as_mut() else {
+            return;
+        };
+        if let Err(error) = logo.draw(&self.qh) {
+            log!("drifter-settings: the logo did not draw: {error}");
+            self.logo = None;
+            self.logo_failed = true;
+            self.stale = true;
+        }
+    }
+
     fn draw(&mut self) {
         self.stale = false;
+        self.sync_logo();
         let fonts = Fonts {
             body: &self.fonts.0,
             small: &self.fonts.1,
@@ -800,6 +862,7 @@ impl Settings {
         surface.frame(&self.qh, surface.clone());
         self.shown = Some(std::time::Instant::now());
         self.window.commit();
+        self.draw_logo();
     }
 
     fn clamp_scroll(&mut self) {
@@ -2078,7 +2141,13 @@ impl CompositorHandler for Settings {
     ) {
     }
 
-    fn frame(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: u32) {
+    fn frame(&mut self, _: &Connection, _: &QueueHandle<Self>, surface: &wl_surface::WlSurface, _: u32) {
+        if self.logo.as_ref().is_some_and(|logo| &logo.surface == surface) {
+            if self.logo.as_ref().is_some_and(|logo| logo.moving()) {
+                self.draw_logo();
+            }
+            return;
+        }
         self.shown = None;
     }
 
@@ -2304,6 +2373,7 @@ impl ProvidesRegistryState for Settings {
 }
 
 delegate_compositor!(Settings);
+smithay_client_toolkit::delegate_subcompositor!(Settings);
 delegate_output!(Settings);
 delegate_shm!(Settings);
 delegate_seat!(Settings);

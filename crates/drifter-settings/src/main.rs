@@ -8,6 +8,8 @@ macro_rules! log {
 #[cfg(target_os = "linux")]
 mod heads;
 #[cfg(target_os = "linux")]
+mod logo;
+#[cfg(target_os = "linux")]
 mod net;
 #[cfg(target_os = "linux")]
 mod users;
