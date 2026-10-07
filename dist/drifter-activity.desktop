@@ -4,6 +4,6 @@ Name=Activity
 GenericName=Task Manager
 Comment=See what your apps are doing, and pause or quit them
 Exec=drifter-activity
-Icon=utilities-system-monitor
+Icon=/usr/share/drifter/img/dock/activity.png
 Categories=System;Monitor;
 Keywords=task;manager;process;cpu;memory;monitor;

@@ -457,6 +457,7 @@ dependencies = [
  "chrono",
  "jpeg-decoder",
  "jpeg-encoder",
+ "libc",
  "png",
  "resvg",
  "serde",

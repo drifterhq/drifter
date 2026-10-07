@@ -30,8 +30,10 @@ impl Reading {
     pub fn take(at: u64, cpu: f64, memory: &Memory, groups: &[Group]) -> Reading {
         let mut top: Vec<&Group> = groups.iter().filter(|group| group.kind != Kind::System || group.cpu >= 1.0).collect();
         top.sort_by(|a, b| b.cpu.total_cmp(&a.cpu).then(b.mem_kb.cmp(&a.mem_kb)));
-        let mut chosen: Vec<&Group> = top.iter().take(5).copied().collect();
-        for group in top.iter().filter(|group| group.mem_kb >= 300 * 1024).take(3) {
+        let mut chosen: Vec<&Group> = top.iter().take(6).copied().collect();
+        let mut heavy = top.clone();
+        heavy.sort_by(|a, b| b.mem_kb.cmp(&a.mem_kb));
+        for group in heavy.into_iter().filter(|group| group.mem_kb >= 200 * 1024).take(6) {
             if !chosen.iter().any(|held| held.key == group.key) {
                 chosen.push(group);
             }
@@ -96,6 +98,22 @@ pub fn read(text: &str, now: u64) -> Vec<Reading> {
         .collect()
 }
 
+pub fn keep(path: &std::path::Path, reading: &Reading) -> std::io::Result<()> {
+    use std::io::Write as _;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let lines = std::fs::read_to_string(path).map(|text| text.lines().count()).unwrap_or(0);
+    if lines >= KEPT * 2 {
+        let text = std::fs::read_to_string(path).unwrap_or_default();
+        let fresh = path.with_extension("new");
+        std::fs::write(&fresh, append(&text, reading))?;
+        return std::fs::rename(&fresh, path);
+    }
+    let mut file = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
+    writeln!(file, "{}", reading.line())
+}
+
 pub fn append(text: &str, reading: &Reading) -> String {
     let mut lines: Vec<&str> = text.lines().filter(|line| !line.trim().is_empty()).collect();
     let fresh = reading.line();
@@ -153,8 +171,13 @@ pub fn moments(readings: &[Reading]) -> Vec<Moment> {
     }
     for at in 1..readings.len() {
         let (was, now) = (&readings[at - 1], &readings[at]);
+        if now.at.saturating_sub(was.at) > EVERY_SECONDS * 3 {
+            continue;
+        }
+        let earlier = &readings[at.saturating_sub(10)..at];
         for share in now.top.iter().filter(|share| share.mem_mb >= 300) {
-            if !was.top.iter().any(|old| old.name == share.name) && !found.iter().any(|seen: &Moment| seen.at == at) {
+            let seen_before = earlier.iter().any(|old| old.top.iter().any(|held| held.name == share.name));
+            if !seen_before && at >= 10.min(readings.len()) && !found.iter().any(|seen: &Moment| seen.at == at) {
                 found.push(Moment {
                     at,
                     head: format!("{} opened", share.name),
@@ -248,10 +271,26 @@ mod tests {
     }
 
     #[test]
-    fn a_big_new_app_is_a_moment() {
-        let readings = vec![reading(0, 5.0, &[("Code", 3.0, 900)]), reading(30, 9.0, &[("Blender", 4.0, 3400), ("Code", 3.0, 900)])];
-        let found = moments(&readings);
-        assert!(found.iter().any(|m| m.head == "Blender opened" && m.at == 1), "{found:?}");
+    fn a_big_new_app_is_a_moment_but_one_that_comes_back_is_not() {
+        let mut readings: Vec<Reading> = (0..12).map(|at| reading(at * 30, 5.0, &[("Code", 3.0, 900)])).collect();
+        readings.push(reading(12 * 30, 9.0, &[("Blender", 4.0, 3400), ("Code", 3.0, 900)]));
+        readings.push(reading(13 * 30, 9.0, &[("Code", 3.0, 900)]));
+        readings.push(reading(14 * 30, 9.0, &[("Blender", 4.0, 3400), ("Code", 3.0, 900)]));
+        let found: Vec<Moment> = moments(&readings).into_iter().filter(|m| m.head == "Blender opened").collect();
+        assert_eq!(found.iter().map(|m| m.at).collect::<Vec<_>>(), vec![12], "{found:?}");
+    }
+
+    #[test]
+    fn the_file_grows_by_appending_and_trims_itself() {
+        let dir = std::env::temp_dir().join(format!("drifter-hour-{}", std::process::id()));
+        let path = dir.join(FILE);
+        let _ = std::fs::remove_dir_all(&dir);
+        for at in 0..(KEPT as u64 * 2 + 5) {
+            keep(&path, &reading(at, 1.0, &[])).unwrap();
+        }
+        let lines = std::fs::read_to_string(&path).unwrap().lines().count();
+        assert!(lines <= KEPT * 2 && lines >= KEPT, "{lines}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

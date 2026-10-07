@@ -28,6 +28,7 @@ pub struct Top {
     pub can_stop: bool,
     pub pids: Vec<u32>,
     pub root: u32,
+    pub flatpak: bool,
 }
 
 impl Top {
@@ -43,6 +44,7 @@ impl Top {
             can_stop: group.can_stop(),
             pids: group.pids(),
             root: group.root,
+            flatpak: group.flatpak,
         }
     }
 }
@@ -156,7 +158,11 @@ pub struct Paint<'a> {
 }
 
 fn reopen_words(name: &str) -> String {
-    format!("Reopen {name}")
+    let short: String = match name.chars().count() > 16 {
+        true => name.chars().take(15).collect::<String>() + "…",
+        false => name.to_string(),
+    };
+    format!("Reopen {short}")
 }
 
 pub fn paint(layout: &Layout, what: &Paint) -> Image {
@@ -189,6 +195,9 @@ pub fn paint(layout: &Layout, what: &Paint) -> Image {
                 let letter = what.bold.paint_bold(&first, card.ink);
                 canvas.stamp(&letter, (spot.center() - logical(&letter) / 2.0).round(), fade);
             }
+        }
+        if top.flatpak {
+            super::look::flatpak_badge(&mut canvas, spot, card.back, fade);
         }
         let cpu_words = match top.paused {
             true => "Paused".to_string(),

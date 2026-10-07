@@ -9,6 +9,8 @@ use crate::paint::{Canvas, logical};
 use crate::text::Font;
 
 pub const HISTORY: usize = 60;
+const BODY_TRIM: f64 = 10.0;
+const LAYER_MOST: f64 = 6000.0;
 const SIDE_TOP: f64 = 86.0;
 const SIDE_HEAD: f64 = 30.0;
 const PAD: f64 = 20.0;
@@ -114,7 +116,7 @@ pub struct Model {
     pub toast: Option<Toast>,
     pub hour: Vec<Reading>,
     pub moments: Vec<Moment>,
-    pub cursor: Option<usize>,
+    pub cursor: Option<u64>,
     pub measure: Measure,
     pub now: u64,
     pub hover: Option<String>,
@@ -336,7 +338,7 @@ impl Look {
 
     pub fn most_scroll(&self, size: Vec2, model: &Model) -> f64 {
         let whole = self.rows(model).last().map_or(0.0, |(y, h, _)| y + h);
-        (whole - self.body_rect(size, model.view).size.y).max(0.0)
+        (whole.min(LAYER_MOST) - (self.body_rect(size, model.view).size.y - BODY_TRIM)).max(0.0)
     }
 
     pub fn over_list(&self, size: Vec2, view: View, at: Vec2) -> bool {
@@ -543,8 +545,12 @@ impl Look {
             let label = fonts.body.paint(view.name(), self.ink);
             canvas.stamp(&label, Vec2::new(icon.max().x + 10.0, rect.center().y - logical(&label).y / 2.0).round(), 1.0);
             if *view != View::Hour {
-                let count = fonts.small.paint_even_digits(&model.count(*view).to_string(), self.dim);
-                canvas.stamp(&count, Vec2::new(rect.max().x - 10.0 - logical(&count).x, rect.center().y - logical(&count).y / 2.0).round(), 0.9);
+                let (ink, alpha) = match *view == model.view {
+                    true => ([255, 255, 255], 0.8),
+                    false => (self.dim, 0.9),
+                };
+                let count = fonts.small.paint_even_digits(&model.count(*view).to_string(), ink);
+                canvas.stamp(&count, Vec2::new(rect.max().x - 10.0 - logical(&count).x, rect.center().y - logical(&count).y / 2.0).round(), alpha);
             }
         }
     }
@@ -646,9 +652,34 @@ impl Look {
         canvas.stamp(&last, Vec2::new(table.max().x - 12.0 - logical(&last).x, table.origin.y + HEAD_H / 2.0 - logical(&last).y / 2.0).round(), 1.0);
         canvas.round_rect(Rect::new(Vec2::new(table.origin.x, table.origin.y + HEAD_H - 1.0), Vec2::new(table.size.x, 1.0)), 0.0, self.rule, 1.0);
 
+        let tall = self.body_layer(size, model, fonts, icons);
+        let shown = self.visible_body(size, model.view);
+        stamp_rows(canvas, &tall, shown, model.scroll);
+    }
+
+    fn visible_body(&self, size: Vec2, view: View) -> Rect {
+        let body = self.body_rect(size, view);
+        Rect::new(body.origin, Vec2::new(body.size.x, (body.size.y - BODY_TRIM).max(1.0)))
+    }
+
+    pub fn scroll_into(&self, frame: &mut Image, size: Vec2, model: &Model, tall: &Image) {
+        let shown = self.visible_body(size, model.view);
+        let mut canvas = Canvas { image: std::mem::replace(frame, Image { width: 0, height: 0, rgba: Vec::new() }) };
+        canvas.round_rect(shown, 0.0, self.card, 1.0);
+        stamp_rows(&mut canvas, tall, shown, model.scroll);
+        *frame = canvas.image;
+    }
+
+    pub fn body_layer(&self, size: Vec2, model: &Model, fonts: &Fonts, icons: &HashMap<String, Image>) -> Image {
+        let table = self.table_rect(size, model.view);
+        let columns = self.columns(table);
         let body = self.body_rect(size, model.view);
-        let mut layer = Canvas::new(body.size.x.round() as u32, (body.size.y - 6.0).max(1.0).round() as u32);
+        let rows = self.rows(model);
+        let whole = rows.last().map_or(0.0, |(y, h, _)| y + h);
+        let tall = whole.max(body.size.y - BODY_TRIM).min(LAYER_MOST);
+        let mut layer = Canvas::new(body.size.x.round() as u32, tall.max(1.0).round() as u32);
         let shown = model.shown();
+        let rows = rows;
         if shown.is_empty() {
             let words = match model.query.is_empty() {
                 true => "Nothing runs here right now.".to_string(),
@@ -658,10 +689,10 @@ impl Look {
             layer.stamp(&note, Vec2::new(body.size.x / 2.0 - logical(&note).x / 2.0, 40.0).round(), 1.0);
         }
         let total = model.memory.total_kb;
-        for (top, tall, line) in self.rows(model) {
-            let y = top - model.scroll;
-            if y + tall < 0.0 || y > body.size.y {
-                continue;
+        for (top, tall, line) in rows {
+            let y = top;
+            if y > LAYER_MOST {
+                break;
             }
             let row = Rect::new(Vec2::new(0.0, y), Vec2::new(body.size.x, tall));
             match line {
@@ -672,8 +703,6 @@ impl Look {
                     let selected = model.selected.as_ref() == Some(&key);
                     if selected {
                         layer.round_rect(row, 0.0, self.accent, 0.16);
-                    } else if model.hover.as_ref() == Some(&key) {
-                        layer.round_rect(row, 0.0, self.ink, 0.04);
                     }
                     if top > 0.0 {
                         layer.round_rect(Rect::new(Vec2::new(12.0, y), Vec2::new(body.size.x - 24.0, 1.0)), 0.0, self.rule, 0.6);
@@ -731,10 +760,17 @@ impl Look {
                 }
             }
         }
-        canvas.stamp(&layer.image, body.origin, 1.0);
+        layer.image
     }
 
     fn paint_icon(&self, canvas: &mut Canvas, group: &Group, spot: Rect, fonts: &Fonts, icons: &HashMap<String, Image>, fade: f64) {
+        self.paint_icon_plain(canvas, group, spot, fonts, icons, fade);
+        if group.flatpak {
+            flatpak_badge(canvas, spot, self.side, fade);
+        }
+    }
+
+    fn paint_icon_plain(&self, canvas: &mut Canvas, group: &Group, spot: Rect, fonts: &Fonts, icons: &HashMap<String, Image>, fade: f64) {
         let big = spot.size.x > 30.0;
         let found = group.icon.as_ref().and_then(|name| match big {
             true => icons.get(&big_key(name)).or_else(|| icons.get(name)),
@@ -813,7 +849,6 @@ impl Look {
         if !program.is_empty() {
             pairs.push(("Program", program));
         }
-        pairs.push(("ID", group.root.to_string()));
         for (label, value) in pairs {
             let left = fonts.small.paint(label, self.dim);
             canvas.stamp(&left, Vec2::new(x, y).round(), 1.0);
@@ -963,8 +998,15 @@ impl Look {
             if x < first {
                 continue;
             }
+            let last = xs[xs.len() - 1];
+            if x > last + 1.0 {
+                continue;
+            }
             let next = xs.iter().position(|at| *at >= x).unwrap_or(xs.len() - 1);
             let prev = next.saturating_sub(1);
+            if model.hour[next].at.saturating_sub(model.hour[prev].at) > super::hour::EVERY_SECONDS * 2 + 10 {
+                continue;
+            }
             let t = match xs[next] - xs[prev] {
                 gap if gap > 0.5 => ((x - xs[prev]) / gap).clamp(0.0, 1.0),
                 _ => 1.0,
@@ -988,10 +1030,15 @@ impl Look {
                 canvas.round_rect(Rect::new(Vec2::new(x - 0.5, y1), Vec2::new(1.0, y0 - y1)), 0.0, self.dim, 0.45);
             }
         }
+        let mut pinned: Vec<f64> = Vec::new();
         for moment in &model.moments {
             let Some(x) = xs.get(moment.at).copied() else {
                 continue;
             };
+            if pinned.iter().any(|held| (held - x).abs() < 12.0) {
+                continue;
+            }
+            pinned.push(x);
             let mut y = area.origin.y + 10.0;
             while y < area.max().y {
                 canvas.round_rect(Rect::new(Vec2::new(x.round(), y), Vec2::new(1.0, 2.0)), 0.0, self.ink, 0.28);
@@ -1000,7 +1047,10 @@ impl Look {
             canvas.circle(Vec2::new(x, area.origin.y + 4.0), 5.0, self.ink, 1.0);
             canvas.circle(Vec2::new(x, area.origin.y + 4.0), 3.6, self.card, 1.0);
         }
-        let cursor = model.cursor.unwrap_or(model.hour.len() - 1).min(model.hour.len() - 1);
+        let cursor = model
+            .cursor
+            .and_then(|at| model.hour.iter().enumerate().min_by_key(|(_, reading)| reading.at.abs_diff(at)).map(|(index, _)| index))
+            .unwrap_or(model.hour.len() - 1);
         let reading = &model.hour[cursor];
         let cx = xs[cursor];
         canvas.round_rect(Rect::new(Vec2::new(cx.round() - 0.75, area.origin.y), Vec2::new(1.5, area.size.y)), 0.0, self.ink, 0.9);
@@ -1057,6 +1107,8 @@ impl Look {
                 cpu: 0.0,
                 mem_kb: 0,
                 paused: false,
+                protected: false,
+                flatpak: false,
             };
             self.paint_icon(canvas, &stand_in, spot, fonts, icons, 1.0);
             let value = match model.measure {
@@ -1186,6 +1238,19 @@ pub fn wrap(font: &Font, text: &str, width: f64) -> Vec<String> {
     lines
 }
 
+fn stamp_rows(canvas: &mut Canvas, tall: &Image, shown: Rect, scroll: f64) {
+    let dense = crate::paint::density();
+    let from = (scroll * dense).round().max(0.0) as u32;
+    let rows = ((shown.size.y * dense).round() as u32).min(tall.height.saturating_sub(from));
+    if rows == 0 || tall.width == 0 {
+        return;
+    }
+    let start = (from * tall.width * 4) as usize;
+    let end = start + (rows * tall.width * 4) as usize;
+    let piece = Image { width: tall.width, height: rows, rgba: tall.rgba[start..end].to_vec() };
+    canvas.stamp(&piece, shown.origin, 1.0);
+}
+
 fn meter(canvas: &mut Canvas, track: Rect, share: f64, ink: [u8; 3], color: [u8; 3]) {
     canvas.round_rect(track, track.size.y / 2.0, ink, 0.14);
     if share > 0.0 {
@@ -1252,6 +1317,27 @@ fn caret(canvas: &mut Canvas, mid: Vec2, open: bool, ink: [u8; 3]) {
     canvas.line(mid + b, mid + c, 1.6, ink, 1.0);
 }
 
+pub const FLATPAK: [u8; 3] = [74, 144, 217];
+
+pub fn flatpak_badge(canvas: &mut Canvas, spot: Rect, edge: [u8; 3], fade: f64) {
+    let side = (spot.size.x * 0.5).clamp(11.0, 18.0);
+    let badge = Rect::new(spot.max() - Vec2::splat(side * 0.8), Vec2::splat(side));
+    canvas.circle(badge.center(), side / 2.0 + 1.2, edge, fade);
+    canvas.circle(badge.center(), side / 2.0, FLATPAK, fade);
+    let mid = badge.center();
+    let s = side / 14.0;
+    let white = [255, 255, 255];
+    let top = mid + Vec2::new(0.0, -4.2 * s);
+    let left = mid + Vec2::new(-3.8 * s, -2.0 * s);
+    let right = mid + Vec2::new(3.8 * s, -2.0 * s);
+    let center = mid + Vec2::new(0.0, 0.2 * s);
+    let bottom = mid + Vec2::new(0.0, 4.6 * s);
+    let w = 1.2 * s.max(0.9);
+    for (from, to) in [(top, left), (top, right), (left, center), (right, center), (center, bottom), (left, left + Vec2::new(0.0, 4.4 * s)), (right, right + Vec2::new(0.0, 4.4 * s)), (left + Vec2::new(0.0, 4.4 * s), bottom), (right + Vec2::new(0.0, 4.4 * s), bottom)] {
+        canvas.line(from, to, w, white, fade);
+    }
+}
+
 fn view_glyph(canvas: &mut Canvas, view: View, spot: Rect) {
     let white = [255, 255, 255];
     let mid = spot.center();
@@ -1298,11 +1384,13 @@ mod tests {
             root: key.parse().unwrap_or(1),
             argv: vec![format!("/usr/bin/{name}")],
             members: (0..members)
-                .map(|at| super::super::Member { pid: at as u32 + 10, name: format!("p{at}"), cpu: 0.0, mem_kb: 1 })
+                .map(|at| super::super::Member { pid: at as u32 + 10, ppid: 1, start: 0, name: format!("p{at}"), cpu: 0.0, mem_kb: 1 })
                 .collect(),
             cpu,
             mem_kb,
             paused: false,
+            protected: false,
+            flatpak: false,
         }
     }
 

@@ -60,7 +60,7 @@ impl State {
         if let Some(panel) = self.glance_panel.as_mut() {
             let fresh = glance::pick(&groups, total);
             panel.counts = (
-                groups.iter().filter(|group| group.kind == drifter_core::activity::Kind::App).count(),
+                groups.iter().filter(|group| matches!(group.kind, drifter_core::activity::Kind::App | drifter_core::activity::Kind::Drifter)).count(),
                 groups.iter().filter(|group| group.kind != drifter_core::activity::Kind::App && group.kind != drifter_core::activity::Kind::Drifter).count(),
             );
             panel.tops = match held && !panel.tops.is_empty() {
@@ -267,14 +267,25 @@ impl State {
         if self.lock.is_some() {
             return;
         }
-        if let Some(place) = self
+        let running = self
             .windows
             .iter()
-            .position(|window| window.app == drifter_core::activity::ACTIVITY_APP && !window.going)
-        {
-            self.bring(place);
+            .position(|window| window.app == drifter_core::activity::ACTIVITY_APP && !window.going);
+        let starting = self.activity_launched.is_some_and(|at| at.elapsed() < Duration::from_secs(4));
+        if running.is_some() || starting {
+            if let Some(key) = key {
+                let path = drifter_core::Config::state_dir().join("activity-show");
+                let _ = std::fs::create_dir_all(drifter_core::Config::state_dir());
+                if let Err(error) = std::fs::write(&path, key) {
+                    log!("drifter: cannot point Activity at the app: {error}");
+                }
+            }
+            if let Some(place) = running {
+                self.bring(place);
+            }
             return;
         }
+        self.activity_launched = Some(Instant::now());
         let program = std::env::current_exe()
             .map(|path| path.with_file_name(drifter_core::activity::ACTIVITY_APP))
             .unwrap_or_else(|_| std::path::PathBuf::from(drifter_core::activity::ACTIVITY_APP));

@@ -42,8 +42,9 @@ impl Apps {
         let me = std::process::id();
         let how = Grouping { shell: Some(me), me, uid: activity::own_uid(), apps: &self.apps };
         if watching {
-            let groups = activity::group(self.before.as_ref(), &snapshot, &how);
-            if self.before.is_some()
+            let base = self.before.as_ref().or(self.hour_base.as_ref().map(|(base, _)| base));
+            let groups = activity::group(base, &snapshot, &how);
+            if base.is_some()
                 && let Ok(mut held) = out.lock()
             {
                 *held = Some((groups, snapshot.memory.total_kb));
@@ -59,9 +60,7 @@ impl Apps {
                     .unwrap_or(0);
                 let reading = hour::Reading::take(now, cpu, &snapshot.memory, &groups);
                 let path = drifter_core::Config::state_dir().join(hour::FILE);
-                let text = std::fs::read_to_string(&path).unwrap_or_default();
-                let _ = std::fs::create_dir_all(drifter_core::Config::state_dir());
-                if let Err(error) = std::fs::write(&path, hour::append(&text, &reading)) {
+                if let Err(error) = hour::keep(&path, &reading) {
                     log!("drifter: cannot keep the last hour: {error}");
                 }
             }

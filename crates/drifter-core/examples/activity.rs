@@ -29,6 +29,8 @@ fn group(key: u32, name: &str, detail: &str, kind: Kind, cpu: f64, mb: u64, memb
             name: name.to_string(),
             cpu: if at == 0 { cpu * 0.4 } else { cpu * 0.6 / (members.len() - 1).max(1) as f64 },
             mem_kb: mb * 1024 / members.len() as u64,
+            ppid: key,
+            start: 0,
         })
         .collect();
     Group {
@@ -43,6 +45,8 @@ fn group(key: u32, name: &str, detail: &str, kind: Kind, cpu: f64, mb: u64, memb
         cpu,
         mem_kb: mb * 1024,
         paused: false,
+        protected: false,
+        flatpak: false,
     }
 }
 
@@ -66,6 +70,7 @@ fn main() {
         group(2710, "Code", "3 processes", Kind::App, 3.9, 1210, &["code", "rust-analyzer", "code"]),
         group(2902, "Spotify", "2 processes", Kind::App, 2.4, 390, &["spotify", "spotify"]),
         group(2510, "Files", "1 process", Kind::App, 0.3, 150, &["nautilus"]),
+        { let mut g = group(4000, "Calculator", "Flatpak · 1 process", Kind::App, 0.4, 90, &["gnome-calculator"]); g.flatpak = true; g },
         group(912, "Drifter", "Draws your screen", Kind::Drifter, 3.5, 240, &["drifter"]),
         group(1350, "File search index", "tracker-miner-fs-3", Kind::Background, 11.0, 310, &["tracker-miner-fs-3"]),
         group(980, "Sound", "pipewire · 3 processes", Kind::Background, 1.1, 44, &["pipewire", "wireplumber", "pipewire-pulse"]),
@@ -150,10 +155,10 @@ fn main() {
     model.hour = hour::read(&text, model.now);
     model.moments = hour::moments(&model.hour);
     model.view = View::Hour;
-    model.cursor = Some(91);
+    model.cursor = Some(model.hour[91].at);
     save(&look.paint(size, &model, &fonts, &icons), &out.join("activity-hour.png"));
     model.measure = Measure::Memory;
-    model.cursor = Some(80);
+    model.cursor = Some(model.hour[80].at);
     save(&light.paint(size, &model, &fonts, &icons), &out.join("activity-hour-memory-light.png"));
     model.hour.clear();
     model.measure = Measure::Cpu;

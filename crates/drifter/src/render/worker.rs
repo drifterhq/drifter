@@ -255,6 +255,7 @@ impl State {
                     .map(|(app, side)| {
                         let image = crate::apps::find(&app)
                             .and_then(|entry| entry.icon)
+                            .or_else(|| (app == drifter_core::activity::ACTIVITY_APP).then(|| std::path::PathBuf::from(drifter_core::activity::art_icon())))
                             .and_then(|path| load(&path, side));
                         (app.clone(), format!("{app}@{side}"), image)
                     })
@@ -288,6 +289,9 @@ impl State {
     }
 
     fn icons_landed(&mut self) {
+        if self.glance_panel.is_some() {
+            self.paint_glance();
+        }
         if self.launchpad.is_some() {
             self.paint_launchpad();
         }

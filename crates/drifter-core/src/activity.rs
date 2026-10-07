@@ -9,6 +9,21 @@ use crate::desktop::App;
 pub const ACTIVITY_APP: &str = "drifter-activity";
 pub const SETTINGS_APP: &str = "drifter-settings";
 
+pub fn art_icon() -> String {
+    static FOUND: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    FOUND
+        .get_or_init(|| {
+            crate::Config::load_from(&crate::Config::config_path())
+                .ok()
+                .and_then(|config| config.dock_dir())
+                .map(|dir| dir.join("activity.png"))
+                .filter(|path| path.is_file())
+                .map(|path| path.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "utilities-system-monitor".to_string())
+        })
+        .clone()
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Proc {
     pub pid: u32,
@@ -16,6 +31,7 @@ pub struct Proc {
     pub comm: String,
     pub state: char,
     pub ticks: u64,
+    pub start: u64,
     pub rss_kb: u64,
     pub uid: Option<u32>,
     pub argv: Vec<String>,
@@ -57,6 +73,10 @@ pub struct Snapshot {
 }
 
 pub fn parse_stat(text: &str) -> Option<(u32, String, char, u32, u64)> {
+    parse_stat_full(text).map(|(pid, comm, state, ppid, ticks, _)| (pid, comm, state, ppid, ticks))
+}
+
+pub fn parse_stat_full(text: &str) -> Option<(u32, String, char, u32, u64, u64)> {
     let open = text.find('(')?;
     let close = text.rfind(')')?;
     let pid = text[..open].trim().parse().ok()?;
@@ -66,7 +86,8 @@ pub fn parse_stat(text: &str) -> Option<(u32, String, char, u32, u64)> {
     let ppid = rest.get(1)?.parse().ok()?;
     let utime: u64 = rest.get(11)?.parse().ok()?;
     let stime: u64 = rest.get(12)?.parse().ok()?;
-    Some((pid, comm, state, ppid, utime + stime))
+    let start: u64 = rest.get(19).and_then(|word| word.parse().ok()).unwrap_or(0);
+    Some((pid, comm, state, ppid, utime + stime, start))
 }
 
 pub fn parse_statm(text: &str, page_kb: u64) -> Option<u64> {
@@ -120,14 +141,37 @@ pub fn parse_memory(meminfo: &str) -> Memory {
     }
 }
 
+pub fn physical_cores(cpuinfo: &str) -> Option<usize> {
+    let mut seen = std::collections::HashSet::new();
+    let (mut socket, mut core) = (None, None);
+    for line in cpuinfo.lines().chain(std::iter::once("")) {
+        if line.trim().is_empty() {
+            if let Some(core) = core.take() {
+                seen.insert((socket.take().unwrap_or(0u32), core));
+            }
+            continue;
+        }
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
+        };
+        match key.trim() {
+            "physical id" => socket = value.trim().parse().ok(),
+            "core id" => core = value.trim().parse::<u32>().ok(),
+            _ => {}
+        }
+    }
+    (!seen.is_empty()).then_some(seen.len())
+}
+
 pub fn read_snapshot() -> Snapshot {
     let stat = std::fs::read_to_string("/proc/stat").unwrap_or_default();
     let times = crate::stats::cpu_times(&stat).unwrap_or(crate::stats::CpuTimes { busy: 0, total: 0 });
-    let cores = stat
+    let threads = stat
         .lines()
         .filter(|line| line.starts_with("cpu") && line.as_bytes().get(3).is_some_and(u8::is_ascii_digit))
         .count()
         .max(1);
+    let cores = std::fs::read_to_string("/proc/cpuinfo").ok().as_deref().and_then(physical_cores).unwrap_or(threads);
     let memory = parse_memory(&std::fs::read_to_string("/proc/meminfo").unwrap_or_default());
     let mut procs = Vec::new();
     if let Ok(entries) = std::fs::read_dir("/proc") {
@@ -152,7 +196,7 @@ pub fn read_snapshot() -> Snapshot {
 
 fn read_proc(pid: u32) -> Option<Proc> {
     let dir = std::path::PathBuf::from(format!("/proc/{pid}"));
-    let (pid, comm, state, ppid, ticks) = parse_stat(&std::fs::read_to_string(dir.join("stat")).ok()?)?;
+    let (pid, comm, state, ppid, ticks, start) = parse_stat_full(&std::fs::read_to_string(dir.join("stat")).ok()?)?;
     if pid == 2 || ppid == 2 {
         return None;
     }
@@ -169,6 +213,7 @@ fn read_proc(pid: u32) -> Option<Proc> {
         comm,
         state,
         ticks,
+        start,
         rss_kb,
         uid,
         argv,
@@ -202,41 +247,72 @@ pub enum Signal {
     Force,
 }
 
+
 impl Signal {
-    fn word(self) -> &'static str {
+    fn number(self) -> i32 {
         match self {
-            Signal::Pause => "-STOP",
-            Signal::Resume => "-CONT",
-            Signal::Quit => "-TERM",
-            Signal::Force => "-KILL",
+            Signal::Pause => libc::SIGSTOP,
+            Signal::Resume => libc::SIGCONT,
+            Signal::Quit => libc::SIGTERM,
+            Signal::Force => libc::SIGKILL,
+        }
+    }
+
+    pub fn failed(self, name: &str) -> String {
+        match self {
+            Signal::Pause => format!("Could not pause {name}."),
+            Signal::Resume => format!("Could not resume {name}."),
+            Signal::Quit => format!("Could not quit {name}."),
+            Signal::Force => format!("Could not force quit {name}."),
         }
     }
 }
 
+fn still_same(pid: u32, start: u64) -> bool {
+    std::fs::read_to_string(format!("/proc/{pid}/stat"))
+        .ok()
+        .and_then(|text| parse_stat_full(&text))
+        .is_some_and(|(_, _, _, _, _, now)| start == 0 || now == start)
+}
+
 pub fn send(signal: Signal, group: &Group) -> Result<(), String> {
-    let pids: Vec<String> = match signal {
-        Signal::Quit => vec![group.root.to_string()],
-        _ => group.pids().iter().map(u32::to_string).collect(),
+    let targets: Vec<(u32, u64)> = match signal {
+        Signal::Quit => group.members.iter().filter(|member| member.pid == group.root).map(|member| (member.pid, member.start)).collect(),
+        _ => group.members.iter().map(|member| (member.pid, member.start)).collect(),
     };
-    send_to(signal, &pids)
+    let targets = match targets.is_empty() {
+        true => vec![(group.root, 0)],
+        false => targets,
+    };
+    send_checked(signal, group.root, &targets)
+}
+
+pub fn send_checked(signal: Signal, root: u32, targets: &[(u32, u64)]) -> Result<(), String> {
+    let mut root_error = None;
+    let mut any = false;
+    for (pid, start) in targets {
+        if *pid <= 1 || !still_same(*pid, *start) {
+            continue;
+        }
+        let done = unsafe { libc::kill(*pid as libc::pid_t, signal.number()) } == 0;
+        let error = std::io::Error::last_os_error();
+        match done {
+            true => any = true,
+            false if error.raw_os_error() == Some(libc::ESRCH) => {}
+            false if *pid == root => root_error = Some(error.to_string()),
+            false => {}
+        }
+    }
+    match (root_error, any) {
+        (Some(error), false) => Err(error),
+        _ => Ok(()),
+    }
 }
 
 pub fn send_to(signal: Signal, pids: &[String]) -> Result<(), String> {
-    if pids.is_empty() {
-        return Ok(());
-    }
-    let status = std::process::Command::new("kill")
-        .arg(signal.word())
-        .args(pids)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map_err(|error| format!("cannot run kill: {error}"))?;
-    match status.success() {
-        true => Ok(()),
-        false => Err("the system did not allow it".to_string()),
-    }
+    let targets: Vec<(u32, u64)> = pids.iter().filter_map(|pid| pid.parse().ok()).map(|pid| (pid, 0)).collect();
+    let root = targets.first().map_or(0, |(pid, _)| *pid);
+    send_checked(signal, root, &targets)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -309,6 +385,8 @@ pub enum Kind {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Member {
     pub pid: u32,
+    pub ppid: u32,
+    pub start: u64,
     pub name: String,
     pub cpu: f64,
     pub mem_kb: u64,
@@ -327,6 +405,8 @@ pub struct Group {
     pub cpu: f64,
     pub mem_kb: u64,
     pub paused: bool,
+    pub protected: bool,
+    pub flatpak: bool,
 }
 
 impl Group {
@@ -335,7 +415,7 @@ impl Group {
     }
 
     pub fn can_stop(&self) -> bool {
-        matches!(self.kind, Kind::App | Kind::Background)
+        matches!(self.kind, Kind::App | Kind::Background) && !self.protected
     }
 
     pub fn score(&self, total_kb: u64) -> f64 {
@@ -546,12 +626,9 @@ pub fn group(before: Option<&Snapshot>, now: &Snapshot, how: &Grouping) -> Vec<G
             .iter()
             .map(|proc| Member {
                 pid: proc.pid,
-                name: proc
-                    .argv
-                    .first()
-                    .map(|first| base(first).to_string())
-                    .filter(|name| !name.is_empty())
-                    .unwrap_or_else(|| proc.comm.clone()),
+                ppid: proc.ppid,
+                start: proc.start,
+                name: member_name(proc, head_program(head)),
                 cpu: cpu_of(proc),
                 mem_kb: proc.rss_kb,
             })
@@ -560,16 +637,19 @@ pub fn group(before: Option<&Snapshot>, now: &Snapshot, how: &Grouping) -> Vec<G
         let cpu: f64 = people.iter().map(|member| member.cpu).sum();
         let mem_kb: u64 = people.iter().map(|member| member.mem_kb).sum();
         let ours = how.uid.is_none() || head.uid == how.uid;
-        let program = head.argv.first().map(|first| base(first).to_string()).unwrap_or_else(|| head.comm.clone());
-        let matched = match_app(head, how.apps);
+        let program = head_program(head);
+        let flatpak = is_sandbox(head);
+        let matched = match_app(head, how.apps).or_else(|| sandboxed_app(head, list, how.apps));
         let (kind, name, icon) = if Some(root) == how.shell {
             (Kind::Drifter, "Drifter".to_string(), None)
         } else if program == SETTINGS_APP || head.comm == SETTINGS_APP {
             (Kind::App, "Settings".to_string(), Some("preferences-system".to_string()))
         } else if program == ACTIVITY_APP || head.comm.starts_with("drifter-activi") {
-            (Kind::App, "Activity".to_string(), Some("utilities-system-monitor".to_string()))
+            (Kind::App, "Activity".to_string(), Some(art_icon()))
         } else if let (true, Some(app)) = (ours, matched) {
             (Kind::App, app.name.clone(), app.icon.clone())
+        } else if let (true, true, Some(id)) = (ours, flatpak, flatpak_id(list)) {
+            (Kind::App, title_case(id.rsplit('.').next().unwrap_or(&id)), Some(id))
         } else {
             let word = head.unit.clone().filter(|unit| !unit.starts_with("app-")).unwrap_or_else(|| program.clone());
             let name = friendly(&word)
@@ -580,6 +660,11 @@ pub fn group(before: Option<&Snapshot>, now: &Snapshot, how: &Grouping) -> Vec<G
         };
         let paused = head.state == 'T';
         let detail = describe(kind, &people, root, &program, head.unit.as_deref(), paused);
+        let detail = match (flatpak, paused) {
+            (true, false) => format!("Flatpak · {detail}"),
+            _ => detail,
+        };
+        let protected = root == how.me || (kind == Kind::Background && is_core(&program, head.unit.as_deref()));
         groups.push(Group {
             key: format!("{root}"),
             name,
@@ -592,9 +677,74 @@ pub fn group(before: Option<&Snapshot>, now: &Snapshot, how: &Grouping) -> Vec<G
             cpu,
             mem_kb,
             paused,
+            protected,
+            flatpak,
         });
     }
     groups
+}
+
+fn head_program(head: &Proc) -> String {
+    head.argv
+        .first()
+        .map(|first| base(first).to_string())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| head.comm.clone())
+}
+
+fn member_name(proc: &Proc, root_program: String) -> String {
+    let named = proc.argv.first().map(|first| base(first).to_string()).filter(|name| !name.is_empty());
+    match named {
+        Some(name) if name != root_program => name,
+        _ if !proc.comm.is_empty() && proc.comm != root_program => proc.comm.clone(),
+        Some(name) => name,
+        None => proc.comm.clone(),
+    }
+}
+
+pub fn is_core(program: &str, unit: Option<&str>) -> bool {
+    let words = [program.to_ascii_lowercase(), unit.unwrap_or("").to_ascii_lowercase()];
+    words.iter().any(|word| {
+        word == "systemd"
+            || word.starts_with("dbus")
+            || word.starts_with("xwayland")
+            || word.starts_with("xdg-")
+            || word.starts_with("pipewire")
+            || word == "wireplumber"
+            || word.starts_with("at-spi")
+            || word == "gnome-keyring-daemon"
+            || word == "seatd"
+            || word == "polkit-agent"
+    })
+}
+
+fn is_sandbox(head: &Proc) -> bool {
+    matches!(head_program(head).as_str(), "flatpak" | "bwrap" | "flatpak-spawn") || head.unit.as_deref().is_some_and(|unit| unit.starts_with("app-flatpak-"))
+}
+
+fn flatpak_id(list: &[&Proc]) -> Option<String> {
+    list.iter().find_map(|proc| {
+        let rest = proc.unit.as_deref()?.strip_prefix("app-flatpak-")?;
+        Some(rest.rsplit_once('-').map_or(rest, |(id, _)| id).to_string())
+    })
+}
+
+fn sandboxed_app<'a>(head: &Proc, list: &[&Proc], apps: &'a [App]) -> Option<&'a App> {
+    if !is_sandbox(head) {
+        return None;
+    }
+    let mut words: Vec<String> = Vec::new();
+    for proc in list {
+        if let Some(rest) = proc.unit.as_deref().and_then(|unit| unit.strip_prefix("app-flatpak-")) {
+            let id = rest.rsplit_once('-').map_or(rest, |(id, _)| id);
+            words.push(id.to_string());
+        }
+        words.extend(proc.argv.iter().cloned());
+    }
+    words.iter().find_map(|word| {
+        let word = word.split_once("--command=").map_or(word.as_str(), |(_, rest)| rest);
+        apps.iter().find(|app| app.id == word)
+    })
 }
 
 fn describe(kind: Kind, people: &[Member], root: u32, program: &str, unit: Option<&str>, paused: bool) -> String {
@@ -604,9 +754,8 @@ fn describe(kind: Kind, people: &[Member], root: u32, program: &str, unit: Optio
     if kind == Kind::Drifter {
         return "Draws your screen".to_string();
     }
-    let busiest = people.iter().filter(|member| member.pid != root).max_by(|a, b| a.cpu.total_cmp(&b.cpu));
-    if let Some(child) = busiest.filter(|child| child.cpu >= 5.0) {
-        return format!("Running {}", child.name);
+    if let Some(job) = busiest_job(people, root, program) {
+        return format!("Running {job}");
     }
     let count = people.len();
     match kind {
@@ -622,6 +771,32 @@ fn describe(kind: Kind, people: &[Member], root: u32, program: &str, unit: Optio
             }
         }
     }
+}
+
+const SHELLS: [&str; 8] = ["sh", "bash", "zsh", "fish", "dash", "nu", "tmux", "screen"];
+
+fn busiest_job(people: &[Member], root: u32, program: &str) -> Option<String> {
+    let parent: HashMap<u32, u32> = people.iter().map(|member| (member.pid, member.ppid)).collect();
+    let mut tree: HashMap<u32, f64> = HashMap::new();
+    for member in people {
+        let mut at = member.pid;
+        for _ in 0..64 {
+            *tree.entry(at).or_insert(0.0) += member.cpu;
+            match parent.get(&at) {
+                Some(up) if parent.contains_key(up) => at = *up,
+                _ => break,
+            }
+        }
+    }
+    people
+        .iter()
+        .filter(|member| member.pid != root && member.name != program && !SHELLS.contains(&member.name.as_str()))
+        .filter(|member| tree.get(&member.pid).copied().unwrap_or(0.0) >= 5.0)
+        .max_by(|a, b| {
+            let (x, y) = (tree[&a.pid], tree[&b.pid]);
+            x.total_cmp(&y).then(b.pid.cmp(&a.pid))
+        })
+        .map(|member| member.name.clone())
 }
 
 pub fn sorted(groups: &mut [Group], by: Column, total_kb: u64) {
@@ -672,6 +847,7 @@ mod tests {
             comm: comm.to_string(),
             state: 'S',
             ticks,
+            start: 0,
             rss_kb,
             uid: Some(1000),
             argv: vec![format!("/usr/bin/{comm}")],
@@ -746,6 +922,7 @@ mod tests {
         assert_eq!(fox.mem_kb, 800_000);
         let term = find("Foot");
         assert_eq!(term.detail, "Running cargo");
+        assert!(find("Firefox").members.iter().any(|member| member.name == "Web Content"), "a child that reuses the app binary goes by its own name");
         assert_eq!(find("Drifter").kind, Kind::Drifter);
         assert_eq!(find("Drifter").members.len(), 1, "apps are not counted inside Drifter");
     }
@@ -786,6 +963,8 @@ mod tests {
             cpu: 1.0,
             mem_kb: 100_000,
             paused: false,
+            protected: false,
+            flatpak: false,
         };
         let total = 16 * 1024 * 1024;
         assert_eq!(group.impact(total), Impact::Calm);
@@ -793,6 +972,55 @@ mod tests {
         assert_eq!(group.impact(total), Impact::Busy);
         group.cpu = 80.0;
         assert_eq!(group.impact(total), Impact::Heavy);
+    }
+
+    #[test]
+    fn a_build_in_a_terminal_reads_as_the_build_not_its_leaf() {
+        let apps = vec![app("foot", "Foot", "foot")];
+        let mut procs = vec![(1, 0, "systemd", 0, 0), (900, 1, "drifter", 0, 1), (3000, 900, "foot", 0, 1), (3001, 3000, "bash", 0, 1), (3010, 3001, "cargo", 10, 1)];
+        procs.extend((0..4).map(|at| (3020 + at, 3010, "rustc", 0, 1)));
+        let before = machine(&procs, 1000);
+        let mut later = procs.clone();
+        for proc in later.iter_mut().filter(|proc| proc.2 == "rustc") {
+            proc.3 = 200;
+        }
+        let after = machine(&later, 2000);
+        let groups = group(Some(&before), &after, &Grouping { shell: Some(900), me: 5, uid: Some(1000), apps: &apps });
+        let foot = groups.iter().find(|group| group.name == "Foot").unwrap();
+        assert_eq!(foot.detail, "Running cargo");
+    }
+
+    #[test]
+    fn a_flatpak_app_is_an_app_with_its_own_name() {
+        let apps = vec![app("org.gnome.Calculator", "Calculator", "/usr/bin/flatpak run --branch=stable --arch=x86_64 --command=gnome-calculator org.gnome.Calculator")];
+        let mut snap = machine(&[(900, 1, "drifter", 0, 1), (4000, 900, "bwrap", 0, 1), (4001, 4000, "gnome-calculator", 0, 50_000)], 10);
+        snap.procs[1].argv = vec!["bwrap".into(), "--args".into(), "40".into(), "--".into(), "gnome-calculator".into()];
+        snap.procs[2].unit = Some("app-flatpak-org.gnome.Calculator-1234".into());
+        let groups = group(None, &snap, &Grouping { shell: Some(900), me: 5, uid: Some(1000), apps: &apps });
+        let calc = groups.iter().find(|group| group.root == 4000).unwrap();
+        assert!(calc.detail.starts_with("Flatpak · "), "{}", calc.detail);
+        assert_eq!((calc.kind, calc.name.as_str()), (Kind::App, "Calculator"));
+        assert!(calc.flatpak);
+        assert!(!groups.iter().find(|group| group.root == 900).unwrap().flatpak);
+    }
+
+    #[test]
+    fn session_services_and_activity_itself_cannot_be_stopped_here() {
+        let mut snap = machine(&[(1, 0, "systemd", 0, 0), (700, 1, "systemd", 0, 1), (710, 700, "dbus-broker", 0, 1), (720, 700, "tracker-miner-fs-3", 0, 1), (900, 1, "drifter", 0, 1), (950, 900, "drifter-activity", 0, 1)], 10);
+        snap.procs[1].argv = vec!["/usr/lib/systemd/systemd".into(), "--user".into()];
+        let groups = group(None, &snap, &Grouping { shell: Some(900), me: 950, uid: Some(1000), apps: &[] });
+        let can = |root: u32| groups.iter().find(|group| group.root == root).unwrap().can_stop();
+        assert!(!can(700), "the session manager");
+        assert!(!can(710), "the message bus");
+        assert!(can(720), "an ordinary background service");
+        assert!(!can(950), "Activity cannot pause itself");
+    }
+
+    #[test]
+    fn cores_are_counted_once_per_physical_core() {
+        let info = "processor\t: 0\nphysical id\t: 0\ncore id\t: 0\n\nprocessor\t: 1\nphysical id\t: 0\ncore id\t: 1\n\nprocessor\t: 2\nphysical id\t: 0\ncore id\t: 0\n\nprocessor\t: 3\nphysical id\t: 0\ncore id\t: 1\n";
+        assert_eq!(physical_cores(info), Some(2));
+        assert_eq!(physical_cores("processor : 0\n"), None);
     }
 
     #[test]

@@ -71,6 +71,20 @@ struct Activity {
     gone: Option<Gone>,
     toast_at: Option<Instant>,
     wanted: Option<String>,
+    tall: Option<Image>,
+    scrolled_only: bool,
+    config_seen: Option<std::time::SystemTime>,
+    show_seen: Option<std::time::SystemTime>,
+    watched_at: Instant,
+    theme_checks: u64,
+}
+
+fn modified(path: &std::path::Path) -> Option<std::time::SystemTime> {
+    std::fs::metadata(path).and_then(|meta| meta.modified()).ok()
+}
+
+pub fn show_path() -> std::path::PathBuf {
+    Config::state_dir().join("activity-show")
 }
 
 fn themed(config: &Config) -> Look {
@@ -120,7 +134,8 @@ pub fn run() -> Result<(), String> {
         .handle()
         .insert_source(Timer::from_duration(Duration::from_millis(33)), |_, _, app: &mut Activity| {
             app.tick();
-            TimeoutAction::ToDuration(Duration::from_millis(33))
+            let busy = app.holding.is_some();
+            TimeoutAction::ToDuration(Duration::from_millis(if busy { 33 } else { 500 }))
         })
         .map_err(|e| format!("cannot start the timer: {e}"))?;
     probe::start(fresh_tx);
@@ -167,6 +182,12 @@ pub fn run() -> Result<(), String> {
         gone: None,
         toast_at: None,
         wanted,
+        tall: None,
+        scrolled_only: false,
+        config_seen: modified(&path),
+        show_seen: modified(&show_path()),
+        watched_at: Instant::now(),
+        theme_checks: 0,
     };
     while !app.exit {
         events
@@ -217,7 +238,8 @@ impl Activity {
         if let Some(hour) = fresh.hour {
             self.model.moments = activity::hour::moments(&hour);
             self.model.hour = hour;
-            if self.model.cursor.is_some_and(|at| at >= self.model.hour.len()) {
+            let oldest = self.model.hour.first().map_or(0, |reading| reading.at);
+            if self.model.cursor.is_some_and(|at| at < oldest) {
                 self.model.cursor = None;
             }
         }
@@ -242,6 +264,7 @@ impl Activity {
         self.load_icons();
         self.clamp_scroll();
         self.stale = true;
+        self.scrolled_only = false;
     }
 
     fn load_icons(&mut self) {
@@ -275,7 +298,41 @@ impl Activity {
         self.model.scroll = self.model.scroll.clamp(0.0, most);
     }
 
+    fn watch(&mut self) {
+        if self.watched_at.elapsed() < Duration::from_millis(450) {
+            return;
+        }
+        self.watched_at = Instant::now();
+        let path = Config::config_path();
+        let seen = modified(&path);
+        if seen != self.config_seen {
+            self.config_seen = seen;
+            if let Ok(config) = Config::load_from(&path) {
+                drifter_core::icon::set_theme(config.appearance.icons.clone());
+                self.look = themed(&config);
+                self.stale = true;
+            }
+        }
+        self.theme_checks += 1;
+        if self.theme_checks % 120 == 0 {
+            let again = themed(&Config::load_from(&path).unwrap_or_default());
+            if again != self.look {
+                self.look = again;
+                self.stale = true;
+            }
+        }
+        let show = modified(&show_path());
+        if show != self.show_seen {
+            self.show_seen = show;
+            let key = std::fs::read_to_string(show_path()).unwrap_or_default().trim().to_string();
+            if !key.is_empty() {
+                self.wanted = Some(key);
+            }
+        }
+    }
+
     fn tick(&mut self) {
+        self.watch();
         if let Some((started, key)) = self.holding.clone() {
             let hold = (started.elapsed().as_secs_f64() / look::hold_seconds()).min(1.0);
             self.model.hold = hold;
@@ -301,11 +358,23 @@ impl Activity {
     fn draw(&mut self) {
         self.stale = false;
         drifter_core::paint::set_density(scale());
-        let image = {
+        let scrolled = std::mem::take(&mut self.scrolled_only);
+        if scrolled
+            && self.model.view != View::Hour
+            && let (Some(mut frame), Some(tall)) = (self.last.take(), self.tall.as_ref())
+        {
+            self.look.scroll_into(&mut frame, self.view(), &self.model, tall);
+            self.show(&frame, None);
+            self.last = Some(frame);
+            return;
+        }
+        let (image, tall) = {
             let fonts = self.fonts();
-            self.look.paint(self.view(), &self.model, &fonts, &self.icons)
+            let tall = (self.model.view != View::Hour).then(|| self.look.body_layer(self.view(), &self.model, &fonts, &self.icons));
+            (self.look.paint(self.view(), &self.model, &fonts, &self.icons), tall)
         };
-        self.show(&image);
+        self.tall = tall;
+        self.show(&image, None);
         self.last = Some(image);
     }
 
@@ -325,11 +394,11 @@ impl Activity {
         let mut canvas = drifter_core::paint::Canvas { image };
         canvas.stamp(&piece, rect.origin, 1.0);
         image = canvas.image;
-        self.show(&image);
+        self.show(&image, Some(rect));
         self.last = Some(image);
     }
 
-    fn show(&mut self, image: &Image) {
+    fn show(&mut self, image: &Image, part: Option<drifter_core::Rect>) {
         let (width, height) = (image.width, image.height);
         let stride = width as i32 * 4;
         let (buffer, canvas) = match self.pool.create_buffer(width as i32, height as i32, stride, wl_shm::Format::Argb8888) {
@@ -345,7 +414,18 @@ impl Activity {
         }
         let surface = self.window.wl_surface();
         surface.set_buffer_scale(scale() as i32);
-        surface.damage_buffer(0, 0, width as i32, height as i32);
+        match part {
+            Some(rect) => {
+                let dense = f64::from(scale());
+                surface.damage_buffer(
+                    (rect.origin.x * dense).floor() as i32,
+                    (rect.origin.y * dense).floor() as i32,
+                    (rect.size.x * dense).ceil() as i32 + 1,
+                    (rect.size.y * dense).ceil() as i32 + 1,
+                );
+            }
+            None => surface.damage_buffer(0, 0, width as i32, height as i32),
+        }
         if let Err(error) = buffer.attach_to(surface) {
             log!("drifter-activity: {error}");
             return;
@@ -368,7 +448,7 @@ impl Activity {
         }
         let result = activity::send(signal, group);
         let words = match (&result, signal) {
-            (Err(error), _) => format!("{} did not stop: {error}.", group.name),
+            (Err(_), signal) => signal.failed(&group.name),
             (Ok(()), Signal::Pause) => format!("Paused {}.", group.name),
             (Ok(()), Signal::Resume) => format!("{} runs again.", group.name),
             (Ok(()), Signal::Quit) => format!("Asked {} to quit.", group.name),
@@ -423,6 +503,7 @@ impl Activity {
     }
 
     fn press(&mut self) {
+        self.scrolled_only = false;
         let hit = {
             let fonts = self.fonts();
             self.look.hit(self.view(), &self.model, &fonts, self.at)
@@ -478,7 +559,7 @@ impl Activity {
             Hit::Reopen => self.reopen(),
             Hit::Measure(measure) => self.model.measure = measure,
             Hit::Chart(at) => {
-                self.model.cursor = Some(at);
+                self.model.cursor = self.model.hour.get(at).map(|reading| reading.at);
                 self.scrubbing = true;
             }
         }
@@ -490,11 +571,12 @@ impl Activity {
         self.over_list = self.look.over_list(size, self.model.view, self.at);
         if self.scrubbing {
             let fonts = Fonts { body: &self.fonts.0, small: &self.fonts.1, title: &self.fonts.2 };
-            if let Some(Hit::Chart(at)) = self.look.hit(size, &self.model, &fonts, self.at)
-                && self.model.cursor != Some(at)
-            {
-                self.model.cursor = Some(at);
-                self.stale = true;
+            if let Some(Hit::Chart(at)) = self.look.hit(size, &self.model, &fonts, self.at) {
+                let when = self.model.hour.get(at).map(|reading| reading.at);
+                if self.model.cursor != when {
+                    self.model.cursor = when;
+                    self.stale = true;
+                }
             }
             return;
         }
@@ -508,10 +590,7 @@ impl Activity {
             }
             false => None,
         };
-        if hover != self.model.hover {
-            self.model.hover = hover;
-            self.stale = true;
-        }
+        self.model.hover = hover;
         if let Some((_, key)) = self.holding.as_ref() {
             let on = self.look.hold_rect(size).contains(self.at);
             if !on || self.model.selected.as_ref() != Some(key) {
@@ -536,6 +615,7 @@ impl Activity {
         self.model.scroll += by;
         self.clamp_scroll();
         if self.model.scroll != before {
+            self.scrolled_only = !self.stale || self.scrolled_only;
             self.stale = true;
         }
     }
@@ -565,6 +645,7 @@ impl Activity {
     }
 
     fn key(&mut self, event: &KeyEvent) {
+        self.scrolled_only = false;
         match event.keysym {
             Keysym::Up => return self.move_selection(-1),
             Keysym::Down => return self.move_selection(1),
@@ -729,9 +810,7 @@ impl PointerHandler for Activity {
                 PointerEventKind::Leave { .. } => {
                     self.let_go();
                     self.over_list = false;
-                    if self.model.hover.take().is_some() {
-                        self.stale = true;
-                    }
+                    self.model.hover = None;
                 }
                 _ => {}
             }
