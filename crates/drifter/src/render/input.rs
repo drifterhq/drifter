@@ -13,6 +13,10 @@ impl State {
             return self.pointer_to(self.pointer);
         }
         let was = self.pointer;
+        if self.thumb.as_ref().is_some_and(|thumb| thumb.pressed.is_some()) {
+            self.pointer = inside;
+            self.drag_thumb();
+        }
 
         if self.modifier {
             let band = PUSH_BAND;
@@ -536,6 +540,7 @@ impl State {
 
         let serial = SERIAL_COUNTER.next_serial();
         if state == ButtonState::Released {
+            self.release_thumb();
             self.release_dock();
             self.release_control();
             self.release_shooter();

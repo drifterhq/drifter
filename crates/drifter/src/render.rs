@@ -35,6 +35,7 @@ use follow::*;
 use input::*;
 use lock::*;
 pub use start::{Seat, open};
+pub use shoot::send_shot;
 
 use drifter_core::camera::{Camera, Flight};
 use drifter_core::cursor::{self, Cursor};
@@ -241,6 +242,7 @@ enum Target {
     App(String),
     Desktop,
     Shooter,
+    Shot,
 }
 
 struct Switch {
@@ -527,6 +529,7 @@ pub struct State {
     battery_busy: bool,
     show_battery: bool,
     dock_fit: bool,
+    pub drag_shot: Option<PathBuf>,
     window_pace: f64,
     dock_pad: f64,
     fit_busy: bool,
@@ -712,6 +715,9 @@ impl State {
         }
         if let Some((_, _, until)) = self.hud.as_ref() {
             return Some(until.saturating_duration_since(Instant::now()).max(TICK));
+        }
+        if self.thumb.is_some() {
+            return Some(Duration::from_millis(200));
         }
         if !self.cards.is_empty() {
             return Some(SECOND_TICK);
@@ -1221,6 +1227,7 @@ impl State {
         self.wind_the_control();
         self.wind_the_gauge();
         self.wind_the_ripple();
+        self.wind_the_thumb();
         self.wind_the_desk_menu();
         self.settle_bounces();
         self.settle_fade();

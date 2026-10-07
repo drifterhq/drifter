@@ -185,7 +185,19 @@ impl DataDeviceHandler for State {
 
 impl ClientDndGrabHandler for State {}
 impl ServerDndGrabHandler for State {
-    fn send(&mut self, _mime: String, _fd: OwnedFd, _seat: Seat<Self>) {}
+    fn send(&mut self, mime: String, fd: OwnedFd, _seat: Seat<Self>) {
+        if let Some(path) = self.drag_shot.as_ref() {
+            crate::render::send_shot(path, &mime, fd);
+        }
+    }
+
+    fn finished(&mut self, _seat: Seat<Self>) {
+        self.drag_shot = None;
+    }
+
+    fn cancelled(&mut self, _seat: Seat<Self>) {
+        self.drag_shot = None;
+    }
 }
 
 impl smithay::wayland::output::OutputHandler for State {}

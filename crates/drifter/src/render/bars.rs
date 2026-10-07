@@ -172,6 +172,10 @@ impl State {
                 self.shooter_menu_pick(chosen.id);
                 return true;
             }
+            Target::Shot => {
+                self.shot_menu_pick(chosen.id);
+                return true;
+            }
             Target::DockBar => {
                 self.dock_bar_pick(chosen.id);
                 return true;

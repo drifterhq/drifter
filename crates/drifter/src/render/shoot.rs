@@ -34,7 +34,16 @@ pub(super) struct Thumb {
     pub rect: Rect,
     pub path: Option<PathBuf>,
     pub born: Instant,
+    pub leaving: Option<Instant>,
+    pub pressed: Option<Vec2>,
 }
+
+const THUMB_IN: f64 = 0.25;
+const THUMB_OUT: f64 = 0.3;
+const SHOT_COPY: i32 = 1;
+const SHOT_FOLDER: i32 = 2;
+const SHOT_OPEN: i32 = 3;
+const SHOT_DELETE: i32 = 4;
 
 pub(super) struct Inks {
     pub cross: TextureBuffer<Tex>,
@@ -593,23 +602,119 @@ impl State {
         let Ok(Some(art)) = upload(&mut self.renderer, Some(&image), "thumbnail") else {
             return;
         };
-        let born = Instant::now();
         self.thumb = Some(Thumb {
             art,
             rect,
             path: None,
-            born,
+            born: Instant::now(),
+            leaving: None,
+            pressed: None,
         });
-        let _ = self.handle.insert_source(
-            Timer::from_duration(THUMB_TIME),
-            move |_, _, state: &mut State| {
-                if state.thumb.as_ref().is_some_and(|thumb| thumb.born == born) {
-                    state.thumb = None;
-                    state.kick_now();
+    }
+
+    pub(super) fn wind_the_thumb(&mut self) {
+        let pointer = self.pointer;
+        let menu_open = matches!(self.popover.as_ref().map(|open| &open.target), Some(Target::Shot));
+        let Some(thumb) = self.thumb.as_mut() else {
+            return;
+        };
+        if let Some(since) = thumb.leaving {
+            if since.elapsed().as_secs_f64() >= THUMB_OUT {
+                self.thumb = None;
+            }
+            return;
+        }
+        let held = thumb.rect.contains(pointer) || thumb.pressed.is_some() || menu_open;
+        if held {
+            thumb.born = Instant::now() - Duration::from_secs_f64(THUMB_IN);
+        } else if thumb.born.elapsed() >= THUMB_TIME {
+            thumb.leaving = Some(Instant::now());
+        }
+    }
+
+    pub(super) fn release_thumb(&mut self) {
+        let Some(thumb) = self.thumb.as_mut() else {
+            return;
+        };
+        if thumb.pressed.take().is_some()
+            && thumb.rect.contains(self.pointer)
+            && let Some(path) = thumb.path.clone()
+        {
+            thumb.leaving = Some(Instant::now());
+            crate::apps::launch(&["xdg-open".to_string(), path.display().to_string()], &self.socket);
+        }
+    }
+
+    pub(super) fn drag_thumb(&mut self) {
+        use smithay::input::pointer::GrabStartData;
+        use smithay::utils::SERIAL_COUNTER;
+        use smithay::wayland::selection::data_device::{SourceMetadata, start_dnd};
+        use smithay::reexports::wayland_server::protocol::wl_data_device_manager::DndAction;
+
+        let pointer = self.pointer;
+        let Some(thumb) = self.thumb.as_mut() else {
+            return;
+        };
+        let (Some(from), Some(path)) = (thumb.pressed, thumb.path.clone()) else {
+            return;
+        };
+        if (pointer - from).length() < 6.0 {
+            return;
+        }
+        thumb.pressed = None;
+        thumb.leaving = Some(Instant::now());
+        self.drag_shot = Some(path.clone());
+        let world = self.in_world(pointer);
+        let metadata = SourceMetadata {
+            mime_types: vec!["text/uri-list".to_string(), shot_mime(&path).to_string()],
+            dnd_action: DndAction::Copy,
+        };
+        let start = GrabStartData {
+            focus: None,
+            button: BTN_LEFT,
+            location: (world.x, world.y).into(),
+        };
+        let dh = self.wayland.handle.clone();
+        let seat = self.wayland._seat.clone();
+        start_dnd(&dh, &seat, self, SERIAL_COUNTER.next_serial(), Some(start), None, metadata);
+    }
+
+    pub(super) fn shot_menu_pick(&mut self, id: i32) {
+        self.popover = None;
+        let Some(path) = self.thumb.as_ref().and_then(|thumb| thumb.path.clone()) else {
+            return;
+        };
+        match id {
+            SHOT_COPY => {
+                if let Ok(bytes) = std::fs::read(&path) {
+                    let mime = shot_mime(&path).to_string();
+                    let dh = self.wayland.handle.clone();
+                    let seat = self.wayland._seat.clone();
+                    smithay::wayland::selection::data_device::set_data_device_selection(
+                        &dh,
+                        &seat,
+                        vec![mime.clone()],
+                        std::sync::Arc::new(vec![(mime, bytes)]),
+                    );
                 }
-                TimeoutAction::Drop
-            },
-        );
+            }
+            SHOT_FOLDER => {
+                if let Some(folder) = path.parent() {
+                    crate::apps::open_folder(&folder.display().to_string(), self.apps_chosen.get(drifter_core::desktop::Role::Files), &self.socket);
+                }
+            }
+            SHOT_OPEN => {
+                crate::apps::launch(&["xdg-open".to_string(), path.display().to_string()], &self.socket);
+            }
+            SHOT_DELETE => {
+                let _ = std::fs::remove_file(&path);
+            }
+            _ => {}
+        }
+        if let Some(thumb) = self.thumb.as_mut() {
+            thumb.leaving = Some(Instant::now());
+        }
+        self.kick_now();
     }
 
     pub(super) fn press_thumb(&mut self, code: u32) -> bool {
@@ -620,11 +725,26 @@ impl State {
         if !on {
             return false;
         }
-        if let Some(thumb) = self.thumb.take()
-            && code == BTN_LEFT
-            && let Some(path) = thumb.path
+        let pointer = self.pointer;
+        if code == BTN_LEFT
+            && let Some(thumb) = self.thumb.as_mut()
         {
-            crate::apps::launch(&["xdg-open".to_string(), path.display().to_string()], &self.socket);
+            thumb.pressed = Some(pointer);
+        }
+        if code == BTN_RIGHT {
+            let ready = self.thumb.as_ref().is_some_and(|thumb| thumb.path.is_some());
+            let item = |id: i32, label: &str| drifter_core::menu::Item {
+                enabled: ready,
+                ..drifter_core::menu::Item::line(id, label)
+            };
+            let items = vec![
+                item(SHOT_COPY, "Copy"),
+                item(SHOT_FOLDER, "Show in Folder"),
+                item(SHOT_OPEN, "Open"),
+                drifter_core::menu::Item::rule(90),
+                item(SHOT_DELETE, "Delete"),
+            ];
+            self.open_popover(items, pointer, Target::Shot);
         }
         self.kick_now();
         true
@@ -647,17 +767,20 @@ impl State {
             elements.push(Skin::Texture(element(art, *rect, 1.0)));
         }
         if let Some(thumb) = self.thumb.as_ref() {
-            let age = thumb.born.elapsed().as_secs_f64();
-            let slide = (1.0 - (age / 0.25).min(1.0)).powi(3) * (thumb.rect.size.x + 20.0);
+            let shown = (thumb.born.elapsed().as_secs_f64() / THUMB_IN).min(1.0);
+            let out = thumb
+                .leaving
+                .map_or(0.0, |since| drifter_core::motion::smooth(since.elapsed().as_secs_f64() / THUMB_OUT));
+            let slide = out * (self.screen.x - thumb.rect.origin.x + 20.0);
             let rect = Rect::new(thumb.rect.origin + Vec2::new(slide, 0.0), thumb.rect.size);
-            elements.push(Skin::Texture(element(&thumb.art, rect, 1.0)));
+            elements.push(Skin::Texture(element(&thumb.art, rect, (shown * (1.0 - out * 0.4)) as f32)));
         }
     }
 
     pub(super) fn thumb_moving(&self) -> bool {
         self.thumb
             .as_ref()
-            .is_some_and(|thumb| thumb.born.elapsed() < Duration::from_millis(300))
+            .is_some_and(|thumb| thumb.born.elapsed() < Duration::from_millis(300) || thumb.leaving.is_some())
     }
 
     pub(super) fn shooter_cursor(&self) -> Option<Vec<Skin>> {
@@ -737,4 +860,24 @@ impl State {
             elements.push(Skin::Texture(fill(&inks.accent, rect, 0.3)));
         }
     }
+}
+
+fn shot_mime(path: &std::path::Path) -> &'static str {
+    match path.extension().and_then(|ext| ext.to_str()).map(str::to_ascii_lowercase).as_deref() {
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        _ => "image/png",
+    }
+}
+
+pub fn send_shot(path: &std::path::Path, mime: &str, fd: std::os::fd::OwnedFd) {
+    use std::io::Write as _;
+    let path = path.to_path_buf();
+    let mime = mime.to_string();
+    std::thread::spawn(move || {
+        let bytes = match mime.as_str() {
+            "text/uri-list" => format!("file://{}\r\n", path.display()).into_bytes(),
+            _ => std::fs::read(&path).unwrap_or_default(),
+        };
+        let _ = std::fs::File::from(fd).write_all(&bytes);
+    });
 }
