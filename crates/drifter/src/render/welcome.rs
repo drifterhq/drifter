@@ -20,7 +20,7 @@ enum Pick {
 
 pub(super) struct Welcome {
     view: View,
-    fonts: drifter_core::welcome::Fonts,
+    fonts: std::sync::Arc<drifter_core::welcome::Fonts>,
     grow: f64,
     art: Option<TextureBuffer<Tex>>,
     leaving: Option<(TextureBuffer<Tex>, f64)>,
@@ -41,6 +41,9 @@ pub(super) struct Welcome {
     accent: Option<TextureBuffer<Tex>>,
     shadow: Option<(TextureBuffer<Tex>, f64)>,
     job: u64,
+    painting: bool,
+    dirty: bool,
+    swap: Option<f64>,
 }
 
 impl State {
@@ -116,7 +119,7 @@ impl State {
         let count = papers.len();
         self.welcome = Some(Welcome {
             view,
-            fonts,
+            fonts: std::sync::Arc::new(fonts),
             grow,
             art: None,
             leaving: None,
@@ -137,6 +140,9 @@ impl State {
             accent: tint,
             shadow,
             job: 0,
+            painting: false,
+            dirty: false,
+            swap: None,
         });
         self.welcome_read(&config);
         self.welcome_tiles(&config);
@@ -321,11 +327,37 @@ impl State {
         };
         let look = drifter_core::welcome::Look::themed(&self.palette, self.look.accent);
         let veil = self.veil(0.97);
-        let Some(open) = self.welcome.as_ref() else {
+        let frost = self
+            .wallpaper
+            .as_ref()
+            .map(|paper| paper.frost.clone())
+            .zip(self.laid_paper());
+        let density = self.density;
+        let Some(open) = self.welcome.as_mut() else {
             return;
         };
-        let mut image = look.paint(&open.view, &open.fonts, veil);
-        self.frosted(&mut image, rect.origin, veil);
+        if open.painting {
+            open.dirty = true;
+            return;
+        }
+        open.painting = true;
+        let view = open.view.clone();
+        let fonts = open.fonts.clone();
+        let job = open.job;
+        self.background("welcome-paint", move || {
+            drifter_core::paint::set_density(density);
+            let mut image = look.paint(&view, &fonts, veil);
+            if let Some((frost, (laid, size))) = frost {
+                let dense = drifter_core::paint::density();
+                drifter_core::frost::underlay(&mut image, veil, |point| {
+                    frost.behind(&laid, size, rect.origin + point / dense)
+                });
+            }
+            move |state: &mut State| state.welcome_painted(image, job)
+        });
+    }
+
+    fn welcome_painted(&mut self, image: drifter_core::Image, job: u64) {
         let art = match upload(&mut self.renderer, Some(&image), "welcome") {
             Ok(art) => art,
             Err(error) => {
@@ -333,8 +365,24 @@ impl State {
                 None
             }
         };
-        if let Some(open) = self.welcome.as_mut() {
-            open.art = art;
+        let Some(open) = self.welcome.as_mut() else {
+            return;
+        };
+        open.painting = false;
+        if open.job == job {
+            match open.swap.take() {
+                Some(way) => {
+                    open.leaving = open.art.take().map(|art| (art, way));
+                    open.moved = Instant::now();
+                }
+                None => {}
+            }
+            if art.is_some() {
+                open.art = art;
+            }
+        }
+        if std::mem::take(&mut open.dirty) {
+            self.paint_welcome();
         }
         self.kick_now();
     }
@@ -587,8 +635,7 @@ impl State {
             true => 1.0,
             false => -1.0,
         };
-        open.leaving = open.art.take().map(|art| (art, open.way));
-        open.moved = Instant::now();
+        open.swap = Some(open.way);
         open.view.card = card;
         open.view.choosing = None;
         open.view.hover = None;
@@ -661,7 +708,7 @@ impl State {
                     && let Ok(config) = Config::load_from(&self.config_path)
                     && let Ok(fonts) = drifter_core::welcome::Fonts::load(config.font_path(), grow_for(large))
                 {
-                    open.fonts = fonts;
+                    open.fonts = std::sync::Arc::new(fonts);
                     open.grow = grow_for(large);
                 }
                 self.welcome_reload();
