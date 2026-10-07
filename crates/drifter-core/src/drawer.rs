@@ -272,6 +272,44 @@ pub fn drop_shadow(edge: Edge, width: u32, panel: &Panel, strength: f64) -> Imag
     }
 }
 
+pub fn wrap_shadow(width: u32, panel: &Panel, strength: f64) -> Image {
+    let dense = crate::paint::density();
+    let reach = panel.shadow.max(1.0).round();
+    let w = f64::from(width);
+    let size = Vec2::new(w + reach * 2.0, reach + panel.texture_height().round());
+    let (pw, ph) = (crate::paint::dense(size.x), crate::paint::dense(size.y));
+    let mut rgba = vec![0u8; (pw as usize) * (ph as usize) * 4];
+    let sigma = reach / 2.6;
+    for y in 0..ph {
+        let py = (f64::from(y) + 0.5) / dense - reach;
+        for x in 0..pw {
+            let px = (f64::from(x) + 0.5) / dense - reach;
+            let beside = py > panel.inner_row(Edge::Bottom) + panel.radius;
+            let away = match (px < 0.0, px > w) {
+                (true, _) if beside => -px,
+                (_, true) if beside => px - w,
+                _ => -depth(Edge::Bottom, px, py, w, panel),
+            };
+            if away <= 0.0 {
+                continue;
+            }
+            let falloff = (-(away * away) / (2.0 * sigma * sigma)).exp();
+            let fade_in = (away * dense).min(1.0);
+            rgba[(y as usize * pw as usize + x as usize) * 4 + 3] =
+                (strength * falloff * fade_in * 255.0).round().clamp(0.0, 255.0) as u8;
+        }
+    }
+    Image { width: pw, height: ph, rgba }
+}
+
+pub fn wrap_rect(rect: Rect, panel: &Panel) -> Rect {
+    let reach = panel.shadow.max(1.0).round();
+    Rect::new(
+        rect.origin - Vec2::splat(reach),
+        Vec2::new(rect.size.x + reach * 2.0, rect.size.y + reach),
+    )
+}
+
 pub fn shadow_rect(band: Rect, edge: Edge, panel: &Panel) -> Rect {
     let reach = panel.shadow.max(1.0).round();
     let radius = panel.radius.max(0.0).round();
@@ -320,6 +358,19 @@ pub fn paint_flat(edge: Edge, width: u32, panel: &Panel, color: [u8; 3], alpha: 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_narrow_dock_casts_shadow_on_its_sides_but_not_inside() {
+        let panel = Panel { height: 64.0, span: 300.0, ..Panel::default() };
+        let image = wrap_shadow(300, &panel, 0.5);
+        let reach = panel.shadow.round() as u32;
+        let alpha = |x: u32, y: u32| image.rgba[((y * image.width + x) * 4 + 3) as usize];
+        let mid_y = reach + panel.texture_height() as u32 / 2;
+        assert!(alpha(reach - 4, mid_y) > 0, "the left side has shadow");
+        assert!(alpha(image.width - reach + 3, mid_y) > 0, "the right side has shadow");
+        assert!(alpha(image.width / 2, reach - 4) > 0, "the top has shadow");
+        assert_eq!(alpha(image.width / 2, mid_y), 0, "nothing under the dock itself");
+    }
+
     #[test]
     fn a_narrow_panel_sits_in_the_middle_and_its_band_matches() {
         let panel = Panel { span: 400.0, ..Panel::default() };

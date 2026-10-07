@@ -912,7 +912,11 @@ impl State {
                 let width = shape.width(screen.x).max(1.0) as u32;
                 let mut panel = drifter_core::drawer::paint(Edge::Bottom, width, &shape, palette.bar, PANEL_ALPHA);
                 drifter_core::drawer::rim(&mut panel, Edge::Bottom, &shape, palette.rim, f64::from(palette.rim_alpha) / 255.0);
-                let drop = drifter_core::drawer::drop_shadow(Edge::Bottom, width, &shape, f64::from(palette.drop) / 255.0);
+                let strength = f64::from(palette.drop) / 255.0;
+                let drop = match shape.span > 0.0 {
+                    true => drifter_core::drawer::wrap_shadow(width, &shape, strength),
+                    false => drifter_core::drawer::drop_shadow(Edge::Bottom, width, &shape, strength),
+                };
                 (panel, drop)
             },
             move |state, (panel, drop)| {

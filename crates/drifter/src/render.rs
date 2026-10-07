@@ -938,7 +938,12 @@ impl State {
                     rect,
                     1.0,
                 )));
-                if let Some(drop) = self.drops.get(edge.index()) {
+                if let Some(drop) = self.drops.get(edge.index())
+                    && edge == Edge::Bottom
+                    && shape.span > 0.0
+                {
+                    elements.push(Skin::Texture(element(drop, drifter_core::drawer::wrap_rect(rect, shape), 1.0)));
+                } else if let Some(drop) = self.drops.get(edge.index()) {
                     let band = drawer.band(self.screen, shape);
                     let spot = drifter_core::drawer::shadow_rect(band, edge, shape);
                     let size = Vec2::new(spot.size.x.max(1.0).floor(), spot.size.y);

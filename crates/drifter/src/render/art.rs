@@ -217,12 +217,13 @@ pub(super) fn paint_drops(
     Edge::ALL
         .into_iter()
         .filter_map(|edge| {
-            let image = drawer::drop_shadow(
-                edge,
-                shapes[edge.index()].width(width).max(1.0) as u32,
-                &shapes[edge.index()],
-                f64::from(palette.drop) / 255.0,
-            );
+            let shape = &shapes[edge.index()];
+            let strength = f64::from(palette.drop) / 255.0;
+            let wide = shape.width(width).max(1.0) as u32;
+            let image = match edge == Edge::Bottom && shape.span > 0.0 {
+                true => drawer::wrap_shadow(wide, shape, strength),
+                false => drawer::drop_shadow(edge, wide, shape, strength),
+            };
             upload(renderer, Some(&image), "drawer shadow").ok().flatten()
         })
         .collect()
