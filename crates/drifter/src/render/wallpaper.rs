@@ -478,7 +478,7 @@ impl State {
                 rest.advance(Duration::from_secs(1), Duration::from_millis(1));
                 let origin = rest.rect(screen, &shape).origin;
                 let mut image =
-                    drifter_core::drawer::paint_flat(edge, screen.x.max(1.0) as u32, &shape, palette.bar, veil);
+                    drifter_core::drawer::paint_flat(edge, shape.width(screen.x).max(1.0) as u32, &shape, palette.bar, veil);
                 drifter_core::frost::underlay(&mut image, f64::from(veil) / 255.0, |point| {
                     frost.behind(&laid, picture, origin + point / dense)
                 });

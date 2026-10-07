@@ -259,6 +259,9 @@ pub struct Model {
     pub automatic: bool,
     pub autostarts: Vec<crate::autostart::Entry>,
     pub dock: Vec<Launch>,
+    pub dock_icon: f64,
+    pub dock_pad: f64,
+    pub dock_fit: bool,
     pub shows: [bool; 6],
     pub defaults: [Option<Launch>; 8],
     pub system: [Option<String>; 8],
@@ -427,6 +430,9 @@ impl Model {
             automatic: config.login.automatic,
             autostarts: Vec::new(),
             dock: config.dock.pinned.clone(),
+            dock_icon: config.dock_icon(),
+            dock_pad: config.dock_padding(),
+            dock_fit: config.dock.fit,
             shows: [
                 config.dock.files,
                 config.dock.terminal,
@@ -996,16 +1002,31 @@ impl Model {
                         rows: vec![Row::new(Id::HideBottom, "Auto hide", Control::Switch(self.motion.hide_bottom))
                             .detail("Off keeps the dock on screen, and maximized windows leave room for it"),
                         Row::new(
-                            Id::Bottom,
-                            "Size",
+                            Id::DockIcon,
+                            "Icon size",
                             Control::Slider {
                                 least: 16.0,
-                                most: 160.0,
-                                value: self.bottom,
+                                most: 128.0,
+                                value: self.dock_icon,
                                 unit: " px",
                                 zero: None,
                             },
-                        )],
+                        ),
+                        Row::new(
+                            Id::DockPadding,
+                            "Padding",
+                            Control::Slider {
+                                least: 0.0,
+                                most: 40.0,
+                                value: self.dock_pad,
+                                unit: " px",
+                                zero: None,
+                            },
+                        )
+                        .detail("Room around the icons. The dock is the icon size plus this above and below"),
+                        Row::new(Id::DockFit, "Fit to icons", Control::Switch(self.dock_fit))
+                            .detail("Only as wide as its icons. Off spans the whole screen"),
+                        ],
                         footer: None,
                         thumbs: None,
                     },
@@ -1639,6 +1660,9 @@ impl Model {
             (Id::Battery, Value::Switch(on)) => self.battery = on,
             (Id::Autostart, Value::Switch(on)) => self.autostart = on,
             (Id::AutoLogin, Value::Switch(on)) => self.automatic = on,
+            (Id::DockIcon, Value::Number(n)) => self.dock_icon = n.round().clamp(16.0, 128.0),
+            (Id::DockPadding, Value::Number(n)) => self.dock_pad = n.round().clamp(0.0, 40.0),
+            (Id::DockFit, Value::Switch(on)) => self.dock_fit = on,
             (Id::AutoEntry(at), Value::Switch(on)) => {
                 if let Some(entry) = self.autostarts.get_mut(at) {
                     entry.on = on;
@@ -1925,6 +1949,15 @@ impl Model {
                 "autostart",
                 toml_edit::Value::from(self.autostart),
             );
+        }
+        if self.dock_icon != before.dock_icon {
+            put(&mut doc, "dock", "icon", int(self.dock_icon));
+        }
+        if self.dock_pad != before.dock_pad {
+            put(&mut doc, "dock", "padding", int(self.dock_pad));
+        }
+        if self.dock_fit != before.dock_fit {
+            put(&mut doc, "dock", "fit", toml_edit::Value::from(self.dock_fit));
         }
         if self.automatic != before.automatic {
             put(
@@ -2213,6 +2246,9 @@ pub enum Id {
     Autostart,
     AutoEntry(usize),
     AutoLogin,
+    DockIcon,
+    DockPadding,
+    DockFit,
     Dock(usize),
     DockAdd,
     DockShow(usize),
@@ -4294,6 +4330,21 @@ mod tests {
         model.set(Id::Brightness, Value::Number(72.4));
         assert_eq!(model.brightness, Some(0.72));
         assert_eq!(model.write(&before, "").unwrap(), "");
+    }
+
+    #[test]
+    fn the_dock_icon_padding_and_fit_write_the_dock_table() {
+        let text = "[dock]\n";
+        let before = model(&config(text));
+        assert_eq!((before.dock_icon, before.dock_pad, before.dock_fit), (52.0, 6.0, false));
+        let mut after = before.clone();
+        after.set(Id::DockIcon, Value::Number(40.0));
+        after.set(Id::DockPadding, Value::Number(12.0));
+        after.set(Id::DockFit, Value::Switch(true));
+        let back = Config::parse(&after.write(&before, text).unwrap()).unwrap();
+        assert_eq!(back.dock_height(), 64.0);
+        assert!(back.dock.fit);
+        back.validate().unwrap();
     }
 
     #[test]

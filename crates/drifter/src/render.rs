@@ -519,6 +519,9 @@ pub struct State {
     battery_at: Option<Instant>,
     battery_busy: bool,
     show_battery: bool,
+    dock_fit: bool,
+    dock_pad: f64,
+    fit_busy: bool,
     battery_glow: Option<TextureBuffer<Tex>>,
     ebb_from: Instant,
     welcome_wanted: bool,
@@ -927,7 +930,7 @@ impl State {
                 if let Some(drop) = self.drops.get(edge.index()) {
                     let band = drawer.band(self.screen, shape);
                     let spot = drifter_core::drawer::shadow_rect(band, edge, shape);
-                    let size = Vec2::new(self.screen.x.max(1.0).floor(), spot.size.y);
+                    let size = Vec2::new(spot.size.x.max(1.0).floor(), spot.size.y);
                     elements.push(Skin::Texture(cropped(drop, Rect::new(Vec2::ZERO, size), spot)));
                 }
             }
@@ -1192,6 +1195,7 @@ impl State {
         self.wind_the_app_label();
         self.wind_the_stats();
         self.wind_the_battery();
+        self.fit_dock();
         self.wind_the_volume();
         self.wind_the_light();
         self.wind_the_control();
@@ -1573,6 +1577,13 @@ impl Screen {
             Some(error) => Err(error),
             None => Ok(()),
         }
+    }
+}
+
+fn dock_margin(config: &Config) -> f64 {
+    match config.dock.fit {
+        true => config.dock_padding() + drifter_core::drawer::Panel::default().radius,
+        false => drifter_core::dock::Dock::themed(&drifter_core::theme::DARK).margin,
     }
 }
 

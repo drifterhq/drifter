@@ -193,7 +193,7 @@ pub fn open(
             ..Panel::default()
         },
         Panel {
-            height: config.drawers.bottom,
+            height: config.dock_height(),
             ..Panel::default()
         },
     ];
@@ -297,7 +297,7 @@ pub fn open(
         }
     };
 
-    let trash_look = Dock::themed(&palette).sized(config.drawers.bottom);
+    let trash_look = Dock::themed(&palette).with_icon(config.dock_icon());
     let side = trash_look.icon as u32;
     let (trash, cog, spare) = load_dock_art(&mut renderer, config, side, &palette);
     let shadow_image = drifter_core::window::shadow_patch(chrome.radius, drifter_core::window::SHADOW_BLUR);
@@ -420,7 +420,8 @@ pub fn open(
         dock: Dock {
             settings: config.dock.settings,
             trash: config.dock.trash,
-            ..Dock::themed(&palette).sized(config.drawers.bottom)
+            margin: dock_margin(config),
+            ..Dock::themed(&palette).with_icon(config.dock_icon())
         },
         pinned,
         pinned_from: (config.dock.clone(), config.apps.clone()),
@@ -489,6 +490,9 @@ pub fn open(
         battery_at: None,
         battery_busy: false,
         show_battery: config.tray.battery,
+        dock_fit: config.dock.fit,
+        dock_pad: config.dock_padding(),
+        fit_busy: false,
         battery_glow: None,
         ebb_from: Instant::now(),
         welcome_wanted: live && config.welcome.show,

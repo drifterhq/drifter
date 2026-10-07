@@ -147,6 +147,16 @@ trash = true
 # The Apps button at the start of the dock opens a grid of every app.
 apps = true
 
+# Icon size in pixels, and the room around the icons. The dock is the
+# icon size plus the padding above and below. Left out, they follow
+# [drawers] bottom. Settings > Dock sets both.
+# icon = 52
+# padding = 6
+
+# true makes the dock only as wide as its icons plus the padding.
+# false spans the whole screen.
+fit = false
+
 [window]
 # Which end of the title bar holds the buttons: left or right.
 buttons = "left"

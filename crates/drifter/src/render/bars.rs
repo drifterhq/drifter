@@ -891,6 +891,51 @@ impl State {
         );
     }
 
+    pub(super) fn fit_dock(&mut self) {
+        let shape = self.shapes[Edge::Bottom.index()];
+        let span = match self.dock_fit {
+            true => {
+                let width = self.dock.width(self.dock_apps().len(), self.minimized().len());
+                (width + (self.dock_pad + shape.radius) * 2.0).round()
+            }
+            false => 0.0,
+        };
+        if span == shape.span || self.fit_busy {
+            return;
+        }
+        self.fit_busy = true;
+        let shape = Panel { span, ..shape };
+        let (screen, palette) = (self.screen, self.palette);
+        self.on_worker(
+            "dock shape",
+            move || {
+                let width = shape.width(screen.x).max(1.0) as u32;
+                let mut panel = drifter_core::drawer::paint(Edge::Bottom, width, &shape, palette.bar, PANEL_ALPHA);
+                drifter_core::drawer::rim(&mut panel, Edge::Bottom, &shape, palette.rim, f64::from(palette.rim_alpha) / 255.0);
+                let drop = drifter_core::drawer::drop_shadow(Edge::Bottom, width, &shape, f64::from(palette.drop) / 255.0);
+                (panel, drop)
+            },
+            move |state, (panel, drop)| {
+                state.fit_busy = false;
+                let panel = upload(&mut state.renderer, Some(&panel), "dock").ok().flatten();
+                let drop = upload(&mut state.renderer, Some(&drop), "dock shadow").ok().flatten();
+                let (Some(panel), Some(drop)) = (panel, drop) else {
+                    return;
+                };
+                state.shapes[Edge::Bottom.index()].span = span;
+                state.panels[Edge::Bottom.index()] = panel.clone();
+                for head in &mut state.heads {
+                    head.panels[Edge::Bottom.index()] = panel.clone();
+                }
+                if let Some(held) = state.drops.get_mut(Edge::Bottom.index()) {
+                    *held = drop;
+                }
+                state.frost_key = None;
+                state.kick_now();
+            },
+        );
+    }
+
     pub(super) fn battery_rect(&self) -> Option<Rect> {
         let (_, size) = self.battery_art.as_ref()?;
         Some(self.tray.battery_rect(self.tray_band()?, *size))

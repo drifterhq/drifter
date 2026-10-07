@@ -312,7 +312,7 @@ pub struct Assets {
     pub dock: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DockConfig {
     #[serde(default)]
@@ -329,6 +329,12 @@ pub struct DockConfig {
     pub trash: bool,
     #[serde(default = "yes")]
     pub apps: bool,
+    #[serde(default)]
+    pub icon: Option<f64>,
+    #[serde(default)]
+    pub padding: Option<f64>,
+    #[serde(default)]
+    pub fit: bool,
 }
 
 impl Default for DockConfig {
@@ -341,6 +347,9 @@ impl Default for DockConfig {
             settings: true,
             trash: true,
             apps: true,
+            icon: None,
+            padding: None,
+            fit: false,
         }
     }
 }
@@ -1322,6 +1331,25 @@ impl Config {
         folders
     }
 
+    pub fn dock_icon(&self) -> f64 {
+        self.dock
+            .icon
+            .unwrap_or((self.drawers.bottom * 0.82).round())
+            .clamp(16.0, 128.0)
+    }
+
+    pub fn dock_padding(&self) -> f64 {
+        let icon = self.dock_icon();
+        self.dock
+            .padding
+            .unwrap_or(((self.drawers.bottom - icon) / 2.0).round())
+            .clamp(0.0, 40.0)
+    }
+
+    pub fn dock_height(&self) -> f64 {
+        self.dock_icon() + self.dock_padding() * 2.0
+    }
+
     pub fn state_dir() -> PathBuf {
         xdg_dir("XDG_STATE_HOME", ".local/state")
     }
@@ -1709,6 +1737,12 @@ mod tests {
         let config = Config::default();
         assert_eq!(config.drawers.top, 36.0);
         assert_eq!(config.drawers.bottom, 64.0);
+        assert_eq!(config.dock_height(), 64.0);
+        assert_eq!(config.dock_icon(), 52.0);
+        assert_eq!(config.dock_padding(), 6.0);
+        let mine = Config::parse("[dock]\nicon = 40\npadding = 10\nfit = true\n").unwrap();
+        assert_eq!(mine.dock_height(), 60.0);
+        assert!(mine.dock.fit);
         assert_eq!(config.drawers.height(crate::drawer::Edge::Top), 36.0);
         assert_eq!(config.drawers.height(crate::drawer::Edge::Bottom), 64.0);
     }

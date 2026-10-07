@@ -33,6 +33,7 @@ pub struct Panel {
     pub radius: f64,
     pub shadow: f64,
     pub slack: f64,
+    pub span: f64,
 }
 
 impl Default for Panel {
@@ -42,11 +43,19 @@ impl Default for Panel {
             radius: 10.0,
             shadow: 28.0,
             slack: 16.0,
+            span: 0.0,
         }
     }
 }
 
 impl Panel {
+    pub fn width(&self, screen: f64) -> f64 {
+        match self.span > 0.0 {
+            true => self.span.min(screen),
+            false => screen,
+        }
+    }
+
     pub fn texture_height(&self) -> f64 {
         self.slack + self.height + self.radius
     }
@@ -140,13 +149,13 @@ impl Drawer {
     }
 
     pub fn rect(&self, screen: Vec2, panel: &Panel) -> Rect {
-        let size = panel.texture_size(screen.x);
+        let size = panel.texture_size(panel.width(screen.x));
         let reveal = self.reveal(panel);
         let y = match self.edge {
             Edge::Top => reveal - size.y,
             Edge::Bottom => screen.y - reveal,
         };
-        Rect::new(Vec2::new(0.0, y), size)
+        Rect::new(Vec2::new(((screen.x - size.x) / 2.0).round(), y), size)
     }
 
     pub fn open_band(&self, screen: Vec2, panel: &Panel) -> Rect {
@@ -164,7 +173,7 @@ impl Drawer {
             Edge::Top => straight - panel.height,
             Edge::Bottom => straight,
         };
-        Rect::new(Vec2::new(0.0, y), Vec2::new(screen.x, panel.height))
+        Rect::new(Vec2::new(rect.origin.x, y), Vec2::new(rect.size.x, panel.height))
     }
 
     pub fn holds(&self, pointer: Vec2, screen: Vec2, panel: &Panel) -> bool {
@@ -311,6 +320,23 @@ pub fn paint_flat(edge: Edge, width: u32, panel: &Panel, color: [u8; 3], alpha: 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_narrow_panel_sits_in_the_middle_and_its_band_matches() {
+        let panel = Panel { span: 400.0, ..Panel::default() };
+        let mut drawer = Drawer::new(Edge::Bottom);
+        drawer.open = true;
+        drawer.advance(std::time::Duration::from_secs(1), std::time::Duration::from_millis(1));
+        let screen = Vec2::new(1600.0, 1000.0);
+        let rect = drawer.rect(screen, &panel);
+        let band = drawer.band(screen, &panel);
+        assert_eq!(rect.origin.x, 600.0);
+        assert_eq!(rect.size.x, 400.0);
+        assert_eq!((band.origin.x, band.size.x), (600.0, 400.0));
+        let full = Panel::default();
+        assert_eq!(drawer.band(screen, &full).size.x, 1600.0);
+        assert_eq!(Panel { span: 4000.0, ..full }.width(1600.0), 1600.0);
+    }
+
     use super::*;
 
     const SCREEN: Vec2 = Vec2::new(1920.0, 1080.0);

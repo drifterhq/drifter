@@ -334,7 +334,7 @@ impl State {
         self.trash = trash;
         self.cog = cog;
         self.dock_spare = spare;
-        let dock = drifter_core::dock::Dock::themed(&palette).sized(self.shapes[Edge::Bottom.index()].height);
+        let dock = drifter_core::dock::Dock::themed(&palette).with_icon(self.dock.icon);
         let dot = drifter_core::dock::paint_dot(dock.dot_side() as u32, palette.ink);
         if let Ok(Some(buffer)) = upload(&mut self.renderer, Some(&dot), "running dot") {
             self.dot = Some(buffer);
@@ -483,7 +483,7 @@ impl State {
         self.set_places(&config.place, config.input.modifier);
         self.follow_looks(config);
 
-        let heights = [config.drawers.top, config.drawers.bottom];
+        let heights = [config.drawers.top, config.dock_height()];
         let mut repaint = false;
         for edge in Edge::ALL {
             let shape = &mut self.shapes[edge.index()];
@@ -533,7 +533,10 @@ impl State {
         self.dock.trash = config.dock.trash;
         self.apps_chosen = config.apps.clone();
         let wanted = (config.dock.clone(), config.apps.clone());
-        let resized = self.dock.sized(config.drawers.bottom);
+        self.dock_fit = config.dock.fit;
+        self.dock_pad = config.dock_padding();
+        self.dock.margin = dock_margin(config);
+        let resized = self.dock.with_icon(config.dock_icon());
         let regrown = resized.icon != self.dock.icon;
         if regrown {
             self.dock = resized;

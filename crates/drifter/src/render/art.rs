@@ -219,7 +219,7 @@ pub(super) fn paint_drops(
         .filter_map(|edge| {
             let image = drawer::drop_shadow(
                 edge,
-                width.max(1.0) as u32,
+                shapes[edge.index()].width(width).max(1.0) as u32,
                 &shapes[edge.index()],
                 f64::from(palette.drop) / 255.0,
             );
@@ -242,7 +242,7 @@ pub(super) fn paint_panels(
         };
         let mut image = drawer::paint(
             edge,
-            width.max(1.0) as u32,
+            shapes[edge.index()].width(width).max(1.0) as u32,
             &shapes[edge.index()],
             palette.bar,
             PANEL_ALPHA,
