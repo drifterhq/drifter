@@ -7,7 +7,7 @@ const SLIDE_STILL: Duration = Duration::from_millis(140);
 const INTRO: Duration = Duration::from_millis(1400);
 const CLOSING: Duration = Duration::from_millis(260);
 const NUDGE: f64 = 28.0;
-const DIM: f32 = 0.22;
+const DIM: f32 = 0.12;
 const KEY_ESCAPE: u32 = 9;
 const KEY_RETURN: u32 = 36;
 const KEY_PAD_ENTER: u32 = 104;
@@ -39,6 +39,7 @@ pub(super) struct Welcome {
     density: u32,
     black: Option<TextureBuffer<Tex>>,
     accent: Option<TextureBuffer<Tex>>,
+    shadow: Option<(TextureBuffer<Tex>, f64)>,
     job: u64,
 }
 
@@ -107,6 +108,11 @@ impl State {
         )
         .ok()
         .flatten();
+        let patch = drifter_core::window::shadow_patch(drifter_core::welcome::RADIUS, 44.0);
+        let shadow = upload_flat(&mut self.renderer, Some(&patch), "welcome shadow")
+            .ok()
+            .flatten()
+            .map(|buffer| (buffer, f64::from(patch.width - 1) / 2.0));
         let count = papers.len();
         self.welcome = Some(Welcome {
             view,
@@ -129,6 +135,7 @@ impl State {
             density: self.density,
             black,
             accent: tint,
+            shadow,
             job: 0,
         });
         self.welcome_read(&config);
@@ -449,7 +456,11 @@ impl State {
             let gone = Rect::new(rect.origin - Vec2::new(way * shift * t, 0.0) + rise, rect.size);
             elements.push(Skin::Texture(element(art, gone, (fade * (1.0 - t)) as f32)));
         }
-        self.modal_shadow(here, elements);
+        if let Some((buffer, corner)) = open.shadow.as_ref() {
+            for (source, target) in drifter_core::window::shadow_slices(here, *corner, 1.0, 10.0) {
+                elements.push(Skin::Texture(faded(buffer, source, target, 0.2 * fade as f32)));
+            }
+        }
         if let Some(black) = open.black.as_ref() {
             let dim = DIM * fade as f32;
             elements.push(Skin::Texture(fill(black, Rect::new(Vec2::ZERO, screen), dim)));
