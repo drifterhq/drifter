@@ -77,14 +77,14 @@ fn main() {
     view.suggested = drifter_core::welcome::suggest(2400.0, 259.0, &view.scales);
     view.screen = "Built-in screen, 2400 by 1600".into();
     view.tiles = vec![
-        Tile { role: Role::Browser, name: Some("Firefox ESR".into()), icon: None, busy: false },
-        Tile { role: Role::Mail, name: Some("Thunderbird".into()), icon: None, busy: false },
-        Tile { role: Role::Files, name: Some("Thunar".into()), icon: None, busy: false },
-        Tile { role: Role::Terminal, name: Some("Foot".into()), icon: None, busy: false },
-        Tile { role: Role::Editor, name: None, icon: None, busy: true },
-        Tile { role: Role::Images, name: Some("Ristretto".into()), icon: None, busy: false },
-        Tile { role: Role::Video, name: Some("mpv".into()), icon: None, busy: false },
-        Tile { role: Role::Music, name: None, icon: None, busy: false },
+        Tile { role: Role::Browser, name: Some("Firefox ESR".into()), icon: None, busy: false, weak: false },
+        Tile { role: Role::Mail, name: Some("Thunderbird".into()), icon: None, busy: false, weak: false },
+        Tile { role: Role::Files, name: Some("Thunar File Manager".into()), icon: None, busy: false, weak: false },
+        Tile { role: Role::Terminal, name: Some("Foot".into()), icon: None, busy: false, weak: false },
+        Tile { role: Role::Editor, name: None, icon: None, busy: true, weak: false },
+        Tile { role: Role::Images, name: Some("Firefox ESR".into()), icon: None, busy: false, weak: true },
+        Tile { role: Role::Video, name: Some("mpv".into()), icon: None, busy: false, weak: false },
+        Tile { role: Role::Music, name: None, icon: None, busy: false, weak: false },
     ];
     let shots: Vec<(String, View)> = {
         let mut shots = Vec::new();

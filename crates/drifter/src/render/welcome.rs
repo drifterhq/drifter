@@ -53,7 +53,21 @@ pub(super) struct Welcome {
     desk: Option<Logo>,
     desk_clock: (f64, Instant),
     desk_since: Instant,
+    dot: Option<TextureBuffer<Tex>>,
+    flight: Option<Flight>,
 }
+
+struct Flight {
+    art: TextureBuffer<Tex>,
+    from: Rect,
+    to: Rect,
+    start: Instant,
+    landed: bool,
+}
+
+const FLIGHT: f64 = 0.42;
+const FLIGHT_HOLD: f64 = 0.7;
+const RING_DOTS: usize = 22;
 
 pub(super) struct Logo {
     program: smithay::backend::renderer::gles::GlesPixelProgram,
@@ -71,6 +85,7 @@ struct Shelf {
     role: Role,
     now: Option<Known>,
     have: Vec<Known>,
+    weak: bool,
 }
 
 impl State {
@@ -144,6 +159,11 @@ impl State {
             .flatten()
             .map(|buffer| (buffer, f64::from(patch.width - 1) / 2.0));
         let count = papers.len();
+        let dot = {
+            let mut canvas = drifter_core::paint::Canvas::new(6, 6);
+            canvas.circle(Vec2::splat(3.0), 3.0, accent, 1.0);
+            upload(&mut self.renderer, Some(&canvas.image), "welcome dot").ok().flatten()
+        };
         self.welcome = Some(Welcome {
             view,
             fonts: std::sync::Arc::new(fonts),
@@ -179,6 +199,8 @@ impl State {
             desk: None,
             desk_clock: (30.0, Instant::now()),
             desk_since: Instant::now(),
+            dot,
+            flight: None,
         });
         let logo = wallpaper::logo_program(&mut self.renderer).map(|program| Logo { program, sheet: None });
         let desk = wallpaper::desk_program(&mut self.renderer).map(|program| Logo { program, sheet: None });
@@ -283,6 +305,7 @@ impl State {
                     name: shelf.now.as_ref().map(|known| known.name.clone()),
                     icon: shelf.now.as_ref().and_then(|known| known.icon.clone()),
                     busy: busy.iter().any(|offer| offer.role == shelf.role),
+                    weak: shelf.weak,
                 })
                 .collect();
             open.tiles = shelves
@@ -567,44 +590,51 @@ impl State {
                 }
             }
         }
-        if let Some(tint) = open.accent.as_ref().filter(|_| open.closing.is_none()) {
-            let mut bars: Vec<Rect> = Vec::new();
-            if open.view.card == Card::Apps {
-                bars.extend(
-                    open.view
-                        .tiles
+        if let Some(dot) = open.dot.as_ref().filter(|_| open.closing.is_none() && open.view.card == Card::Apps) {
+            let mut rings: Vec<(Vec2, f64)> = open
+                .view
+                .tiles
+                .iter()
+                .enumerate()
+                .filter(|(_, tile)| tile.busy)
+                .map(|(at, _)| look.tile_ring(at))
+                .collect();
+            if let (Some((_, choices)), Some(anchor)) = (&open.view.choosing, drifter_core::welcome::Look::anchor(&open.view)) {
+                let count = choices.len().min(drifter_core::welcome::CHOICES);
+                rings.extend(
+                    choices
                         .iter()
+                        .take(count)
                         .enumerate()
-                        .filter(|(_, tile)| tile.busy)
-                        .map(|(at, _)| look.tile_bar(at)),
+                        .filter(|(_, choice)| choice.busy)
+                        .map(|(at, _)| look.choice_ring(anchor, at, count)),
                 );
-                if let Some((_, choices)) = &open.view.choosing {
-                    let count = choices.len().min(drifter_core::welcome::CHOICES);
-                    bars.extend(
-                        choices
-                            .iter()
-                            .take(count)
-                            .enumerate()
-                            .filter(|(_, choice)| choice.busy)
-                            .map(|(at, _)| look.choice_bar(at, count)),
-                    );
+            }
+            let phase = (now.duration_since(open.opened).as_secs_f64() / 1.2).fract();
+            for (center, radius) in rings {
+                let center = here.origin + center;
+                for step in 0..RING_DOTS {
+                    let place = step as f64 / RING_DOTS as f64;
+                    let behind = (phase - place).rem_euclid(1.0);
+                    let glow = (1.0 - behind * 2.2).max(0.0);
+                    if glow <= 0.0 {
+                        continue;
+                    }
+                    let turn = place * std::f64::consts::TAU - std::f64::consts::FRAC_PI_2;
+                    let at = center + Vec2::new(turn.cos(), turn.sin()) * radius;
+                    let side = 2.0 + 1.6 * glow;
+                    elements.push(Skin::Texture(element(dot, Rect::from_center(at, Vec2::splat(side)), (fade * glow) as f32)));
                 }
             }
-            let phase = now.duration_since(open.opened).as_secs_f64() / 1.1;
-            for bar in bars {
-                let bar = Rect::new(here.origin + bar.origin, bar.size);
-                let wide = bar.size.x * 0.32;
-                let x = bar.origin.x + (bar.size.x + wide) * phase.fract() - wide;
-                let from = x.max(bar.origin.x);
-                let to = (x + wide).min(bar.max().x);
-                if to > from {
-                    let run = Rect::new(Vec2::new(from, bar.origin.y), Vec2::new(to - from, bar.size.y));
-                    elements.push(Skin::Texture(fill(tint, run, fade as f32)));
-                }
-                if let Some(white) = self.plain.as_ref() {
-                    elements.push(Skin::Texture(fill(white, bar, fade as f32 * 0.18)));
-                }
-            }
+        }
+        if let Some(flight) = open.flight.as_ref().filter(|_| open.closing.is_none()) {
+            let p = (now.duration_since(flight.start).as_secs_f64() / FLIGHT).min(1.0);
+            let e = drifter_core::motion::smooth(p);
+            let origin = flight.from.origin + (flight.to.origin - flight.from.origin) * e;
+            let size = flight.from.size + (flight.to.size - flight.from.size) * e;
+            let arc = Vec2::new(0.0, -26.0 * (std::f64::consts::PI * e).sin());
+            let target = Rect::new(here.origin + origin + arc, size);
+            elements.push(Skin::Texture(element(&flight.art, target, fade as f32)));
         }
         let hello = open.view.card == Card::Hello && open.closing.is_none() && open.art.is_some();
         let logo_rect = look.logo_rect();
@@ -690,6 +720,7 @@ impl State {
             || now.duration_since(open.moved) < SLIDE
             || (open.view.card == Card::Look && open.hovered.is_some())
             || (open.view.card == Card::Apps && !open.busy.is_empty())
+            || open.flight.is_some()
     }
 
     pub(super) fn settle_welcome(&mut self) {
@@ -707,6 +738,21 @@ impl State {
         }
         if open.intro && open.opened.elapsed() >= INTRO {
             open.intro = false;
+        }
+        let mut repaint = false;
+        if let Some(flight) = open.flight.as_mut() {
+            let gone = flight.start.elapsed().as_secs_f64();
+            if gone >= FLIGHT && !flight.landed {
+                flight.landed = true;
+                open.view.landing = None;
+                repaint = true;
+            }
+            if gone >= FLIGHT_HOLD {
+                open.flight = None;
+            }
+        }
+        if repaint {
+            self.paint_welcome();
         }
     }
 
@@ -1060,6 +1106,7 @@ impl State {
         match open.picks.get(at) {
             Some(Pick::Have(id)) => {
                 let id = id.clone();
+                self.welcome_fly(at);
                 self.welcome_default(role, &id);
                 self.welcome_do(Hit::Leave);
             }
@@ -1072,6 +1119,51 @@ impl State {
             }
             None => {}
         }
+    }
+
+    fn welcome_fly(&mut self, at: usize) {
+        let still = self.access.reduce_motion;
+        let look = drifter_core::welcome::Look::themed(&self.palette, self.look.accent);
+        let Some(open) = self.welcome.as_mut() else {
+            return;
+        };
+        let Some(anchor) = drifter_core::welcome::Look::anchor(&open.view) else {
+            return;
+        };
+        let Some((_, choices)) = open.view.choosing.as_ref() else {
+            return;
+        };
+        let count = choices.len().min(drifter_core::welcome::CHOICES);
+        let Some(choice) = choices.get(at) else {
+            return;
+        };
+        let name = choice.name.clone();
+        let icon = choice.icon.clone();
+        if let Some(tile) = open.view.tiles.get_mut(anchor) {
+            tile.name = Some(name);
+            tile.icon = icon.clone();
+            tile.weak = false;
+        }
+        if still || open.view.motion == Motion::Still {
+            return;
+        }
+        let Some(image) = icon else {
+            return;
+        };
+        let Ok(Some(art)) = upload(&mut self.renderer, Some(&image), "welcome flight") else {
+            return;
+        };
+        let Some(open) = self.welcome.as_mut() else {
+            return;
+        };
+        open.view.landing = Some(anchor);
+        open.flight = Some(Flight {
+            art,
+            from: look.choice_icon(anchor, at, count),
+            to: look.tile_icon(anchor),
+            start: Instant::now(),
+            landed: false,
+        });
     }
 
     fn welcome_default(&mut self, role: Role, id: &str) {
@@ -1269,7 +1361,14 @@ fn scan_apps(config_path: &Path) -> Vec<Shelf> {
                     id: app.id,
                 })
                 .collect();
-            Shelf { role, now, have }
+            let weak = role != Role::Browser
+                && now.as_ref().is_some_and(|known| {
+                    installed
+                        .iter()
+                        .find(|app| app.id == known.id)
+                        .is_some_and(|app| app.categories.iter().any(|kind| kind == "WebBrowser"))
+                });
+            Shelf { role, now, have, weak }
         })
         .collect()
 }

@@ -59,7 +59,11 @@ pub fn logo_source() -> String {
 }
 pub const CHOICES: usize = 5;
 pub const TILES: usize = 8;
-pub const TILE_ICON: u32 = 40;
+pub const TILE_ICON: u32 = 56;
+pub const GROUPS: [(&str, usize, usize); 3] = [("Internet", 0, 2), ("Work", 2, 5), ("Media", 5, 8)];
+const SLOT: f64 = 80.0;
+const GROUP_GAP: f64 = 16.0;
+const CELL: f64 = 92.0;
 const PAD: f64 = 36.0;
 pub const RADIUS: f64 = 26.0;
 const FOOT: f64 = 58.0;
@@ -227,6 +231,7 @@ pub struct Tile {
     pub name: Option<String>,
     pub icon: Option<Image>,
     pub busy: bool,
+    pub weak: bool,
 }
 
 #[derive(Clone)]
@@ -263,6 +268,7 @@ pub struct View {
     pub hover: Option<Hit>,
     pub live_logo: bool,
     pub live_note: bool,
+    pub landing: Option<usize>,
 }
 
 impl View {
@@ -291,6 +297,7 @@ impl View {
             hover: None,
             live_logo: false,
             live_note: false,
+            landing: None,
         }
     }
 
@@ -376,37 +383,58 @@ impl Look {
         )
     }
 
+    fn group_of(at: usize) -> usize {
+        GROUPS.iter().position(|(_, from, to)| at >= *from && at < *to).unwrap_or(GROUPS.len() - 1)
+    }
+
     pub fn tile_rect(&self, at: usize) -> Rect {
-        let wide = 150.0;
-        let gap = 16.0;
-        let left = (SIZE.x - (wide * 4.0 + gap * 3.0)) / 2.0;
-        let (row, column) = (at / 4, at % 4);
-        Rect::new(
-            Vec2::new(left + column as f64 * (wide + gap), 104.0 + row as f64 * 100.0),
-            Vec2::new(wide, 92.0),
-        )
+        let wide = SLOT * TILES as f64 + GROUP_GAP * (GROUPS.len() - 1) as f64;
+        let left = (SIZE.x - wide) / 2.0;
+        let x = left + at as f64 * SLOT + Self::group_of(at) as f64 * GROUP_GAP;
+        Rect::new(Vec2::new(x, 162.0), Vec2::new(SLOT, 108.0))
     }
 
-    pub fn tile_bar(&self, at: usize) -> Rect {
-        let tile = self.tile_rect(at);
-        Rect::new(tile.origin + Vec2::new(28.0, tile.size.y - 5.0), Vec2::new(tile.size.x - 56.0, 3.0))
+    pub fn tile_icon(&self, at: usize) -> Rect {
+        let slot = self.tile_rect(at);
+        Rect::from_center(Vec2::new(slot.center().x, slot.origin.y + 38.0), Vec2::splat(TILE_ICON as f64))
     }
 
-    pub fn tray_rect(&self) -> Rect {
-        Rect::new(Vec2::new(PAD, 308.0), Vec2::new(SIZE.x - PAD * 2.0, 124.0))
+    pub fn tile_ring(&self, at: usize) -> (Vec2, f64) {
+        (self.tile_icon(at).center(), TILE_ICON as f64 / 2.0 + 7.0)
     }
 
-    pub fn choice_rect(&self, at: usize, count: usize) -> Rect {
-        let wide = 108.0;
-        let count = count.clamp(1, CHOICES + 1);
-        let tray = self.tray_rect();
-        let left = tray.center().x - wide * count as f64 / 2.0;
-        Rect::new(Vec2::new(left + at as f64 * wide, tray.origin.y + 12.0), Vec2::new(wide, 100.0))
+    fn group_span(&self, group: usize) -> Rect {
+        let (_, from, to) = GROUPS[group];
+        let first = self.tile_rect(from);
+        let last = self.tile_rect(to - 1);
+        Rect::new(Vec2::new(first.origin.x, 126.0), Vec2::new(last.max().x - first.origin.x, 24.0))
     }
 
-    pub fn choice_bar(&self, at: usize, count: usize) -> Rect {
-        let cell = self.choice_rect(at, count);
-        Rect::new(cell.origin + Vec2::new(30.0, cell.size.y - 4.0), Vec2::new(cell.size.x - 60.0, 3.0))
+    pub fn popover_rect(&self, anchor: usize, count: usize) -> Rect {
+        let cells = count.clamp(0, CHOICES) + 1;
+        let wide = cells as f64 * CELL + 24.0;
+        let center = self.tile_rect(anchor).center().x;
+        let x = (center - wide / 2.0).clamp(PAD, SIZE.x - PAD - wide);
+        Rect::new(Vec2::new(x, 292.0), Vec2::new(wide, 120.0))
+    }
+
+    pub fn choice_rect(&self, anchor: usize, at: usize, count: usize) -> Rect {
+        let pop = self.popover_rect(anchor, count);
+        Rect::new(Vec2::new(pop.origin.x + 12.0 + at as f64 * CELL, pop.origin.y + 10.0), Vec2::new(CELL, 100.0))
+    }
+
+    pub fn choice_icon(&self, anchor: usize, at: usize, count: usize) -> Rect {
+        let cell = self.choice_rect(anchor, at, count);
+        Rect::from_center(Vec2::new(cell.center().x, cell.origin.y + 32.0), Vec2::splat(52.0))
+    }
+
+    pub fn choice_ring(&self, anchor: usize, at: usize, count: usize) -> (Vec2, f64) {
+        (self.choice_icon(anchor, at, count).center(), 26.0 + 6.0)
+    }
+
+    pub fn anchor(view: &View) -> Option<usize> {
+        let (role, _) = view.choosing.as_ref()?;
+        view.tiles.iter().position(|tile| tile.role == *role)
     }
 
     fn next_rect(&self) -> Rect {
@@ -522,12 +550,12 @@ impl Look {
                 for at in 0..view.tiles.len().min(TILES) {
                     spots.push((Hit::Tile(at), self.tile_rect(at)));
                 }
-                if let Some((_, choices)) = &view.choosing {
+                if let (Some((_, choices)), Some(anchor)) = (&view.choosing, Look::anchor(view)) {
                     let count = choices.len().min(CHOICES);
                     for at in 0..count {
-                        spots.push((Hit::Choice(at), self.choice_rect(at, count + 1)));
+                        spots.push((Hit::Choice(at), self.choice_rect(anchor, at, count)));
                     }
-                    spots.push((Hit::Other, self.choice_rect(count, count + 1)));
+                    spots.push((Hit::Other, self.choice_rect(anchor, count, count)));
                 }
             }
             Card::Done => spots.push((Hit::Quiet, self.quiet_rect(fonts))),
@@ -1150,82 +1178,125 @@ impl Look {
 
     fn paint_apps(&self, canvas: &mut Canvas, view: &View, fonts: &Fonts) {
         self.title(canvas, fonts, "Your apps", PAD);
-        let words = fonts.body.paint("These open your links, files and notes. Click one to change it.", self.dim);
+        let words = fonts.body.paint("These open your links, files and media. Click one to change it.", self.dim);
         canvas.stamp(&words, Vec2::new(PAD, 76.0), 1.0);
         let open = view.choosing.as_ref().map(|(role, _)| *role);
+        for (group, (name, _, _)) in GROUPS.iter().enumerate() {
+            let span = self.group_span(group);
+            let words = fonts.small.paint(name, self.dim);
+            let size = logical(&words);
+            let y = span.origin.y + 4.0;
+            canvas.stamp(&words, Vec2::new(span.center().x - size.x / 2.0, y).round(), 0.9);
+            let rule = y + size.y / 2.0;
+            let gap = size.x / 2.0 + 10.0;
+            let ink = if self.light { BLACK } else { WHITE };
+            canvas.line(Vec2::new(span.origin.x + 8.0, rule), Vec2::new(span.center().x - gap, rule), 1.0, ink, 0.12);
+            canvas.line(Vec2::new(span.center().x + gap, rule), Vec2::new(span.max().x - 8.0, rule), 1.0, ink, 0.12);
+        }
         for (at, tile) in view.tiles.iter().take(TILES).enumerate() {
-            let rect = self.tile_rect(at);
+            let slot = self.tile_rect(at);
             let hover = view.hovered(Hit::Tile(at));
             let active = open == Some(tile.role);
-            let dim = open.is_some() && !active;
-            canvas.shadow(rect, 18.0, if hover || active { 12.0 } else { 7.0 }, if hover || active { 0.26 } else { 0.14 });
-            let face = match self.light {
-                true => WHITE,
-                false => self.card_face(hover || active),
-            };
-            canvas.round_rect(rect, 18.0, face, 1.0);
-            match active {
-                true => canvas.ring(rect, 18.0, 2.5, self.accent, 1.0),
-                false => canvas.ring(rect, 18.0, 1.0, WHITE, if self.light { 0.9 } else { 0.07 }),
+            let fade = if open.is_some() && !active { 0.5 } else { 1.0 };
+            if active || hover {
+                let tint = if active { self.accent } else { self.raised };
+                let alpha = match (active, self.light) {
+                    (true, _) => 0.16,
+                    (false, true) => 0.55,
+                    (false, false) => 0.6,
+                };
+                canvas.round_rect(slot, 14.0, tint, alpha);
             }
-            let fade = if dim { 0.55 } else { 1.0 };
-            let icon = Rect::from_center(Vec2::new(rect.center().x, rect.origin.y + 31.0), Vec2::splat(TILE_ICON as f64));
+            let lift = if hover || active { -3.0 } else { 0.0 };
+            let icon = self.tile_icon(at);
+            let icon = Rect::new(icon.origin + Vec2::new(0.0, lift), icon.size);
             match &tile.name {
-                Some(name) => self.app_icon(canvas, fonts, icon, tile.icon.as_ref(), name, fade),
+                Some(name) if view.landing != Some(at) => self.app_icon(canvas, fonts, icon, tile.icon.as_ref(), name, fade),
+                Some(_) => {}
                 None => {
-                    canvas.ring(icon, 12.0, 1.5, self.dim, 0.6 * fade);
-                    canvas.line(icon.center() - Vec2::new(7.0, 0.0), icon.center() + Vec2::new(7.0, 0.0), 2.0, self.dim, 0.9 * fade);
-                    canvas.line(icon.center() - Vec2::new(0.0, 7.0), icon.center() + Vec2::new(0.0, 7.0), 2.0, self.dim, 0.9 * fade);
+                    canvas.ring(icon, 14.0, 1.5, self.dim, 0.4 * fade);
+                    let mid = icon.center();
+                    canvas.line(mid - Vec2::new(8.0, 0.0), mid + Vec2::new(8.0, 0.0), 1.8, self.dim, 0.7 * fade);
+                    canvas.line(mid - Vec2::new(0.0, 8.0), mid + Vec2::new(0.0, 8.0), 1.8, self.dim, 0.7 * fade);
                 }
             }
-            let name = tile.name.clone().unwrap_or_else(|| "Choose one".to_string());
-            let name = fit(&fonts.body, &name, rect.size.x - 20.0);
-            let words = fonts.body.paint_bold(&name, self.ink);
-            canvas.stamp(&words, Vec2::new(rect.center().x - logical(&words).x / 2.0, rect.origin.y + 56.0).round(), fade);
-            let (label, ink) = match tile.busy {
-                true => ("Getting it", self.accent),
-                false => (tile.role.label(), self.dim),
+            if tile.busy {
+                let (center, radius) = self.tile_ring(at);
+                canvas.ring(Rect::from_center(center, Vec2::splat(radius * 2.0)), radius, 2.5, self.dim, 0.2);
+            }
+            if tile.weak && tile.name.is_some() && !tile.busy {
+                let badge = Vec2::new(icon.max().x - 3.0, icon.origin.y + 3.0);
+                canvas.circle(badge, 6.5, if self.light { WHITE } else { self.raised }, 1.0);
+                canvas.circle(badge, 4.5, self.accent, fade);
+            }
+            let (name, ink) = match &tile.name {
+                Some(name) => (short_name(name), self.ink),
+                None => ("Choose".to_string(), self.dim),
             };
-            let words = fonts.small.paint(label, ink);
-            canvas.stamp(&words, Vec2::new(rect.center().x - logical(&words).x / 2.0, rect.origin.y + 73.0).round(), fade);
+            let name = fit(&fonts.small, &name, slot.size.x - 2.0);
+            let words = fonts.small.paint_bold(&name, ink);
+            canvas.stamp(&words, Vec2::new(slot.center().x - logical(&words).x / 2.0, slot.origin.y + 72.0).round(), fade);
+            let (label, ink) = match (tile.busy, tile.weak && hover && tile.name.is_some()) {
+                (true, _) => ("Getting it", self.accent),
+                (false, true) => ("Better ones exist", self.accent),
+                _ => (role_word(tile.role), self.dim),
+            };
+            let label = fit(&fonts.small, label, slot.size.x + 12.0);
+            let words = fonts.small.paint(&label, ink);
+            canvas.stamp(&words, Vec2::new(slot.center().x - logical(&words).x / 2.0, slot.origin.y + 89.0).round(), fade);
         }
-        let Some((_, choices)) = &view.choosing else {
+        let (Some((_, choices)), Some(anchor)) = (&view.choosing, Look::anchor(view)) else {
+            if let Some(note) = &view.note {
+                self.line_center(canvas, &fonts.small, note, 300.0, self.dim);
+            }
             return;
         };
-        let tray = self.tray_rect();
-        let floor = match self.light {
-            true => [236, 238, 243],
-            false => self.well,
-        };
-        canvas.round_rect(tray, 18.0, floor, 1.0);
         let count = choices.len().min(CHOICES);
+        let pop = self.popover_rect(anchor, count);
+        let face = match self.light {
+            true => WHITE,
+            false => self.raised,
+        };
+        let x = self.tile_rect(anchor).center().x;
+        canvas.shadow(pop, 16.0, 12.0, 0.18);
+        canvas.round_rect(pop, 16.0, face, 1.0);
+        canvas.ring(pop, 16.0, 1.0, if self.light { BLACK } else { WHITE }, 0.07);
+        canvas.triangle(
+            [Vec2::new(x, pop.origin.y - 10.0), Vec2::new(x + 12.0, pop.origin.y + 1.0), Vec2::new(x - 12.0, pop.origin.y + 1.0)],
+            face,
+            1.0,
+        );
         for (at, choice) in choices.iter().take(CHOICES).enumerate() {
-            let cell = self.choice_rect(at, count + 1);
+            let cell = self.choice_rect(anchor, at, count);
             let hover = view.hovered(Hit::Choice(at));
-            let icon = Rect::from_center(Vec2::new(cell.center().x, cell.origin.y + 32.0), Vec2::splat(52.0));
+            let icon = self.choice_icon(anchor, at, count);
             if hover {
-                canvas.round_rect(Rect::new(cell.origin + Vec2::new(6.0, -4.0), cell.size - Vec2::new(12.0, 0.0)), 14.0, self.raised, 0.5);
+                let ground = if self.light { [236, 238, 243] } else { self.hover };
+                canvas.round_rect(Rect::new(cell.origin + Vec2::new(6.0, -4.0), cell.size - Vec2::new(12.0, 0.0)), 14.0, ground, 0.9);
             }
             let fade = match choice.installed {
                 true => 1.0,
-                false => 0.55,
+                false => 0.6,
             };
-            self.app_icon(canvas, fonts, icon, choice.icon.as_ref(), &choice.name, fade);
+            let name = short_name(&choice.name);
+            self.app_icon(canvas, fonts, icon, choice.icon.as_ref(), &name, fade);
+            if choice.busy {
+                let (center, radius) = self.choice_ring(anchor, at, count);
+                canvas.ring(Rect::from_center(center, Vec2::splat(radius * 2.0)), radius, 2.5, self.dim, 0.2);
+            }
             if choice.chosen {
-                let around = Rect::new(icon.origin - Vec2::splat(5.0), icon.size + Vec2::splat(10.0));
-                canvas.ring(around, 16.0, 2.5, self.accent, 1.0);
-                let badge = Vec2::new(icon.max().x + 2.0, icon.origin.y + 2.0);
+                let badge = Vec2::new(icon.max().x, icon.origin.y + 2.0);
                 canvas.circle(badge, 9.0, self.accent, 1.0);
                 tick(canvas, badge, 4.0, WHITE);
             }
             if !choice.installed && !choice.busy {
-                let badge = Vec2::new(icon.max().x + 2.0, icon.max().y - 2.0);
+                let badge = Vec2::new(icon.max().x, icon.max().y - 2.0);
                 canvas.circle(badge, 9.0, self.accent, 1.0);
                 canvas.line(badge - Vec2::new(0.0, 4.0), badge + Vec2::new(0.0, 2.5), 1.7, WHITE, 1.0);
                 canvas.line(badge + Vec2::new(-3.2, 0.0), badge + Vec2::new(0.0, 3.2), 1.7, WHITE, 1.0);
                 canvas.line(badge + Vec2::new(3.2, 0.0), badge + Vec2::new(0.0, 3.2), 1.7, WHITE, 1.0);
             }
-            let name = fit(&fonts.small, &choice.name, cell.size.x - 12.0);
+            let name = fit(&fonts.small, &name, cell.size.x - 10.0);
             let ink = match choice.chosen || hover {
                 true => self.ink,
                 false => self.dim,
@@ -1242,9 +1313,9 @@ impl Look {
                 canvas.stamp(&words, Vec2::new(cell.center().x - logical(&words).x / 2.0, cell.origin.y + 80.0).round(), 1.0);
             }
         }
-        self.paint_other(canvas, fonts, self.choice_rect(count, count + 1), view.hovered(Hit::Other));
+        self.paint_other(canvas, fonts, self.choice_rect(anchor, count, count), view.hovered(Hit::Other));
         if let Some(note) = &view.note {
-            self.line_center(canvas, &fonts.small, note, tray.max().y - 20.0, self.dim);
+            self.line_center(canvas, &fonts.small, note, pop.max().y + 8.0, self.dim);
         }
     }
 
@@ -1398,6 +1469,42 @@ fn mark(canvas: &mut Canvas, center: Vec2, radius: f64, accent: [u8; 3]) {
     canvas.glow(center - Vec2::new(radius * 0.35, radius * 0.45), radius * 0.7, WHITE, 0.35);
 }
 
+fn role_word(role: Role) -> &'static str {
+    match role {
+        Role::Browser => "Browser",
+        Role::Mail => "Mail",
+        Role::Files => "Files",
+        Role::Terminal => "Terminal",
+        Role::Editor => "Editor",
+        Role::Images => "Photos",
+        Role::Video => "Video",
+        Role::Music => "Music",
+    }
+}
+
+pub fn short_name(name: &str) -> String {
+    let name = name.trim();
+    for tail in [
+        " File Manager",
+        " Web Browser",
+        " Terminal Emulator",
+        " Terminal",
+        " Media Player",
+        " Image Viewer",
+        " Music Player",
+        " Mail Client",
+        " Email",
+        " Text Editor",
+    ] {
+        if let Some(head) = name.strip_suffix(tail)
+            && !head.trim().is_empty()
+        {
+            return head.trim().to_string();
+        }
+    }
+    name.to_string()
+}
+
 fn fit(font: &Font, text: &str, room: f64) -> String {
     if font.width_of(text) <= room {
         return text.to_string();
@@ -1531,6 +1638,7 @@ mod tests {
                 name: Some("Thing".into()),
                 icon: None,
                 busy: false,
+                weak: false,
             })
             .collect();
         view
@@ -1571,7 +1679,11 @@ mod tests {
         let other = spots.iter().find(|(hit, _)| *hit == Hit::Other).map(|(_, rect)| *rect).unwrap();
         let last = spots.iter().filter(|(hit, _)| matches!(hit, Hit::Choice(_))).map(|(_, rect)| rect.max().x).fold(0.0, f64::max);
         assert!(other.origin.x >= last - 0.5);
-        assert!(look.tray_rect().contains(other.center()));
+        let pop = look.popover_rect(1, CHOICES);
+        assert!(pop.contains(other.center()));
+        assert!(pop.origin.x >= PAD && pop.max().x <= SIZE.x - PAD);
+        assert_eq!(short_name("Thunar File Manager"), "Thunar");
+        assert_eq!(short_name("Text Editor"), "Text Editor");
     }
 
     #[test]
