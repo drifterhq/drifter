@@ -58,7 +58,6 @@ pub enum Section {
 impl Section {
     pub const ALL: [Section; 23] = [
         Section::Desktop,
-        Section::Displays,
         Section::Wallpaper,
         Section::Appearance,
         Section::Window,
@@ -67,20 +66,38 @@ impl Section {
         Section::Notifications,
         Section::Network,
         Section::Bluetooth,
+        Section::Displays,
         Section::Sound,
+        Section::Power,
         Section::Keyboard,
         Section::Mouse,
         Section::Touchpad,
         Section::Shortcuts,
-        Section::Access,
-        Section::Power,
-        Section::Lock,
         Section::Users,
+        Section::Lock,
+        Section::Access,
         Section::Time,
         Section::Login,
         Section::Apps,
         Section::About,
     ];
+
+    pub fn group(self) -> &'static str {
+        match self {
+            Section::Desktop
+            | Section::Wallpaper
+            | Section::Appearance
+            | Section::Window
+            | Section::Dock
+            | Section::TopBar
+            | Section::Notifications => "Desktop",
+            Section::Network | Section::Bluetooth => "Network",
+            Section::Displays | Section::Sound | Section::Power => "Hardware",
+            Section::Keyboard | Section::Mouse | Section::Touchpad | Section::Shortcuts => "Input",
+            Section::Users | Section::Lock | Section::Access => "Users & Security",
+            Section::Time | Section::Login | Section::Apps | Section::About => "System",
+        }
+    }
 
     pub fn name(self) -> &'static str {
         match self {
@@ -2596,7 +2613,15 @@ pub struct Placed {
 }
 
 const SIDE_TOP: f64 = 86.0;
+const SIDE_HEAD: f64 = 30.0;
 const THUMB_GAP: f64 = 10.0;
+
+fn heads_through(shown: &[Section], index: usize) -> usize {
+    let upto = index.min(shown.len().saturating_sub(1));
+    (0..=upto)
+        .filter(|at| shown.get(*at).is_some() && (*at == 0 || shown[*at].group() != shown[*at - 1].group()))
+        .count()
+}
 const THUMB_PAD: f64 = 14.0;
 
 impl Look {
@@ -2605,13 +2630,23 @@ impl Look {
     }
 
     pub fn item_rect(&self, index: usize) -> Rect {
+        self.item_rect_in(&Section::ALL, index)
+    }
+
+    pub fn item_rect_in(&self, shown: &[Section], index: usize) -> Rect {
+        let heads = heads_through(shown, index);
         Rect::new(
             Vec2::new(
                 10.0,
-                SIDE_TOP + index as f64 * (self.item + 2.0) - self.side_scroll,
+                SIDE_TOP + heads as f64 * SIDE_HEAD + index as f64 * (self.item + 2.0) - self.side_scroll,
             ),
             Vec2::new(self.sidebar - 20.0, self.item),
         )
+    }
+
+    pub fn head_rect_in(&self, shown: &[Section], index: usize) -> Rect {
+        let item = self.item_rect_in(shown, index);
+        Rect::new(Vec2::new(22.0, item.origin.y - SIDE_HEAD + 8.0), Vec2::new(self.sidebar - 34.0, SIDE_HEAD - 10.0))
     }
 
     pub fn search_rect(&self) -> Rect {
@@ -2619,7 +2654,8 @@ impl Look {
     }
 
     pub fn side_most(&self, height: f64) -> f64 {
-        let whole = SIDE_TOP + Section::ALL.len() as f64 * (self.item + 2.0) + 10.0;
+        let count = Section::ALL.len();
+        let whole = SIDE_TOP + heads_through(&Section::ALL, count) as f64 * SIDE_HEAD + count as f64 * (self.item + 2.0) + 10.0;
         (whole - height).max(0.0)
     }
 
@@ -2863,7 +2899,7 @@ impl Look {
                 .shown()
                 .iter()
                 .enumerate()
-                .find(|(index, _)| self.item_rect(*index).contains(pointer))
+                .find(|(index, _)| self.item_rect_in(&model.shown(), *index).contains(pointer))
                 .map(|(_, section)| Hit::Section(*section));
         }
         if section == Section::Displays
@@ -3046,9 +3082,15 @@ impl Look {
         canvas.round_rect(edge, 0.0, self.rule, 1.0);
         let shown = model.shown();
         for (index, each) in shown.iter().enumerate() {
-            let rect = self.item_rect(index);
-            if rect.max().y < SIDE_TOP - 6.0 || rect.origin.y > size.y {
+            let rect = self.item_rect_in(&shown, index);
+            if rect.max().y < SIDE_TOP - 6.0 - SIDE_HEAD || rect.origin.y > size.y {
                 continue;
+            }
+            if index == 0 || shown[index - 1].group() != each.group() {
+                let head = self.head_rect_in(&shown, index);
+                let words = fonts.small.paint_weight(each.group(), self.dim, 600.0);
+                let at = Vec2::new(head.origin.x, head.max().y - crate::paint::logical(&words).y);
+                canvas.stamp(&words, at.round(), 0.85);
             }
             if *each == section {
                 canvas.round_rect(rect, 7.0, self.accent, 1.0);
@@ -3790,7 +3832,7 @@ mod tests {
         model.query = "wallpaper".into();
         let look = Look::default();
         let size = look.least();
-        let first = look.item_rect(0).center();
+        let first = look.item_rect_in(&model.shown(), 0).center();
         assert_eq!(
             look.hit(size, Section::Desktop, &model, 0.0, first),
             Some(Hit::Section(model.shown()[0]))
@@ -3800,7 +3842,9 @@ mod tests {
             look.hit(size, Section::Desktop, &model, 0.0, search),
             Some(Hit::Search)
         );
-        let past = look.item_rect(model.shown().len()).center();
+        let shown = model.shown();
+        let below = look.item_rect_in(&shown, shown.len() - 1);
+        let past = below.center() + Vec2::new(0.0, look.item + 2.0);
         assert_eq!(look.hit(size, Section::Desktop, &model, 0.0, past), None);
     }
 
@@ -4606,6 +4650,22 @@ mod tests {
     }
 
     const SIZE: Vec2 = Vec2::new(860.0, 620.0);
+
+    #[test]
+    fn the_sidebar_has_six_groups_with_a_heading_each() {
+        let groups: Vec<&str> = Section::ALL
+            .iter()
+            .enumerate()
+            .filter(|(at, section)| *at == 0 || Section::ALL[at - 1].group() != section.group())
+            .map(|(_, section)| section.group())
+            .collect();
+        assert_eq!(groups, ["Desktop", "Network", "Hardware", "Input", "Users & Security", "System"]);
+        let look = Look::default();
+        let wifi = Section::ALL.iter().position(|s| *s == Section::Network).unwrap();
+        let above = look.item_rect(wifi - 1);
+        let head = look.head_rect_in(&Section::ALL, wifi);
+        assert!(head.origin.y >= above.max().y && head.max().y <= look.item_rect(wifi).origin.y);
+    }
 
     #[test]
     fn clicking_a_sidebar_item_picks_its_section() {

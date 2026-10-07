@@ -314,6 +314,8 @@ pub fn open(
     let lock_small = Font::find(config.font_path(), 17.0).ok().map(std::sync::Arc::new);
     let lock_name = Font::find(config.font_path(), 26.0).ok().map(std::sync::Arc::new);
     let card_font = Font::find(config.font_path(), 11.5).ok().map(std::sync::Arc::new);
+    let note_head = Font::find(config.font_path(), 13.0).ok().map(std::sync::Arc::new);
+    let note_body = Font::find(config.font_path(), 12.0).ok().map(std::sync::Arc::new);
     let (checked_tx, checked_rx) =
         smithay::reexports::calloop::channel::channel::<(String, crate::polkit::Outcome)>();
     let (paper_tx, paper_rx) = smithay::reexports::calloop::channel::channel::<(
@@ -461,6 +463,8 @@ pub fn open(
         lock_small,
         lock_name,
         card_font,
+        note_head,
+        note_body,
         verify: verify_tx,
         tickets: 0,
         power,

@@ -576,6 +576,8 @@ pub struct State {
     lock_small: Option<std::sync::Arc<Font>>,
     lock_name: Option<std::sync::Arc<Font>>,
     card_font: Option<std::sync::Arc<Font>>,
+    note_head: Option<std::sync::Arc<Font>>,
+    note_body: Option<std::sync::Arc<Font>>,
     verify: smithay::reexports::calloop::channel::Sender<(u64, crate::auth::Verdict)>,
     tickets: u64,
     power: Option<TextureBuffer<Tex>>,

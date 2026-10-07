@@ -150,6 +150,19 @@ pub fn from_pixels(
     Some(image)
 }
 
+#[derive(Clone, Copy)]
+pub struct Type<'a> {
+    pub head: &'a Font,
+    pub body: &'a Font,
+    pub meta: &'a Font,
+}
+
+impl<'a> Type<'a> {
+    pub fn one(font: &'a Font) -> Type<'a> {
+        Type { head: font, body: font, meta: font }
+    }
+}
+
 pub fn wrap(font: &Font, text: &str, width: f64, lines: usize) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for paragraph in text.lines() {
@@ -263,10 +276,14 @@ impl Look {
         self.width - self.text_x() - self.pad
     }
 
-    pub fn height(&self, note: &Note, font: &Font) -> f64 {
-        let lines = wrap(font, &note.body, self.text_width(), 3).len() as f64;
-        let line = font.line_height().ceil();
-        let text = line * (2.0 + lines) + self.pad * 2.0;
+    pub fn height(&self, note: &Note, fonts: &Type) -> f64 {
+        let lines = wrap(fonts.body, &note.body, self.text_width(), 3).len() as f64;
+        let text = fonts.meta.line_height().ceil()
+            + 3.0
+            + fonts.head.line_height().ceil()
+            + 2.0
+            + fonts.body.line_height().ceil() * lines
+            + self.pad * 2.0;
         text.max(self.icon + self.pad * 2.0).ceil()
     }
 
@@ -285,48 +302,44 @@ impl Look {
             .collect()
     }
 
-    pub fn paint(&self, note: &Note, font: &Font) -> Image {
-        let size = Vec2::new(self.width, self.height(note, font));
+    pub fn paint(&self, note: &Note, fonts: &Type) -> Image {
+        let size = Vec2::new(self.width, self.height(note, fonts));
         let mut canvas = Canvas::new(size.x as u32, size.y as u32);
-        canvas.round_rect(
-            Rect::new(Vec2::ZERO, size),
-            self.radius,
-            self.back,
-            self.back_alpha,
-        );
+        canvas.round_rect(Rect::new(Vec2::ZERO, size), self.radius, self.back, self.back_alpha);
         let spot = Rect::new(Vec2::splat(self.pad), Vec2::splat(self.icon));
-        match &note.icon {
-            Some(image) => {
-                let side = crate::paint::dense(self.icon);
-                let fitted = image.scaled(side, side);
-                canvas.stamp(&fitted, spot.origin, 1.0);
-            }
-            None => {
-                canvas.round_rect(spot, self.icon * 0.25, self.blank, 1.0);
-                let name = if note.app.is_empty() {
-                    &note.summary
-                } else {
-                    &note.app
-                };
-                let first: String = name.chars().take(1).collect::<String>().to_uppercase();
-                let letter = font.paint(&first, self.ink);
-                canvas.stamp(&letter, spot.center() - crate::paint::logical(&letter) / 2.0, 1.0);
-            }
-        }
+        badge(&mut canvas, note.icon.as_ref(), &note.app, &note.summary, spot, self.blank, self.ink, fonts.head);
         let x = self.text_x();
-        let line = font.line_height().ceil();
+        let room = self.text_width();
         let mut y = self.pad;
-        for (text, ink) in [(&note.app, self.dim), (&note.summary, self.ink)] {
-            let painted = font.paint(&cut(font, text, self.text_width()), ink);
+        let app = fonts.meta.paint(&cut(fonts.meta, &note.app, room), self.dim);
+        canvas.stamp(&app, Vec2::new(x, y), 0.9);
+        y += fonts.meta.line_height().ceil() + 3.0;
+        let head = fonts.head.paint_bold(&cut(fonts.head, &note.summary, room), self.ink);
+        canvas.stamp(&head, Vec2::new(x, y), 1.0);
+        y += fonts.head.line_height().ceil() + 2.0;
+        for body in wrap(fonts.body, &note.body, room, 3) {
+            let painted = fonts.body.paint(&body, self.dim);
             canvas.stamp(&painted, Vec2::new(x, y), 1.0);
-            y += line;
-        }
-        for body in wrap(font, &note.body, self.text_width(), 3) {
-            let painted = font.paint(&body, self.dim);
-            canvas.stamp(&painted, Vec2::new(x, y), 1.0);
-            y += line;
+            y += fonts.body.line_height().ceil();
         }
         canvas.image
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn badge(canvas: &mut Canvas, icon: Option<&Image>, app: &str, summary: &str, spot: Rect, blank: [u8; 3], ink: [u8; 3], font: &Font) {
+    match icon {
+        Some(image) => {
+            let side = crate::paint::dense(spot.size.x);
+            canvas.stamp(&image.scaled(side, side), spot.origin, 1.0);
+        }
+        None => {
+            canvas.round_rect(spot, spot.size.x * 0.25, blank, 1.0);
+            let name = if app.is_empty() { summary } else { app };
+            let first: String = name.chars().take(1).collect::<String>().to_uppercase();
+            let letter = font.paint_bold(&first, ink);
+            canvas.stamp(&letter, (spot.center() - crate::paint::logical(&letter) / 2.0).round(), 1.0);
+        }
     }
 }
 
@@ -357,7 +370,7 @@ mod tests {
         let font = font();
         let look = Look::default();
         let note = note("A longer body that wraps onto a second line for the check");
-        crate::paint::same_at_two("note", || look.paint(&note, &font));
+        crate::paint::same_at_two("note", || look.paint(&note, &Type::one(&font)));
     }
 
     #[test]
@@ -452,10 +465,10 @@ mod tests {
     fn a_card_grows_with_its_body() {
         let look = Look::default();
         let font = font();
-        let short = look.height(&note("hi"), &font);
-        let long = look.height(&note(&"word ".repeat(80)), &font);
+        let short = look.height(&note("hi"), &Type::one(&font));
+        let long = look.height(&note(&"word ".repeat(80)), &Type::one(&font));
         assert!(long > short);
-        let image = look.paint(&note(&"word ".repeat(80)), &font);
+        let image = look.paint(&note(&"word ".repeat(80)), &Type::one(&font));
         assert_eq!(image.height as f64, long);
     }
 }

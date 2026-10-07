@@ -263,6 +263,8 @@ impl State {
             self.lock_small = Font::find(config.font_path(), 17.0).ok().map(std::sync::Arc::new);
             self.lock_name = Font::find(config.font_path(), 26.0).ok().map(std::sync::Arc::new);
             self.card_font = Font::find(config.font_path(), 11.5).ok().map(std::sync::Arc::new);
+            self.note_head = Font::find(config.font_path(), 13.0).ok().map(std::sync::Arc::new);
+            self.note_body = Font::find(config.font_path(), 12.0).ok().map(std::sync::Arc::new);
             self.clock = None;
             self.stats = None;
             self.titles.clear();

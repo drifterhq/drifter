@@ -298,7 +298,7 @@ impl State {
             self.tell_closed(note.id, 1);
             return;
         }
-        let Some(font) = self.font.as_deref() else {
+        let (Some(head), Some(body), Some(meta)) = (self.note_head.clone(), self.note_body.clone(), self.card_font.clone()) else {
             self.tell_closed(note.id, 3);
             return;
         };
@@ -307,7 +307,7 @@ impl State {
             back_alpha: self.veil(plain.back_alpha),
             ..plain
         };
-        let tall = look.height(&note, font);
+        let tall = look.height(&note, &drifter_core::notify::Type { head: &head, body: &body, meta: &meta });
         let mut heights: Vec<f64> = self.cards.iter().map(|card| card.tall).collect();
         let slot = match self.cards.iter().position(|held| held.note.id == note.id) {
             Some(at) => {
@@ -320,14 +320,13 @@ impl State {
             }
         };
         let spot = look.stack(self.screen, &heights).get(slot).copied();
-        let font = self.font.clone();
         let frosting = self.frosting();
         let painted = note.clone();
         self.paint_on_worker(
             "notification",
             move || {
-                let font = font?;
-                let mut image = look.paint(&painted, &font);
+                let kinds = drifter_core::notify::Type { head: &head, body: &body, meta: &meta };
+                let mut image = look.paint(&painted, &kinds);
                 if let Some(spot) = spot {
                     worker::frost(&frosting, &mut image, spot.origin, look.back_alpha);
                 }

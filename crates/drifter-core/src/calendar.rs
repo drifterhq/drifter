@@ -67,7 +67,7 @@ impl Look {
             pad: 12.0,
             cell: 40.0,
             card_gap: 10.0,
-            note: 64.0,
+            note: 66.0,
             radius: 14.0,
             back: p.back,
             back_alpha: 0.96,
@@ -87,9 +87,9 @@ impl Look {
     }
 
     pub fn size(&self, rows: usize, notes: usize) -> Vec2 {
-        let list = 30.0 + match notes {
-            0 => 40.0,
-            n => (self.note + 8.0) * n.min(NOTES) as f64,
+        let list = 34.0 + match notes {
+            0 => 64.0,
+            n => (self.note + 6.0) * n.min(NOTES) as f64,
         };
         Vec2::new(self.width, self.list_top(rows) + list + self.pad)
     }
@@ -102,8 +102,8 @@ impl Look {
 
     pub fn clear_rect(&self, rows: usize) -> Rect {
         Rect::new(
-            Vec2::new(self.width - self.pad - 56.0, self.list_top(rows)),
-            Vec2::new(56.0, 22.0),
+            Vec2::new(self.width - self.pad - 52.0, self.list_top(rows) + 2.0),
+            Vec2::new(52.0, 22.0),
         )
     }
 
@@ -114,6 +114,7 @@ impl Look {
         now: u64,
         font: &Font,
         title: &Font,
+        kinds: &crate::notify::Type,
     ) -> Image {
         let cells = month_grid(today);
         let rows = cells.len() / 7;
@@ -153,32 +154,43 @@ impl Look {
         }
 
         let top = self.list_top(rows);
-        let heading = font.paint_bold("Notifications", self.ink);
-        canvas.stamp(&heading, Vec2::new(self.pad + 4.0, top + 3.0), 1.0);
+        let heading = kinds.head.paint_bold("Notifications", self.ink);
+        let heading_at = Vec2::new(self.pad + 4.0, top + 13.0 - crate::paint::logical(&heading).y / 2.0).round();
+        canvas.stamp(&heading, heading_at, 1.0);
         if notes.is_empty() {
-            let none = font.paint("No Notifications", self.dim);
-            canvas.stamp(&none, Vec2::new((self.width - crate::paint::logical(&none).x) / 2.0, top + 40.0), 1.0);
+            let none = kinds.body.paint("You're all caught up", self.dim);
+            let at = Vec2::new((self.width - crate::paint::logical(&none).x) / 2.0, top + 34.0 + 22.0);
+            canvas.stamp(&none, at.round(), 0.85);
             return canvas.image;
         }
+        let count = kinds.meta.paint(&notes.len().min(99).to_string(), self.dim);
+        let count_at = Vec2::new(heading_at.x + crate::paint::logical(&heading).x + 8.0, top + 13.0 - crate::paint::logical(&count).y / 2.0);
+        canvas.stamp(&count, count_at.round(), 0.8);
         let clear = self.clear_rect(rows);
         canvas.round_rect(clear, 11.0, self.card, 0.9);
-        let word = font.paint("Clear", self.ink);
-        canvas.stamp(&word, clear.center() - crate::paint::logical(&word) / 2.0, 1.0);
+        let word = kinds.meta.paint("Clear", self.ink);
+        canvas.stamp(&word, (clear.center() - crate::paint::logical(&word) / 2.0).round(), 1.0);
         for (index, note) in notes.iter().take(NOTES).enumerate() {
             let rect = Rect::new(
-                Vec2::new(self.pad, top + 30.0 + (self.note + 8.0) * index as f64),
+                Vec2::new(self.pad, top + 34.0 + (self.note + 6.0) * index as f64),
                 Vec2::new(self.width - self.pad * 2.0, self.note),
             );
-            canvas.round_rect(rect, 12.0, self.card, 0.85);
-            let room = rect.size.x - 24.0;
-            let app = font.paint(&note.app, self.dim);
-            let when = font.paint(&crate::notify::ago(note.when, now), self.dim);
-            canvas.stamp(&app, rect.origin + Vec2::new(12.0, 8.0), 1.0);
-            canvas.stamp(&when, Vec2::new(rect.max().x - 12.0 - crate::paint::logical(&when).x, rect.origin.y + 8.0), 1.0);
-            let summary = font.paint_bold(&fit(font, &note.summary, room), self.ink);
-            canvas.stamp(&summary, rect.origin + Vec2::new(12.0, 26.0), 1.0);
-            let body = font.paint(&fit(font, &note.body, room), self.dim);
-            canvas.stamp(&body, rect.origin + Vec2::new(12.0, 44.0), 1.0);
+            canvas.round_rect(rect, 12.0, self.card, 0.7);
+            let spot = Rect::new(rect.origin + Vec2::new(10.0, 11.0), Vec2::splat(30.0));
+            crate::notify::badge(&mut canvas, None, &note.app, &note.summary, spot, self.back, self.ink, kinds.head);
+            let x = spot.max().x + 10.0;
+            let room = rect.max().x - 12.0 - x;
+            let when = kinds.meta.paint(&crate::notify::ago(note.when, now), self.dim);
+            let when_w = crate::paint::logical(&when).x;
+            canvas.stamp(&when, Vec2::new(rect.max().x - 12.0 - when_w, rect.origin.y + 9.0).round(), 0.8);
+            let app = kinds.meta.paint(&fit(kinds.meta, &note.app, room - when_w - 8.0), self.dim);
+            canvas.stamp(&app, Vec2::new(x, rect.origin.y + 9.0).round(), 0.85);
+            let mut y = rect.origin.y + 9.0 + kinds.meta.line_height().ceil() + 2.0;
+            let summary = kinds.head.paint_bold(&fit(kinds.head, &note.summary, room), self.ink);
+            canvas.stamp(&summary, Vec2::new(x, y).round(), 1.0);
+            y += kinds.head.line_height().ceil();
+            let body = kinds.body.paint(&fit(kinds.body, &note.body, room), self.dim);
+            canvas.stamp(&body, Vec2::new(x, y).round(), 1.0);
         }
         canvas.image
     }
@@ -229,7 +241,7 @@ mod tests {
             summary: "New message".to_string(),
             body: "Lunch at noon?".to_string(),
         }];
-        crate::paint::same_at_two("calendar", || look.paint(today, &notes, 1_600, &font, &title));
+        crate::paint::same_at_two("calendar", || look.paint(today, &notes, 1_600, &font, &title, &crate::notify::Type::one(&font)));
     }
 
     #[test]

@@ -286,6 +286,9 @@ impl State {
         let (Some(font), Some(title)) = (self.font.clone(), self.search_font.clone()) else {
             return;
         };
+        let (Some(head), Some(body), Some(meta)) = (self.note_head.clone(), self.note_body.clone(), self.card_font.clone()) else {
+            return;
+        };
         let Some(under) = self.clock.as_ref().map(|(_, _, rect)| *rect) else {
             return;
         };
@@ -308,7 +311,8 @@ impl State {
                     .unwrap_or(0);
                 let today = drifter_core::calendar::today();
                 let rows = drifter_core::calendar::rows_now();
-                let mut image = look.paint(today, &notes, now, &font, &title);
+                let kinds = drifter_core::notify::Type { head: &head, body: &body, meta: &meta };
+                let mut image = look.paint(today, &notes, now, &font, &title, &kinds);
                 let rect = look.rect(under, screen, rows, notes.len());
                 worker::frost(&frosting, &mut image, rect.origin, look.back_alpha);
                 (image, rect, rows)
