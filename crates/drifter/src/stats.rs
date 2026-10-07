@@ -107,7 +107,7 @@ impl Reader {
     }
 }
 
-fn battery() -> Option<(&'static str, u8)> {
+pub(crate) fn battery() -> Option<(&'static str, u8)> {
     let read = |dir: &std::path::Path, name: &str| std::fs::read_to_string(dir.join(name)).ok();
     let cells: Vec<stats::Cell> = std::fs::read_dir("/sys/class/power_supply")
         .ok()?

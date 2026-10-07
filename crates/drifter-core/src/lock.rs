@@ -5,6 +5,9 @@ use crate::image::Image;
 use crate::text::Font;
 
 pub const MAX_LEN: usize = 256;
+pub const BLINK: std::time::Duration = std::time::Duration::from_millis(530);
+const INDENT: f64 = 16.0;
+const CORNER: f64 = 28.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Note {
@@ -112,7 +115,7 @@ impl Look {
             alert: p.alert,
             pill: 0.55,
             veil: 0.32,
-            logo: 144.0,
+            logo: 200.0,
             dot: 10.0,
             step: 16.0,
         }
@@ -135,15 +138,21 @@ impl Look {
         ((self.field_rect().size.x - 32.0) / self.step).floor().max(1.0) as usize
     }
 
-    pub fn dot_center(&self, slot: usize, count: usize) -> Vec2 {
+    pub fn dot_center(&self, slot: usize, _count: usize) -> Vec2 {
         let field = self.field_rect();
-        let width = self.step * count as f64;
-        let left = field.origin.x + (field.size.x - width) / 2.0;
-        Vec2::new(left + self.step * slot as f64 + self.step / 2.0, field.center().y)
+        Vec2::new(field.origin.x + INDENT + self.step * slot as f64 + self.step / 2.0, field.center().y)
+    }
+
+    pub fn caret_rect(&self, dots: usize) -> Rect {
+        let field = self.field_rect();
+        let count = dots.min(self.shown());
+        let x = field.origin.x + INDENT + self.step * count as f64 + 1.0;
+        Rect::new(Vec2::new(x, field.center().y - 9.0), Vec2::new(2.0, 18.0))
     }
 
     pub fn logo_rect(&self, screen: Vec2) -> Rect {
-        let center = Vec2::new(screen.x / 2.0, (screen.y * 0.60).max(self.logo));
+        let room = screen.y - self.logo / 2.0 - 6.0 - self.size.y - 40.0;
+        let center = Vec2::new(screen.x / 2.0, (screen.y * 0.70).min(room).max(self.logo));
         Rect::new((center - Vec2::splat(self.logo / 2.0)).round(), Vec2::splat(self.logo))
     }
 
@@ -152,6 +161,18 @@ impl Look {
         Rect::new(
             Vec2::new((screen.x - self.size.x) / 2.0, logo.max().y + 6.0).round(),
             self.size,
+        )
+    }
+
+    pub fn corner_rect(&self, screen: Vec2, size: Vec2) -> Rect {
+        Rect::new(Vec2::new(screen.x - size.x - 18.0, 14.0).round(), size)
+    }
+
+    pub fn power_rect(&self, screen: Vec2, size: Vec2) -> Rect {
+        let corner = self.corner_rect(screen, size);
+        Rect::new(
+            Vec2::new(corner.max().x - size.y, corner.origin.y),
+            Vec2::splat(size.y),
         )
     }
 
@@ -188,6 +209,58 @@ pub fn paint_top(look: &Look, big: Option<&Font>, small: Option<&Font>, words: &
     canvas.image
 }
 
+pub fn paint_corner(look: &Look, font: Option<&Font>, battery: Option<(bool, u8)>) -> Image {
+    let power = crate::tray::paint_power(22, look.ink);
+    let words = match (font, battery) {
+        (Some(font), Some((_, percent))) => Some(font.paint(&format!("{percent}%"), look.ink)),
+        _ => None,
+    };
+    let cell = Vec2::new(27.0, 13.0);
+    let gap = 8.0;
+    let mut width = CORNER;
+    if battery.is_some() {
+        width += cell.x + 3.0 + gap * 2.0;
+    }
+    if let Some(words) = &words {
+        width += crate::paint::logical(words).x + gap;
+    }
+    let mut canvas = crate::paint::Canvas::new(width.ceil() as u32, CORNER as u32);
+    let mut x = 0.0;
+    if let Some(words) = &words {
+        let size = crate::paint::logical(words);
+        canvas.stamp(words, Vec2::new(x, (CORNER - size.y) / 2.0).round(), 1.0);
+        x += size.x + gap;
+    }
+    if let Some((charging, percent)) = battery {
+        let body = Rect::new(Vec2::new(x, (CORNER - cell.y) / 2.0), cell);
+        canvas.ring(body, 3.5, 1.2, look.ink, 0.9);
+        let inner = Rect::new(body.origin + Vec2::splat(2.5), body.size - Vec2::splat(5.0));
+        let full = inner.size.x * f64::from(percent.min(100)) / 100.0;
+        let color = match (charging, percent) {
+            (false, 0..=10) => look.alert,
+            _ => look.ink,
+        };
+        if full >= 1.0 {
+            canvas.round_rect(Rect::new(inner.origin, Vec2::new(full, inner.size.y)), 1.5, color, 1.0);
+        }
+        canvas.round_rect(
+            Rect::new(Vec2::new(body.max().x + 1.0, body.center().y - 2.5), Vec2::new(2.0, 5.0)),
+            1.0,
+            look.ink,
+            0.6,
+        );
+        if charging {
+            let c = body.center();
+            canvas.triangle([c + Vec2::new(1.5, -6.0), c + Vec2::new(-3.5, 1.0), c + Vec2::new(0.5, 1.0)], look.back, 1.0);
+            canvas.triangle([c + Vec2::new(-1.5, 6.0), c + Vec2::new(3.5, -1.0), c + Vec2::new(-0.5, -1.0)], look.back, 1.0);
+        }
+        x = body.max().x + 3.0 + gap * 2.0;
+    }
+    let side = crate::paint::logical(&power);
+    canvas.stamp(&power, Vec2::new(x + (CORNER - side.x) / 2.0, (CORNER - side.y) / 2.0).round(), 1.0);
+    canvas.image
+}
+
 pub fn paint(look: &Look, small: Option<&Font>, named: Option<&Font>, name: &str, dots: usize, note: Note) -> Image {
     let mut canvas = crate::paint::Canvas::new(look.size.x.round() as u32, look.size.y.round() as u32);
     let field = look.field_rect();
@@ -207,7 +280,7 @@ pub fn paint(look: &Look, small: Option<&Font>, named: Option<&Font>, name: &str
     if count == 0 && note == Note::Ask {
         let hint = font.paint(note.text(), look.dim);
         let y = field.center().y - crate::paint::logical(&hint).y / 2.0;
-        canvas.stamp(&hint, centered(&hint, y), 1.0);
+        canvas.stamp(&hint, Vec2::new(field.origin.x + INDENT + 6.0, y).round(), 1.0);
     }
     if note != Note::Ask {
         let color = match note {
@@ -328,12 +401,29 @@ mod tests {
     }
 
     #[test]
-    fn the_dots_are_centered_in_the_field() {
+    fn the_caret_follows_the_last_dot_inside_the_field() {
         let look = Look::default();
-        let first = look.dot_center(0, 4);
-        let last = look.dot_center(3, 4);
-        let middle = (first.x + last.x) / 2.0;
-        assert!((middle - look.field_rect().center().x).abs() < 0.01);
+        let field = look.field_rect();
+        let empty = look.caret_rect(0);
+        let three = look.caret_rect(3);
+        assert!(field.contains(empty.center()) && field.contains(three.center()));
+        assert!(three.origin.x > look.dot_center(2, 3).x + look.dot / 2.0);
+        assert!(look.caret_rect(MAX_LEN).max().x < field.max().x);
+    }
+
+    #[test]
+    fn the_corner_shows_battery_and_power_at_the_top_right() {
+        let look = Look::default();
+        let font = Font::find(None, 17.0).ok();
+        let with = paint_corner(&look, font.as_ref(), Some((true, 87)));
+        let without = paint_corner(&look, font.as_ref(), None);
+        assert!(with.width > without.width);
+        let screen = Vec2::new(1600.0, 1000.0);
+        let size = crate::paint::logical(&with);
+        let power = look.power_rect(screen, size);
+        assert_eq!(power.max(), look.corner_rect(screen, size).max());
+        assert!(power.max().x < screen.x && power.origin.y > 0.0);
+        crate::paint::same_at_two("lock corner", || paint_corner(&look, font.as_ref(), Some((false, 5))));
     }
 
     #[test]

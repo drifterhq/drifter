@@ -8,8 +8,20 @@ impl State {
         let Some(lock) = self.lock.as_ref() else {
             return elements;
         };
+        let card = look.rect(self.screen);
+        let blink = lock.typed.elapsed().as_millis() / drifter_core::lock::BLINK.as_millis();
+        if blink % 2 == 0
+            && lock.checking.is_none()
+            && let Some((caret, _)) = lock.caret.as_ref()
+        {
+            let at = look.caret_rect(lock.pad.len());
+            elements.push(Skin::Texture(fill(caret, Rect::new(card.origin + at.origin, at.size), 1.0)));
+        }
         if let Some(art) = lock.art.as_ref() {
-            elements.push(Skin::Texture(element(art, look.rect(self.screen), 1.0)));
+            elements.push(Skin::Texture(element(art, card, 1.0)));
+        }
+        if let Some((art, size)) = lock.corner.as_ref() {
+            elements.push(Skin::Texture(element(art, look.corner_rect(self.screen, *size), 1.0)));
         }
         let top = lock
             .top
@@ -54,7 +66,11 @@ impl State {
             ticket: None,
             art: None,
             top: None,
+            corner: None,
             veil: None,
+            caret: None,
+            typed: Instant::now(),
+            corner_lane: worker::Lane::default(),
             shown: (String::new(), String::new(), usize::MAX, Note::Ask, [0; 3]),
             lane: worker::Lane::default(),
             top_lane: worker::Lane::default(),
@@ -300,18 +316,23 @@ impl State {
         let look = drifter_core::lock::Look::themed(&self.palette);
         let key = (clock, date, lock.pad.len(), lock.note, look.ink);
         let shown = lock.shown.clone();
-        let fresh = lock.art.is_some() && lock.top.is_some();
-        if lock.veil.as_ref().is_none_or(|(_, color)| *color != look.back) {
-            let pixel = drifter_core::Image {
-                width: 1,
-                height: 1,
-                rgba: vec![look.back[0], look.back[1], look.back[2], 255],
-            };
-            if let Ok(Some(art)) = upload(&mut self.renderer, Some(&pixel), "lock veil")
-                && let Some(lock) = self.lock.as_mut()
-            {
-                lock.veil = Some((art, look.back));
-            }
+        let fresh = lock.art.is_some() && lock.top.is_some() && lock.corner.is_some();
+        let pixel = |color: [u8; 3]| drifter_core::Image {
+            width: 1,
+            height: 1,
+            rgba: vec![color[0], color[1], color[2], 255],
+        };
+        if lock.veil.as_ref().is_none_or(|(_, color)| *color != look.back)
+            && let Ok(Some(art)) = upload(&mut self.renderer, Some(&pixel(look.back)), "lock veil")
+            && let Some(lock) = self.lock.as_mut()
+        {
+            lock.veil = Some((art, look.back));
+        }
+        if self.lock.as_ref().is_some_and(|lock| lock.caret.as_ref().is_none_or(|(_, color)| *color != look.ink))
+            && let Ok(Some(art)) = upload(&mut self.renderer, Some(&pixel(look.ink)), "lock caret")
+            && let Some(lock) = self.lock.as_mut()
+        {
+            lock.caret = Some((art, look.ink));
         }
         if fresh && shown == key {
             return;
@@ -319,7 +340,22 @@ impl State {
         let (big, small) = (self.lock_big.clone(), self.lock_small.clone());
         if !fresh || (shown.0, shown.1, shown.4) != (key.0.clone(), key.1.clone(), key.4) {
             let words = (key.0.clone(), key.1.clone());
-            let (big, small) = (big.clone(), small.clone());
+            let (big, date) = (big.clone(), self.lock_name.clone());
+            let corner_font = small.clone();
+            self.paint_in_lane_sized(
+                "lock corner",
+                |state| state.lock.as_mut().map(|lock| &mut lock.corner_lane),
+                State::paint_lock,
+                move || {
+                    let battery = crate::stats::battery().map(|(label, percent)| (label == "CHG", percent));
+                    Some(drifter_core::lock::paint_corner(&look, corner_font.as_deref(), battery))
+                },
+                |state, art, size| {
+                    if let Some(lock) = state.lock.as_mut() {
+                        lock.corner = Some((art, size));
+                    }
+                },
+            );
             self.paint_in_lane_sized(
                 "lock clock",
                 |state| state.lock.as_mut().map(|lock| &mut lock.top_lane),
@@ -329,7 +365,7 @@ impl State {
                         clock: &words.0,
                         date: &words.1,
                     };
-                    Some(drifter_core::lock::paint_top(&look, big.as_deref(), small.as_deref(), &words))
+                    Some(drifter_core::lock::paint_top(&look, big.as_deref(), date.as_deref(), &words))
                 },
                 |state, art, size| {
                     if let Some(lock) = state.lock.as_mut() {
@@ -362,8 +398,33 @@ impl State {
     }
 
     pub(super) fn locked_input(&mut self, event: InputEvent<LibinputInputBackend>) {
-        let InputEvent::Keyboard { event } = event else {
-            return;
+        use smithay::backend::input::{ButtonState, Event, PointerButtonEvent};
+        let edge = self.screen - Vec2::splat(1.0);
+        let event = match event {
+            InputEvent::PointerMotion { event } => {
+                let delta = Vec2::new(event.delta_x(), event.delta_y());
+                self.pointer = (self.pointer + delta).clamp(Vec2::ZERO, edge);
+                self.repaint_popover();
+                self.kick();
+                return;
+            }
+            InputEvent::PointerMotionAbsolute { event } => {
+                let x = event.x_transformed(self.screen.x as i32);
+                let y = event.y_transformed(self.screen.y as i32);
+                self.pointer = Vec2::new(x, y).clamp(Vec2::ZERO, edge);
+                self.repaint_popover();
+                self.kick();
+                return;
+            }
+            InputEvent::PointerButton { event } => {
+                let _ = event.time_msec();
+                if event.state() == ButtonState::Pressed {
+                    self.locked_press();
+                }
+                return;
+            }
+            InputEvent::Keyboard { event } => event,
+            _ => return,
         };
         let key = self.read_key(&event);
         if event.state() != KeyState::Pressed {
@@ -372,6 +433,21 @@ impl State {
         if let LockKey::Vt(vt) = key {
             self.change_vt(vt);
             return;
+        }
+        if self.alert.is_some() || self.popover.is_some() {
+            match key {
+                LockKey::Enter if self.alert.is_some() => self.desk_menu_key(LockKey::Enter),
+                LockKey::Clear => {
+                    self.alert = None;
+                    self.popover = None;
+                    self.kick_now();
+                }
+                _ => {}
+            }
+            return;
+        }
+        if let Some(lock) = self.lock.as_mut() {
+            lock.typed = Instant::now();
         }
         let Some(lock) = self.lock.as_mut() else {
             return;
@@ -514,6 +590,37 @@ impl State {
             keyboard.set_focus(self, Some(surface), SERIAL_COUNTER.next_serial());
         }
         self.last = Instant::now();
+    }
+}
+
+impl State {
+    fn locked_press(&mut self) {
+        if self.alert.is_some() {
+            self.press_desk_menu();
+            return;
+        }
+        if self.popover.is_some() {
+            self.press_popover();
+            self.kick_now();
+            return;
+        }
+        let look = drifter_core::lock::Look::themed(&self.palette);
+        let Some(size) = self.lock.as_ref().and_then(|lock| lock.corner.as_ref()).map(|(_, size)| *size) else {
+            return;
+        };
+        let power = look.power_rect(self.screen, size);
+        if power.contains(self.pointer) {
+            use drifter_core::menu::Item;
+            use drifter_core::power::Action;
+            let items = vec![
+                Item::line(Action::Suspend.id(), "Sleep"),
+                Item::line(Action::Reboot.id(), "Restart…"),
+                Item::line(Action::Shutdown.id(), "Shut Down…"),
+            ];
+            let at = Vec2::new(power.max().x, power.max().y + 6.0);
+            self.open_popover(items, at, Target::Desktop);
+            self.kick_now();
+        }
     }
 }
 

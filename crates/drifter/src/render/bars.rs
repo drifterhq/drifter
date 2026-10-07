@@ -42,7 +42,7 @@ impl State {
     }
 
     pub(super) fn open_popover(&mut self, items: Vec<Item>, at: Vec2, target: Target) {
-        if items.is_empty() || self.lock.is_some() {
+        if items.is_empty() || (self.lock.is_some() && !matches!(target, Target::Desktop)) {
             return;
         }
         let look = self.menu_look();

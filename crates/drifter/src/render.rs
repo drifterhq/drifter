@@ -361,7 +361,11 @@ struct Lock {
     ticket: Option<u64>,
     art: Option<TextureBuffer<Tex>>,
     top: Option<(TextureBuffer<Tex>, Vec2)>,
+    corner: Option<(TextureBuffer<Tex>, Vec2)>,
     veil: Option<(TextureBuffer<Tex>, [u8; 3])>,
+    caret: Option<(TextureBuffer<Tex>, [u8; 3])>,
+    typed: Instant,
+    corner_lane: worker::Lane,
     shown: (String, String, usize, Note, [u8; 3]),
     lane: worker::Lane,
     top_lane: worker::Lane,
@@ -664,7 +668,7 @@ impl State {
         if self.lock.is_some() {
             return Some(match self.lock_logo.pace > 0.0 {
                 true => TICK,
-                false => SECOND_TICK,
+                false => drifter_core::lock::BLINK / 2,
             });
         }
         if let Some((_, _, until)) = self.hud.as_ref() {
@@ -706,8 +710,21 @@ impl State {
             return elements;
         }
         if self.lock.is_some() {
-            self.cursor_count = 0;
-            return self.lock_elements();
+            let mut elements = match live {
+                true => self.cursor_elements(),
+                false => Vec::new(),
+            };
+            self.cursor_count = elements.len();
+            if live {
+                self.alert_elements(&mut elements);
+                if let Some(open) = self.popover.as_ref()
+                    && let Some(art) = open.art.as_ref()
+                {
+                    elements.push(Skin::Texture(element(art, open.rect, 1.0)));
+                }
+            }
+            elements.extend(self.lock_elements());
+            return elements;
         }
         let mut elements: Vec<Skin> = Vec::new();
         if live {
