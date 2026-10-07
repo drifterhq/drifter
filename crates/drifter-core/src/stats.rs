@@ -243,6 +243,19 @@ pub fn battery_rows(read: impl Fn(&str) -> Option<String>) -> Vec<(String, Strin
     rows
 }
 
+pub fn read_battery_rows() -> Vec<(String, String)> {
+    let Ok(entries) = std::fs::read_dir("/sys/class/power_supply") else {
+        return Vec::new();
+    };
+    let mut folders: Vec<std::path::PathBuf> = entries.flatten().map(|entry| entry.path()).collect();
+    folders.sort();
+    folders
+        .iter()
+        .map(|folder| battery_rows(|key| std::fs::read_to_string(folder.join(key)).ok()))
+        .find(|rows| !rows.is_empty())
+        .unwrap_or_default()
+}
+
 pub fn battery(cells: &[Cell]) -> Option<(&'static str, u8)> {
     let full: u64 = cells.iter().map(|cell| cell.full).sum();
     if full == 0 {

@@ -855,7 +855,7 @@ impl State {
         }
         self.battery_at = Some(Instant::now());
         self.battery_busy = true;
-        let font = self.lock_small.clone();
+        let font = self.font.clone();
         let look = drifter_core::lock::Look {
             ink: self.tray.ink,
             ..drifter_core::lock::Look::themed(&self.palette)
@@ -882,6 +882,7 @@ impl State {
                     return;
                 }
                 state.battery_seen = reading;
+                state.card_stale = true;
                 state.battery_glow = None;
                 state.battery_art = image.and_then(|(image, glow)| {
                     let size = drifter_core::paint::logical(&image);
@@ -976,7 +977,6 @@ impl State {
             .collect();
         if fields.is_empty() {
             self.stats = None;
-            self.glance_card = None;
             return;
         }
         if let Some((_, cpu)) = fields.iter().find(|(label, _)| label == "CPU") {
@@ -1013,11 +1013,29 @@ impl State {
         );
     }
 
+    fn hover_card_spot(&self) -> Option<(HoverCard, Rect)> {
+        if self.popover.is_some() {
+            return None;
+        }
+        if let Some(spot) = self.stats_spot().filter(|spot| spot.contains(self.pointer)) {
+            return Some((HoverCard::System, spot));
+        }
+        self.battery_rect()
+            .filter(|spot| self.show_battery && spot.contains(self.pointer))
+            .map(|spot| (HoverCard::Battery, spot))
+    }
+
     fn wind_the_card(&mut self) {
-        let Some(spot) = self.stats_spot().filter(|spot| spot.contains(self.pointer) && self.popover.is_none()) else {
+        let Some((which, spot)) = self.hover_card_spot() else {
             self.glance_card = None;
+            self.card_for = None;
             return;
         };
+        if self.card_for != Some(which) {
+            self.glance_card = None;
+            self.card_for = Some(which);
+            self.card_stale = true;
+        }
         if self.card_busy || (self.glance_card.is_some() && !self.card_stale) {
             return;
         }
@@ -1029,21 +1047,60 @@ impl State {
         let card = drifter_core::glance::Card::themed(&self.palette);
         let fields = self.glance_fields.clone();
         let history = self.cpu_history.clone();
-        let height = card.height(fields.len(), history.len() > 1);
-        let x = (spot.origin.x - 8.0).clamp(8.0, (self.screen.x - card.width - 8.0).max(8.0));
+        let charge = self.battery_seen;
+        let x = match which {
+            HoverCard::System => spot.origin.x - 8.0,
+            HoverCard::Battery => spot.max().x - card.width + 8.0,
+        };
+        let x = x.clamp(8.0, (self.screen.x - card.width - 8.0).max(8.0));
         let y = self.tray_band().map_or(spot.max().y, |band| band.max().y) + 8.0;
-        let rect = Rect::new(Vec2::new(x, y).round(), Vec2::new(card.width, height));
         let frosting = self.frosting();
+        let ink = self.tray.ink;
         self.on_worker(
-            "system card",
+            "hover card",
             move || {
-                let mut image = drifter_core::glance::paint_card(&card, &font, &bold, &fields, &history);
+                let mut image = match which {
+                    HoverCard::System => drifter_core::glance::paint_card(&card, &font, &bold, &fields, &history),
+                    HoverCard::Battery => {
+                        let rows = drifter_core::stats::read_battery_rows();
+                        let (charging, percent) = charge.unwrap_or((false, 0));
+                        let note = match (charging, percent) {
+                            (_, 100..) => "Full",
+                            (true, _) => "Charging",
+                            (false, 0..=10) => "Low",
+                            _ => "On battery",
+                        };
+                        let color = match (charging, percent) {
+                            (_, 100..) => drifter_core::lock::FULL,
+                            (false, 0..=10) => drifter_core::glance::HOT,
+                            _ => ink,
+                        };
+                        let rows: Vec<(String, String)> = rows.into_iter().skip(1).collect();
+                        let rows = match rows.is_empty() {
+                            true => vec![("Charge".to_string(), format!("{percent}%"))],
+                            false => rows,
+                        };
+                        drifter_core::glance::paint_rows(
+                            &card,
+                            &font,
+                            &bold,
+                            &format!("Battery {percent}%"),
+                            note,
+                            Some((f64::from(percent) / 100.0, color)),
+                            &rows,
+                        )
+                    }
+                };
+                let rect = Rect::new(
+                    Vec2::new(x, y).round(),
+                    drifter_core::paint::logical(&image),
+                );
                 worker::frost(&frosting, &mut image, rect.origin, card.back_alpha);
-                image
+                (image, rect)
             },
-            move |state, image| {
+            move |state, (image, rect)| {
                 state.card_busy = false;
-                if state.stats_spot().is_none_or(|spot| !spot.contains(state.pointer)) {
+                if state.hover_card_spot().is_none_or(|(now, _)| now != which) {
                     state.glance_card = None;
                     return;
                 }

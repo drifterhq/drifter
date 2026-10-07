@@ -502,6 +502,7 @@ pub fn open(
         cpu_history: vec![0; drifter_core::glance::HISTORY],
         stats_busy: false,
         glance_card: None,
+        card_for: None,
         card_busy: false,
         card_stale: false,
         dock_fit: config.dock.fit,

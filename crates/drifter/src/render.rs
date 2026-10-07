@@ -88,6 +88,12 @@ const KEY_UP: u32 = 111;
 const KEY_LEFT: u32 = 113;
 const KEY_RIGHT: u32 = 114;
 const KEY_DOWN: u32 = 116;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HoverCard {
+    System,
+    Battery,
+}
+
 const BATTERY_EVERY: Duration = Duration::from_secs(20);
 const EBB_TICK: Duration = Duration::from_millis(50);
 const LOCK_FADE: Duration = Duration::from_millis(450);
@@ -507,6 +513,7 @@ pub struct State {
     cpu_history: Vec<u8>,
     stats_busy: bool,
     glance_card: Option<(TextureBuffer<Tex>, Rect)>,
+    card_for: Option<HoverCard>,
     card_busy: bool,
     card_stale: bool,
     icons: Vec<(String, String, TextureBuffer<Tex>)>,

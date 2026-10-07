@@ -528,18 +528,7 @@ fn set_profile(name: &str) {
 }
 
 fn read_cells() -> Vec<(String, String)> {
-    let Ok(entries) = std::fs::read_dir("/sys/class/power_supply") else {
-        return Vec::new();
-    };
-    let mut folders: Vec<PathBuf> = entries.flatten().map(|entry| entry.path()).collect();
-    folders.sort();
-    folders
-        .iter()
-        .map(|folder| {
-            drifter_core::stats::battery_rows(|key| std::fs::read_to_string(folder.join(key)).ok())
-        })
-        .find(|rows| !rows.is_empty())
-        .unwrap_or_default()
+    drifter_core::stats::read_battery_rows()
 }
 
 fn read_brightness() -> Option<f64> {

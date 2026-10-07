@@ -249,6 +249,51 @@ pub fn paint_card(card: &Card, font: &Font, bold: &Font, fields: &[(String, u8)]
     canvas.image
 }
 
+pub fn rows_height(rows: usize, meter: bool) -> f64 {
+    14.0 + 24.0 + if meter { 20.0 } else { 0.0 } + 22.0 * rows as f64 + 8.0
+}
+
+pub fn paint_rows(
+    card: &Card,
+    font: &Font,
+    bold: &Font,
+    head: &str,
+    note: &str,
+    meter: Option<(f64, [u8; 3])>,
+    rows: &[(String, String)],
+) -> Image {
+    let size = Vec2::new(card.width, rows_height(rows.len(), meter.is_some()));
+    let mut canvas = Canvas::new(size.x as u32, size.y as u32);
+    canvas.round_rect(Rect::new(Vec2::ZERO, size), 14.0, card.back, card.back_alpha);
+    let pad = 14.0;
+    let title = bold.paint_bold(head, card.ink);
+    canvas.stamp(&title, Vec2::new(pad, 14.0), 1.0);
+    let room = size.x - pad * 3.0 - crate::paint::logical(&title).x;
+    let quiet = font.paint(&fit(font, note, room.max(0.0)), card.dim);
+    canvas.stamp(&quiet, Vec2::new(size.x - pad - crate::paint::logical(&quiet).x, 15.0).round(), 1.0);
+    let mut y = 42.0;
+    if let Some((share, color)) = meter {
+        let track = Rect::new(Vec2::new(pad, y + 4.0), Vec2::new(size.x - pad * 2.0, 6.0));
+        canvas.round_rect(track, 3.0, card.ink, 0.14);
+        let filled = track.size.x * share.clamp(0.0, 1.0);
+        if filled > 0.0 {
+            canvas.round_rect(Rect::new(track.origin, Vec2::new(filled.max(6.0), track.size.y)), 3.0, color, 0.85);
+        }
+        y += 20.0;
+    }
+    let half = (size.x - pad * 2.0) / 2.0;
+    for (label, value) in rows {
+        let mid = y + 11.0;
+        let name = font.paint(&fit(font, label, half - 6.0), card.dim);
+        canvas.stamp(&name, Vec2::new(pad, mid - crate::paint::logical(&name).y / 2.0).round(), 1.0);
+        let shown = font.paint_even_digits(&fit(font, value, half - 6.0), card.ink);
+        let shown_size = crate::paint::logical(&shown);
+        canvas.stamp(&shown, Vec2::new(size.x - pad - shown_size.x, mid - shown_size.y / 2.0).round(), 1.0);
+        y += 22.0;
+    }
+    canvas.image
+}
+
 pub fn fit(font: &Font, text: &str, room: f64) -> String {
     if font.width_of(text) <= room {
         return text.to_string();
@@ -322,6 +367,17 @@ mod tests {
         assert_eq!(heat(0.1), COOL);
         assert_eq!(heat(0.88), WARM);
         assert_eq!(heat(1.0), HOT);
+    }
+
+    #[test]
+    fn a_row_card_grows_with_its_rows_and_its_meter() {
+        let font = Font::find(None, 11.5).unwrap();
+        let card = Card::themed(&crate::theme::DARK);
+        let rows = vec![("Time left".to_string(), "3:12".to_string())];
+        let one = paint_rows(&card, &font, &font, "Battery 80%", "On battery", None, &rows);
+        let metered = paint_rows(&card, &font, &font, "Battery 80%", "On battery", Some((0.8, card.ink)), &rows);
+        assert!(crate::paint::logical(&metered).y > crate::paint::logical(&one).y);
+        assert_eq!(crate::paint::logical(&one).y, rows_height(1, false));
     }
 
     #[test]

@@ -267,6 +267,8 @@ impl State {
             self.note_body = Font::find(config.font_path(), 12.0).ok().map(std::sync::Arc::new);
             self.clock = None;
             self.stats = None;
+            self.battery_seen = None;
+            self.battery_at = None;
             self.titles.clear();
         }
         if paths[2] != self.asset_paths[2] {
@@ -514,6 +516,8 @@ impl State {
             }
             self.clock = None;
             self.stats = None;
+            self.battery_seen = None;
+            self.battery_at = None;
             self.titles.clear();
         }
         self.format = config.tray.format.clone();
