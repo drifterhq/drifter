@@ -432,6 +432,35 @@ impl Look {
         (self.choice_icon(anchor, at, count).center(), 26.0 + 6.0)
     }
 
+    pub fn hover_rect(&self, view: &View) -> Option<Rect> {
+        if view.card != Card::Apps {
+            return None;
+        }
+        let inset = |cell: Rect| Rect::new(cell.origin + Vec2::new(6.0, -4.0), cell.size - Vec2::new(12.0, 0.0));
+        let count = view.choosing.as_ref().map(|(_, choices)| choices.len().min(CHOICES)).unwrap_or(0);
+        match view.hover? {
+            Hit::Tile(at) if at < view.tiles.len() => Some(self.tile_rect(at)),
+            Hit::Choice(at) => Look::anchor(view).map(|anchor| inset(self.choice_rect(anchor, at, count))),
+            Hit::Other => Look::anchor(view).map(|anchor| inset(self.choice_rect(anchor, count, count))),
+            _ => None,
+        }
+    }
+
+    pub fn paint_sheen(&self) -> Image {
+        let size = Vec2::new(SLOT, 108.0);
+        let mut canvas = Canvas::new(size.x as u32, size.y as u32);
+        let ink = if self.light { BLACK } else { WHITE };
+        canvas.round_rect(Rect::new(Vec2::ZERO, size), 14.0, ink, 1.0);
+        canvas.image
+    }
+
+    pub fn sheen_alpha(&self) -> f64 {
+        match self.light {
+            true => 0.06,
+            false => 0.09,
+        }
+    }
+
     pub fn anchor(view: &View) -> Option<usize> {
         let (role, _) = view.choosing.as_ref()?;
         view.tiles.iter().position(|tile| tile.role == *role)
@@ -1195,19 +1224,12 @@ impl Look {
         }
         for (at, tile) in view.tiles.iter().take(TILES).enumerate() {
             let slot = self.tile_rect(at);
-            let hover = view.hovered(Hit::Tile(at));
             let active = open == Some(tile.role);
             let fade = if open.is_some() && !active { 0.5 } else { 1.0 };
-            if active || hover {
-                let tint = if active { self.accent } else { self.raised };
-                let alpha = match (active, self.light) {
-                    (true, _) => 0.16,
-                    (false, true) => 0.55,
-                    (false, false) => 0.6,
-                };
-                canvas.round_rect(slot, 14.0, tint, alpha);
+            if active {
+                canvas.round_rect(slot, 14.0, self.accent, 0.16);
             }
-            let lift = if hover || active { -3.0 } else { 0.0 };
+            let lift = if active { -3.0 } else { 0.0 };
             let icon = self.tile_icon(at);
             let icon = Rect::new(icon.origin + Vec2::new(0.0, lift), icon.size);
             match &tile.name {
@@ -1236,10 +1258,9 @@ impl Look {
             let name = fit(&fonts.small, &name, slot.size.x + 4.0);
             let words = fonts.small.paint(&name, ink);
             canvas.stamp(&words, Vec2::new(slot.center().x - logical(&words).x / 2.0, slot.origin.y + 72.0).round(), fade);
-            let (label, ink) = match (tile.busy, tile.weak && hover && tile.name.is_some()) {
-                (true, _) => ("Getting it", self.accent),
-                (false, true) => ("Try another", self.accent),
-                _ => (role_word(tile.role), self.dim),
+            let (label, ink) = match tile.busy {
+                true => ("Getting it", self.accent),
+                false => (role_word(tile.role), self.dim),
             };
             let label = fit(&fonts.small, label, slot.size.x + 12.0);
             let words = fonts.small.paint(&label, ink);
@@ -1268,12 +1289,7 @@ impl Look {
         );
         for (at, choice) in choices.iter().take(CHOICES).enumerate() {
             let cell = self.choice_rect(anchor, at, count);
-            let hover = view.hovered(Hit::Choice(at));
             let icon = self.choice_icon(anchor, at, count);
-            if hover {
-                let ground = if self.light { [236, 238, 243] } else { self.hover };
-                canvas.round_rect(Rect::new(cell.origin + Vec2::new(6.0, -4.0), cell.size - Vec2::new(12.0, 0.0)), 14.0, ground, 0.9);
-            }
             let fade = match choice.installed {
                 true => 1.0,
                 false => 0.6,
@@ -1297,7 +1313,7 @@ impl Look {
                 canvas.line(badge + Vec2::new(3.2, 0.0), badge + Vec2::new(0.0, 3.2), 1.7, WHITE, 1.0);
             }
             let name = fit(&fonts.small, &name, cell.size.x - 10.0);
-            let ink = match choice.chosen || hover {
+            let ink = match choice.chosen {
                 true => self.ink,
                 false => self.dim,
             };
@@ -1313,17 +1329,16 @@ impl Look {
                 canvas.stamp(&words, Vec2::new(cell.center().x - logical(&words).x / 2.0, cell.origin.y + 80.0).round(), 1.0);
             }
         }
-        self.paint_other(canvas, fonts, self.choice_rect(anchor, count, count), view.hovered(Hit::Other));
-        if let Some(note) = &view.note {
+        self.paint_other(canvas, fonts, self.choice_rect(anchor, count, count));
+        let weak = view.tiles.get(anchor).is_some_and(|tile| tile.weak && tile.name.is_some());
+        let note = view.note.as_deref().or(weak.then_some("A dedicated app works better here."));
+        if let Some(note) = note {
             self.line_center(canvas, &fonts.small, note, pop.max().y + 8.0, self.dim);
         }
     }
 
-    fn paint_other(&self, canvas: &mut Canvas, fonts: &Fonts, cell: Rect, hover: bool) {
+    fn paint_other(&self, canvas: &mut Canvas, fonts: &Fonts, cell: Rect) {
         let icon = Rect::from_center(Vec2::new(cell.center().x, cell.origin.y + 32.0), Vec2::splat(52.0));
-        if hover {
-            canvas.round_rect(Rect::new(cell.origin + Vec2::new(6.0, -4.0), cell.size - Vec2::new(12.0, 0.0)), 14.0, self.raised, 0.5);
-        }
         let face = match self.light {
             true => WHITE,
             false => self.raised,
@@ -1334,11 +1349,7 @@ impl Look {
         for step in [-1.0, 0.0, 1.0] {
             canvas.circle(icon.center() + Vec2::new(step * 9.0, 0.0), 3.0, self.dim, 1.0);
         }
-        let ink = match hover {
-            true => self.ink,
-            false => self.dim,
-        };
-        let words = fonts.small.paint("Other…", ink);
+        let words = fonts.small.paint("Other…", self.dim);
         canvas.stamp(&words, Vec2::new(cell.center().x - logical(&words).x / 2.0, cell.origin.y + 64.0).round(), 1.0);
     }
 

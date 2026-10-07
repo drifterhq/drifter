@@ -54,6 +54,7 @@ pub(super) struct Welcome {
     desk_since: Instant,
     dot: Option<TextureBuffer<Tex>>,
     flight: Option<Flight>,
+    sheen: Option<TextureBuffer<Tex>>,
 }
 
 struct Flight {
@@ -188,6 +189,7 @@ impl State {
             desk_since: Instant::now(),
             dot,
             flight: None,
+            sheen: None,
         });
         let logo = wallpaper::logo_program(&mut self.renderer).map(|program| Logo { program, sheet: None });
         let desk = wallpaper::desk_program(&mut self.renderer).map(|program| Logo { program, sheet: None });
@@ -614,6 +616,10 @@ impl State {
                 }
             }
         }
+        if let (Some(sheen), Some(spot)) = (open.sheen.as_ref().filter(|_| open.closing.is_none()), look.hover_rect(&open.view)) {
+            let target = Rect::new(here.origin + spot.origin, spot.size);
+            elements.push(Skin::Texture(element(sheen, target, (fade * look.sheen_alpha()) as f32)));
+        }
         if let Some(flight) = open.flight.as_ref().filter(|_| open.closing.is_none()) {
             let p = (now.duration_since(flight.start).as_secs_f64() / FLIGHT).min(1.0);
             let e = drifter_core::motion::smooth(p);
@@ -764,8 +770,16 @@ impl State {
             open.hovered = paper.map(|at| (at, Instant::now()));
         }
         if open.view.hover != hit {
+            let quiet = |hit: Option<Hit>| matches!(hit, None | Some(Hit::Tile(_) | Hit::Choice(_) | Hit::Other));
+            let sheen_only = open.view.card == Card::Apps && quiet(open.view.hover) && quiet(hit);
             open.view.hover = hit;
-            self.paint_welcome();
+            match sheen_only {
+                true => {
+                    self.welcome_sheen();
+                    self.kick_now();
+                }
+                false => self.paint_welcome(),
+            }
         }
     }
 
@@ -847,6 +861,7 @@ impl State {
         }
         if card == Card::Apps {
             self.welcome_scan();
+            self.welcome_sheen();
         }
         if card == Card::Comfort
             && let Some(open) = self.welcome.as_mut()
@@ -1108,6 +1123,23 @@ impl State {
         }
     }
 
+    fn welcome_sheen(&mut self) {
+        if self.welcome.as_ref().is_none_or(|open| open.sheen.is_some()) {
+            return;
+        }
+        let look = drifter_core::welcome::Look::themed(&self.palette, self.look.accent);
+        self.paint_on_worker(
+            "welcome sheen",
+            move || Some(look.paint_sheen()),
+            |state, art| {
+                if let Some(open) = state.welcome.as_mut() {
+                    open.sheen = art;
+                }
+                state.kick_now();
+            },
+        );
+    }
+
     fn welcome_fly(&mut self, at: usize) {
         let still = self.access.reduce_motion;
         let look = drifter_core::welcome::Look::themed(&self.palette, self.look.accent);
@@ -1305,7 +1337,8 @@ impl State {
     }
 
     pub(super) fn welcome_restyle(&mut self) {
-        if self.welcome.is_some() {
+        if let Some(open) = self.welcome.as_mut() {
+            open.sheen = None;
             self.paint_welcome();
         }
     }
