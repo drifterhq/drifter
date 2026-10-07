@@ -89,6 +89,8 @@ const KEY_RIGHT: u32 = 114;
 const KEY_DOWN: u32 = 116;
 const BATTERY_EVERY: Duration = Duration::from_secs(20);
 const EBB_TICK: Duration = Duration::from_millis(50);
+const LOCK_FADE: Duration = Duration::from_millis(450);
+const BARS_AFTER_UNLOCK: Duration = Duration::from_millis(1600);
 const LOCK_PATIENCE: Duration = Duration::from_secs(30);
 const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
@@ -357,6 +359,7 @@ pub struct ClientLock {
 }
 
 struct Lock {
+    since: Instant,
     pad: Pad,
     note: Note,
     checking: Option<Instant>,
@@ -550,6 +553,7 @@ pub struct State {
     reopening: Option<(drifter_core::reopen::Desk, Instant)>,
     switch: Option<Switch>,
     lock: Option<Lock>,
+    unlocking: Option<(Lock, Instant)>,
     client_lock: Option<ClientLock>,
     volume: Option<(f64, bool)>,
     volume_read: Option<Instant>,
@@ -648,6 +652,7 @@ impl State {
             || self.windows.iter().any(|window| window.motion.is_some())
             || !self.bounces.is_empty()
             || self.fading.is_some()
+            || self.lock_fading()
             || self.windows.iter().any(|window| window.closed_at.is_some())
             || self.dock_drag.is_some()
             || self.desk_menu_busy()
@@ -682,6 +687,9 @@ impl State {
         }
         if self.lock.is_some() {
             let glowing = self.lock.as_ref().is_some_and(|lock| lock.corner_glow.is_some());
+            if self.lock_fading() {
+                return Some(TICK);
+            }
             return Some(match (self.lock_logo.pace > 0.0, glowing) {
                 (true, _) => TICK,
                 (false, true) => EBB_TICK,
@@ -729,7 +737,8 @@ impl State {
             self.client_lock_elements(&mut elements);
             return elements;
         }
-        if self.lock.is_some() {
+        let presence = self.lock_presence();
+        if self.lock.is_some() && presence.is_some_and(|shown| shown >= 1.0) {
             let mut elements = match live {
                 true => self.cursor_elements(),
                 false => Vec::new(),
@@ -743,9 +752,13 @@ impl State {
                     elements.push(Skin::Texture(element(art, open.rect, 1.0)));
                 }
             }
-            elements.extend(self.lock_elements());
+            elements.extend(self.lock_elements(1.0));
             return elements;
         }
+        let layer = match presence {
+            Some(shown) => self.lock_elements(shown),
+            None => Vec::new(),
+        };
         let mut elements: Vec<Skin> = Vec::new();
         if live {
             self.own_elements(&mut elements);
@@ -758,6 +771,7 @@ impl State {
             }
         }
         self.cursor_count = elements.len();
+        elements.extend(layer);
         if live {
             self.shooter_elements(&mut elements);
             if let Some((art, rect)) = self.prompt_art.as_ref() {

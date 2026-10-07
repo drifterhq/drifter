@@ -1,63 +1,91 @@
 use super::*;
 
 impl State {
-    pub(super) fn lock_elements(&mut self) -> Vec<Skin> {
+    pub(super) fn lock_presence(&mut self) -> Option<f64> {
+        let span = LOCK_FADE.as_secs_f64();
+        if let Some(lock) = self.lock.as_ref() {
+            return Some(drifter_core::motion::smooth((lock.since.elapsed().as_secs_f64() / span).min(1.0)));
+        }
+        let (_, since) = self.unlocking.as_ref()?;
+        let gone = since.elapsed().as_secs_f64() / span;
+        if gone >= 1.0 {
+            self.unlocking = None;
+            return None;
+        }
+        Some(1.0 - drifter_core::motion::smooth(gone))
+    }
+
+    pub(super) fn lock_fading(&self) -> bool {
+        self.unlocking.is_some() || self.lock.as_ref().is_some_and(|lock| lock.since.elapsed() < LOCK_FADE)
+    }
+
+    pub(super) fn lock_elements(&mut self, shown: f64) -> Vec<Skin> {
         let look = drifter_core::lock::Look::themed(&self.palette);
-        let logo = look.logo_rect(self.screen);
+        let alpha = shown as f32;
+        let drift = match self.lock_logo.pace > 0.0 {
+            true => (1.0 - shown) * 18.0,
+            false => 0.0,
+        };
+        let up = Vec2::new(0.0, -drift);
+        let down = Vec2::new(0.0, drift);
+        let moved = |rect: Rect, by: Vec2| Rect::new((rect.origin + by).round(), rect.size);
+        let logo = moved(look.logo_rect(self.screen), down);
         let mut elements = Vec::new();
-        let Some(lock) = self.lock.as_ref() else {
+        let Some(lock) = self.lock.as_ref().or(self.unlocking.as_ref().map(|(lock, _)| lock)) else {
             return elements;
         };
-        let card = look.rect(self.screen);
+        let card = moved(look.rect(self.screen), down);
         let blink = lock.typed.elapsed().as_millis() / drifter_core::lock::BLINK.as_millis();
         if blink % 2 == 0
             && lock.checking.is_none()
+            && self.lock.is_some()
             && let Some((caret, _)) = lock.caret.as_ref()
         {
             let at = look.caret_rect(lock.pad.len());
-            elements.push(Skin::Texture(fill(caret, Rect::new(card.origin + at.origin, at.size), 1.0)));
+            elements.push(Skin::Texture(fill(caret, Rect::new(card.origin + at.origin, at.size), alpha)));
         }
         if let Some(art) = lock.art.as_ref() {
-            elements.push(Skin::Texture(element(art, card, 1.0)));
+            elements.push(Skin::Texture(element(art, card, alpha)));
         }
         if let Some((art, size)) = lock.corner.as_ref() {
             let spot = self.tray.status_rect(self.top_rest_band(), *size);
             if let Some(glow) = lock.corner_glow.as_ref() {
                 let ebb = drifter_core::lock::ebb(self.ebb_from.elapsed().as_secs_f64());
-                elements.push(Skin::Texture(element(glow, spot, ebb)));
+                elements.push(Skin::Texture(element(glow, spot, ebb * alpha)));
             }
-            elements.push(Skin::Texture(element(art, spot, 1.0)));
+            elements.push(Skin::Texture(element(art, spot, alpha)));
         }
         let top = lock
             .top
             .as_ref()
-            .map(|(art, size)| (art.clone(), look.top_rect(self.screen, *size)));
+            .map(|(art, size)| (art.clone(), moved(look.top_rect(self.screen, *size), up)));
         let clock = lock
             .clock
             .as_ref()
-            .map(|(art, size)| (art.clone(), look.clock_rect(self.screen, *size)));
+            .map(|(art, size)| (art.clone(), moved(look.clock_rect(self.screen, *size), up)));
         let shade = lock.shade.clone();
         let veil = lock.veil.as_ref().map(|(art, _)| art.clone());
         if let Some(frame) = self.lock_logo_frame(logo) {
-            elements.push(Skin::Texture(element(&frame, logo, 1.0)));
+            elements.push(Skin::Texture(element(&frame, logo, alpha)));
         }
         if let Some(shade) = shade {
-            elements.push(Skin::Texture(element(&shade, look.logo_shadow_rect(self.screen), 1.0)));
+            let spot = moved(look.logo_shadow_rect(self.screen), down);
+            elements.push(Skin::Texture(element(&shade, spot, alpha)));
         }
         if let Some((art, rect)) = clock {
-            elements.push(Skin::Texture(element(&art, rect, 1.0)));
+            elements.push(Skin::Texture(element(&art, rect, alpha)));
         }
         if let Some((art, rect)) = top {
-            elements.push(Skin::Texture(element(&art, rect, 1.0)));
+            elements.push(Skin::Texture(element(&art, rect, alpha)));
         }
         if let Some(veil) = veil {
-            elements.push(Skin::Texture(fill(&veil, Rect::new(Vec2::ZERO, self.screen), look.veil as f32)));
+            elements.push(Skin::Texture(fill(&veil, Rect::new(Vec2::ZERO, self.screen), look.veil as f32 * alpha)));
         }
         let view = (self.mode, self.screen, self.world, self.camera);
         let clock = self.paper_clock();
         let every = self.live_every();
         if let Some(paper) = self.wallpaper.as_mut() {
-            paper_pieces(&mut self.renderer, paper, view, 1.0, (clock, Some(every)), &mut elements);
+            paper_pieces(&mut self.renderer, paper, view, alpha, (clock, Some(every)), &mut elements);
         }
         elements
     }
@@ -75,7 +103,9 @@ impl State {
         };
 
         let refocus = self.hush();
+        self.unlocking = None;
         self.lock = Some(Lock {
+            since: Instant::now(),
             pad: Pad::new(),
             note: Note::Ask,
             checking: None,
@@ -655,6 +685,13 @@ impl State {
             keyboard.set_focus(self, Some(surface), SERIAL_COUNTER.next_serial());
         }
         self.last = Instant::now();
+        self.unlocking = Some((lock, Instant::now()));
+        for edge in Edge::ALL {
+            self.drawers[edge.index()].open = true;
+        }
+        self.dwell = None;
+        self.leave = Some(Instant::now() + BARS_AFTER_UNLOCK);
+        self.kick_now();
     }
 }
 

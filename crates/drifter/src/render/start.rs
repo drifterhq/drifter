@@ -443,6 +443,7 @@ pub fn open(
         desk_menu: None,
         ripple: None,
         alert: None,
+        unlocking: None,
         reopening: None,
         switch: None,
         lock: None,
