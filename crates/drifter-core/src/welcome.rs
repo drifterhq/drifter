@@ -1342,13 +1342,6 @@ impl Look {
         canvas.stamp(&words, Vec2::new(cell.center().x - logical(&words).x / 2.0, cell.origin.y + 64.0).round(), 1.0);
     }
 
-    fn card_face(&self, hover: bool) -> [u8; 3] {
-        match hover {
-            true => self.hover,
-            false => self.raised,
-        }
-    }
-
     fn app_icon(&self, canvas: &mut Canvas, fonts: &Fonts, rect: Rect, icon: Option<&Image>, name: &str, fade: f64) {
         match icon {
             Some(image) => {

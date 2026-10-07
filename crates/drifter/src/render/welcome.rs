@@ -38,7 +38,6 @@ pub(super) struct Welcome {
     picked_device: bool,
     density: u32,
     black: Option<TextureBuffer<Tex>>,
-    accent: Option<TextureBuffer<Tex>>,
     shadow: Option<(TextureBuffer<Tex>, f64)>,
     job: u64,
     paint: worker::Lane,
@@ -142,17 +141,6 @@ impl State {
         .ok()
         .flatten();
         let accent = self.look.accent;
-        let tint = upload(
-            &mut self.renderer,
-            Some(&drifter_core::Image {
-                width: 1,
-                height: 1,
-                rgba: vec![accent[0], accent[1], accent[2], 255],
-            }),
-            "welcome accent",
-        )
-        .ok()
-        .flatten();
         let patch = drifter_core::window::shadow_patch(drifter_core::welcome::RADIUS, 44.0);
         let shadow = upload_flat(&mut self.renderer, Some(&patch), "welcome shadow")
             .ok()
@@ -184,7 +172,6 @@ impl State {
             picked_device: false,
             density: self.density,
             black,
-            accent: tint,
             shadow,
             job: 0,
             paint: worker::Lane::default(),
