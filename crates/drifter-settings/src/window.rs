@@ -351,6 +351,9 @@ pub fn run() -> Result<(), String> {
     };
     settings.load_row_icons();
     settings.refresh(settings.section);
+    if let Some(role) = std::env::args().nth(2).and_then(|word| drifter_core::desktop::Role::from_key(&word)) {
+        settings.open_picker(For::Default(role));
+    }
 
     while !settings.exit {
         events

@@ -6,6 +6,10 @@ impl State {
     }
 
     pub(super) fn open_settings_at(&mut self, page: &str) {
+        self.open_settings_with(&[page]);
+    }
+
+    pub(super) fn open_settings_with(&mut self, words: &[&str]) {
         if self.lock.is_some() {
             return;
         }
@@ -21,9 +25,7 @@ impl State {
             .map(|path| path.with_file_name(SETTINGS_APP))
             .unwrap_or_else(|_| std::path::PathBuf::from(SETTINGS_APP));
         let mut argv = vec![program.to_string_lossy().into_owned()];
-        if !page.is_empty() {
-            argv.push(page.to_string());
-        }
+        argv.extend(words.iter().filter(|word| !word.is_empty()).map(|word| word.to_string()));
         crate::apps::launch(&argv, &self.socket);
     }
 
@@ -401,6 +403,7 @@ impl State {
         match Config::load_from(&self.config_path) {
             Ok(config) => {
                 self.apply(&config);
+                self.welcome_config_changed();
                 self.kick_now();
             }
             Err(error) => log!("drifter: the config did not load: {error}"),

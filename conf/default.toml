@@ -210,7 +210,8 @@ after = 0
 screen_off = 10
 
 [apps]
-# Your file manager, terminal, web browser and text editor. Same forms as the dock:
+# Your web browser, mail, file manager, terminal, text editor, photos, video
+# and music apps. Same forms as the dock:
 #   browser = "firefox-esr"   or   terminal = { command = "foot -e fish" }
 # A missing key uses the one the system names as default.
 # files = "pcmanfm"

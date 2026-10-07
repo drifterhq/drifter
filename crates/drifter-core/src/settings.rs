@@ -259,8 +259,8 @@ pub struct Model {
     pub autostarts: Vec<crate::autostart::Entry>,
     pub dock: Vec<Launch>,
     pub shows: [bool; 6],
-    pub defaults: [Option<Launch>; 4],
-    pub system: [Option<String>; 4],
+    pub defaults: [Option<Launch>; 8],
+    pub system: [Option<String>; 8],
     pub wallpaper: Option<PathBuf>,
     pub folder: Option<PathBuf>,
     pub rotate: u64,
@@ -976,8 +976,10 @@ impl Model {
                 );
                 for (at, label) in SHOWS.iter().enumerate() {
                     let detail = match at {
-                        0..=2 => self
-                            .effective(at)
+                        0..=2 => [Role::Files, Role::Terminal, Role::Browser]
+                            .get(at)
+                            .and_then(|role| Role::ALL.iter().position(|each| each == role))
+                            .and_then(|index| self.effective(index))
                             .map(|item| self.name_of(&item))
                             .unwrap_or_else(|| "None found".to_string()),
                         3 => "This window".to_string(),
@@ -1913,7 +1915,7 @@ impl Model {
         if self.dock != before.dock {
             put(&mut doc, "dock", "pinned", launches(&self.dock));
         }
-        for (at, key) in ["files", "terminal", "browser", "editor"].iter().enumerate() {
+        for (at, key) in Role::ALL.iter().map(|role| role.key()).enumerate() {
             if self.defaults[at] != before.defaults[at] {
                 match &self.defaults[at] {
                     Some(item) => put(&mut doc, "apps", key, launch(item)),
@@ -4373,8 +4375,9 @@ mod tests {
     fn a_default_app_is_chosen_written_and_reset() {
         let before = model(&Config::default());
         let mut after = before.clone();
+        let browser = Role::ALL.iter().position(|role| *role == Role::Browser).unwrap();
         assert_eq!(
-            after.press(Id::Default(2), 0),
+            after.press(Id::Default(browser), 0),
             Some(Ask::Pick(For::Default(Role::Browser)))
         );
         after.add(
@@ -4384,9 +4387,9 @@ mod tests {
         let out = after.write(&before, "").unwrap();
         let back = Config::parse(&out).unwrap();
         assert_eq!(back.apps.browser, Some(Launch::App("firefox-esr".into())));
-        assert_eq!(after.effective(2), Some(Launch::App("firefox-esr".into())));
+        assert_eq!(after.effective(browser), Some(Launch::App("firefox-esr".into())));
         let chosen = after.clone();
-        after.press(Id::Default(2), 1);
+        after.press(Id::Default(browser), 1);
         let reset = after.write(&chosen, &out).unwrap();
         assert!(!reset.contains("firefox-esr"), "{reset}");
         Config::parse(&reset).unwrap().validate().unwrap();
@@ -4395,7 +4398,7 @@ mod tests {
     #[test]
     fn the_dock_switches_name_the_app_they_show() {
         let mut model = model(&Config::default());
-        model.system = [Some("pcmanfm".into()), None, None, None];
+        model.system = [None, None, Some("pcmanfm".into()), None, None, None, None, None];
         model
             .names
             .insert("pcmanfm".into(), "File Manager PCManFM".into());

@@ -230,6 +230,14 @@ pub struct AppsConfig {
     pub browser: Option<Launch>,
     #[serde(default)]
     pub editor: Option<Launch>,
+    #[serde(default)]
+    pub mail: Option<Launch>,
+    #[serde(default)]
+    pub images: Option<Launch>,
+    #[serde(default)]
+    pub video: Option<Launch>,
+    #[serde(default)]
+    pub music: Option<Launch>,
 }
 
 impl AppsConfig {
@@ -239,6 +247,10 @@ impl AppsConfig {
             crate::desktop::Role::Terminal => self.terminal.as_ref(),
             crate::desktop::Role::Browser => self.browser.as_ref(),
             crate::desktop::Role::Editor => self.editor.as_ref(),
+            crate::desktop::Role::Mail => self.mail.as_ref(),
+            crate::desktop::Role::Images => self.images.as_ref(),
+            crate::desktop::Role::Video => self.video.as_ref(),
+            crate::desktop::Role::Music => self.music.as_ref(),
         }
     }
 }

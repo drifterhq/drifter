@@ -931,6 +931,13 @@ impl State {
                 }
             }
             Hit::Choice(at) => self.welcome_pick(at),
+            Hit::Other => {
+                let role = open.view.choosing.as_ref().map(|(role, _)| *role);
+                if let Some(role) = role {
+                    self.open_settings_with(&["defaultapps", role.key()]);
+                    self.welcome_do(Hit::Leave);
+                }
+            }
             Hit::Leave => {
                 if let Some(open) = self.welcome.as_mut() {
                     open.view.choosing = None;
@@ -1068,12 +1075,7 @@ impl State {
     }
 
     fn welcome_default(&mut self, role: Role, id: &str) {
-        let key = match role {
-            Role::Files => "files",
-            Role::Terminal => "terminal",
-            Role::Browser => "browser",
-            Role::Editor => "editor",
-        };
+        let key = role.key();
         let launch = drifter_core::Launch::App(id.to_string());
         self.write_config(|text| drifter_core::settings::write_app(text, key, &launch));
         let id = id.to_string();
@@ -1217,6 +1219,12 @@ impl State {
         }
     }
 
+    pub(super) fn welcome_config_changed(&mut self) {
+        if self.welcome.as_ref().is_some_and(|open| open.view.card == Card::Apps) {
+            self.welcome_scan();
+        }
+    }
+
     pub(super) fn welcome_restyle(&mut self) {
         if self.welcome.is_some() {
             self.paint_welcome();
@@ -1247,7 +1255,7 @@ fn scan_apps(config_path: &Path) -> Vec<Shelf> {
                     .and_then(|entry| entry.name)
                     .unwrap_or_else(|| item.name());
                 Known {
-                    icon: icon(&id, 68),
+                    icon: icon(&id, drifter_core::welcome::TILE_ICON),
                     id,
                     name,
                 }

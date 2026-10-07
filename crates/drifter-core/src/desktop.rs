@@ -191,10 +191,40 @@ pub enum Role {
     Terminal,
     Browser,
     Editor,
+    Mail,
+    Images,
+    Video,
+    Music,
 }
 
 impl Role {
-    pub const ALL: [Role; 4] = [Role::Files, Role::Terminal, Role::Browser, Role::Editor];
+    pub const ALL: [Role; 8] = [
+        Role::Browser,
+        Role::Mail,
+        Role::Files,
+        Role::Terminal,
+        Role::Editor,
+        Role::Images,
+        Role::Video,
+        Role::Music,
+    ];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            Role::Files => "files",
+            Role::Terminal => "terminal",
+            Role::Browser => "browser",
+            Role::Editor => "editor",
+            Role::Mail => "mail",
+            Role::Images => "images",
+            Role::Video => "video",
+            Role::Music => "music",
+        }
+    }
+
+    pub fn from_key(word: &str) -> Option<Role> {
+        Role::ALL.into_iter().find(|role| role.key() == word)
+    }
 
     pub fn label(self) -> &'static str {
         match self {
@@ -202,6 +232,10 @@ impl Role {
             Role::Terminal => "Terminal",
             Role::Browser => "Web browser",
             Role::Editor => "Text editor",
+            Role::Mail => "Mail",
+            Role::Images => "Photos",
+            Role::Video => "Video",
+            Role::Music => "Music",
         }
     }
 
@@ -215,6 +249,10 @@ impl Role {
                 "text/html",
             ],
             Role::Editor => &["text/plain"],
+            Role::Mail => &["x-scheme-handler/mailto"],
+            Role::Images => &["image/png", "image/jpeg", "image/gif", "image/webp"],
+            Role::Video => &["video/mp4", "video/x-matroska", "video/webm"],
+            Role::Music => &["audio/mpeg", "audio/flac", "audio/ogg"],
         }
     }
 
@@ -373,7 +411,15 @@ pub struct Offer {
     pub dnf: &'static str,
 }
 
-pub const OFFERS: [Offer; 8] = [
+pub const OFFERS: [Offer; 16] = [
+    Offer { role: Role::Mail, name: "Thunderbird", ids: &["thunderbird", "org.mozilla.Thunderbird", "net.thunderbird.Thunderbird"], apt: "thunderbird", dnf: "thunderbird" },
+    Offer { role: Role::Mail, name: "Geary", ids: &["org.gnome.Geary", "geary"], apt: "geary", dnf: "geary" },
+    Offer { role: Role::Images, name: "Image Viewer", ids: &["org.gnome.Loupe", "loupe", "org.gnome.eog", "eog"], apt: "eog", dnf: "loupe" },
+    Offer { role: Role::Images, name: "Ristretto", ids: &["org.xfce.ristretto", "ristretto"], apt: "ristretto", dnf: "ristretto" },
+    Offer { role: Role::Video, name: "mpv", ids: &["mpv", "io.mpv.Mpv"], apt: "mpv", dnf: "mpv" },
+    Offer { role: Role::Video, name: "VLC", ids: &["vlc", "org.videolan.VLC"], apt: "vlc", dnf: "vlc" },
+    Offer { role: Role::Music, name: "Rhythmbox", ids: &["org.gnome.Rhythmbox3", "rhythmbox"], apt: "rhythmbox", dnf: "rhythmbox" },
+    Offer { role: Role::Music, name: "Lollypop", ids: &["org.gnome.Lollypop", "lollypop"], apt: "lollypop", dnf: "lollypop" },
     Offer { role: Role::Browser, name: "Firefox", ids: &["firefox-esr", "firefox", "org.mozilla.firefox"], apt: "firefox-esr", dnf: "firefox" },
     Offer { role: Role::Browser, name: "Chromium", ids: &["chromium", "chromium-browser", "org.chromium.Chromium"], apt: "chromium", dnf: "chromium" },
     Offer { role: Role::Terminal, name: "Foot", ids: &["foot", "org.codeberg.dnkl.foot"], apt: "foot", dnf: "foot" },
