@@ -41,7 +41,6 @@ pub mod shortcut;
 pub mod snap;
 pub mod stats;
 pub mod sticky;
-pub mod sun;
 pub mod switcher;
 pub mod system;
 pub mod text;

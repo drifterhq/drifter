@@ -102,10 +102,6 @@ pub fn installed(folders: &[PathBuf]) -> Vec<PathBuf> {
 }
 
 pub fn hour_now() -> f64 {
-    crate::sun::lapsed(clock_hour())
-}
-
-pub fn clock_hour() -> f64 {
     use chrono::Timelike;
     let now = chrono::Local::now();
     f64::from(now.hour())

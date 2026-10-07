@@ -22,7 +22,6 @@ mod overlays;
 mod power;
 mod search;
 mod start;
-mod sunlight;
 mod welcome;
 mod worker;
 #[cfg(test)]
@@ -254,7 +253,6 @@ enum Shortcut {
     SavePlace(usize),
     Media(crate::media::Key),
     Vt(i32),
-    Lapse,
     Swallow,
 }
 
@@ -496,7 +494,6 @@ pub struct State {
     launchpad: Option<launchpad::Pad>,
     welcome: Option<welcome::Welcome>,
     dock_logo: docklogo::DockLogo,
-    sunlight: sunlight::Sunlight,
     welcome_wanted: bool,
     search_font: Option<std::sync::Arc<Font>>,
     search_icons: std::collections::HashMap<String, Option<drifter_core::Image>>,
@@ -658,9 +655,6 @@ impl State {
         }
         if self.lock.is_some() {
             return Some(SECOND_TICK);
-        }
-        if drifter_core::sun::lapsing() {
-            return Some(TICK);
         }
         if let Some((_, _, until)) = self.hud.as_ref() {
             return Some(until.saturating_duration_since(Instant::now()).max(TICK));
@@ -875,7 +869,6 @@ impl State {
             &mut elements,
         );
 
-        self.light_sun();
         let zoom = self.camera.zoom;
         let showing: Vec<Showing> = self
             .windows
@@ -941,9 +934,6 @@ impl State {
                         Skin::Client(RescaleRenderElement::from_element(piece, anchor, zoom))
                     }));
                 }
-            }
-            if !maximized {
-                self.sun_rim(shown, dressed, fade, &mut elements);
             }
             if dressed {
                 self.dress(shown, (awake, maximized), &title, fade, &mut elements);

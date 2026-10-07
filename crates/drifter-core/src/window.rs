@@ -593,15 +593,10 @@ pub fn shadow_patch(radius: f64, blur: f64) -> Image {
 }
 
 pub fn shadow_slices(frame: Rect, corner: f64, zoom: f64, drop: f64) -> Vec<(Rect, Rect)> {
-    shadow_cast(frame, corner, zoom, Vec2::new(0.0, drop))
-}
-
-pub fn shadow_cast(frame: Rect, corner: f64, zoom: f64, cast: Vec2) -> Vec<(Rect, Rect)> {
     let c = corner * zoom;
-    let reach = c - (corner - SHADOW_BLUR).max(0.0) * zoom;
     let outer = Rect::new(
-        frame.origin - Vec2::splat(reach) + Vec2::new(cast.x * zoom, cast.y * zoom),
-        frame.size + Vec2::splat(2.0 * reach),
+        frame.origin - Vec2::splat(c - (corner - SHADOW_BLUR).max(0.0) * zoom) + Vec2::new(0.0, drop * zoom),
+        frame.size + Vec2::splat(2.0 * (c - (corner - SHADOW_BLUR).max(0.0) * zoom)),
     );
     let middle = Vec2::new((outer.size.x - 2.0 * c).max(0.0), (outer.size.y - 2.0 * c).max(0.0));
     let cols = [(0.0, corner, outer.origin.x, c), (corner, 1.0, outer.origin.x + c, middle.x), (corner + 1.0, corner, outer.origin.x + c + middle.x, c)];
@@ -609,47 +604,23 @@ pub fn shadow_cast(frame: Rect, corner: f64, zoom: f64, cast: Vec2) -> Vec<(Rect
     let mut out = Vec::new();
     for (row, (sy, sh, dy, dh)) in rows.iter().enumerate() {
         for (col, (sx, sw, dx, dw)) in cols.iter().enumerate() {
+            if row == 1 && col == 1 {
+                continue;
+            }
             if *dw <= 0.0 || *dh <= 0.0 {
                 continue;
             }
-            let source = Rect::new(Vec2::new(*sx, *sy), Vec2::new(*sw, *sh));
-            let target = Rect::new(Vec2::new(*dx, *dy), Vec2::new(*dw, *dh));
-            match row == 1 && col == 1 {
-                true => out.extend(uncovered(target, frame).into_iter().map(|part| (source, part))),
-                false => out.push((source, target)),
-            }
+            out.push((
+                Rect::new(Vec2::new(*sx, *sy), Vec2::new(*sw, *sh)),
+                Rect::new(Vec2::new(*dx, *dy), Vec2::new(*dw, *dh)),
+            ));
         }
     }
     out
 }
 
-fn uncovered(area: Rect, cover: Rect) -> Vec<Rect> {
-    let (a0, a1, c0, c1) = (area.origin, area.max(), cover.origin, cover.max());
-    let mid_top = a0.y.max(c0.y).min(a1.y);
-    let mid_bottom = a1.y.min(c1.y).max(mid_top);
-    [
-        Rect::new(a0, Vec2::new(area.size.x, mid_top - a0.y)),
-        Rect::new(Vec2::new(a0.x, mid_bottom), Vec2::new(area.size.x, a1.y - mid_bottom)),
-        Rect::new(Vec2::new(a0.x, mid_top), Vec2::new(c0.x.min(a1.x) - a0.x, mid_bottom - mid_top)),
-        Rect::new(Vec2::new(c1.x.max(a0.x), mid_top), Vec2::new(a1.x - c1.x.max(a0.x), mid_bottom - mid_top)),
-    ]
-    .into_iter()
-    .filter(|part| part.size.x > 0.5 && part.size.y > 0.5)
-    .collect()
-}
-
 #[cfg(test)]
 mod tests {
-
-    #[test]
-    fn a_shadow_cast_sideways_leaves_no_gap_beside_the_window() {
-        let frame = Rect::new(Vec2::new(100.0, 100.0), Vec2::new(300.0, 200.0));
-        let parts = shadow_cast(frame, 54.0, 1.0, Vec2::new(40.0, 20.0));
-        let probe = Vec2::new(frame.max().x + 20.0, frame.center().y);
-        assert!(parts.iter().any(|(_, target)| target.contains(probe)));
-        let under = frame.center();
-        assert!(!parts.iter().any(|(_, target)| target.contains(under)));
-    }
 
     #[test]
     fn every_skin_file_has_a_painted_stand_in() {

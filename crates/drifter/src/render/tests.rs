@@ -474,7 +474,6 @@ fn a_window_wears_a_frame_that_hugs_it_at_every_zoom() {
 
 #[test]
 fn a_framed_window_casts_a_soft_shadow_that_fades_out() {
-    drifter_core::sun::hold(Some(23.0));
     let mut run = start("shadow", &Config::default(), None);
     let (stop, client) = red_window(&mut run);
     let content = run
@@ -493,42 +492,8 @@ fn a_framed_window_casts_a_soft_shadow_that_fades_out() {
     let far = pixel(&image, x, (frame.max().y + 60.0).round() as u32);
     stop.store(true, Ordering::Relaxed);
     let _ = client.join();
-    drifter_core::sun::hold(None);
     assert!(!is_background(near), "just under the frame is shaded: {near:?}");
     assert!(is_background(far), "far below the frame is untouched: {far:?}");
-}
-
-#[test]
-fn the_sun_casts_shadows_away_from_itself() {
-    let mut run = start("sun", &Config::default(), None);
-    let (stop, client) = red_window(&mut run);
-    let content = run
-        .screen
-        .state
-        .windows
-        .iter()
-        .find(|window| window.app == "drifter-test-red")
-        .expect("the red window is placed")
-        .content;
-    let mut sides = Vec::new();
-    for (hour, name) in [(8.0, "sun-morning"), (12.75, "sun-noon"), (17.5, "sun-evening"), (23.0, "sun-night")] {
-        drifter_core::sun::hold(Some(hour));
-        let image = run.shot(name);
-        let state = &run.screen.state;
-        let frame = state.on_screen(state.chrome.layout(content).frame);
-        let y = (frame.max().y - 8.0).round() as u32;
-        let dark = |x: f64| {
-            let [r, g, b, _] = pixel(&image, x.round() as u32, y);
-            765 - (u32::from(r) + u32::from(g) + u32::from(b))
-        };
-        sides.push((dark(frame.origin.x - 30.0), dark(frame.max().x + 30.0)));
-    }
-    drifter_core::sun::hold(None);
-    stop.store(true, Ordering::Relaxed);
-    let _ = client.join();
-    let (morning, evening) = (sides[0], sides[2]);
-    assert!(morning.1 > morning.0, "morning shadow falls right: {sides:?}");
-    assert!(evening.0 > evening.1, "evening shadow falls left: {sides:?}");
 }
 
 #[test]

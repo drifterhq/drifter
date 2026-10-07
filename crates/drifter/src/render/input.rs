@@ -751,12 +751,6 @@ impl State {
                     shift: held.shift,
                     logo: held.logo,
                 };
-                if mods == (Mods { ctrl: true, alt: true, shift: false, logo: true })
-                    && names.iter().any(|name| name.eq_ignore_ascii_case("d"))
-                {
-                    state.swallowed.push(code);
-                    return FilterResult::Intercept(Shortcut::Lapse);
-                }
                 let found = state.shortcuts.iter().find(|(action, combo)| {
                     let free_shift = *action == Action::Switch && !combo.mods.shift;
                     combo.matches(mods, &names, free_shift)
@@ -797,11 +791,6 @@ impl State {
             Some(Shortcut::SavePlace(slot)) if self.lock.is_none() => self.save_place(slot),
             Some(Shortcut::Place(_) | Shortcut::SavePlace(_)) => {}
             Some(Shortcut::Vt(vt)) => self.change_vt(vt),
-            Some(Shortcut::Lapse) => {
-                let on = drifter_core::sun::toggle_lapse(drifter_core::shader::clock_hour());
-                log!("drifter: a day in a minute is {}", if on { "on" } else { "off" });
-                self.kick_now();
-            }
             Some(Shortcut::Media(key)) => {
                 if let Some(media) = self.media.as_ref() {
                     media.press(key);
