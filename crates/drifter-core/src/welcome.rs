@@ -138,6 +138,14 @@ impl Motion {
         self == Motion::Still
     }
 
+    pub fn tip(self) -> &'static str {
+        match self {
+            Motion::Still => "Nothing moves on its own, and windows and panels appear at once.",
+            Motion::Calm => "Your livepaper drifts slowly, and windows and panels still glide.",
+            Motion::Full => "Your livepaper drifts at full speed, and every animation plays.",
+        }
+    }
+
     fn label(self) -> &'static str {
         match self {
             Motion::Still => "Still",
@@ -675,6 +683,22 @@ impl Look {
         self.row_label(canvas, fonts, 186.0, "Text size", "The size your apps use");
         let hover = [false, true].iter().position(|large| view.hovered(Hit::Text(*large)));
         self.segments(canvas, fonts, self.segments_rect(2, 186.0), &["Regular", "Large"], usize::from(view.large), hover);
+        if let Some(Hit::Motion(motion)) = view.hover {
+            let words = fonts.small.paint(motion.tip(), WHITE);
+            let size = logical(&words);
+            let right = SIZE.x - PAD;
+            let bubble = Rect::new(Vec2::new(right - size.x - 20.0, 148.0), Vec2::new(size.x + 20.0, size.y + 10.0));
+            let segment = self.segment(self.segments_rect(3, 112.0), 3, Motion::ALL.iter().position(|each| *each == motion).unwrap_or(0));
+            let tipx = segment.center().x.clamp(bubble.origin.x + 14.0, bubble.max().x - 14.0);
+            let ink = match self.light {
+                true => [40, 42, 52],
+                false => [12, 13, 18],
+            };
+            canvas.shadow(bubble, 8.0, 8.0, 0.25);
+            canvas.triangle([Vec2::new(tipx, bubble.origin.y - 6.0), Vec2::new(tipx + 7.0, bubble.origin.y + 1.0), Vec2::new(tipx - 7.0, bubble.origin.y + 1.0)], ink, 0.94);
+            canvas.round_rect(bubble, 8.0, ink, 0.94);
+            canvas.stamp(&words, (bubble.origin + Vec2::new(10.0, 5.0)).round(), 1.0);
+        }
         if view.live_note {
             let desk = self.desk_rect();
             canvas.shadow(desk, 12.0, 10.0, 0.18);
@@ -1619,6 +1643,17 @@ mod note_tests {
         assert_eq!(desk_moment(2.5, false), (1.0, 0.0));
         assert_eq!(desk_speed(Motion::Still, false), 0.0);
         assert_eq!(desk_speed(Motion::Full, true), 0.0);
+    }
+
+    #[test]
+    fn each_motion_tip_is_one_plain_sentence_that_fits() {
+        let fonts = Fonts::load(None, true).unwrap();
+        for motion in Motion::ALL {
+            let tip = motion.tip();
+            assert_eq!(tip.matches('.').count(), 1, "{tip}");
+            assert!(!tip.contains('\u{2014}'), "{tip}");
+            assert!(fonts.small.width_of(tip) + 20.0 < SIZE.x - PAD * 2.0, "{tip}");
+        }
     }
 
     #[test]
