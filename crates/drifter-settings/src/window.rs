@@ -129,11 +129,14 @@ pub struct Settings {
     resized: bool,
     stale: bool,
     shown: Option<std::time::Instant>,
+    painted: Option<(u64, f64)>,
+    pages: Vec<Option<drifter_core::Image>>,
+    under: Option<(u64, f64, drifter_core::Image)>,
     qh: QueueHandle<Settings>,
     handle: smithay_client_toolkit::reexports::calloop::LoopHandle<'static, Settings>,
 
     look: Look,
-    fonts: (Font, Font, Font),
+    fonts: std::sync::Arc<(Font, Font, Font)>,
     wallpaper: Option<Image>,
     path: PathBuf,
     model: Model,
@@ -321,10 +324,13 @@ pub fn run() -> Result<(), String> {
         resized: false,
         stale: false,
         shown: None,
+        painted: None,
+        pages: Vec::new(),
+        under: None,
         qh: qh.clone(),
         handle: events.handle(),
         look,
-        fonts,
+        fonts: std::sync::Arc::new(fonts),
         wallpaper,
         path,
         saved: model.clone(),
@@ -815,25 +821,51 @@ impl Settings {
     fn draw(&mut self) {
         self.stale = false;
         self.sync_logo();
+        let held = self.fonts.clone();
         let fonts = Fonts {
-            body: &self.fonts.0,
-            small: &self.fonts.1,
-            title: &self.fonts.2,
+            body: &held.0,
+            small: &held.1,
+            title: &held.2,
         };
-        let art = Art {
-            wallpaper: self.wallpaper.as_ref(),
-            icons: &self.icons,
-            thumbs: &self.thumbs,
-            sheet: self.sheet.as_ref(),
+        let key = self.fingerprint();
+        let plain = |this: &Self, scroll: f64| {
+            let art = Art {
+                wallpaper: this.wallpaper.as_ref(),
+                icons: &this.icons,
+                thumbs: &this.thumbs,
+                sheet: None,
+            };
+            this.look.paint(this.view(), this.section, &this.model, scroll, &fonts, &art)
         };
-        let image = self.look.paint(
-            self.view(),
-            self.section,
-            &self.model,
-            self.scroll,
-            &fonts,
-            &art,
-        );
+        let image = match self.sheet.as_ref() {
+            Some(sheet) => {
+                let fresh = self.under.as_ref().is_some_and(|(held, at, _)| *held == key && *at == self.scroll);
+                if !fresh {
+                    let base = plain(self, self.scroll);
+                    self.under = Some((key, self.scroll, base));
+                }
+                let base = match self.under.as_ref() {
+                    Some((_, _, base)) => base.clone(),
+                    None => plain(self, self.scroll),
+                };
+                let mut canvas = drifter_core::paint::Canvas { image: base };
+                sheet.paint(&mut canvas, &self.look, &fonts, &self.icons);
+                canvas.image
+            }
+            None => {
+                self.under = None;
+                let scrolled_only = self.painted.is_some_and(|(held, at)| held == key && at != self.scroll);
+                if !scrolled_only || self.painted.is_none_or(|(held, _)| held != key) {
+                    self.pages.clear();
+                }
+                let image = match scrolled_only {
+                    true => self.compose_pages(&plain),
+                    false => None,
+                };
+                image.unwrap_or_else(|| plain(self, self.scroll))
+            }
+        };
+        self.painted = Some((key, self.scroll));
         let (width, height) = (image.width, image.height);
         let stride = width as i32 * 4;
         let (buffer, canvas) = match self.pool.create_buffer(
@@ -866,6 +898,68 @@ impl Settings {
         self.shown = Some(std::time::Instant::now());
         self.window.commit();
         self.draw_logo();
+    }
+
+    fn fingerprint(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hash = std::collections::hash_map::DefaultHasher::new();
+        format!(
+            "{:?}|{:?}|{:?}|{:?}|{}|{}|{}|{}",
+            self.section,
+            self.model.groups(self.section),
+            self.look,
+            self.size,
+            self.model.query,
+            self.icons.len(),
+            self.thumbs.len(),
+            self.wallpaper.is_some(),
+        )
+        .hash(&mut hash);
+        self.model.live_logo.hash(&mut hash);
+        hash.finish()
+    }
+
+    fn compose_pages(&mut self, plain: &dyn Fn(&Self, f64) -> drifter_core::Image) -> Option<drifter_core::Image> {
+        let tall = self.view().y;
+        if tall <= 0.0 {
+            return None;
+        }
+        let page = (self.scroll / tall).floor().max(0.0) as usize;
+        for at in [page, page + 1] {
+            if self.pages.len() <= at {
+                self.pages.resize(at + 1, None);
+            }
+            if self.pages[at].is_none() {
+                let image = plain(self, at as f64 * tall);
+                self.pages[at] = Some(image);
+            }
+        }
+        let top = self.pages[page].as_ref()?;
+        let next = self.pages[page + 1].as_ref()?;
+        let (width, height) = (top.width as usize, top.height as usize);
+        if next.width as usize != width || next.height as usize != height {
+            return None;
+        }
+        let dense = f64::from(height as u32) / tall;
+        let offset = ((self.scroll - page as f64 * tall) * dense).round() as usize;
+        let side = ((self.look.sidebar * dense).round() as usize).min(width);
+        let row = width * 4;
+        let mut rgba = vec![0u8; row * height];
+        for y in 0..height {
+            let into = &mut rgba[y * row..(y + 1) * row];
+            into[..side * 4].copy_from_slice(&top.rgba[y * row..y * row + side * 4]);
+            let source = offset + y;
+            let (from, line) = match source < height {
+                true => (top, source),
+                false => (next, source - height),
+            };
+            into[side * 4..].copy_from_slice(&from.rgba[line * row + side * 4..(line + 1) * row]);
+        }
+        Some(drifter_core::Image {
+            width: width as u32,
+            height: height as u32,
+            rgba,
+        })
     }
 
     fn clamp_scroll(&mut self) {
