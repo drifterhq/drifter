@@ -61,8 +61,8 @@ pub const CHOICES: usize = 5;
 pub const TILES: usize = 8;
 pub const TILE_ICON: u32 = 56;
 pub const GROUPS: [(&str, usize, usize); 3] = [("Internet", 0, 2), ("Work", 2, 5), ("Media", 5, 8)];
-const SLOT: f64 = 80.0;
-const GROUP_GAP: f64 = 16.0;
+const SLOT: f64 = 82.0;
+const GROUP_GAP: f64 = 14.0;
 const CELL: f64 = 92.0;
 const PAD: f64 = 36.0;
 pub const RADIUS: f64 = 26.0;
@@ -1233,12 +1233,12 @@ impl Look {
                 Some(name) => (short_name(name), self.ink),
                 None => ("Choose".to_string(), self.dim),
             };
-            let name = fit(&fonts.small, &name, slot.size.x - 2.0);
-            let words = fonts.small.paint_bold(&name, ink);
+            let name = fit(&fonts.small, &name, slot.size.x + 4.0);
+            let words = fonts.small.paint(&name, ink);
             canvas.stamp(&words, Vec2::new(slot.center().x - logical(&words).x / 2.0, slot.origin.y + 72.0).round(), fade);
             let (label, ink) = match (tile.busy, tile.weak && hover && tile.name.is_some()) {
                 (true, _) => ("Getting it", self.accent),
-                (false, true) => ("Better ones exist", self.accent),
+                (false, true) => ("Try another", self.accent),
                 _ => (role_word(tile.role), self.dim),
             };
             let label = fit(&fonts.small, label, slot.size.x + 12.0);
