@@ -245,17 +245,24 @@ pub struct Fonts {
     pub body: Font,
     pub small: Font,
     pub key: Font,
+    pub note_title: Font,
+    pub note_body: Font,
 }
 
 impl Fonts {
-    pub fn load(path: Option<std::path::PathBuf>, grow: f64) -> Result<Fonts, String> {
+    pub fn load(path: Option<std::path::PathBuf>, large: bool) -> Result<Fonts, String> {
+        let grow = if large { 1.08 } else { 1.0 };
+        let apps = if large { crate::config::LARGE_TEXT } else { 1.0 };
         let font = |px: f64| Font::find(path.clone(), px * grow);
+        let note = |px: f64| Font::find(path.clone(), px * apps);
         Ok(Fonts {
             hero: font(34.0)?,
             title: font(25.0)?,
             body: font(14.5)?,
             small: font(12.5)?,
             key: Font::find(path.clone(), 11.0)?,
+            note_title: note(22.0)?,
+            note_body: note(14.0)?,
         })
     }
 }
@@ -629,15 +636,15 @@ impl Look {
         for (at, color) in [[255, 95, 87], [254, 188, 46], [40, 200, 64]].into_iter().enumerate() {
             canvas.circle(sheet.origin + Vec2::new(20.0 + at as f64 * 18.0, 18.0), 5.5, color, 1.0);
         }
-        let heading = fonts.title.paint_bold("Notes for Tuesday", self.ink);
+        let heading = fonts.note_title.paint_bold("Notes for Tuesday", self.ink);
         canvas.stamp(&heading, sheet.origin + Vec2::new(22.0, 40.0), 1.0);
         let lines = [
             "Walk before lunch. Water the fern.",
             "Call about the bike, then rest a little.",
         ];
-        let mut y = sheet.origin.y + 84.0;
+        let mut y = sheet.origin.y + 40.0 + logical(&heading).y + 12.0;
         for line in lines {
-            let words = fonts.body.paint(line, self.dim);
+            let words = fonts.note_body.paint(line, self.dim);
             canvas.stamp(&words, Vec2::new(sheet.origin.x + 22.0, y).round(), 1.0);
             y += logical(&words).y + 8.0;
         }
@@ -1353,7 +1360,7 @@ mod tests {
     use super::*;
 
     fn fonts() -> Fonts {
-        Fonts::load(None, 1.0).unwrap()
+        Fonts::load(None, false).unwrap()
     }
 
     fn full(card: Card) -> View {

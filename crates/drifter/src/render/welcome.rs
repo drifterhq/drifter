@@ -21,7 +21,7 @@ enum Pick {
 pub(super) struct Welcome {
     view: View,
     fonts: std::sync::Arc<drifter_core::welcome::Fonts>,
-    grow: f64,
+    large: bool,
     art: Option<TextureBuffer<Tex>>,
     leaving: Option<(TextureBuffer<Tex>, f64)>,
     moved: Instant,
@@ -75,8 +75,8 @@ impl State {
         self.launchpad = None;
         self.search = None;
         self.popover = None;
-        let grow = grow_for(config.access.large_text);
-        let fonts = match drifter_core::welcome::Fonts::load(config.font_path(), grow) {
+        let large = config.access.large_text;
+        let fonts = match drifter_core::welcome::Fonts::load(config.font_path(), large) {
             Ok(fonts) => fonts,
             Err(error) => {
                 log!("drifter: no welcome without a font: {error}");
@@ -134,7 +134,7 @@ impl State {
         self.welcome = Some(Welcome {
             view,
             fonts: std::sync::Arc::new(fonts),
-            grow,
+            large,
             art: None,
             leaving: None,
             moved: Instant::now(),
@@ -710,18 +710,17 @@ impl State {
                 self.write_config(|text| drifter_core::settings::write_flag(text, "access", "large_text", large));
                 self.welcome_reload();
                 let font = Config::load_from(&self.config_path).ok().and_then(|config| config.font_path());
-                let grow = grow_for(large);
                 self.background("welcome-fonts", move || {
-                    let fonts = drifter_core::welcome::Fonts::load(font, grow);
+                    let fonts = drifter_core::welcome::Fonts::load(font, large);
                     move |state: &mut State| {
                         let Ok(fonts) = fonts else {
                             return;
                         };
                         if let Some(open) = state.welcome.as_mut()
-                            && open.grow != grow
+                            && open.large != large
                         {
                             open.fonts = std::sync::Arc::new(fonts);
-                            open.grow = grow;
+                            open.large = large;
                             state.paint_welcome();
                         }
                     }
@@ -1085,12 +1084,6 @@ fn scan_apps(config_path: &Path) -> Vec<Shelf> {
         .collect()
 }
 
-fn grow_for(large: bool) -> f64 {
-    match large {
-        true => 1.12,
-        false => 1.0,
-    }
-}
 
 fn title_case(word: &str) -> String {
     let mut chars = word.chars();

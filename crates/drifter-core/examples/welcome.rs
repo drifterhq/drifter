@@ -41,7 +41,7 @@ fn main() {
     let light = std::env::args().nth(4).is_some_and(|word| word == "light");
     drifter_core::paint::set_density(density);
     let config = Config::load_from(&Config::config_path()).expect("the config reads");
-    let fonts = Fonts::load(config.font_path(), 1.0).expect("fonts");
+    let fonts = Fonts::load(config.font_path(), false).expect("fonts");
     let folders = config.shader_folders();
     let papers: Vec<PathBuf> = drifter_core::shader::NAMES
         .iter()
