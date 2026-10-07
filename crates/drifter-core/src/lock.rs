@@ -5,8 +5,10 @@ use crate::image::Image;
 use crate::text::Font;
 
 pub const MAX_LEN: usize = 256;
+pub const GLASS: &str = include_str!("glass.glsl");
 pub const BLINK: std::time::Duration = std::time::Duration::from_millis(530);
-const INDENT: f64 = 16.0;
+const INDENT: f64 = 26.0;
+const SHADE: f64 = 28.0;
 const CORNER: f64 = 28.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -151,8 +153,8 @@ impl Look {
     }
 
     pub fn logo_rect(&self, screen: Vec2) -> Rect {
-        let room = screen.y - self.logo / 2.0 - 6.0 - self.size.y - 40.0;
-        let center = Vec2::new(screen.x / 2.0, (screen.y * 0.70).min(room).max(self.logo));
+        let room = screen.y - self.logo / 2.0 - 6.0 - self.size.y - 24.0;
+        let center = Vec2::new(screen.x / 2.0, (screen.y * 0.78).min(room).max(self.logo));
         Rect::new((center - Vec2::splat(self.logo / 2.0)).round(), Vec2::splat(self.logo))
     }
 
@@ -176,6 +178,19 @@ impl Look {
         )
     }
 
+    pub fn logo_shadow_rect(&self, screen: Vec2) -> Rect {
+        let logo = self.logo_rect(screen);
+        Rect::new(logo.origin - Vec2::splat(SHADE), logo.size + Vec2::splat(SHADE * 2.0))
+    }
+
+    pub fn clock_rect(&self, screen: Vec2, date: Vec2, clock: Vec2) -> Rect {
+        let top = self.top_rect(screen, date);
+        Rect::new(
+            Vec2::new((screen.x - clock.x) / 2.0, top.max().y - clock.y * 0.12).round(),
+            clock,
+        )
+    }
+
     pub fn top_rect(&self, screen: Vec2, size: Vec2) -> Rect {
         Rect::new(
             Vec2::new((screen.x - size.x) / 2.0, screen.y * 0.09).round(),
@@ -189,23 +204,90 @@ pub struct Words<'a> {
     pub date: &'a str,
 }
 
-pub fn paint_top(look: &Look, big: Option<&Font>, small: Option<&Font>, words: &Words) -> Image {
-    let date = small.map(|font| font.paint_bold(words.date, look.ink));
-    let clock = big.map(|font| font.paint_bold(words.clock, look.ink));
-    let sizes: Vec<Vec2> = [&date, &clock]
-        .into_iter()
-        .flatten()
-        .map(crate::paint::logical)
-        .collect();
-    let width = sizes.iter().map(|size| size.x).fold(1.0, f64::max).ceil() + 8.0;
-    let height = sizes.iter().map(|size| size.y).sum::<f64>().ceil() + 4.0;
-    let mut canvas = crate::paint::Canvas::new(width as u32, height as u32);
-    let mut y = 0.0;
-    for piece in [date, clock].into_iter().flatten() {
-        let size = crate::paint::logical(&piece);
-        canvas.stamp(&piece, Vec2::new((width - size.x) / 2.0, y).round(), 1.0);
-        y += size.y;
+pub fn paint_top(look: &Look, font: Option<&Font>, date: &str) -> Image {
+    match font {
+        Some(font) => font.paint_weight(date, look.ink, 540.0),
+        None => crate::paint::Canvas::new(1, 1).image,
     }
+}
+
+pub fn glass_mask(font: &Font, clock: &str) -> Image {
+    let text = font.paint_bold(clock, [255, 255, 255]);
+    let size = crate::paint::logical(&text);
+    let pad = (size.y * 0.22).round();
+    let mut canvas = crate::paint::Canvas::new((size.x + pad * 2.0) as u32, (size.y + pad * 2.0) as u32);
+    canvas.stamp(&text, Vec2::splat(pad), 1.0);
+    let (width, height) = (canvas.image.width as usize, canvas.image.height as usize);
+    let cover: Vec<f32> = canvas.image.rgba.chunks(4).map(|px| f32::from(px[3]) / 255.0).collect();
+    let reach = (text.height as f64 * 0.045).max(1.0) as usize;
+    let height_map = blurred(&cover, width, height, reach);
+    let shade = blurred(&cover, width, height, reach * 3);
+    let byte = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+    let mut rgba = Vec::with_capacity(width * height * 4);
+    for at in 0..width * height {
+        rgba.extend_from_slice(&[byte(cover[at]), byte(height_map[at]), byte(shade[at]), 255]);
+    }
+    Image {
+        width: width as u32,
+        height: height as u32,
+        rgba,
+    }
+}
+
+fn blurred(values: &[f32], width: usize, height: usize, reach: usize) -> Vec<f32> {
+    let mut out = values.to_vec();
+    let mut scratch = vec![0.0f32; values.len()];
+    for _ in 0..3 {
+        for y in 0..height {
+            let row = &out[y * width..(y + 1) * width];
+            let mut sum: f32 = row[..reach.min(width)].iter().sum();
+            for x in 0..width {
+                if x + reach < width {
+                    sum += row[x + reach];
+                }
+                if x > reach {
+                    sum -= row[x - reach - 1];
+                }
+                let span = (x + reach).min(width - 1) - x.saturating_sub(reach) + 1;
+                scratch[y * width + x] = sum / span as f32;
+            }
+        }
+        for x in 0..width {
+            let mut sum: f32 = (0..reach.min(height)).map(|y| scratch[y * width + x]).sum();
+            for y in 0..height {
+                if y + reach < height {
+                    sum += scratch[(y + reach) * width + x];
+                }
+                if y > reach {
+                    sum -= scratch[(y - reach - 1) * width + x];
+                }
+                let span = (y + reach).min(height - 1) - y.saturating_sub(reach) + 1;
+                out[y * width + x] = sum / span as f32;
+            }
+        }
+    }
+    out
+}
+
+pub fn with_shadow(look: &Look, image: &Image) -> Image {
+    let mut canvas = crate::paint::Canvas::new(look.size.x.round() as u32, look.size.y.round() as u32);
+    let field = look.field_rect();
+    canvas.shadow(
+        Rect::new(field.origin + Vec2::new(0.0, 3.0), field.size),
+        field.size.y / 2.0,
+        12.0,
+        0.22,
+    );
+    canvas.stamp(image, Vec2::ZERO, 1.0);
+    canvas.image
+}
+
+pub fn paint_logo_shadow(look: &Look) -> Image {
+    let side = look.logo + SHADE * 2.0;
+    let mut canvas = crate::paint::Canvas::new(side as u32, side as u32);
+    let body = look.logo * 0.62;
+    let center = Vec2::new(side / 2.0, side / 2.0 + look.logo * 0.06);
+    canvas.shadow(Rect::new(center - Vec2::splat(body / 2.0), Vec2::splat(body)), body / 2.0, SHADE, 0.30);
     canvas.image
 }
 
@@ -280,7 +362,7 @@ pub fn paint(look: &Look, small: Option<&Font>, named: Option<&Font>, name: &str
     if count == 0 && note == Note::Ask {
         let hint = font.paint(note.text(), look.dim);
         let y = field.center().y - crate::paint::logical(&hint).y / 2.0;
-        canvas.stamp(&hint, Vec2::new(field.origin.x + INDENT + 6.0, y).round(), 1.0);
+        canvas.stamp(&hint, Vec2::new(field.origin.x + INDENT + 8.0, y).round(), 1.0);
     }
     if note != Note::Ask {
         let color = match note {
@@ -319,7 +401,8 @@ mod tests {
         let big = Font::find(None, 96.0).ok();
         let small = Font::find(None, 17.0).ok();
         crate::paint::same_at_two("lock", || paint(&look, small.as_ref(), big.as_ref(), "Ada Lovelace", 5, Note::Wrong));
-        crate::paint::same_at_two("lock top", || paint_top(&look, big.as_ref(), small.as_ref(), &words()));
+        crate::paint::same_at_two("lock top", || paint_top(&look, small.as_ref(), words().date));
+        let _ = big;
     }
 
     #[test]
@@ -469,6 +552,30 @@ mod tests {
         let plain = paint(&look, Some(&font), None, "Ada", 0, Note::Ask);
         let wrong = paint(&look, Some(&font), None, "Ada", 0, Note::Wrong);
         assert_ne!(plain.rgba, wrong.rgba);
+    }
+
+    #[test]
+    fn the_glass_clock_mask_holds_shape_height_and_shade() {
+        let Ok(font) = Font::find(None, 64.0) else { return };
+        let mask = glass_mask(&font, "9:41");
+        let at = |x: u32, y: u32| pixel(&mask, x, y);
+        assert!(mask.rgba.chunks(4).all(|px| px[3] == 255));
+        assert_eq!(at(0, 0)[0], 0, "the corner is outside the digits");
+        let inside = mask.rgba.chunks(4).filter(|px| px[0] == 255).count();
+        assert!(inside > 100, "the digits are solid");
+        let soft = mask.rgba.chunks(4).filter(|px| px[0] == 0 && px[2] > 0).count();
+        assert!(soft > 0, "the shade reaches past the digits");
+    }
+
+    #[test]
+    fn the_clock_sits_under_the_date_and_above_the_logo() {
+        let look = Look::default();
+        let screen = Vec2::new(1600.0, 1067.0);
+        let date = look.top_rect(screen, Vec2::new(300.0, 34.0));
+        let clock = look.clock_rect(screen, date.size, Vec2::new(500.0, 230.0));
+        assert!(clock.origin.y > date.origin.y);
+        assert!(clock.max().y < look.logo_shadow_rect(screen).origin.y);
+        assert_eq!(clock.center().x, 800.0);
     }
 
     #[test]

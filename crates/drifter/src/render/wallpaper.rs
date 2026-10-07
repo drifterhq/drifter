@@ -1,5 +1,5 @@
 use super::*;
-use smithay::backend::renderer::gles::{GlesPixelProgram, GlesTexture, Uniform, UniformName, UniformType};
+use smithay::backend::renderer::gles::{GlesPixelProgram, GlesTexProgram, GlesTexture, Uniform, UniformName, UniformType};
 use smithay::backend::renderer::{Bind, Frame, Offscreen, Renderer};
 
 const STRIPS: i32 = 15;
@@ -235,6 +235,64 @@ fn overlay_program(renderer: &mut Painter, source: String, extra: bool) -> Optio
             None
         }
     }
+}
+
+pub(super) fn glass_program(renderer: &mut Painter) -> Option<GlesTexProgram> {
+    let Painter::Gles(gles) = renderer else {
+        return None;
+    };
+    let mut names = vec![
+        UniformName::new("L", UniformType::_1f),
+        UniformName::new("W", UniformType::_2f),
+    ];
+    names.extend(["S0", "S1", "A", "B", "C"].map(|name| UniformName::new(name, UniformType::_3f)));
+    match gles.compile_custom_texture_shader(drifter_core::lock::GLASS, &names) {
+        Ok(program) => Some(program),
+        Err(error) => {
+            log!("drifter: the glass clock shader does not compile: {error}");
+            None
+        }
+    }
+}
+
+pub(super) fn paint_glass(
+    program: &GlesTexProgram,
+    renderer: &mut Painter,
+    mask: &GlesTexture,
+    sheet: &mut Sheet,
+    size: (i32, i32),
+    hour: f64,
+) -> Result<(), String> {
+    let Painter::Gles(gles) = renderer else {
+        return Err("the glass clock needs the gles renderer".to_string());
+    };
+    let sky = drifter_core::shader::sky(hour);
+    let mut uniforms = vec![
+        Uniform::new("L", sky.light as f32),
+        Uniform::new("W", (size.0 as f32, size.1 as f32)),
+    ];
+    uniforms.extend(sky.uniforms().map(|(name, value)| Uniform::new(name, value)));
+    let whole = smithay::utils::Rectangle::from_size(size.into());
+    let mut target = gles.bind(&mut sheet.texture).map_err(|e| e.to_string())?;
+    let mut frame = gles
+        .render(&mut target, size.into(), Transform::Normal)
+        .map_err(|e| e.to_string())?;
+    frame.clear(Color32F::TRANSPARENT, &[whole]).map_err(|e| e.to_string())?;
+    frame
+        .render_texture_from_to(
+            mask,
+            smithay::utils::Rectangle::from_size((f64::from(size.0), f64::from(size.1)).into()),
+            whole,
+            &[whole],
+            &[],
+            Transform::Normal,
+            1.0,
+            Some(program),
+            &uniforms,
+        )
+        .map_err(|e| e.to_string())?;
+    let _ = frame.finish().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 pub(super) fn paint_logo(

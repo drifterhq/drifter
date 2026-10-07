@@ -142,6 +142,20 @@ impl Font {
         }
     }
 
+    pub fn paint_weight(&self, text: &str, color: [u8; 3], weight: f32) -> Image {
+        match self.variable {
+            true => {
+                let placed = self.shaped(text, weight);
+                self.lay(&placed, weight, 0.0, color)
+            }
+            false => {
+                let placed = self.shaped(text, REGULAR);
+                let extra = ((weight - REGULAR) / (BOLD - REGULAR)).clamp(0.0, 1.0);
+                self.lay(&placed, REGULAR, self.px * 0.03 * extra, color)
+            }
+        }
+    }
+
     pub fn paint_even_digits(&self, text: &str, color: [u8; 3]) -> Image {
         let cell = ('0'..='9')
             .map(|digit| self.width_of(&digit.to_string()))

@@ -310,7 +310,7 @@ pub fn open(
     )?;
     let power_image = drifter_core::tray::paint_power(tray.button as u32, tray.ink);
     let power = upload(&mut renderer, Some(&power_image), "power")?;
-    let lock_big = Font::find(config.font_path(), 136.0).ok().map(std::sync::Arc::new);
+    let lock_big = Font::find(config.font_path(), 180.0).ok().map(std::sync::Arc::new);
     let lock_small = Font::find(config.font_path(), 17.0).ok().map(std::sync::Arc::new);
     let lock_name = Font::find(config.font_path(), 26.0).ok().map(std::sync::Arc::new);
     let (checked_tx, checked_rx) =
@@ -483,6 +483,7 @@ pub fn open(
         welcome: None,
         dock_logo: docklogo::DockLogo::default(),
         lock_logo: docklogo::DockLogo::default(),
+        glass: None,
         welcome_wanted: live && config.welcome.show,
         login_lock: live && !config.login.automatic,
         search_font: Font::find(config.font_path(), 20.0).ok().map(std::sync::Arc::new),
