@@ -4,6 +4,8 @@ use drifter_core::power::Action;
 
 const OPEN_DELAY: Duration = Duration::from_millis(140);
 const PANEL_FADE: f64 = 0.12;
+const GROW_WAIT: f64 = 0.02;
+const GROW: f64 = 0.2;
 
 #[derive(Clone)]
 pub(super) enum Pick {
@@ -19,6 +21,7 @@ pub(super) struct DeskMenu {
     pub arts: Vec<(TextureBuffer<Tex>, Rect)>,
     pub keys: Vec<LevelKey>,
     pub opened: Vec<Instant>,
+    pub anchor: Vec2,
     pub pending: Option<(usize, usize, Instant)>,
     pub lane: worker::Lane,
 }
@@ -113,40 +116,98 @@ impl State {
             arts: Vec::new(),
             keys: Vec::new(),
             opened: vec![Instant::now()],
+            anchor: at,
             pending: None,
             lane: worker::Lane::default(),
         });
         self.paint_desk_menu();
     }
 
+    fn wallpaper_patch(&mut self, area: Rect) -> Option<drifter_core::Image> {
+        use smithay::backend::renderer::damage::OutputDamageTracker;
+        use smithay::backend::renderer::{Bind, ExportMem};
+        use smithay::utils::{Buffer as BufferCoord, Physical, Rectangle, Size};
+
+        let scale = self.heads.get(self.at).map_or(1.0, |head| head.scale);
+        let view = (self.mode, self.screen, self.world, self.camera);
+        let clock = self.paper_clock();
+        let mut pieces = Vec::new();
+        let paper = self.wallpaper.as_mut()?;
+        paper_pieces(&mut self.renderer, paper, view, 1.0, (clock, None), &mut pieces);
+        let shown: Vec<Shown> = pieces
+            .into_iter()
+            .map(|piece| RescaleRenderElement::from_element(piece, (0, 0).into(), scale))
+            .collect();
+        let whole = self.physical();
+        let size = Size::<i32, Physical>::from((whole.x as i32, whole.y as i32));
+        let buffer_size = Size::<i32, BufferCoord>::from((size.w, size.h));
+        let mut texture = self.renderer.canvas(DrmFourcc::Abgr8888, buffer_size).ok()?;
+        let mut target = self.renderer.bind(&mut texture).ok()?;
+        let mut tracker = OutputDamageTracker::new(size, 1.0, Transform::Normal);
+        tracker.render_output(&mut self.renderer, &mut target, 0, &shown, self.clear).ok()?;
+        let low = (area.origin * scale).round();
+        let high = (area.max() * scale).round();
+        let x0 = low.x.clamp(0.0, whole.x) as i32;
+        let y0 = low.y.clamp(0.0, whole.y) as i32;
+        let x1 = high.x.clamp(0.0, whole.x) as i32;
+        let y1 = high.y.clamp(0.0, whole.y) as i32;
+        let (w, h) = ((x1 - x0).max(1), (y1 - y0).max(1));
+        let mapping = self
+            .renderer
+            .copy_framebuffer(&target, Rectangle::new((x0, y0).into(), (w, h).into()), DrmFourcc::Abgr8888)
+            .ok()?;
+        let bytes = self.renderer.map_texture(&mapping).ok()?.to_vec();
+        let mut full = drifter_core::Image {
+            width: (high.x - low.x).max(1.0) as u32,
+            height: (high.y - low.y).max(1.0) as u32,
+            rgba: vec![0; ((high.x - low.x).max(1.0) * (high.y - low.y).max(1.0) * 4.0) as usize],
+        };
+        let (dx, dy) = ((x0 as f64 - low.x) as u32, (y0 as f64 - low.y) as u32);
+        for row in 0..h as u32 {
+            for col in 0..w as u32 {
+                let from = ((row * w as u32 + col) * 4) as usize;
+                let (x, y) = (col + dx, row + dy);
+                if x >= full.width || y >= full.height || from + 4 > bytes.len() {
+                    continue;
+                }
+                let to = ((y * full.width + x) * 4) as usize;
+                full.rgba[to..to + 4].copy_from_slice(&bytes[from..from + 4]);
+                full.rgba[to + 3] = 255;
+            }
+        }
+        Some(full.scaled(area.size.x as u32, area.size.y as u32))
+    }
+
     fn start_ripple(&mut self, at: Vec2) {
-        let Some(paper) = self.wallpaper.as_ref() else {
-            return;
-        };
-        let Some((laid, _)) = self.laid_paper() else {
-            return;
-        };
         let area = drifter_core::ripple::region(at);
-        let pyramid = paper.pyramid.clone();
+        let Some(patch) = self.wallpaper_patch(area) else {
+            return;
+        };
         let since = Instant::now();
         let fresh = std::sync::Arc::new(std::sync::Mutex::new(None));
         let out = std::sync::Arc::downgrade(&fresh);
         let spawned = std::thread::Builder::new().name("ripple".into()).spawn(move || {
-            let patch = drifter_core::ripple::capture(&pyramid, &laid, area);
             let mut water = drifter_core::ripple::Water::new();
+            let pace = Duration::from_millis(16);
             loop {
+                let began = Instant::now();
                 let t = since.elapsed().as_secs_f64() / drifter_core::ripple::SECONDS;
                 if t >= 1.0 {
                     return;
                 }
-                water.advance(t);
-                let image = water.render(&patch, t);
                 let Some(slot) = out.upgrade() else {
                     return;
                 };
-                if let Ok(mut slot) = slot.lock() {
-                    *slot = Some(image);
+                let waiting = slot.lock().is_ok_and(|held| held.is_some());
+                if !waiting {
+                    water.advance(t);
+                    let image = water.render(&patch, t);
+                    if let Ok(mut held) = slot.lock() {
+                        *held = Some(image);
+                    }
                 }
+                drop(slot);
+                std::thread::sleep(pace.saturating_sub(began.elapsed()));
             }
         });
         if spawned.is_ok() {
@@ -263,14 +324,33 @@ impl State {
         let Some(open) = self.desk_menu.as_ref() else {
             return;
         };
+        let still = self.window_pace <= 0.0;
         for (level, (art, rect)) in open.arts.iter().enumerate().rev() {
-            let shown = open
-                .opened
-                .get(level)
-                .map(|at| (at.elapsed().as_secs_f64() / PANEL_FADE).min(1.0))
-                .unwrap_or(1.0);
-            let drop = Rect::new(rect.origin + Vec2::new(0.0, 6.0 * (1.0 - shown)), rect.size);
-            elements.push(Skin::Texture(element(art, drop, shown as f32)));
+            let gone = open.opened.get(level).map_or(f64::MAX, |at| at.elapsed().as_secs_f64());
+            let (drop, shown) = match (level, still) {
+                (_, true) => (*rect, 1.0),
+                (0, false) => {
+                    let t = ((gone - GROW_WAIT) / GROW).clamp(0.0, 1.0);
+                    let grow = drifter_core::motion::smooth(t);
+                    let scale = 0.35 + 0.65 * grow;
+                    let anchor = open.anchor;
+                    (
+                        Rect::new(anchor + (rect.origin - anchor) * scale, rect.size * scale),
+                        (t * 1.6).min(1.0),
+                    )
+                }
+                _ => {
+                    let shown = (gone / PANEL_FADE).min(1.0);
+                    (Rect::new(rect.origin + Vec2::new(0.0, 6.0 * (1.0 - shown)), rect.size), shown)
+                }
+            };
+            if shown <= 0.0 {
+                continue;
+            }
+            match drop.size == rect.size {
+                true => elements.push(Skin::Texture(element(art, drop, shown as f32))),
+                false => elements.push(Skin::Texture(faded(art, Rect::new(Vec2::ZERO, rect.size), drop, shown as f32))),
+            }
             if let Some((buffer, corner)) = self.window_shadow.as_ref() {
                 for (source, target) in drifter_core::window::shadow_slices(drop, *corner, 0.6, 6.0) {
                     elements.push(Skin::Texture(faded(buffer, source, target, 0.3 * shown as f32)));
@@ -286,7 +366,7 @@ impl State {
                     || open
                         .opened
                         .iter()
-                        .any(|at| at.elapsed().as_secs_f64() < PANEL_FADE)
+                        .any(|at| at.elapsed().as_secs_f64() < GROW_WAIT + GROW)
             })
     }
 
