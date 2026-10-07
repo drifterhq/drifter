@@ -903,6 +903,16 @@ impl State {
         }
         if self.lock.is_none()
             && self.search.is_some()
+            && self.welcome_moves_open()
+            && let InputEvent::Keyboard { event } = &event
+            && event.state() == KeyState::Pressed
+            && self.holds.holds(event.key_code().raw())
+        {
+            self.search = None;
+            self.kick_now();
+        }
+        if self.lock.is_none()
+            && self.search.is_some()
             && let InputEvent::Keyboard { event } = &event
         {
             if event.state() == KeyState::Pressed {

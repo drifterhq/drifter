@@ -203,6 +203,7 @@ pub enum Hit {
     Text(bool),
     Scale(usize),
     Device(Device),
+    Camera(Modifier),
     Lesson(usize),
     Tile(usize),
     Choice(usize),
@@ -420,6 +421,15 @@ impl Look {
         Rect::from_center(Vec2::new(left + gap * at as f64, SIZE.y - FOOT + 23.0), Vec2::new(14.0, 18.0))
     }
 
+    fn device_rect(&self) -> Rect {
+        Rect::new(Vec2::new(SIZE.x - PAD - 160.0, 34.0), Vec2::new(160.0, 30.0))
+    }
+
+    fn camera_rect(&self) -> Rect {
+        let device = self.device_rect();
+        Rect::new(Vec2::new(device.origin.x - 12.0 - 128.0, 34.0), Vec2::new(128.0, 30.0))
+    }
+
     fn segments_rect(&self, count: usize, top: f64) -> Rect {
         let wide = 92.0 * count as f64;
         Rect::new(Vec2::new(SIZE.x - PAD - wide, top), Vec2::new(wide, 30.0))
@@ -489,9 +499,13 @@ impl Look {
                 }
             }
             Card::Keys => {
-                let whole = self.segments_rect(2, 34.0);
+                let whole = self.device_rect();
                 for (at, device) in [Device::Touchpad, Device::Mouse].into_iter().enumerate() {
                     spots.push((Hit::Device(device), self.segment(whole, 2, at)));
+                }
+                let keys = self.camera_rect();
+                for (at, key) in [Modifier::Super, Modifier::Ctrl].into_iter().enumerate() {
+                    spots.push((Hit::Camera(key), self.segment(keys, 2, at)));
                 }
                 for at in 0..Lesson::ALL.len() {
                     spots.push((Hit::Lesson(at), self.lesson_rect(at)));
@@ -857,7 +871,11 @@ impl Look {
         let device = [Device::Touchpad, Device::Mouse];
         let chosen = device.iter().position(|each| *each == view.device).unwrap_or(0);
         let hover = device.iter().position(|each| view.hovered(Hit::Device(*each)));
-        self.segments(canvas, fonts, self.segments_rect(2, 34.0), &["Touchpad", "Mouse"], chosen, hover);
+        self.segments(canvas, fonts, self.device_rect(), &["Touchpad", "Mouse"], chosen, hover);
+        let keys = [Modifier::Super, Modifier::Ctrl];
+        let chosen = keys.iter().position(|each| *each == view.modifier).unwrap_or(0);
+        let hover = keys.iter().position(|each| view.hovered(Hit::Camera(*each)));
+        self.segments(canvas, fonts, self.camera_rect(), &["Super", "Ctrl"], chosen, hover);
         let well = self.well_rect();
         let (high, low) = match self.light {
             true => ([246, 247, 250], [230, 232, 238]),

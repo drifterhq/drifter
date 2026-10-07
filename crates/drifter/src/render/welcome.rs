@@ -907,6 +907,15 @@ impl State {
                 }
                 self.paint_welcome();
             }
+            Hit::Camera(key) => {
+                let word = match key {
+                    drifter_core::Modifier::Ctrl => "ctrl",
+                    drifter_core::Modifier::Alt => "alt",
+                    drifter_core::Modifier::Super => "super",
+                };
+                self.write_config(|text| drifter_core::settings::write_word(text, "input", "modifier", word));
+                self.welcome_reload();
+            }
             Hit::Lesson(at) => {
                 if let Some(open) = self.welcome.as_mut() {
                     open.view.focus = Lesson::ALL[at.min(Lesson::ALL.len() - 1)];
@@ -1190,6 +1199,12 @@ impl State {
                 self.paint_welcome();
             }
         }
+    }
+
+    pub(super) fn welcome_moves_open(&self) -> bool {
+        self.welcome
+            .as_ref()
+            .is_some_and(|open| open.view.card == Card::Keys && open.closing.is_none())
     }
 
     pub(super) fn welcome_held(&mut self, held: bool) {
