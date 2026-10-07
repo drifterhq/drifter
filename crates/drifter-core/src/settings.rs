@@ -259,8 +259,8 @@ pub struct Model {
     pub autostarts: Vec<crate::autostart::Entry>,
     pub dock: Vec<Launch>,
     pub shows: [bool; 6],
-    pub defaults: [Option<Launch>; 3],
-    pub system: [Option<String>; 3],
+    pub defaults: [Option<Launch>; 4],
+    pub system: [Option<String>; 4],
     pub wallpaper: Option<PathBuf>,
     pub folder: Option<PathBuf>,
     pub rotate: u64,
@@ -1661,8 +1661,8 @@ impl Model {
                 self.dock.remove(at);
             }
             (Id::DockAdd, _) => return Some(Ask::Pick(For::Dock)),
-            (Id::Default(at), 0) if at < 3 => return Some(Ask::Pick(For::Default(Role::ALL[at]))),
-            (Id::Default(at), 1) if at < 3 => self.defaults[at] = None,
+            (Id::Default(at), 0) if at < Role::ALL.len() => return Some(Ask::Pick(For::Default(Role::ALL[at]))),
+            (Id::Default(at), 1) if at < Role::ALL.len() => self.defaults[at] = None,
             (Id::Custom, _) => self.custom = None,
             (Id::Scale, 0) => self.step_scale(false),
             (Id::Scale, 1) => self.step_scale(true),
@@ -1911,7 +1911,7 @@ impl Model {
         if self.dock != before.dock {
             put(&mut doc, "dock", "pinned", launches(&self.dock));
         }
-        for (at, key) in ["files", "terminal", "browser"].iter().enumerate() {
+        for (at, key) in ["files", "terminal", "browser", "editor"].iter().enumerate() {
             if self.defaults[at] != before.defaults[at] {
                 match &self.defaults[at] {
                     Some(item) => put(&mut doc, "apps", key, launch(item)),
@@ -2055,6 +2055,39 @@ pub fn write_number(text: &str, table: &str, key: &str, value: i64) -> Result<St
         .parse::<toml_edit::DocumentMut>()
         .map_err(|error| format!("the config no longer parses: {error}"))?;
     put(&mut doc, table, key, toml_edit::Value::from(value));
+    Ok(doc.to_string())
+}
+
+pub fn write_app(text: &str, key: &str, item: &Launch) -> Result<String, String> {
+    let mut doc = text
+        .parse::<toml_edit::DocumentMut>()
+        .map_err(|error| format!("the config no longer parses: {error}"))?;
+    put(&mut doc, "apps", key, launch(item));
+    Ok(doc.to_string())
+}
+
+pub fn write_scale(text: &str, name: &str, scale: f64) -> Result<String, String> {
+    let mut doc = text
+        .parse::<toml_edit::DocumentMut>()
+        .map_err(|error| format!("the config no longer parses: {error}"))?;
+    let item = doc
+        .entry("monitor")
+        .or_insert(toml_edit::Item::ArrayOfTables(toml_edit::ArrayOfTables::new()));
+    let Some(list) = item.as_array_of_tables_mut() else {
+        return Err("monitor in the config is not a list of [[monitor]] tables".into());
+    };
+    let scale = (scale * 100.0).round() / 100.0;
+    let held = list
+        .iter_mut()
+        .find(|table| table.get("name").and_then(|name| name.as_str()) == Some(name));
+    if let Some(table) = held {
+        table.insert("scale", toml_edit::value(scale));
+        return Ok(doc.to_string());
+    }
+    let mut table = toml_edit::Table::new();
+    table.insert("name", toml_edit::value(name));
+    table.insert("scale", toml_edit::value(scale));
+    list.push(table);
     Ok(doc.to_string())
 }
 
@@ -3546,6 +3579,26 @@ fn paint_glyph(canvas: &mut Canvas, section: Section, icon: Rect) {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_scale_lands_on_its_own_monitor_and_keeps_the_rest() {
+        let text = "[[monitor]]\nname = \"eDP-1\"\nscale = 1.0\nrotate = 0\n\n[[monitor]]\nname = \"HDMI-A-1\"\nscale = 1.0\n";
+        let out = write_scale(text, "eDP-1", 2.0).unwrap();
+        let config = crate::Config::parse(&out).unwrap();
+        assert_eq!(config.monitor[0].scale, 2.0);
+        assert_eq!(config.monitor[1].scale, 1.0);
+        let fresh = write_scale("", "DP-2", 1.25).unwrap();
+        let config = crate::Config::parse(&fresh).unwrap();
+        assert_eq!((config.monitor[0].name.as_str(), config.monitor[0].scale), ("DP-2", 1.25));
+    }
+
+    #[test]
+    fn an_app_default_is_written_under_apps() {
+        let out = write_app("[apps]\n# keep\n", "editor", &Launch::App("org.xfce.mousepad".into())).unwrap();
+        assert!(out.contains("# keep"), "{out}");
+        let config = crate::Config::parse(&out).unwrap();
+        assert_eq!(config.apps.editor, Some(Launch::App("org.xfce.mousepad".into())));
+    }
     use super::*;
 
     const MOUNTINFO: &str = "29 1 254:1 / / rw - ext4 /dev/vda1 rw\n\
@@ -4321,7 +4374,7 @@ mod tests {
     #[test]
     fn the_dock_switches_name_the_app_they_show() {
         let mut model = model(&Config::default());
-        model.system = [Some("pcmanfm".into()), None, None];
+        model.system = [Some("pcmanfm".into()), None, None, None];
         model
             .names
             .insert("pcmanfm".into(), "File Manager PCManFM".into());

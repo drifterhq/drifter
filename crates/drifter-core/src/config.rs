@@ -228,6 +228,8 @@ pub struct AppsConfig {
     pub terminal: Option<Launch>,
     #[serde(default)]
     pub browser: Option<Launch>,
+    #[serde(default)]
+    pub editor: Option<Launch>,
 }
 
 impl AppsConfig {
@@ -236,6 +238,7 @@ impl AppsConfig {
             crate::desktop::Role::Files => self.files.as_ref(),
             crate::desktop::Role::Terminal => self.terminal.as_ref(),
             crate::desktop::Role::Browser => self.browser.as_ref(),
+            crate::desktop::Role::Editor => self.editor.as_ref(),
         }
     }
 }
@@ -995,8 +998,23 @@ pub struct Config {
     pub access: Access,
     #[serde(default)]
     pub screenshots: Shots,
+    #[serde(default)]
+    pub welcome: Welcome,
     #[serde(skip)]
     base: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Welcome {
+    #[serde(default = "yes")]
+    pub show: bool,
+}
+
+impl Default for Welcome {
+    fn default() -> Self {
+        Welcome { show: true }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]

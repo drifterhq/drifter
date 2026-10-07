@@ -29,6 +29,7 @@ impl State {
         self.background("search-index", move || {
             let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
             let mut found = drifter_core::search::apps(&apps);
+            found.push(super::launchpad::welcome_found());
             found.extend(drifter_core::search::files(&home));
             move |state: &mut State| {
                 let Some(open) = state.search.as_mut() else {
@@ -66,6 +67,9 @@ impl State {
             .results
             .iter()
             .map(|found| match (found.kind, found.icon.as_deref()) {
+                (Kind::App, None) if found.key == super::welcome::WELCOME_KEY => {
+                    Some(drifter_core::welcome::icon(side))
+                }
                 (Kind::App, Some(name)) => self
                     .search_icons
                     .get(name)
@@ -173,6 +177,7 @@ impl State {
 
     fn open_found(&mut self, found: &Found) {
         match found.kind {
+            Kind::App if found.key == super::welcome::WELCOME_KEY => self.open_welcome(false),
             Kind::App => {
                 let launch = drifter_core::Launch::App(found.key.clone());
                 crate::apps::run(&launch, &self.socket);

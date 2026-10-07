@@ -635,6 +635,7 @@ impl Sheet {
             For::Default(crate::desktop::Role::Files) => "Choose the file manager",
             For::Default(crate::desktop::Role::Terminal) => "Choose the terminal",
             For::Default(crate::desktop::Role::Browser) => "Choose the web browser",
+            For::Default(crate::desktop::Role::Editor) => "Choose the text editor",
             For::Layout => "Choose a keyboard layout",
             For::Variant => "Choose a variant",
             For::Picture => "Choose a wallpaper",

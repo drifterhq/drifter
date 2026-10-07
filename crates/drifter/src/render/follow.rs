@@ -181,7 +181,10 @@ impl State {
             Action::Lock => {
                 self.lock_now();
             }
-            Action::Search => self.toggle_search(),
+            Action::Search => {
+                self.toggle_search();
+                self.welcome_did(drifter_core::welcome::Lesson::Search);
+            }
             Action::Power => {
                 let middle = self.screen * 0.5;
                 self.open_popover(drifter_core::power::items(), middle, Target::Desktop);
@@ -349,6 +352,7 @@ impl State {
             self.take_light(level);
         }
         self.relayout(true);
+        self.welcome_restyle();
         self.kick_now();
     }
 

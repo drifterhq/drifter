@@ -477,6 +477,8 @@ pub fn open(
         notes_panel: None,
         search: None,
         launchpad: None,
+        welcome: None,
+        welcome_wanted: live && config.welcome.show,
         search_font: Font::find(config.font_path(), 20.0).ok(),
         search_icons: std::collections::HashMap::new(),
         app_label: None,

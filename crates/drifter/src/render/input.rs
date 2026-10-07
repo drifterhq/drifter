@@ -37,6 +37,7 @@ impl State {
                 camera.clamp_to_world(self.world, self.screen);
                 self.camera = camera;
                 self.flight = None;
+                self.welcome_did(drifter_core::welcome::Lesson::Glide);
             }
             self.pointer = inside;
             self.dwell = None;
@@ -608,6 +609,9 @@ impl State {
             }
             return true;
         }
+        if self.press_welcome(code) {
+            return true;
+        }
         if self.press_card(code) {
             return true;
         }
@@ -907,6 +911,15 @@ impl State {
             }
             return;
         }
+        if self.lock.is_none()
+            && let InputEvent::Keyboard { event } = &event
+            && self.welcome_eats(event.key_code().raw())
+        {
+            if event.state() == KeyState::Pressed {
+                self.welcome_key(event.key_code().raw());
+            }
+            return;
+        }
         if self.lock.is_some()
             && !matches!(
                 event,
@@ -918,6 +931,10 @@ impl State {
         }
         match event {
             InputEvent::PointerMotion { event } => {
+                if self.welcome.is_some() {
+                    use smithay::backend::input::Event;
+                    self.welcome_device(is_touchpad(&event.device()));
+                }
                 let delta = Vec2::new(event.delta_x(), event.delta_y());
                 let bare = Vec2::new(event.delta_x_unaccel(), event.delta_y_unaccel());
                 match self.held_pointer() {
@@ -1029,6 +1046,10 @@ impl State {
                 camera.clamp_to_world(self.world, self.screen);
                 self.camera = camera;
                 self.flight = None;
+                if moved.length() > 0.0 {
+                    self.welcome_device(true);
+                    self.welcome_did(drifter_core::welcome::Lesson::Glide);
+                }
             }
             InputEvent::GestureSwipeEnd { .. } => self.fingers = 0,
             InputEvent::Keyboard { event } => {
@@ -1038,6 +1059,7 @@ impl State {
                     if self.modifier {
                         self.corner_since = None;
                     }
+                    self.welcome_held(self.modifier);
                 }
                 self.tell_keyboard(&event);
             }

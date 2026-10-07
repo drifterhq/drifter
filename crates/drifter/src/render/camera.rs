@@ -81,6 +81,7 @@ impl State {
             .collect();
         let target = Camera::showing(&framed, self.screen, self.chrome.title * 2.0, self.world);
         self.fly_to(target);
+        self.welcome_did(drifter_core::welcome::Lesson::Overview);
     }
 
     pub(super) fn three_tap(&mut self) {
@@ -192,5 +193,6 @@ impl State {
         camera.clamp_to_world(self.world, self.screen);
         self.camera = camera;
         self.flight = None;
+        self.welcome_did(drifter_core::welcome::Lesson::Zoom);
     }
 }

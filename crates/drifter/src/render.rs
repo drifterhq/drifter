@@ -21,6 +21,7 @@ mod overlays;
 mod power;
 mod search;
 mod start;
+mod welcome;
 #[cfg(test)]
 mod tests;
 mod wallpaper;
@@ -485,6 +486,8 @@ pub struct State {
     notes_panel: Option<(TextureBuffer<Tex>, Rect, usize)>,
     search: Option<search::Search>,
     launchpad: Option<launchpad::Pad>,
+    welcome: Option<welcome::Welcome>,
+    welcome_wanted: bool,
     search_font: Option<Font>,
     search_icons: std::collections::HashMap<String, Option<drifter_core::Image>>,
     app_label: Option<(String, TextureBuffer<Tex>, Vec2)>,
@@ -606,6 +609,7 @@ impl State {
             || self.dock_drag.is_some()
             || self.desk_menu_busy()
             || self.thumb_moving()
+            || self.welcome_busy()
             || self.heads.iter().enumerate().any(|(index, head)| {
                 index != self.at
                     && (head.flight.is_some() || head.drawers.iter().any(|d| !d.settled()))
@@ -768,6 +772,9 @@ impl State {
         }
         if let Some((art, rect)) = self.tip.as_ref().filter(|_| live) {
             elements.push(Skin::Texture(element(art, *rect, 1.0)));
+        }
+        if live {
+            self.welcome_elements(&mut elements);
         }
 
         if let Some(band) = self.dock_band() {
@@ -1047,6 +1054,7 @@ impl State {
             self.hud = None;
         }
         self.expire_cards(now);
+        self.settle_welcome();
         self.wind_titles();
         self.paint_lock();
         self.check_client_lock();
@@ -1280,6 +1288,7 @@ impl State {
         self.watch_corner();
         self.repaint_popover();
         self.hover_desk_menu();
+        self.hover_welcome();
         if self.hover_since.is_none() {
             self.hover_since = Some((self.pointer, Instant::now()));
         } else if let Some((at, _)) = self.hover_since
@@ -1406,6 +1415,9 @@ impl Screen {
             state.lock_now();
         }
         state.draw()?;
+        if state.welcome_wanted {
+            state.open_welcome(true);
+        }
 
         for item in state.login.clone() {
             crate::apps::run(&item, &state.socket);

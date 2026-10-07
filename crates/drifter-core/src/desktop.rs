@@ -190,16 +190,18 @@ pub enum Role {
     Files,
     Terminal,
     Browser,
+    Editor,
 }
 
 impl Role {
-    pub const ALL: [Role; 3] = [Role::Files, Role::Terminal, Role::Browser];
+    pub const ALL: [Role; 4] = [Role::Files, Role::Terminal, Role::Browser, Role::Editor];
 
     pub fn label(self) -> &'static str {
         match self {
             Role::Files => "File manager",
             Role::Terminal => "Terminal",
             Role::Browser => "Web browser",
+            Role::Editor => "Text editor",
         }
     }
 
@@ -212,6 +214,7 @@ impl Role {
                 "x-scheme-handler/https",
                 "text/html",
             ],
+            Role::Editor => &["text/plain"],
         }
     }
 
@@ -220,6 +223,13 @@ impl Role {
             Role::Terminal => text
                 .lines()
                 .any(|line| line.starts_with("Categories=") && line.contains("TerminalEmulator")),
+            Role::Editor => {
+                let graphical = !text.lines().any(|line| line.trim() == "Terminal=true");
+                graphical
+                    && text
+                        .lines()
+                        .any(|line| line.starts_with("Categories=") && line.contains("TextEditor"))
+            }
             _ => text
                 .lines()
                 .any(|line| line.starts_with("MimeType=") && line.contains(self.mimes()[0])),
@@ -310,6 +320,77 @@ pub fn system_default_in(role: Role, lists: &[PathBuf], roots: &[PathBuf]) -> Op
         }
     }
     None
+}
+
+pub fn serving_in(role: Role, roots: &[PathBuf]) -> Vec<App> {
+    let mut found: Vec<App> = Vec::new();
+    for root in roots {
+        let Ok(entries) = std::fs::read_dir(root) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let Some(id) = desktop_id(&path) else {
+                continue;
+            };
+            if found.iter().any(|app| app.id == id) {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            if !role.serves(&text) {
+                continue;
+            }
+            if let Some(app) = read(&id, &text) {
+                found.push(app);
+            }
+        }
+    }
+    let ids: Vec<String> = found.iter().map(|app| app.id.to_lowercase()).collect();
+    found.retain(|app| {
+        let id = app.id.to_lowercase();
+        let side = ["client", "server"].iter().find_map(|tail| id.strip_suffix(tail));
+        let Some(stem) = side.map(|stem| stem.trim_end_matches(['-', '_', '.'])) else {
+            return true;
+        };
+        !ids.iter().any(|other| other != &id && other == stem)
+    });
+    found.sort_by_key(|app| app.name.to_lowercase());
+    found
+}
+
+pub fn serving(role: Role) -> Vec<App> {
+    serving_in(role, &roots())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Offer {
+    pub role: Role,
+    pub name: &'static str,
+    pub ids: &'static [&'static str],
+    pub apt: &'static str,
+    pub dnf: &'static str,
+}
+
+pub const OFFERS: [Offer; 8] = [
+    Offer { role: Role::Browser, name: "Firefox", ids: &["firefox-esr", "firefox", "org.mozilla.firefox"], apt: "firefox-esr", dnf: "firefox" },
+    Offer { role: Role::Browser, name: "Chromium", ids: &["chromium", "chromium-browser", "org.chromium.Chromium"], apt: "chromium", dnf: "chromium" },
+    Offer { role: Role::Terminal, name: "Foot", ids: &["foot", "org.codeberg.dnkl.foot"], apt: "foot", dnf: "foot" },
+    Offer { role: Role::Terminal, name: "Kitty", ids: &["kitty"], apt: "kitty", dnf: "kitty" },
+    Offer { role: Role::Files, name: "Thunar", ids: &["thunar", "Thunar"], apt: "thunar", dnf: "Thunar" },
+    Offer { role: Role::Files, name: "Files", ids: &["org.gnome.Nautilus", "nautilus"], apt: "nautilus", dnf: "nautilus" },
+    Offer { role: Role::Editor, name: "Mousepad", ids: &["org.xfce.mousepad", "mousepad"], apt: "mousepad", dnf: "mousepad" },
+    Offer { role: Role::Editor, name: "Text Editor", ids: &["org.gnome.TextEditor", "gnome-text-editor"], apt: "gnome-text-editor", dnf: "gnome-text-editor" },
+];
+
+pub fn offers(role: Role, have: &[App]) -> Vec<Offer> {
+    OFFERS
+        .iter()
+        .filter(|offer| offer.role == role)
+        .filter(|offer| !have.iter().any(|app| offer.ids.iter().any(|id| id.eq_ignore_ascii_case(&app.id))))
+        .copied()
+        .collect()
 }
 
 pub fn system_default(role: Role) -> Option<String> {
@@ -527,6 +608,36 @@ mod tests {
         );
         assert_eq!(system_default_in(Role::Browser, &[], &roots), None);
         std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn serving_apps_skip_client_and_server_twins_and_terminal_editors() {
+        let base = std::env::temp_dir().join(format!("drifter-serving-{}", std::process::id()));
+        std::fs::create_dir_all(&base).unwrap();
+        let term = |name: &str| format!("[Desktop Entry]\nType=Application\nName={name}\nCategories=System;TerminalEmulator;\n");
+        std::fs::write(base.join("foot.desktop"), term("Foot")).unwrap();
+        std::fs::write(base.join("footclient.desktop"), term("Foot Client")).unwrap();
+        std::fs::write(base.join("foot-server.desktop"), term("Foot Server")).unwrap();
+        std::fs::write(base.join("kitty.desktop"), term("kitty")).unwrap();
+        std::fs::write(
+            base.join("vim.desktop"),
+            "[Desktop Entry]\nType=Application\nName=Vim\nTerminal=true\nCategories=Utility;TextEditor;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            base.join("org.xfce.mousepad.desktop"),
+            "[Desktop Entry]\nType=Application\nName=Mousepad\nCategories=Utility;TextEditor;\n",
+        )
+        .unwrap();
+        let roots = [base.clone()];
+        let terms: Vec<String> = serving_in(Role::Terminal, &roots).into_iter().map(|app| app.id).collect();
+        let editors: Vec<String> = serving_in(Role::Editor, &roots).into_iter().map(|app| app.id).collect();
+        std::fs::remove_dir_all(&base).unwrap();
+        assert_eq!(terms, ["foot", "kitty"]);
+        assert_eq!(editors, ["org.xfce.mousepad"]);
+        let have = vec![read("org.xfce.mousepad", "[Desktop Entry]\nType=Application\nName=Mousepad\n").unwrap()];
+        let left: Vec<&str> = offers(Role::Editor, &have).iter().map(|offer| offer.name).collect();
+        assert_eq!(left, ["Text Editor"]);
     }
 
     #[test]

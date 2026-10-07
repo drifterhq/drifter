@@ -25,6 +25,7 @@ impl State {
         self.control = None;
         self.notes_panel = None;
         let mut all = drifter_core::search::apps(&self.installed_apps());
+        all.push(welcome_found());
         all.sort_by_key(|found| found.title.to_lowercase());
         let look = drifter_core::launchpad::Look::themed(&self.palette);
         let rect = look.rect(self.screen);
@@ -46,6 +47,9 @@ impl State {
     }
 
     fn pad_icon(&mut self, found: &Found, side: u32) -> Option<drifter_core::Image> {
+        if found.key == super::welcome::WELCOME_KEY {
+            return Some(drifter_core::welcome::icon(side));
+        }
         let name = found.icon.clone()?;
         let key = format!("{name}@{side}");
         if let Some(held) = self.search_icons.get(&key) {
@@ -248,9 +252,24 @@ impl State {
     }
 
     fn open_app(&mut self, found: &Found) {
+        if found.key == super::welcome::WELCOME_KEY {
+            self.open_welcome(false);
+            return;
+        }
         let launch = drifter_core::Launch::App(found.key.clone());
         crate::apps::run(&launch, &self.socket);
         self.bounces.retain(|(held, _)| held != &found.key);
         self.bounces.push((found.key.clone(), Instant::now()));
+    }
+}
+
+pub(super) fn welcome_found() -> Found {
+    Found {
+        kind: drifter_core::search::Kind::App,
+        title: "Welcome".to_string(),
+        detail: "Application".to_string(),
+        key: super::welcome::WELCOME_KEY.to_string(),
+        extra: "welcome tour start setup hello drifter".to_string(),
+        icon: None,
     }
 }

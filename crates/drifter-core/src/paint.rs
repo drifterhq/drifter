@@ -142,6 +142,50 @@ impl Canvas {
         }
     }
 
+    pub fn line(&mut self, from: Vec2, to: Vec2, width: f64, color: [u8; 3], alpha: f64) {
+        let (a, b, half) = (from * density(), to * density(), width * density() / 2.0);
+        let low = a.min(b) - Vec2::splat(half + 1.0);
+        let high = a.max(b) + Vec2::splat(half + 1.0);
+        let along = b - a;
+        let span = (along.x * along.x + along.y * along.y).max(1e-9);
+        self.shape(Rect::new(low, high - low), color, alpha, |p| {
+            let rel = p - a;
+            let t = ((rel.x * along.x + rel.y * along.y) / span).clamp(0.0, 1.0);
+            half - (rel - along * t).length()
+        });
+    }
+
+    pub fn ring(&mut self, rect: Rect, radius: f64, width: f64, color: [u8; 3], alpha: f64) {
+        let (rect, radius, width) = (up(rect), radius * density(), width * density());
+        let radius = radius.min(rect.size.x / 2.0).min(rect.size.y / 2.0).max(0.0);
+        self.shape(rect, color, alpha, |p| {
+            let edge = inside_round(p - rect.origin, rect.size, radius);
+            edge.min(width - edge)
+        });
+    }
+
+    pub fn glow(&mut self, center: Vec2, radius: f64, color: [u8; 3], alpha: f64) {
+        let (center, radius) = (center * density(), radius * density());
+        let rect = Rect::from_center(center, Vec2::splat(radius * 2.0));
+        self.blend_each(rect, color, |p| {
+            let t = (1.0 - (p - center).length() / radius).clamp(0.0, 1.0);
+            t * t * alpha
+        });
+    }
+
+    pub fn shade(&mut self, rect: Rect, radius: f64, top: [u8; 3], bottom: [u8; 3], alpha: f64) {
+        let (rect, radius) = (up(rect), radius * density());
+        let radius = radius.min(rect.size.x / 2.0).min(rect.size.y / 2.0).max(0.0);
+        let from_y = rect.origin.y.floor().max(0.0) as u32;
+        let to_y = (rect.max().y.ceil().max(0.0) as u32).min(self.image.height);
+        for y in from_y..to_y {
+            let t = ((f64::from(y) + 0.5 - rect.origin.y) / rect.size.y.max(1.0)).clamp(0.0, 1.0);
+            let color = [0, 1, 2].map(|c| (f64::from(top[c]) + (f64::from(bottom[c]) - f64::from(top[c])) * t).round() as u8);
+            let row = Rect::new(Vec2::new(rect.origin.x, f64::from(y)), Vec2::new(rect.size.x, 1.0));
+            self.shape(row, color, alpha, |p| inside_round(p - rect.origin, rect.size, radius));
+        }
+    }
+
     fn shape(&mut self, rect: Rect, color: [u8; 3], alpha: f64, edge: impl Fn(Vec2) -> f64) {
         self.blend_each(rect, color, |p| (edge(p) + 0.5).clamp(0.0, 1.0) * alpha);
     }

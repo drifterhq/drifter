@@ -841,9 +841,9 @@ impl Settings {
             Some(Hit::Press(id, index)) => match self.model.press(id, index) {
                 None if matches!(id, Id::Default(_)) && index == 1 => {
                     if let Id::Default(at) = id {
-                        let role = drifter_core::desktop::Role::ALL[at.min(2)];
+                        let role = drifter_core::desktop::Role::ALL[at.min(drifter_core::desktop::Role::ALL.len() - 1)];
                         tell_the_system(|text| drifter_core::desktop::clear_default(text, role));
-                        self.model.system[at.min(2)] = drifter_core::desktop::system_default(role);
+                        self.model.system[at.min(drifter_core::desktop::Role::ALL.len() - 1)] = drifter_core::desktop::system_default(role);
                     }
                     self.save();
                 }
