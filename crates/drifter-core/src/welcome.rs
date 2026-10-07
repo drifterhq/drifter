@@ -14,6 +14,7 @@ pub const THUMB: Vec2 = Vec2::new(150.0, 94.0);
 pub const FRAMES: usize = 40;
 pub const CYCLE: f64 = 2.6;
 pub const SHOWN_PAPERS: usize = 8;
+pub const NOTE_MARGIN: f64 = 24.0;
 pub const LOGO_SIDE: f64 = 220.0;
 pub const LOGO_BODY: &str = include_str!("logo.glsl");
 
@@ -25,6 +26,10 @@ pub fn logo_pace(motion: Motion, reduce: bool) -> f64 {
         (_, Motion::Calm) => LOGO_PACE * 0.6,
         (_, Motion::Full) => LOGO_PACE,
     }
+}
+
+pub fn note_drift(clock: f64) -> Vec2 {
+    Vec2::new(26.0 * (clock * 0.55).sin(), 7.0 * (clock * 0.9 + 1.0).sin())
 }
 
 pub fn logo_source() -> String {
@@ -223,6 +228,7 @@ pub struct View {
     pub quiet: bool,
     pub hover: Option<Hit>,
     pub live_logo: bool,
+    pub live_note: bool,
 }
 
 impl View {
@@ -250,6 +256,7 @@ impl View {
             quiet: true,
             hover: None,
             live_logo: false,
+            live_note: false,
         }
     }
 
@@ -646,8 +653,38 @@ impl Look {
         self.row_label(canvas, fonts, 186.0, "Text size", "The size your apps use");
         let hover = [false, true].iter().position(|large| view.hovered(Hit::Text(*large)));
         self.segments(canvas, fonts, self.segments_rect(2, 186.0), &["Regular", "Large"], usize::from(view.large), hover);
+        if view.live_note {
+            let desk = self.desk_rect();
+            let (top, bottom) = match self.light {
+                true => ([226, 229, 236], [214, 218, 227]),
+                false => (lift(self.well, -0.25), lift(self.well, -0.05)),
+            };
+            canvas.shade(desk, 16.0, top, bottom, 1.0);
+            canvas.ring(desk, 16.0, 1.0, self.rule, 0.5);
+            return;
+        }
         let sheet = Rect::new(Vec2::new(PAD, 244.0), Vec2::new(SIZE.x - PAD * 2.0, 164.0));
-        canvas.shadow(sheet, 14.0, 10.0, 0.22);
+        let image = self.paint_note_at(fonts, sheet.size);
+        canvas.stamp(&image, sheet.origin - Vec2::splat(NOTE_MARGIN), 1.0);
+    }
+
+    pub fn desk_rect(&self) -> Rect {
+        Rect::new(Vec2::new(PAD, 244.0), Vec2::new(SIZE.x - PAD * 2.0, 164.0))
+    }
+
+    pub fn note_size(&self) -> Vec2 {
+        Vec2::new(500.0, 140.0)
+    }
+
+    pub fn paint_note(&self, fonts: &Fonts) -> Image {
+        self.paint_note_at(fonts, self.note_size())
+    }
+
+    fn paint_note_at(&self, fonts: &Fonts, size: Vec2) -> Image {
+        let whole = size + Vec2::splat(NOTE_MARGIN * 2.0);
+        let mut canvas = Canvas::new(whole.x as u32, whole.y as u32);
+        let sheet = Rect::new(Vec2::splat(NOTE_MARGIN), size);
+        canvas.shadow(Rect::new(sheet.origin + Vec2::new(0.0, 6.0), sheet.size), 14.0, 14.0, 0.22);
         let paper = match self.light {
             true => WHITE,
             false => self.well,
@@ -658,17 +695,18 @@ impl Look {
             canvas.circle(sheet.origin + Vec2::new(20.0 + at as f64 * 18.0, 18.0), 5.5, color, 1.0);
         }
         let heading = fonts.note_title.paint_bold("Notes for Tuesday", self.ink);
-        canvas.stamp(&heading, sheet.origin + Vec2::new(22.0, 40.0), 1.0);
+        canvas.stamp(&heading, sheet.origin + Vec2::new(22.0, 34.0), 1.0);
         let lines = [
             "Walk before lunch. Water the fern.",
             "Call about the bike, then rest a little.",
         ];
-        let mut y = sheet.origin.y + 40.0 + logical(&heading).y + 12.0;
+        let mut y = sheet.origin.y + 34.0 + logical(&heading).y + 10.0;
         for line in lines {
             let words = fonts.note_body.paint(line, self.dim);
             canvas.stamp(&words, Vec2::new(sheet.origin.x + 22.0, y).round(), 1.0);
-            y += logical(&words).y + 8.0;
+            y += logical(&words).y + 6.0;
         }
+        canvas.image
     }
 
     fn paint_display(&self, canvas: &mut Canvas, view: &View, fonts: &Fonts) {

@@ -2555,31 +2555,17 @@ impl Look {
 
     pub fn about_logo_rect(&self, size: Vec2, scroll: f64) -> Rect {
         let card = self.picture_rect(size, scroll);
-        let side = card.size.y;
-        Rect::new(Vec2::new(card.origin.x + 18.0, card.origin.y), Vec2::splat(side))
+        Rect::from_center(card.center(), Vec2::splat(card.size.y))
     }
 
-    fn paint_about(&self, canvas: &mut Canvas, size: Vec2, scroll: f64, model: &Model, fonts: &Fonts) {
-        let card = self.picture_rect(size, scroll);
+    fn paint_about(&self, canvas: &mut Canvas, size: Vec2, scroll: f64, model: &Model) {
         let logo = self.about_logo_rect(size, scroll);
         let drop = logo.center() + Vec2::new(0.0, logo.size.y * 0.24);
-        canvas.shadow(Rect::from_center(drop, Vec2::new(logo.size.y * 0.42, 14.0)), 7.0, 16.0, 0.22);
+        canvas.shadow(Rect::from_center(drop, Vec2::new(logo.size.y * 0.42, 14.0)), 7.0, 16.0, 0.2);
         if !model.live_logo {
             canvas.circle(logo.center(), logo.size.y * 0.27, self.accent, 1.0);
             canvas.circle(logo.center() - Vec2::new(logo.size.y * 0.08, logo.size.y * 0.09), logo.size.y * 0.08, [255, 255, 255], 0.35);
         }
-        let left = logo.max().x + 10.0;
-        let name = fonts.title.paint_bold("Drifter", self.ink);
-        let name_size = crate::paint::logical(&name);
-        let version = fonts.body.paint(&format!("Version {}", env!("CARGO_PKG_VERSION")), self.dim);
-        let line = fonts.small.paint("A desktop that is a camera over one large world.", self.dim);
-        let tall = name_size.y + 6.0 + crate::paint::logical(&version).y + 10.0 + crate::paint::logical(&line).y;
-        let mut y = card.center().y - tall / 2.0;
-        canvas.stamp(&name, Vec2::new(left, y).round(), 1.0);
-        y += name_size.y + 6.0;
-        canvas.stamp(&version, Vec2::new(left, y).round(), 1.0);
-        y += crate::paint::logical(&version).y + 10.0;
-        canvas.stamp(&line, Vec2::new(left, y).round(), 1.0);
     }
 
     pub fn picture_rect(&self, size: Vec2, scroll: f64) -> Rect {
@@ -2889,13 +2875,15 @@ impl Look {
 
         if has_picture(section) {
             let rect = self.picture_rect(size, scroll);
-            canvas.round_rect(rect, self.radius, self.card, 1.0);
+            if section != Section::About {
+                canvas.round_rect(rect, self.radius, self.card, 1.0);
+            }
             match section {
                 Section::Desktop => self.paint_world(&mut canvas, rect, model.world, fonts),
                 Section::Window => self.paint_title_bar(&mut canvas, rect, model, fonts),
                 Section::Displays => self.paint_monitors(&mut canvas, size, scroll, model, fonts),
                 Section::Users => self.paint_me(&mut canvas, rect, model, fonts, art.icons),
-                Section::About => self.paint_about(&mut canvas, size, scroll, model, fonts),
+                Section::About => self.paint_about(&mut canvas, size, scroll, model),
                 _ => self.paint_wallpaper(&mut canvas, rect, art.wallpaper),
             }
         }

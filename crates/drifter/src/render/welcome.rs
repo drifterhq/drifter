@@ -47,6 +47,10 @@ pub(super) struct Welcome {
     swap: Option<f64>,
     logo: Option<Logo>,
     logo_clock: (f64, Instant),
+    note: Option<(TextureBuffer<Tex>, Vec2)>,
+    note_lane: worker::Lane,
+    note_key: Option<(bool, bool)>,
+    note_clock: (f64, Instant),
 }
 
 pub(super) struct Logo {
@@ -167,10 +171,15 @@ impl State {
             swap: None,
             logo: None,
             logo_clock: (20.0, Instant::now()),
+            note: None,
+            note_lane: worker::Lane::default(),
+            note_key: None,
+            note_clock: (0.0, Instant::now()),
         });
         let logo = wallpaper::logo_program(&mut self.renderer).map(|program| Logo { program, sheet: None });
         if let Some(open) = self.welcome.as_mut() {
             open.view.live_logo = logo.is_some();
+            open.view.live_note = true;
             open.logo = logo;
         }
         self.welcome_read(&config);
@@ -372,6 +381,47 @@ impl State {
         let view = open.view.clone();
         let fonts = open.fonts.clone();
         let job = open.job;
+        let key = (open.large, look.light);
+        if view.card == Card::Comfort && open.note_key != Some(key) {
+            open.note_key = Some(key);
+            let fonts = fonts.clone();
+            self.paint_in_lane_sized(
+                "welcome note",
+                |state| state.welcome.as_mut().map(|open| &mut open.note_lane),
+                |state| {
+                    if let Some(open) = state.welcome.as_mut() {
+                        open.note_key = None;
+                    }
+                    state.paint_welcome();
+                },
+                move || Some(look.paint_note(&fonts)),
+                |state, art, size| {
+                    if let Some(open) = state.welcome.as_mut() {
+                        open.note = Some((art, size));
+                    }
+                },
+            );
+            let Some(open) = self.welcome.as_mut() else {
+                return;
+            };
+            if !open.paint.claim() {
+                return;
+            }
+            let view = open.view.clone();
+            let fonts = open.fonts.clone();
+            let job = open.job;
+            return self.paint_on_worker(
+                "welcome-paint",
+                move || {
+                    let mut image = look.paint(&view, &fonts, veil);
+                    if let Some(frosting) = frosting {
+                        frosting.under(&mut image, rect.origin, veil);
+                    }
+                    Some(image)
+                },
+                move |state, art| state.welcome_painted(art, job),
+            );
+        }
         self.paint_on_worker(
             "welcome-paint",
             move || {
@@ -429,11 +479,23 @@ impl State {
         clock
     }
 
+    fn welcome_note_clock(&mut self) -> f64 {
+        let Some(open) = self.welcome.as_mut() else {
+            return 0.0;
+        };
+        let now = Instant::now();
+        let (then, at) = open.note_clock;
+        let clock = then + now.duration_since(at).as_secs_f64() * drifter_core::welcome::logo_pace(open.view.motion, self.access.reduce_motion);
+        open.note_clock = (clock, now);
+        clock
+    }
+
     pub(super) fn welcome_elements(&mut self, elements: &mut Vec<Skin>) {
         let Some(rect) = self.welcome_rect() else {
             return;
         };
         let logo_clock = self.welcome_logo_clock();
+        let note_clock = self.welcome_note_clock();
         let reduce = self.access.reduce_motion;
         let screen = self.screen;
         let Some(open) = self.welcome.as_ref() else {
@@ -537,6 +599,14 @@ impl State {
         let Some(open) = self.welcome.as_ref() else {
             return;
         };
+        if open.view.card == Card::Comfort
+            && open.closing.is_none()
+            && let Some((note, size)) = open.note.as_ref()
+        {
+            let desk = look.desk_rect();
+            let at = here.origin + desk.center() + drifter_core::welcome::note_drift(note_clock) - *size / 2.0;
+            elements.push(Skin::Texture(element(note, Rect::new(at, *size), (fade * t) as f32)));
+        }
         if let Some(art) = open.art.as_ref() {
             elements.push(Skin::Texture(element(art, here, (fade * t) as f32)));
         }
@@ -592,6 +662,9 @@ impl State {
         };
         let now = Instant::now();
         open.closing.is_some()
+            || (open.view.card == Card::Comfort
+                && open.note.is_some()
+                && drifter_core::welcome::logo_pace(open.view.motion, self.access.reduce_motion) > 0.0)
             || (open.view.card == Card::Hello
                 && open.logo.is_some()
                 && drifter_core::welcome::logo_pace(open.view.motion, self.access.reduce_motion) > 0.0)
