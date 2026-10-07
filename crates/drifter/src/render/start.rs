@@ -479,6 +479,7 @@ pub fn open(
         launchpad: None,
         welcome: None,
         dock_logo: docklogo::DockLogo::default(),
+        sunlight: sunlight::Sunlight::default(),
         welcome_wanted: live && config.welcome.show,
         search_font: Font::find(config.font_path(), 20.0).ok().map(std::sync::Arc::new),
         search_icons: std::collections::HashMap::new(),

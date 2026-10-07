@@ -592,10 +592,15 @@ pub fn shadow_patch(radius: f64, blur: f64) -> Image {
 }
 
 pub fn shadow_slices(frame: Rect, corner: f64, zoom: f64, drop: f64) -> Vec<(Rect, Rect)> {
-    let c = corner * zoom;
+    shadow_cast(frame, corner, zoom, Vec2::new(0.0, drop), 1.0)
+}
+
+pub fn shadow_cast(frame: Rect, corner: f64, zoom: f64, cast: Vec2, spread: f64) -> Vec<(Rect, Rect)> {
+    let c = corner * zoom * spread;
+    let reach = c - (corner - SHADOW_BLUR).max(0.0) * zoom;
     let outer = Rect::new(
-        frame.origin - Vec2::splat(c - (corner - SHADOW_BLUR).max(0.0) * zoom) + Vec2::new(0.0, drop * zoom),
-        frame.size + Vec2::splat(2.0 * (c - (corner - SHADOW_BLUR).max(0.0) * zoom)),
+        frame.origin - Vec2::splat(reach) + Vec2::new(cast.x * zoom, cast.y * zoom),
+        frame.size + Vec2::splat(2.0 * reach),
     );
     let middle = Vec2::new((outer.size.x - 2.0 * c).max(0.0), (outer.size.y - 2.0 * c).max(0.0));
     let cols = [(0.0, corner, outer.origin.x, c), (corner, 1.0, outer.origin.x + c, middle.x), (corner + 1.0, corner, outer.origin.x + c + middle.x, c)];
