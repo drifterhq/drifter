@@ -260,13 +260,11 @@ impl State {
             busy: pending.busy,
         };
         if self.prompt_haze.is_none() {
-            let frosting = self.frosting();
-            let screen = self.screen;
             self.paint_in_lane(
-                "password haze",
+                "password dim",
                 |state| Some(&mut state.haze_lane),
                 |_| {},
-                move || Some(worker::haze(&frosting, screen, 0.4, 0.7)),
+                move || Some(worker::dim(0.28)),
                 |state, art| {
                     if !state.prompts.is_empty() {
                         state.prompt_haze = Some(art);
