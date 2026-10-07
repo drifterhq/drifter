@@ -146,7 +146,7 @@ pub struct Card {
 impl Card {
     pub fn themed(p: &crate::theme::Palette) -> Card {
         Card {
-            width: 248.0,
+            width: 292.0,
             back: p.back,
             ink: p.ink,
             dim: p.dim,
@@ -155,7 +155,7 @@ impl Card {
     }
 
     pub fn height(&self, rows: usize, spark: bool) -> f64 {
-        14.0 + 24.0 + 24.0 * rows as f64 + if spark { 46.0 } else { 0.0 } + 10.0
+        14.0 + 24.0 + 22.0 * rows as f64 + if spark { 46.0 } else { 0.0 } + 10.0
     }
 }
 
@@ -169,21 +169,29 @@ pub fn paint_card(card: &Card, font: &Font, bold: &Font, fields: &[(String, u8)]
     canvas.stamp(&head, Vec2::new(14.0, 14.0), 1.0);
     let note = font.paint(if busy { "Working hard" } else { "All calm" }, card.dim);
     canvas.stamp(&note, Vec2::new(size.x - 14.0 - crate::paint::logical(&note).x, 15.0).round(), 1.0);
-    let mut y = 44.0;
-    for (label, value) in fields {
-        let name = font.paint(&pretty(label), card.ink);
-        let mid = y + 12.0;
-        canvas.stamp(&name, Vec2::new(14.0, mid - crate::paint::logical(&name).y / 2.0).round(), 1.0);
-        let number = font.paint(&format!("{value}%"), card.dim);
+    let pad = 14.0;
+    let gap = 12.0;
+    let number_room = font.width_of("100%").ceil();
+    let widest = (size.x - pad * 2.0) * 0.38;
+    let names: Vec<String> = fields.iter().map(|(label, _)| fit(font, &pretty(label), widest)).collect();
+    let name_room = names.iter().map(|name| font.width_of(name)).fold(0.0, f64::max).ceil();
+    let track_x = pad + name_room + gap;
+    let track_w = (size.x - pad - number_room - gap - track_x).max(24.0);
+    let mut y = 42.0;
+    for ((_, value), name) in fields.iter().zip(&names) {
+        let mid = y + 11.0;
+        let label = font.paint(name, card.ink);
+        canvas.stamp(&label, Vec2::new(pad, mid - crate::paint::logical(&label).y / 2.0).round(), 1.0);
+        let number = font.paint_even_digits(&format!("{value}%"), card.dim);
         let nsize = crate::paint::logical(&number);
-        canvas.stamp(&number, Vec2::new(size.x - 14.0 - nsize.x, mid - nsize.y / 2.0).round(), 1.0);
-        let track = Rect::new(Vec2::new(82.0, mid - 2.0), Vec2::new(size.x - 82.0 - 54.0, 4.0));
+        canvas.stamp(&number, Vec2::new(size.x - pad - nsize.x, mid - nsize.y / 2.0).round(), 1.0);
+        let track = Rect::new(Vec2::new(track_x, mid - 2.0), Vec2::new(track_w, 4.0));
         canvas.round_rect(track, 2.0, card.ink, 0.14);
         let v = share(*value);
         if v > 0.0 {
             canvas.round_rect(Rect::new(track.origin, Vec2::new((track.size.x * v).max(4.0), 4.0)), 2.0, tone(card.ink, v), 0.75);
         }
-        y += 24.0;
+        y += 22.0;
     }
     if spark {
         let area = Rect::new(Vec2::new(14.0, y + 10.0), Vec2::new(size.x - 28.0, 32.0));
@@ -200,6 +208,21 @@ pub fn paint_card(card: &Card, font: &Font, bold: &Font, fields: &[(String, u8)]
         }
     }
     canvas.image
+}
+
+pub fn fit(font: &Font, text: &str, room: f64) -> String {
+    if font.width_of(text) <= room {
+        return text.to_string();
+    }
+    let mut kept: Vec<char> = text.chars().collect();
+    while !kept.is_empty() {
+        kept.pop();
+        let tried: String = kept.iter().collect::<String>() + "…";
+        if font.width_of(&tried) <= room {
+            return tried;
+        }
+    }
+    "…".to_string()
 }
 
 fn pretty(label: &str) -> String {
@@ -251,6 +274,16 @@ mod tests {
         let ink = [244, 245, 250];
         assert_eq!(tone(ink, 0.5), ink);
         assert_eq!(tone(ink, 1.0), WARM);
+    }
+
+    #[test]
+    fn a_long_drive_name_is_shortened_to_fit() {
+        let font = Font::find(None, 11.5).unwrap();
+        let short = fit(&font, "CPU", 80.0);
+        assert_eq!(short, "CPU");
+        let long = fit(&font, "NVME0N1P2-SAMSUNG-EVO", 80.0);
+        assert!(long.ends_with('…'));
+        assert!(font.width_of(&long) <= 80.0);
     }
 
     #[test]

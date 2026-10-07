@@ -575,6 +575,7 @@ pub struct State {
     lock_big: Option<std::sync::Arc<Font>>,
     lock_small: Option<std::sync::Arc<Font>>,
     lock_name: Option<std::sync::Arc<Font>>,
+    card_font: Option<std::sync::Arc<Font>>,
     verify: smithay::reexports::calloop::channel::Sender<(u64, crate::auth::Verdict)>,
     tickets: u64,
     power: Option<TextureBuffer<Tex>>,
@@ -1202,24 +1203,40 @@ impl State {
         let at = self.at;
         let dt = now.duration_since(self.heads[at].last);
         self.heads[at].last = now;
+        let probe = Instant::now();
+        let mut marks: Vec<(&str, Duration)> = Vec::new();
+        let mark = |name: &'static str, marks: &mut Vec<(&str, Duration)>| marks.push((name, probe.elapsed()));
         self.pin_bars();
         for drawer in &mut self.drawers {
             drawer.advance(dt, self.tunables.drawer_anim);
         }
         self.steer();
         self.wind_the_clock();
+        mark("wind_the_clock", &mut marks);
         self.wind_the_app_label();
+        mark("wind_the_app_label", &mut marks);
         self.wind_the_stats();
+        mark("wind_the_stats", &mut marks);
         self.wind_the_battery();
+        mark("wind_the_battery", &mut marks);
         self.fit_dock();
+        mark("fit_dock", &mut marks);
         self.wind_the_volume();
+        mark("wind_the_volume", &mut marks);
         self.wind_the_light();
+        mark("wind_the_light", &mut marks);
         self.wind_the_control();
+        mark("wind_the_control", &mut marks);
         self.wind_the_gauge();
+        mark("wind_the_gauge", &mut marks);
         self.wind_the_ripple();
+        mark("wind_the_ripple", &mut marks);
         self.wind_the_desk_menu();
+        mark("wind_the_desk_menu", &mut marks);
         self.settle_bounces();
+        mark("settle_bounces", &mut marks);
         self.settle_fade();
+        mark("settle_fade", &mut marks);
 
         let scale = self.heads[at].scale;
         let shown: Vec<Shown> = self
@@ -1227,6 +1244,8 @@ impl State {
             .into_iter()
             .map(|piece| RescaleRenderElement::from_element(piece, (0, 0).into(), scale))
             .collect();
+        mark("elements", &mut marks);
+        let count = shown.len();
         let clear = self.clear;
         let frames = self.heads[at].frames;
         let State {
@@ -1249,8 +1268,27 @@ impl State {
                 }
             })?;
 
+        mark("render", &mut marks);
         self.serve_copies(&shown, !empty);
         self.sync_wlr_toplevels();
+        mark("copies", &mut marks);
+        if probe.elapsed() > Duration::from_millis(12) {
+            let mut last = Duration::ZERO;
+            let parts: Vec<String> = marks
+                .iter()
+                .filter_map(|(name, at)| {
+                    let spent = at.saturating_sub(last);
+                    last = *at;
+                    (spent > Duration::from_micros(800)).then(|| format!("{name}={:.1}", spent.as_secs_f64() * 1000.0))
+                })
+                .collect();
+            if let Some(dir) = std::env::var_os("XDG_RUNTIME_DIR") {
+                use std::io::Write as _;
+                if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(std::path::Path::new(&dir).join("drifter-frames.log")) {
+                    let _ = writeln!(file, "{:.1} ms, {count} pieces: {}", probe.elapsed().as_secs_f64() * 1000.0, parts.join(" "));
+                }
+            }
+        }
         if self.shot_wanted && at == self.hand {
             self.shot_wanted = false;
             self.screenshot(&shown);

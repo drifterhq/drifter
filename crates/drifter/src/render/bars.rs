@@ -1012,7 +1012,7 @@ impl State {
         if self.card_busy || (self.glance_card.is_some() && !self.card_stale) {
             return;
         }
-        let (Some(font), Some(bold)) = (self.font.clone(), self.search_font.clone()) else {
+        let (Some(font), Some(bold)) = (self.card_font.clone(), self.font.clone()) else {
             return;
         };
         self.card_stale = false;
