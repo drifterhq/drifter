@@ -5,6 +5,17 @@ use crate::text::Font;
 
 pub const WARM: [u8; 3] = [255, 159, 82];
 pub const HOT: [u8; 3] = [255, 84, 84];
+pub const COOL: [u8; 3] = [110, 190, 255];
+
+pub fn heat(value: f64) -> [u8; 3] {
+    let mix = |from: [u8; 3], to: [u8; 3], t: f64| -> [u8; 3] {
+        std::array::from_fn(|c| (f64::from(from[c]) + (f64::from(to[c]) - f64::from(from[c])) * t.clamp(0.0, 1.0)).round() as u8)
+    };
+    match value < 0.88 {
+        true => mix(COOL, WARM, ((value - 0.3) / 0.58).max(0.0)),
+        false => mix(WARM, HOT, (value - 0.88) / 0.1),
+    }
+}
 pub const HISTORY: usize = 30;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -213,8 +224,19 @@ pub fn paint_card(card: &Card, font: &Font, bold: &Font, fields: &[(String, u8)]
                 area.max().y - 2.0 - share(v) * (area.size.y - 6.0),
             )
         };
+        let floor = area.max().y;
         for at in 1..history.len() {
-            canvas.line(point(at - 1, history[at - 1]), point(at, history[at]), 1.2, card.ink, 0.7);
+            let (a, b) = (point(at - 1, history[at - 1]), point(at, history[at]));
+            let color = heat(share(history[at - 1].max(history[at])));
+            for step in 0..4 {
+                let x = a.x + (b.x - a.x) * (f64::from(step) + 0.5) / 4.0;
+                let y = a.y + (b.y - a.y) * (f64::from(step) + 0.5) / 4.0;
+                canvas.line(Vec2::new(x, y + 1.0), Vec2::new(x, floor), (b.x - a.x) / 4.0 + 0.4, color, 0.12);
+            }
+        }
+        for at in 1..history.len() {
+            let color = heat(share(history[at - 1].max(history[at])));
+            canvas.line(point(at - 1, history[at - 1]), point(at, history[at]), 1.4, color, 0.95);
         }
     }
     canvas.image
@@ -286,6 +308,13 @@ mod tests {
         assert_eq!(tone(ink, 0.88), WARM);
         assert_eq!(tone(ink, 1.0), HOT);
         assert!(!is_load("CHG") && !is_load("BAT") && is_load("CPU"));
+    }
+
+    #[test]
+    fn the_sparkline_runs_cool_to_warm_to_hot() {
+        assert_eq!(heat(0.1), COOL);
+        assert_eq!(heat(0.88), WARM);
+        assert_eq!(heat(1.0), HOT);
     }
 
     #[test]
