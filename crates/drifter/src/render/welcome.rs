@@ -298,8 +298,7 @@ impl State {
     }
 
     pub(super) fn welcome_rect(&self) -> Option<Rect> {
-        let open = self.welcome.as_ref()?;
-        open.art.as_ref()?;
+        self.welcome.as_ref()?;
         let look = drifter_core::welcome::Look::themed(&self.palette, self.look.accent);
         Some(look.rect(self.screen))
     }
