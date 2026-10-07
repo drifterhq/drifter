@@ -27,9 +27,9 @@ impl State {
             let Some(motion) = window.motion.as_mut() else {
                 continue;
             };
-            motion.advance(match self.access.reduce_motion {
-                true => Duration::from_secs(60),
-                false => dt,
+            motion.advance(match self.window_pace {
+                pace if pace <= 0.0 => Duration::from_secs(60),
+                pace => dt.mul_f64(pace),
             });
             if motion.done() {
                 finished.push(index);

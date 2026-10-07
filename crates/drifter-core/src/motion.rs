@@ -9,6 +9,7 @@ pub enum Phase {
     Closing,
     Minimizing,
     Restoring,
+    Resizing,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -22,6 +23,7 @@ pub struct Motion {
 pub const OPEN: Duration = Duration::from_millis(190);
 pub const CLOSE: Duration = Duration::from_millis(150);
 pub const STOW: Duration = Duration::from_millis(260);
+pub const RESIZE: Duration = Duration::from_millis(230);
 
 impl Motion {
     pub fn new(phase: Phase, dock: Rect) -> Self {
@@ -29,6 +31,7 @@ impl Motion {
             Phase::Opening => OPEN,
             Phase::Closing => CLOSE,
             Phase::Minimizing | Phase::Restoring => STOW,
+            Phase::Resizing => RESIZE,
         };
         Motion {
             phase,
@@ -69,6 +72,7 @@ impl Motion {
                 let t = smooth(t);
                 (between(self.dock, window, t), (t * t) as f32)
             }
+            Phase::Resizing => (between(self.dock, window, smooth(t)), 1.0),
         }
     }
 }
@@ -93,6 +97,19 @@ pub fn between(from: Rect, to: Rect, t: f64) -> Rect {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_resize_glides_from_the_old_frame_to_the_new_one_and_stays_solid() {
+        let old = dock();
+        let mut motion = Motion::new(Phase::Resizing, old);
+        assert_eq!(motion.shape(window()), (old, 1.0));
+        motion.advance(RESIZE / 2);
+        let (mid, fade) = motion.shape(window());
+        assert_eq!(fade, 1.0);
+        assert!(mid.size.x > old.size.x && mid.size.x < window().size.x);
+        motion.advance(RESIZE);
+        assert_eq!(motion.shape(window()).0, window());
+    }
+
     use super::*;
     use crate::geom::Vec2;
 

@@ -527,6 +527,7 @@ pub struct State {
     battery_busy: bool,
     show_battery: bool,
     dock_fit: bool,
+    window_pace: f64,
     dock_pad: f64,
     fit_busy: bool,
     battery_glow: Option<TextureBuffer<Tex>>,
@@ -1596,6 +1597,15 @@ impl Screen {
             Some(error) => Err(error),
             None => Ok(()),
         }
+    }
+}
+
+fn window_pace(config: &Config) -> f64 {
+    let reduce = config.access.reduce_motion;
+    match drifter_core::welcome::Motion::of(reduce, config.workspace.wallpaper_motion) {
+        drifter_core::welcome::Motion::Still => 0.0,
+        drifter_core::welcome::Motion::Calm => 0.75,
+        drifter_core::welcome::Motion::Full => 1.0,
     }
 }
 

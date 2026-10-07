@@ -397,8 +397,12 @@ impl State {
         if window.restore.is_none() {
             window.restore = Some(window.content);
         }
+        let was = window.content;
         window.content = want;
         window.touched = true;
+        if window.motion.is_none() {
+            window.motion = Some(Motion::new(Phase::Resizing, was));
+        }
         window.toplevel.with_pending_state(|state| {
             state.size = Some((want.size.x as i32, want.size.y as i32).into());
         });
@@ -456,8 +460,12 @@ impl State {
                         .round_out()
                     }
                 };
+                let was = window.content;
                 window.content = want;
                 window.touched = true;
+                if window.motion.is_none() {
+                    window.motion = Some(Motion::new(Phase::Resizing, was));
+                }
                 let full = window.restore.is_some();
                 window.toplevel.with_pending_state(|state| {
                     state.size = Some((want.size.x as i32, want.size.y as i32).into());

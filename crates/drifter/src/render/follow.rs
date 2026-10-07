@@ -435,6 +435,7 @@ impl State {
             || config.monitor != self.monitors;
         self.screens_wide = (config.workspace.width, config.workspace.height);
         self.show_battery = config.tray.battery;
+        self.window_pace = window_pace(config);
         let reduce = config.access.reduce_motion;
         self.dock_logo.pace = drifter_core::welcome::logo_pace(
             drifter_core::welcome::Motion::of(reduce, config.workspace.wallpaper_motion),
