@@ -1,0 +1,13 @@
+[package]
+name = "drifter-activity"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+drifter-core.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2.189"
+smithay-client-toolkit = { version = "0.19", default-features = false, features = ["calloop", "xkbcommon"] }
+wayland-client = "0.31"

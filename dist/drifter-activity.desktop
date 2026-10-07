@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Activity
+GenericName=Task Manager
+Comment=See what your apps are doing, and pause or quit them
+Exec=drifter-activity
+Icon=utilities-system-monitor
+Categories=System;Monitor;
+Keywords=task;manager;process;cpu;memory;monitor;

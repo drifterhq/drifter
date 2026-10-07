@@ -487,6 +487,7 @@ pub fn open(
         control_stale: false,
         gauge_stale: false,
         notes_panel: None,
+        glance_panel: None,
         search: None,
         launchpad: None,
         welcome: None,

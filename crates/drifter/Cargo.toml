@@ -48,6 +48,8 @@ recommends = "network-manager-gnome, blueman, udisks2, power-profiles-daemon, iw
 assets = [
     ["target/release/drifter", "usr/bin/", "755"],
     ["target/release/drifter-settings", "usr/bin/", "755"],
+    ["target/release/drifter-activity", "usr/bin/", "755"],
+    ["../../dist/drifter-activity.desktop", "usr/share/applications/", "644"],
     ["../../scripts/drifter-session", "usr/bin/", "755"],
     ["../../dist/drifter.desktop", "usr/share/wayland-sessions/", "644"],
     ["../../dist/pam-drifter", "etc/pam.d/drifter", "644"],

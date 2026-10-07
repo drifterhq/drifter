@@ -2,36 +2,114 @@ use std::collections::HashSet;
 use std::ffi::CString;
 use std::sync::{Arc, Mutex};
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
+
 use drifter_core::TrayConfig;
+use drifter_core::activity::{self, Group, Grouping, Snapshot, hour};
 use drifter_core::stats::{self, CpuTimes, Metric, Mount};
 
 pub struct Sampler {
     wanted: Arc<Mutex<Vec<Metric>>>,
     latest: Arc<Mutex<Vec<(String, u8)>>>,
+    watching: Arc<AtomicBool>,
+    groups: Arc<Mutex<Option<(Vec<Group>, u64)>>>,
+}
+
+#[derive(Default)]
+struct Apps {
+    before: Option<Snapshot>,
+    hour_base: Option<(Snapshot, Instant)>,
+    apps: Vec<drifter_core::desktop::App>,
+    apps_at: Option<Instant>,
+}
+
+impl Apps {
+    fn step(&mut self, watching: bool, out: &Mutex<Option<(Vec<Group>, u64)>>) {
+        let hour_due = self
+            .hour_base
+            .as_ref()
+            .is_none_or(|(_, at)| at.elapsed() >= Duration::from_secs(hour::EVERY_SECONDS));
+        if !watching && !hour_due {
+            self.before = None;
+            return;
+        }
+        if self.apps_at.is_none_or(|at| at.elapsed() >= Duration::from_secs(300)) {
+            self.apps = drifter_core::desktop::installed();
+            self.apps_at = Some(Instant::now());
+        }
+        let snapshot = activity::read_snapshot();
+        let me = std::process::id();
+        let how = Grouping { shell: Some(me), me, uid: activity::own_uid(), apps: &self.apps };
+        if watching {
+            let groups = activity::group(self.before.as_ref(), &snapshot, &how);
+            if self.before.is_some()
+                && let Ok(mut held) = out.lock()
+            {
+                *held = Some((groups, snapshot.memory.total_kb));
+            }
+        }
+        if hour_due {
+            if let Some((base, _)) = self.hour_base.as_ref() {
+                let groups = activity::group(Some(base), &snapshot, &how);
+                let cpu = activity::cpu_share(base.busy_ticks, snapshot.busy_ticks, base.total_ticks, snapshot.total_ticks);
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|since| since.as_secs())
+                    .unwrap_or(0);
+                let reading = hour::Reading::take(now, cpu, &snapshot.memory, &groups);
+                let path = drifter_core::Config::state_dir().join(hour::FILE);
+                let text = std::fs::read_to_string(&path).unwrap_or_default();
+                let _ = std::fs::create_dir_all(drifter_core::Config::state_dir());
+                if let Err(error) = std::fs::write(&path, hour::append(&text, &reading)) {
+                    log!("drifter: cannot keep the last hour: {error}");
+                }
+            }
+            self.hour_base = Some((snapshot.clone(), Instant::now()));
+        }
+        self.before = Some(snapshot);
+    }
 }
 
 impl Sampler {
     pub fn new(config: &TrayConfig) -> Sampler {
         let wanted = Arc::new(Mutex::new(chosen(config)));
         let latest = Arc::new(Mutex::new(Vec::new()));
-        let (asked, told) = (wanted.clone(), latest.clone());
+        let watching = Arc::new(AtomicBool::new(false));
+        let groups = Arc::new(Mutex::new(None));
+        let (asked, told, watched, grouped) = (wanted.clone(), latest.clone(), watching.clone(), groups.clone());
         let spawned = std::thread::Builder::new()
             .name("drifter-stats".to_string())
             .spawn(move || {
                 let mut reader = Reader::default();
+                let mut apps = Apps::default();
                 loop {
                     let metrics = asked.lock().map(|held| held.clone()).unwrap_or_default();
                     let fields = reader.read(&metrics);
                     if let Ok(mut held) = told.lock() {
                         *held = fields;
                     }
+                    apps.step(watched.load(Ordering::Relaxed), &grouped);
                     std::thread::sleep(std::time::Duration::from_secs(1));
                 }
             });
         if let Err(error) = spawned {
             log!("drifter: no system info: {error}");
         }
-        Sampler { wanted, latest }
+        Sampler { wanted, latest, watching, groups }
+    }
+
+    pub fn watch(&self, on: bool) {
+        if self.watching.swap(on, Ordering::Relaxed) != on
+            && !on
+            && let Ok(mut held) = self.groups.lock()
+        {
+            *held = None;
+        }
+    }
+
+    pub fn groups(&self) -> Option<(Vec<Group>, u64)> {
+        self.groups.lock().ok().and_then(|held| held.clone())
     }
 
     pub fn follow(&self, config: &TrayConfig) {

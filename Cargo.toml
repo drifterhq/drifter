@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/drifter-core", "crates/drifter", "crates/drifter-settings"]
+members = ["crates/drifter-core", "crates/drifter", "crates/drifter-settings", "crates/drifter-activity"]
 resolver = "3"
 
 [workspace.package]

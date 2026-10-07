@@ -502,6 +502,7 @@ impl State {
     }
 
     pub(super) fn drag(&mut self) {
+        self.hover_glance();
         if self.drag_dock() {
             return;
         }
@@ -660,6 +661,9 @@ impl State {
             return true;
         }
         if self.press_overview_button(code) {
+            return true;
+        }
+        if self.press_glance(code) {
             return true;
         }
         if self.press_centers(code) {

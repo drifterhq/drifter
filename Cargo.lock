@@ -441,6 +441,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "drifter-activity"
+version = "0.1.0"
+dependencies = [
+ "drifter-core",
+ "libc",
+ "smithay-client-toolkit",
+ "wayland-client",
+]
+
+[[package]]
 name = "drifter-core"
 version = "0.1.0"
 dependencies = [

@@ -1,3 +1,4 @@
+pub mod activity;
 pub mod alert;
 pub mod autostart;
 pub mod calendar;

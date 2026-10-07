@@ -390,6 +390,10 @@ impl State {
             self.toggle_control();
             return true;
         }
+        if code == BTN_LEFT && self.stats_spot().is_some_and(|rect| rect.contains(self.pointer)) {
+            self.toggle_glance();
+            return true;
+        }
         if code == BTN_LEFT
             && self
                 .clock
@@ -986,6 +990,10 @@ impl State {
         }
         self.glance_fields = fields.clone();
         self.card_stale = true;
+        self.sampler.watch(self.glance_panel.is_some());
+        if self.glance_panel.is_some() {
+            self.refresh_glance();
+        }
         self.stats_busy = true;
         let (style, ink, font) = (self.glance, self.tray.ink, self.font.clone());
         self.on_worker(
@@ -1014,7 +1022,7 @@ impl State {
     }
 
     fn hover_card_spot(&self) -> Option<(HoverCard, Rect)> {
-        if self.popover.is_some() {
+        if self.popover.is_some() || self.glance_panel.is_some() {
             return None;
         }
         if let Some(spot) = self.stats_spot().filter(|spot| spot.contains(self.pointer)) {

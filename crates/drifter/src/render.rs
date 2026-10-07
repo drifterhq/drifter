@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 
 use crate::paint::{Painter, Scanout, Tex};
 
+mod activity;
 mod appname;
 mod art;
 mod bars;
@@ -526,6 +527,7 @@ pub struct State {
     control_stale: bool,
     gauge_stale: bool,
     notes_panel: Option<(TextureBuffer<Tex>, Rect, usize)>,
+    glance_panel: Option<activity::GlancePanel>,
     search: Option<search::Search>,
     launchpad: Option<launchpad::Pad>,
     welcome: Option<welcome::Welcome>,
@@ -880,6 +882,11 @@ impl State {
         }
         if let Some((art, rect, _)) = self.notes_panel.as_ref().filter(|_| live) {
             elements.push(Skin::Texture(element(art, *rect, 1.0)));
+        }
+        if let Some(panel) = self.glance_panel.as_ref().filter(|_| live)
+            && let Some(art) = panel.art.as_ref()
+        {
+            elements.push(Skin::Texture(element(art, panel.rect, 1.0)));
         }
         if let Some(panel) = self.gauge_panel.as_ref().filter(|_| live) {
             elements.push(Skin::Texture(element(&panel.art, panel.rect, 1.0)));
@@ -1503,7 +1510,7 @@ impl State {
         if self.dock_drag.is_some() {
             return Some(Edge::Bottom);
         }
-        if self.control.is_some() || self.notes_panel.is_some() {
+        if self.control.is_some() || self.notes_panel.is_some() || self.glance_panel.is_some() {
             return Some(Edge::Top);
         }
         if self

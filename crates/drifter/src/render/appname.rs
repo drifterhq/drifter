@@ -19,6 +19,7 @@ impl State {
         }
         let name = match window.app.as_str() {
             SETTINGS_APP => "Settings".to_string(),
+            drifter_core::activity::ACTIVITY_APP => "Activity".to_string(),
             app => self
                 .app_names
                 .borrow_mut()

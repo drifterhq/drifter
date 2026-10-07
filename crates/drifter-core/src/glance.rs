@@ -185,6 +185,13 @@ pub fn paint_card(card: &Card, font: &Font, bold: &Font, fields: &[(String, u8)]
     let size = Vec2::new(card.width, card.height(fields.len(), spark));
     let mut canvas = Canvas::new(size.x as u32, size.y as u32);
     canvas.round_rect(Rect::new(Vec2::ZERO, size), 14.0, card.back, card.back_alpha);
+    paint_system(&mut canvas, card, font, bold, fields, history);
+    canvas.image
+}
+
+pub fn paint_system(canvas: &mut Canvas, card: &Card, font: &Font, bold: &Font, fields: &[(String, u8)], history: &[u8]) {
+    let spark = history.len() > 1;
+    let size = Vec2::new(card.width, card.height(fields.len(), spark));
     let busy = fields.iter().any(|(label, value)| label == "CPU" && *value > 70);
     let head = bold.paint_bold("System", card.ink);
     canvas.stamp(&head, Vec2::new(14.0, 14.0), 1.0);
@@ -246,7 +253,6 @@ pub fn paint_card(card: &Card, font: &Font, bold: &Font, fields: &[(String, u8)]
             canvas.line(point(at - 1, history[at - 1]), point(at, history[at]), 1.4, color, 0.95);
         }
     }
-    canvas.image
 }
 
 pub fn rows_height(rows: usize, meter: bool) -> f64 {

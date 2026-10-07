@@ -101,11 +101,12 @@ impl State {
         );
     }
 
-    fn close_panels(&mut self) {
+    pub(super) fn close_panels(&mut self) {
         self.popover = None;
         self.gauge_panel = None;
         self.control = None;
         self.notes_panel = None;
+        self.glance_panel = None;
     }
 
     pub(super) fn press_centers(&mut self, code: u32) -> bool {

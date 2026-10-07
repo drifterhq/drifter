@@ -24,6 +24,7 @@ impl State {
         self.search = None;
         self.control = None;
         self.notes_panel = None;
+        self.glance_panel = None;
         let mut all = drifter_core::search::apps(&self.installed_apps());
         all.push(welcome_found());
         all.sort_by_key(|found| found.title.to_lowercase());
