@@ -79,7 +79,7 @@ pub fn plain(message: &str) -> String {
         return match wanted.as_slice() {
             [] if installs.is_some() => "Drifter wants to install software.".to_string(),
             [] => "Drifter wants to make a change.".to_string(),
-            names => format!("Drifter wants to install {}.", names.iter().map(|name| title(name)).collect::<Vec<_>>().join(", ")),
+            names => format!("Drifter wants to install {}.", names.iter().map(|name| pretty(name)).collect::<Vec<_>>().join(", ")),
         };
     }
     let rest = ["Authentication is required to ", "Authentication is needed to "]
@@ -89,6 +89,14 @@ pub fn plain(message: &str) -> String {
         Some(rest) => format!("Drifter wants to {}", rest.trim_end_matches('.')).trim().to_string() + ".",
         None => message.to_string(),
     }
+}
+
+fn pretty(package: &str) -> String {
+    crate::desktop::OFFERS
+        .iter()
+        .find(|offer| offer.apt == package || offer.dnf == package)
+        .map(|offer| offer.name.to_string())
+        .unwrap_or_else(|| title(package))
 }
 
 fn title(word: &str) -> String {
@@ -335,6 +343,10 @@ mod tests {
         assert_eq!(
             plain("Authentication is needed to run `/usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y thunderbird' as the super user"),
             "Drifter wants to install Thunderbird."
+        );
+        assert_eq!(
+            plain("Authentication is needed to run `/usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y mpv' as the super user"),
+            "Drifter wants to install mpv."
         );
         assert_eq!(
             plain("Authentication is needed to run `/usr/bin/true' as the super user"),
