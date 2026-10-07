@@ -20,6 +20,7 @@ mod input;
 mod lock;
 mod overlays;
 mod power;
+mod reopen;
 mod search;
 mod start;
 mod welcome;
@@ -522,6 +523,7 @@ pub struct State {
     desk_menu: Option<deskmenu::DeskMenu>,
     ripple: Option<deskmenu::Ripple>,
     alert: Option<deskmenu::Alert>,
+    reopening: Option<(drifter_core::reopen::Desk, Instant)>,
     switch: Option<Switch>,
     lock: Option<Lock>,
     client_lock: Option<ClientLock>,
@@ -1447,6 +1449,7 @@ impl Screen {
         for item in state.login.clone() {
             crate::apps::run(&item, &state.socket);
         }
+        state.reopen_desk();
         if let Some(media) = state.media.as_ref() {
             media.read();
         }

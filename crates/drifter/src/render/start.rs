@@ -442,6 +442,7 @@ pub fn open(
         desk_menu: None,
         ripple: None,
         alert: None,
+        reopening: None,
         switch: None,
         lock: None,
         client_lock: None,

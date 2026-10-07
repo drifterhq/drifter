@@ -34,6 +34,7 @@ pub(super) struct Ripple {
 
 pub(super) struct Alert {
     pub action: Action,
+    pub ticked: bool,
     pub art: Option<TextureBuffer<Tex>>,
     pub rect: Rect,
     pub lane: worker::Lane,
@@ -469,37 +470,48 @@ impl State {
     }
 
     fn alert_look(&self) -> drifter_core::alert::Look {
-        let plain = drifter_core::alert::Look::themed(&self.palette, self.look.accent);
+        let plain = drifter_core::alert::Look::themed(&self.palette, self.look.accent).with_tick();
         drifter_core::alert::Look {
             back_alpha: self.veil(plain.back_alpha),
             ..plain
         }
     }
 
-    fn ask_alert(&mut self, action: Action) {
+    pub(super) fn ask_alert(&mut self, action: Action) {
+        let look = self.alert_look();
+        self.alert = Some(Alert {
+            action,
+            ticked: drifter_core::reopen::wanted(),
+            art: None,
+            rect: look.rect(self.screen),
+            lane: worker::Lane::default(),
+        });
+        self.paint_alert();
+    }
+
+    fn paint_alert(&mut self) {
         let (Some(font), Some(bold)) = (self.font.clone(), self.search_font.clone()) else {
+            self.alert = None;
             return;
         };
-        let (title, message, verb) = match action {
+        let Some(open) = self.alert.as_ref() else {
+            return;
+        };
+        let (title, message, verb) = match open.action {
             Action::Logout => ("Log out now?", "Your apps will close.", "Log Out"),
             Action::Reboot => ("Restart now?", "Your apps will close.", "Restart"),
             _ => ("Shut down now?", "Your apps will close.", "Shut Down"),
         };
+        let ticked = open.ticked;
+        let rect = open.rect;
         let look = self.alert_look();
-        let rect = look.rect(self.screen);
         let frosting = self.frosting();
-        self.alert = Some(Alert {
-            action,
-            art: None,
-            rect,
-            lane: worker::Lane::default(),
-        });
         self.paint_in_lane(
             "alert",
             |state| state.alert.as_mut().map(|open| &mut open.lane),
             |_| {},
             move || {
-                let mut image = look.paint(title, message, verb, &font, &bold);
+                let mut image = look.paint(title, message, verb, ticked, &font, &bold);
                 worker::frost(&frosting, &mut image, rect.origin, look.back_alpha);
                 Some(image)
             },
@@ -518,6 +530,13 @@ impl State {
         let look = self.alert_look();
         match look.hit(self.pointer - open.rect.origin) {
             Some(drifter_core::alert::Press::Confirm) => self.confirm_alert(),
+            Some(drifter_core::alert::Press::Tick) => {
+                if let Some(open) = self.alert.as_mut() {
+                    open.ticked = !open.ticked;
+                }
+                self.paint_alert();
+                self.kick_now();
+            }
             Some(drifter_core::alert::Press::Cancel) => {
                 self.alert = None;
                 self.kick_now();
@@ -532,6 +551,10 @@ impl State {
             return;
         };
         self.kick_now();
+        drifter_core::reopen::want(open.ticked);
+        if open.ticked {
+            self.save_desk();
+        }
         match open.action {
             Action::Logout => self.signal.stop(),
             action => crate::power::run(action),

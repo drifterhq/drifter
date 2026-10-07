@@ -532,6 +532,9 @@ impl State {
         if window.placed && (window.touched || !grew || window.born.elapsed() > SETTLING) {
             return;
         }
+        if window.reopened {
+            return;
+        }
 
         let seen = view.origin;
         let middle = seen + (view.size - size) / 2.0;
@@ -539,6 +542,31 @@ impl State {
         let wanted = Vec2::new(middle.x, top);
         window.content.origin = drifter_core::window::cascade(wanted, &taken, 34.0, view);
         window.placed = true;
+        let app = window.app.clone();
+        let toplevel = window.toplevel.clone();
+        if !window.touched
+            && let Some(spot) = self.reopen_spot(&app)
+            && let Some(window) = self
+                .windows
+                .iter_mut()
+                .find(|window| window.toplevel.wl_surface() == surface)
+        {
+            window.content.origin = spot.origin;
+            window.reopened = true;
+            if spot.size != size {
+                toplevel.with_pending_state(|state| {
+                    state.size = Some((spot.size.x as i32, spot.size.y as i32).into());
+                });
+                toplevel.send_pending_configure();
+            }
+        }
+        let Some(window) = self
+            .windows
+            .iter_mut()
+            .find(|window| window.toplevel.wl_surface() == surface)
+        else {
+            return;
+        };
         let wants_full = std::mem::take(&mut window.wants_full);
 
         if fresh

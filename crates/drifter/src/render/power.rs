@@ -102,7 +102,12 @@ impl State {
                 self.lock_now();
                 crate::power::run(Action::Suspend);
             }
-            PowerKey::Off => crate::power::run(Action::Shutdown),
+            PowerKey::Off => {
+                if drifter_core::reopen::wanted() {
+                    self.save_desk();
+                }
+                crate::power::run(Action::Shutdown);
+            }
         }
     }
 

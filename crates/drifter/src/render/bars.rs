@@ -146,13 +146,12 @@ impl State {
                     Some(Action::Lock) => {
                         self.lock_now();
                     }
-                    Some(Action::Logout) => self.signal.stop(),
                     Some(Action::Suspend) => {
                         if self.lock_now() {
                             crate::power::run(Action::Suspend);
                         }
                     }
-                    Some(action) => crate::power::run(action),
+                    Some(action) => self.ask_alert(action),
                     None => self.open_settings(),
                 }
                 return true;

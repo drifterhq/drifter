@@ -182,10 +182,17 @@ pub fn start_x11(socket: &str) {
 }
 
 pub fn launch(argv: &[String], socket: &str) {
+    launch_in(argv, None, socket);
+}
+
+pub fn launch_in(argv: &[String], cwd: Option<&str>, socket: &str) {
     let Some((program, rest)) = argv.split_first() else {
         return;
     };
     let mut command = std::process::Command::new(program);
+    if let Some(dir) = cwd.filter(|dir| std::path::Path::new(dir).is_dir()) {
+        command.current_dir(dir);
+    }
     fresh_signals(&mut command);
     if let Ok(held) = ENV.lock() {
         for (key, value) in held.iter() {

@@ -31,6 +31,7 @@ pub mod paint;
 pub mod place;
 pub mod power;
 pub mod prompt;
+pub mod reopen;
 pub mod ripple;
 pub mod screens;
 pub mod search;
