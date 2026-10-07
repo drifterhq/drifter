@@ -402,7 +402,7 @@ impl State {
         let Some((buffer, corner)) = self.window_shadow.as_ref() else {
             return;
         };
-        let strength = fade * if awake { 0.42 } else { 0.22 };
+        let strength = fade * if awake { 0.315 } else { 0.165 };
         let edge = match dressed {
             true => self.chrome.layout(content).frame,
             false => content,
