@@ -463,24 +463,28 @@ impl State {
             }
         }
         if let Some(tint) = open.accent.as_ref().filter(|_| open.closing.is_none()) {
-            let bars: Vec<Rect> = match (&open.view.choosing, open.view.card) {
-                (Some((_, choices)), Card::Apps) => choices
-                    .iter()
-                    .take(10)
-                    .enumerate()
-                    .filter(|(_, choice)| choice.busy)
-                    .map(|(at, _)| look.choice_bar(at, choices.len().min(10)))
-                    .collect(),
-                (None, Card::Apps) => open
-                    .view
-                    .tiles
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, tile)| tile.busy)
-                    .map(|(at, _)| look.tile_bar(at))
-                    .collect(),
-                _ => Vec::new(),
-            };
+            let mut bars: Vec<Rect> = Vec::new();
+            if open.view.card == Card::Apps {
+                bars.extend(
+                    open.view
+                        .tiles
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, tile)| tile.busy)
+                        .map(|(at, _)| look.tile_bar(at)),
+                );
+                if let Some((_, choices)) = &open.view.choosing {
+                    let count = choices.len().min(drifter_core::welcome::CHOICES);
+                    bars.extend(
+                        choices
+                            .iter()
+                            .take(count)
+                            .enumerate()
+                            .filter(|(_, choice)| choice.busy)
+                            .map(|(at, _)| look.choice_bar(at, count)),
+                    );
+                }
+            }
             let phase = now.duration_since(open.opened).as_secs_f64() / 1.1;
             for bar in bars {
                 let bar = Rect::new(here.origin + bar.origin, bar.size);
@@ -750,8 +754,11 @@ impl State {
                 self.paint_welcome();
             }
             Hit::Tile(at) => {
-                if let Some(role) = open.view.tiles.get(at).map(|tile| tile.role) {
-                    self.welcome_choose(role);
+                let showing = open.view.choosing.as_ref().map(|(role, _)| *role);
+                match open.view.tiles.get(at).map(|tile| tile.role) {
+                    Some(role) if showing == Some(role) => self.welcome_do(Hit::Leave),
+                    Some(role) => self.welcome_choose(role),
+                    None => {}
                 }
             }
             Hit::Choice(at) => self.welcome_pick(at),
@@ -818,7 +825,7 @@ impl State {
             .unwrap_or_default();
         let mut choices = Vec::new();
         let mut picks = Vec::new();
-        for known in have.iter().take(10) {
+        for known in have.iter().take(drifter_core::welcome::CHOICES) {
             choices.push(Choice {
                 name: known.name.clone(),
                 icon: known.icon.clone(),
@@ -841,7 +848,7 @@ impl State {
                 })
                 .collect();
             for offer in drifter_core::desktop::offers(role, &apps) {
-                if choices.len() >= 10 {
+                if choices.len() >= drifter_core::welcome::CHOICES {
                     break;
                 }
                 choices.push(Choice {
