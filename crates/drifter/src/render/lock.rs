@@ -33,6 +33,7 @@ impl State {
             art: None,
             rect: Rect::new(Vec2::ZERO, Vec2::ZERO),
             shown: (String::new(), String::new(), usize::MAX, Note::Ask),
+            lane: worker::Lane::default(),
             user,
             refocus,
         });
@@ -56,6 +57,7 @@ impl State {
         self.switch = None;
         self.tip = None;
         self.tip_of = None;
+        self.tip_want = None;
         self.zone = None;
         self.grab = Grab::None;
         self.held = None;
@@ -274,33 +276,29 @@ impl State {
         if lock.art.is_some() && lock.shown == key {
             return;
         }
-
         let look = drifter_core::lock::Look::themed(&self.palette);
-        let words = drifter_core::lock::Words {
-            clock: &key.0,
-            date: &key.1,
-        };
-        let image = drifter_core::lock::paint(
-            &look,
-            self.lock_big.as_ref(),
-            self.lock_small.as_ref(),
-            &words,
-            key.2,
-            key.3,
-        );
         let rect = look.rect(self.screen);
-        let art = match upload(&mut self.renderer, Some(&image), "lock") {
-            Ok(art) => art,
-            Err(error) => {
-                log!("drifter: {error}");
-                None
-            }
-        };
-        if let Some(lock) = self.lock.as_mut() {
-            lock.art = art;
-            lock.rect = rect;
-            lock.shown = key;
-        }
+        let (big, small) = (self.lock_big.clone(), self.lock_small.clone());
+        let painted = key.clone();
+        self.paint_in_lane(
+            "lock",
+            |state| state.lock.as_mut().map(|lock| &mut lock.lane),
+            State::paint_lock,
+            move || {
+                let words = drifter_core::lock::Words {
+                    clock: &painted.0,
+                    date: &painted.1,
+                };
+                Some(drifter_core::lock::paint(&look, big.as_deref(), small.as_deref(), &words, painted.2, painted.3))
+            },
+            move |state, art| {
+                if let Some(lock) = state.lock.as_mut() {
+                    lock.art = Some(art);
+                    lock.rect = rect;
+                    lock.shown = key;
+                }
+            },
+        );
     }
 
     pub(super) fn locked_input(&mut self, event: InputEvent<LibinputInputBackend>) {

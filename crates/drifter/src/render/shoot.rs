@@ -13,7 +13,10 @@ pub(super) struct Shooter {
     pub chosen: Option<Rect>,
     pub under: Option<Rect>,
     pub tag: Option<(TextureBuffer<Tex>, String, Vec2)>,
+    pub tag_want: Option<String>,
     pub sources: Vec<grab::Source>,
+    pub bar_lane: worker::Lane,
+    pub tag_lane: worker::Lane,
 }
 
 pub(super) struct Recording {
@@ -23,6 +26,7 @@ pub(super) struct Recording {
     pub art: Option<(TextureBuffer<Tex>, Rect)>,
     pub shown: u64,
     pub stopping: bool,
+    pub lane: worker::Lane,
 }
 
 pub(super) struct Thumb {
@@ -57,7 +61,10 @@ impl State {
             chosen: None,
             under: None,
             tag: None,
+            tag_want: None,
             sources: Vec::new(),
+            bar_lane: worker::Lane::default(),
+            tag_lane: worker::Lane::default(),
         });
         self.shooter_inks();
         if with_bar {
@@ -107,7 +114,7 @@ impl State {
     }
 
     fn paint_shooter_bar(&mut self) {
-        let Some(font) = self.font.as_ref() else {
+        let Some(font) = self.font.clone() else {
             return;
         };
         let Some(shooter) = self.shooter.as_ref() else {
@@ -115,17 +122,23 @@ impl State {
         };
         let look = self.bar_look();
         let rect = look.rect(self.screen);
-        let mut image = look.paint(shooter.tool, shooter.hover, font);
-        self.frosted(&mut image, rect.origin, look.back_alpha);
-        match upload(&mut self.renderer, Some(&image), "screenshot bar") {
-            Ok(Some(art)) => {
-                if let Some(shooter) = self.shooter.as_mut() {
+        let (tool, hover) = (shooter.tool, shooter.hover);
+        let frosting = self.frosting();
+        self.paint_in_lane(
+            "screenshot bar",
+            |state| state.shooter.as_mut().map(|shooter| &mut shooter.bar_lane),
+            State::paint_shooter_bar,
+            move || {
+                let mut image = look.paint(tool, hover, &font);
+                worker::frost(&frosting, &mut image, rect.origin, look.back_alpha);
+                Some(image)
+            },
+            move |state, art| {
+                if let Some(shooter) = state.shooter.as_mut() {
                     shooter.bar = Some((art, rect));
                 }
-            }
-            Ok(None) => {}
-            Err(error) => log!("drifter: {error}"),
-        }
+            },
+        );
     }
 
     fn frame_on_screen(&self, index: usize) -> Rect {
@@ -181,30 +194,49 @@ impl State {
             }
             _ => None,
         };
-        let tag = match words {
-            Some(words) if self.shooter.as_ref().and_then(|shooter| shooter.tag.as_ref()).map(|(_, held, _)| held) != Some(&words) => {
-                self.font.as_ref().and_then(|font| {
-                    let image = grab::paint_tag(&words, font);
-                    let size = drifter_core::paint::logical(&image);
-                    upload(&mut self.renderer, Some(&image), "size tag")
-                        .ok()
-                        .flatten()
-                        .map(|art| (art, words, size))
-                })
-            }
-            Some(_) => self.shooter.as_mut().and_then(|shooter| shooter.tag.take()),
-            None => None,
-        };
         let Some(shooter) = self.shooter.as_mut() else {
             return;
         };
         shooter.under = under;
-        shooter.tag = tag;
+        let stale = words.as_ref() != shooter.tag.as_ref().map(|(_, held, _)| held);
+        if words.is_none() {
+            shooter.tag = None;
+        }
+        shooter.tag_want = words;
+        if stale {
+            self.paint_tag();
+        }
+        let Some(shooter) = self.shooter.as_mut() else {
+            return;
+        };
         if shooter.hover != hover {
             shooter.hover = hover;
             self.paint_shooter_bar();
         }
         self.kick_now();
+    }
+
+    fn paint_tag(&mut self) {
+        let Some(font) = self.font.clone() else {
+            return;
+        };
+        let Some(words) = self.shooter.as_ref().and_then(|shooter| shooter.tag_want.clone()) else {
+            return;
+        };
+        let painted = words.clone();
+        self.paint_in_lane_sized(
+            "size tag",
+            |state| state.shooter.as_mut().map(|shooter| &mut shooter.tag_lane),
+            State::paint_tag,
+            move || Some(grab::paint_tag(&painted, &font)),
+            move |state, art, size| {
+                if let Some(shooter) = state.shooter.as_mut()
+                    && shooter.tag_want.as_deref() == Some(words.as_str())
+                {
+                    shooter.tag = Some((art, words, size));
+                }
+            },
+        );
     }
 
     pub(super) fn shooter_key(&mut self, key: LockKey) {
@@ -383,7 +415,7 @@ impl State {
             .find(|(_, slot)| *slot == Slot::Options)
             .map(|(rect, _)| rect)
             .unwrap_or(Rect::new(Vec2::ZERO, bar.size));
-        let size = self.menu_look().size(&items, self.font.as_ref());
+        let size = self.menu_look().size(&items, self.font.as_deref());
         let at = Vec2::new(bar.origin.x + options.origin.x, bar.origin.y - size.y - 8.0);
         self.open_popover(items, at, Target::Shooter);
     }
@@ -442,6 +474,7 @@ impl State {
             art: None,
             shown: u64::MAX,
             stopping: false,
+            lane: worker::Lane::default(),
         });
         self.paint_stop();
         let _ = self.handle.insert_source(
@@ -455,7 +488,7 @@ impl State {
     }
 
     fn paint_stop(&mut self) {
-        let Some(font) = self.font.as_ref() else {
+        let Some(font) = self.font.clone() else {
             return;
         };
         let Some(recording) = self.recording.as_ref() else {
@@ -465,16 +498,20 @@ impl State {
         if seconds == recording.shown {
             return;
         }
-        let image = grab::paint_stop(seconds, font);
-        let size = drifter_core::paint::logical(&image);
-        let rect = Rect::new(Vec2::new(((self.screen.x - size.x) / 2.0).round(), 4.0), size);
-        if let Ok(Some(art)) = upload(&mut self.renderer, Some(&image), "recording") {
-            if let Some(recording) = self.recording.as_mut() {
-                recording.art = Some((art, rect));
-                recording.shown = seconds;
-            }
-            self.kick_now();
-        }
+        let screen = self.screen;
+        self.paint_in_lane_sized(
+            "recording",
+            |state| state.recording.as_mut().map(|recording| &mut recording.lane),
+            State::paint_stop,
+            move || Some(grab::paint_stop(seconds, &font)),
+            move |state, art, size| {
+                let rect = Rect::new(Vec2::new(((screen.x - size.x) / 2.0).round(), 4.0), size);
+                if let Some(recording) = state.recording.as_mut() {
+                    recording.art = Some((art, rect));
+                    recording.shown = seconds;
+                }
+            },
+        );
     }
 
     fn tick_recording(&mut self) -> bool {
@@ -653,8 +690,10 @@ impl State {
         let Some((_, inks)) = self.shot_inks.as_ref() else {
             return;
         };
-        if let Some(open) = self.popover.as_ref() {
-            elements.push(Skin::Texture(element(&open.art, open.rect, 1.0)));
+        if let Some(open) = self.popover.as_ref()
+            && let Some(art) = open.art.as_ref()
+        {
+            elements.push(Skin::Texture(element(art, open.rect, 1.0)));
         }
         if let Some((art, rect)) = shooter.bar.as_ref() {
             elements.push(Skin::Texture(element(art, *rect, 1.0)));

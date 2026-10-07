@@ -56,6 +56,7 @@ impl State {
         self.gauge_panel = None;
         self.tip = None;
         self.tip_of = None;
+        self.tip_want = None;
         self.dwell = None;
         self.leave = None;
         self.corner_since = None;

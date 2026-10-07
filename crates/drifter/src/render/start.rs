@@ -290,7 +290,7 @@ pub fn open(
         None => (None, None),
     };
     let font = match Font::find(config.font_path(), tray.size) {
-        Ok(font) => Some(font),
+        Ok(font) => Some(std::sync::Arc::new(font)),
         Err(error) => {
             log!("drifter: no clock: {error}");
             None
@@ -310,8 +310,8 @@ pub fn open(
     )?;
     let power_image = drifter_core::tray::paint_power(tray.button as u32, tray.ink);
     let power = upload(&mut renderer, Some(&power_image), "power")?;
-    let lock_big = Font::find(config.font_path(), 56.0).ok();
-    let lock_small = Font::find(config.font_path(), 15.0).ok();
+    let lock_big = Font::find(config.font_path(), 56.0).ok().map(std::sync::Arc::new);
+    let lock_small = Font::find(config.font_path(), 15.0).ok().map(std::sync::Arc::new);
     let (checked_tx, checked_rx) =
         smithay::reexports::calloop::channel::channel::<(String, crate::polkit::Outcome)>();
     let (paper_tx, paper_rx) = smithay::reexports::calloop::channel::channel::<(
@@ -479,7 +479,7 @@ pub fn open(
         launchpad: None,
         welcome: None,
         welcome_wanted: live && config.welcome.show,
-        search_font: Font::find(config.font_path(), 20.0).ok(),
+        search_font: Font::find(config.font_path(), 20.0).ok().map(std::sync::Arc::new),
         search_icons: std::collections::HashMap::new(),
         app_label: None,
         window_shadow,
@@ -503,6 +503,13 @@ pub fn open(
         density: 1,
         tip: None,
         tip_of: None,
+        tip_want: None,
+        tip_lane: worker::Lane::default(),
+        notes_lane: worker::Lane::default(),
+        hud_lane: worker::Lane::default(),
+        hud_want: None,
+        prompt_lane: worker::Lane::default(),
+        icon_jobs: worker::Icons::default(),
         snap: Snap::default(),
         config_seen: None,
         last_input: Instant::now(),

@@ -1,12 +1,28 @@
 use super::*;
 
-#[derive(Default)]
+static LANES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
 pub(super) struct Lane {
+    id: u64,
     busy: bool,
     again: bool,
 }
 
+impl Default for Lane {
+    fn default() -> Lane {
+        Lane {
+            id: LANES.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            busy: false,
+            again: false,
+        }
+    }
+}
+
 impl Lane {
+    pub(super) fn id(&self) -> u64 {
+        self.id
+    }
+
     pub(super) fn claim(&mut self) -> bool {
         match self.busy {
             true => {
@@ -42,6 +58,21 @@ impl Frosting {
     }
 }
 
+pub(super) fn frost(frosting: &Option<Frosting>, image: &mut drifter_core::Image, origin: Vec2, solid: f64) {
+    if let Some(frosting) = frosting {
+        frosting.under(image, origin, solid);
+    }
+}
+
+pub(super) type Lanes = fn(&mut State) -> Option<&mut Lane>;
+
+#[derive(Default)]
+pub(super) struct Icons {
+    asked: Vec<(String, u32)>,
+    apps: Vec<(String, u32)>,
+    lane: Lane,
+}
+
 impl State {
     pub(super) fn frosting(&self) -> Option<Frosting> {
         let paper = self.wallpaper.as_ref()?;
@@ -53,29 +84,191 @@ impl State {
         })
     }
 
+    pub(super) fn on_worker<T, W, D>(&self, name: &str, work: W, done: D)
+    where
+        T: Send + 'static,
+        W: FnOnce() -> T + Send + 'static,
+        D: FnOnce(&mut State, T) + Send + 'static,
+    {
+        let density = self.density;
+        self.background(name, move || {
+            drifter_core::paint::set_density(density);
+            let out = work();
+            move |state: &mut State| {
+                if state.density == density {
+                    done(state, out);
+                }
+            }
+        });
+    }
+
     pub(super) fn paint_on_worker<P, D>(&self, name: &str, paint: P, done: D)
     where
         P: FnOnce() -> Option<drifter_core::Image> + Send + 'static,
         D: FnOnce(&mut State, Option<TextureBuffer<Tex>>) + Send + 'static,
     {
-        let density = self.density;
+        self.paint_sized(name, paint, move |state, art| done(state, art.map(|(art, _)| art)));
+    }
+
+    fn paint_sized<P, D>(&self, name: &str, paint: P, done: D)
+    where
+        P: FnOnce() -> Option<drifter_core::Image> + Send + 'static,
+        D: FnOnce(&mut State, Option<(TextureBuffer<Tex>, Vec2)>) + Send + 'static,
+    {
         let what = name.to_string();
-        self.background(name, move || {
-            drifter_core::paint::set_density(density);
-            let image = paint();
-            move |state: &mut State| {
-                let art = match image.filter(|_| state.density == density) {
-                    Some(image) => match upload(&mut state.renderer, Some(&image), &what) {
-                        Ok(art) => art,
-                        Err(error) => {
-                            log!("drifter: {error}");
-                            None
-                        }
-                    },
-                    None => None,
-                };
-                done(state, art);
-            }
+        self.on_worker(name, paint, move |state, image| {
+            let art = image.and_then(|image| {
+                let size = drifter_core::paint::logical(&image);
+                match upload(&mut state.renderer, Some(&image), &what) {
+                    Ok(art) => art.map(|art| (art, size)),
+                    Err(error) => {
+                        log!("drifter: {error}");
+                        None
+                    }
+                }
+            });
+            done(state, art);
         });
+    }
+
+    pub(super) fn paint_in_lane<P, D>(&mut self, name: &str, lane: Lanes, again: fn(&mut State), paint: P, done: D)
+    where
+        P: FnOnce() -> Option<drifter_core::Image> + Send + 'static,
+        D: FnOnce(&mut State, TextureBuffer<Tex>) + Send + 'static,
+    {
+        self.paint_in_lane_sized(name, lane, again, paint, move |state, art, _| done(state, art));
+    }
+
+    pub(super) fn paint_in_lane_sized<P, D>(&mut self, name: &str, lane: Lanes, again: fn(&mut State), paint: P, done: D)
+    where
+        P: FnOnce() -> Option<drifter_core::Image> + Send + 'static,
+        D: FnOnce(&mut State, TextureBuffer<Tex>, Vec2) + Send + 'static,
+    {
+        let Some(held) = lane(self) else {
+            return;
+        };
+        if !held.claim() {
+            return;
+        }
+        let id = held.id();
+        self.paint_sized(name, paint, move |state, art| {
+            let mine = lane(state).filter(|held| held.id() == id);
+            let Some(held) = mine else {
+                return;
+            };
+            let rerun = held.release();
+            if let Some((art, size)) = art {
+                done(state, art, size);
+            }
+            if rerun {
+                again(state);
+            }
+            state.kick_now();
+        });
+    }
+
+    pub(super) fn icon_now(&mut self, name: &str, side: u32) -> Option<drifter_core::Image> {
+        let key = format!("{name}@{side}");
+        if let Some(held) = self.search_icons.get(&key) {
+            return held.clone();
+        }
+        if !self.icon_jobs.asked.iter().any(|(held, at)| held == name && *at == side) {
+            self.icon_jobs.asked.push((name.to_string(), side));
+        }
+        self.fetch_icons();
+        None
+    }
+
+    pub(super) fn app_icon_now(&mut self, app: &str, side: u32) -> Option<TextureBuffer<Tex>> {
+        let key = format!("{app}@{side}");
+        if let Some(held) = self.app_icons.get(&key) {
+            return Some(held.clone());
+        }
+        if app.is_empty() || self.no_icon.contains(app) {
+            return None;
+        }
+        if !self.icon_jobs.apps.iter().any(|(held, at)| held == app && *at == side) {
+            self.icon_jobs.apps.push((app.to_string(), side));
+        }
+        self.fetch_icons();
+        None
+    }
+
+    fn fetch_icons(&mut self) {
+        if self.icon_jobs.asked.is_empty() && self.icon_jobs.apps.is_empty() {
+            return;
+        }
+        if !self.icon_jobs.lane.claim() {
+            return;
+        }
+        let id = self.icon_jobs.lane.id();
+        let named = std::mem::take(&mut self.icon_jobs.asked);
+        let apps = std::mem::take(&mut self.icon_jobs.apps);
+        self.on_worker(
+            "icons",
+            move || {
+                let load = |path: &std::path::Path, side: u32| {
+                    drifter_core::image::load_sized(path, dense(side))
+                        .ok()
+                        .map(|image| image.scaled(dense(side), dense(side)))
+                };
+                let named: Vec<(String, Option<drifter_core::Image>)> = named
+                    .into_iter()
+                    .map(|(name, side)| {
+                        let image = drifter_core::icon::find(&name, None, dense(side)).and_then(|path| load(&path, side));
+                        (format!("{name}@{side}"), image)
+                    })
+                    .collect();
+                let apps: Vec<(String, String, Option<drifter_core::Image>)> = apps
+                    .into_iter()
+                    .map(|(app, side)| {
+                        let image = crate::apps::find(&app)
+                            .and_then(|entry| entry.icon)
+                            .and_then(|path| load(&path, side));
+                        (app.clone(), format!("{app}@{side}"), image)
+                    })
+                    .collect();
+                (named, apps)
+            },
+            move |state, (named, apps)| {
+                if state.icon_jobs.lane.id() != id {
+                    return;
+                }
+                let rerun = state.icon_jobs.lane.release();
+                for (key, image) in named {
+                    state.search_icons.insert(key, image);
+                }
+                for (app, key, image) in apps {
+                    match image.and_then(|image| upload(&mut state.renderer, Some(&image), "app icon").ok().flatten()) {
+                        Some(buffer) => {
+                            state.app_icons.insert(key, buffer);
+                        }
+                        None => {
+                            state.no_icon.insert(app);
+                        }
+                    }
+                }
+                state.icons_landed();
+                if rerun {
+                    state.fetch_icons();
+                }
+            },
+        );
+    }
+
+    fn icons_landed(&mut self) {
+        if self.launchpad.is_some() {
+            self.paint_launchpad();
+        }
+        if self.search.is_some() {
+            self.paint_search();
+        }
+        if self.desk_menu.is_some() {
+            self.refresh_desk_icons();
+        }
+        if self.switch.is_some() {
+            self.refresh_switch_icons();
+        }
+        self.kick_now();
     }
 }

@@ -243,6 +243,7 @@ struct Switch {
     layout: drifter_core::switcher::Layout,
     art: Option<TextureBuffer<Tex>>,
     icons: Vec<Option<TextureBuffer<Tex>>>,
+    lane: worker::Lane,
 }
 
 enum Shortcut {
@@ -302,9 +303,11 @@ struct Pending {
 struct Popover {
     items: Vec<Item>,
     rect: Rect,
-    art: TextureBuffer<Tex>,
+    art: Option<TextureBuffer<Tex>>,
     target: Target,
     hover: Option<usize>,
+    want: Option<usize>,
+    lane: worker::Lane,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -357,6 +360,7 @@ struct Lock {
     art: Option<TextureBuffer<Tex>>,
     rect: Rect,
     shown: (String, String, usize, Note),
+    lane: worker::Lane,
     user: std::ffi::CString,
     refocus: Option<smithay::reexports::wayland_server::protocol::wl_surface::WlSurface>,
 }
@@ -456,7 +460,7 @@ pub struct State {
     arrow: TextureBuffer<Tex>,
     arrow_size: Vec2,
     arrow_hotspot: Vec2,
-    font: Option<Font>,
+    font: Option<std::sync::Arc<Font>>,
     tray: Tray,
     dock: Dock,
     pinned: Pinned,
@@ -489,7 +493,7 @@ pub struct State {
     launchpad: Option<launchpad::Pad>,
     welcome: Option<welcome::Welcome>,
     welcome_wanted: bool,
-    search_font: Option<Font>,
+    search_font: Option<std::sync::Arc<Font>>,
     search_icons: std::collections::HashMap<String, Option<drifter_core::Image>>,
     app_label: Option<(String, TextureBuffer<Tex>, Vec2)>,
     window_shadow: Option<(TextureBuffer<Tex>, f64)>,
@@ -526,14 +530,21 @@ pub struct State {
     light_read: Option<Instant>,
     sun: Option<TextureBuffer<Tex>>,
     gauge_panel: Option<GaugePanel>,
-    lock_big: Option<Font>,
-    lock_small: Option<Font>,
+    lock_big: Option<std::sync::Arc<Font>>,
+    lock_small: Option<std::sync::Arc<Font>>,
     verify: smithay::reexports::calloop::channel::Sender<(u64, crate::auth::Verdict)>,
     tickets: u64,
     power: Option<TextureBuffer<Tex>>,
     look: Look,
     tip: Option<(TextureBuffer<Tex>, Rect)>,
     tip_of: Option<String>,
+    tip_want: Option<String>,
+    tip_lane: worker::Lane,
+    notes_lane: worker::Lane,
+    hud_lane: worker::Lane,
+    hud_want: Option<drifter_core::hud::Reading>,
+    prompt_lane: worker::Lane,
+    icon_jobs: worker::Icons,
     snap: Snap,
     config_seen: Option<(std::time::SystemTime, u64, u64)>,
     last_input: Instant,
@@ -753,8 +764,10 @@ impl State {
             self.alert_elements(&mut elements);
             self.desk_menu_elements(&mut elements);
         }
-        if let Some(open) = self.popover.as_ref().filter(|_| live && self.shooter.is_none()) {
-            elements.push(Skin::Texture(element(&open.art, open.rect, 1.0)));
+        if let Some(open) = self.popover.as_ref().filter(|_| live && self.shooter.is_none())
+            && let Some(art) = open.art.as_ref()
+        {
+            elements.push(Skin::Texture(element(art, open.rect, 1.0)));
         }
         if let Some(pad) = self.launchpad.as_ref().filter(|_| live)
             && let Some(art) = pad.art.as_ref()
@@ -762,8 +775,10 @@ impl State {
             elements.push(Skin::Texture(element(art, pad.rect, 1.0)));
             self.modal_shadow(pad.rect, &mut elements);
         }
-        if let Some(open) = self.control.as_ref().filter(|_| live) {
-            elements.push(Skin::Texture(element(&open.art, open.rect, 1.0)));
+        if let Some(open) = self.control.as_ref().filter(|_| live)
+            && let Some(art) = open.art.as_ref()
+        {
+            elements.push(Skin::Texture(element(art, open.rect, 1.0)));
         }
         if let Some((art, rect, _)) = self.notes_panel.as_ref().filter(|_| live) {
             elements.push(Skin::Texture(element(art, *rect, 1.0)));
@@ -1298,6 +1313,7 @@ impl State {
             self.hover_since = Some((self.pointer, Instant::now()));
             self.tip = None;
             self.tip_of = None;
+            self.tip_want = None;
         }
     }
 

@@ -254,11 +254,11 @@ impl State {
         }
         if paths[1] != self.asset_paths[1] {
             match Font::find(config.font_path(), config.tray.size) {
-                Ok(font) => self.font = Some(font),
+                Ok(font) => self.font = Some(std::sync::Arc::new(font)),
                 Err(error) => log!("drifter: no clock: {error}"),
             }
-            self.lock_big = Font::find(config.font_path(), 56.0).ok();
-            self.lock_small = Font::find(config.font_path(), 15.0).ok();
+            self.lock_big = Font::find(config.font_path(), 56.0).ok().map(std::sync::Arc::new);
+            self.lock_small = Font::find(config.font_path(), 15.0).ok().map(std::sync::Arc::new);
             self.clock = None;
             self.stats = None;
             self.titles.clear();
@@ -298,6 +298,7 @@ impl State {
         self.gauge_panel = None;
         self.tip = None;
         self.tip_of = None;
+        self.tip_want = None;
         self.tray.ink = palette.ink;
         self.clock = None;
         self.stats = None;
@@ -486,7 +487,7 @@ impl State {
         if self.tray.size != config.tray.size {
             self.tray.size = config.tray.size;
             match Font::find(config.font_path(), config.tray.size) {
-                Ok(font) => self.font = Some(font),
+                Ok(font) => self.font = Some(std::sync::Arc::new(font)),
                 Err(error) => log!("drifter: no clock: {error}"),
             }
             self.clock = None;

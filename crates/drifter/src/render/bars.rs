@@ -46,50 +46,59 @@ impl State {
             return;
         }
         let look = self.menu_look();
-        let size = look.size(&items, self.font.as_ref());
-        let mut image = look.paint(&items, size, None, self.font.as_ref());
+        let size = look.size(&items, self.font.as_deref());
         let rect = look.rect(at, size, self.screen);
-        self.frosted(&mut image, rect.origin, f64::from(look.back_alpha) / 255.0);
-        match upload(&mut self.renderer, Some(&image), "menu") {
-            Ok(Some(art)) => {
-                self.popover = Some(Popover {
-                    items,
-                    rect,
-                    art,
-                    target,
-                    hover: None,
-                })
-            }
-            Ok(None) => {}
-            Err(error) => log!("drifter: {error}"),
-        }
+        self.popover = Some(Popover {
+            items,
+            rect,
+            art: None,
+            target,
+            hover: None,
+            want: None,
+            lane: worker::Lane::default(),
+        });
+        self.paint_popover();
     }
 
     pub(super) fn repaint_popover(&mut self) {
+        let pointer = self.pointer;
+        let Some(open) = self.popover.as_mut() else {
+            return;
+        };
+        let inside = pointer - open.rect.origin;
+        let hover = self.look.item_at(&open.items, open.rect.size, inside);
+        if hover == open.want {
+            return;
+        }
+        open.want = hover;
+        self.paint_popover();
+    }
+
+    pub(super) fn paint_popover(&mut self) {
+        let look = self.menu_look();
+        let font = self.font.clone();
+        let frosting = self.frosting();
         let Some(open) = self.popover.as_ref() else {
             return;
         };
-        let inside = self.pointer - open.rect.origin;
-        let hover = self.look.item_at(&open.items, open.rect.size, inside);
-        if hover == open.hover {
-            return;
-        }
         let items = open.items.clone();
-        let size = open.rect.size;
-        let origin = open.rect.origin;
-        let look = self.menu_look();
-        let mut image = look.paint(&items, size, hover, self.font.as_ref());
-        self.frosted(&mut image, origin, f64::from(look.back_alpha) / 255.0);
-        match upload(&mut self.renderer, Some(&image), "menu") {
-            Ok(Some(art)) => {
-                if let Some(open) = self.popover.as_mut() {
-                    open.art = art;
-                    open.hover = hover;
+        let (size, origin, want) = (open.rect.size, open.rect.origin, open.want);
+        self.paint_in_lane(
+            "menu",
+            |state| state.popover.as_mut().map(|open| &mut open.lane),
+            State::paint_popover,
+            move || {
+                let mut image = look.paint(&items, size, want, font.as_deref());
+                worker::frost(&frosting, &mut image, origin, f64::from(look.back_alpha) / 255.0);
+                Some(image)
+            },
+            move |state, art| {
+                if let Some(open) = state.popover.as_mut() {
+                    open.art = Some(art);
+                    open.hover = want;
                 }
-            }
-            Ok(None) => {}
-            Err(error) => log!("drifter: {error}"),
-        }
+            },
+        );
     }
 
     pub(super) fn press_popover(&mut self) -> bool {
@@ -200,7 +209,7 @@ impl State {
     }
 
     pub(super) fn show_tip(&mut self, text: &str, under: Rect, below: bool) {
-        if self.tip_of.as_deref() == Some(text) {
+        if self.tip_of.as_deref() == Some(text) || self.tip_want.as_deref() == Some(text) {
             return;
         }
         let items = vec![Item::line(0, text)];
@@ -208,8 +217,7 @@ impl State {
             least_width: 0.0,
             ..self.menu_look()
         };
-        let size = look.size(&items, self.font.as_ref());
-        let mut image = look.paint(&items, size, None, self.font.as_ref());
+        let size = look.size(&items, self.font.as_deref());
         let at = Vec2::new(
             under.center().x - size.x / 2.0,
             if below {
@@ -219,27 +227,41 @@ impl State {
             },
         );
         let rect = look.rect(at, size, self.screen);
-        self.frosted(&mut image, rect.origin, f64::from(look.back_alpha) / 255.0);
-        match self.upload_again(Some(&image), "hover text") {
-            Ok(Some(art)) => {
-                self.tip = Some((art, rect));
-                self.tip_of = Some(text.to_string());
-            }
-            Ok(None) => {}
-            Err(error) => log!("drifter: {error}"),
-        }
+        let font = self.font.clone();
+        let frosting = self.frosting();
+        let text = text.to_string();
+        self.tip_want = Some(text.clone());
+        self.paint_in_lane(
+            "hover text",
+            |state| Some(&mut state.tip_lane),
+            |state| state.tip_want = None,
+            move || {
+                let mut image = look.paint(&items, size, None, font.as_deref());
+                worker::frost(&frosting, &mut image, rect.origin, f64::from(look.back_alpha) / 255.0);
+                Some(image)
+            },
+            move |state, art| {
+                if state.tip_want.as_deref() == Some(text.as_str()) {
+                    state.tip = Some((art, rect));
+                    state.tip_of = Some(text);
+                    state.tip_want = None;
+                }
+            },
+        );
     }
 
     pub(super) fn settle_tip(&mut self) {
         let Some((at, since)) = self.hover_since else {
             self.tip = None;
             self.tip_of = None;
+            self.tip_want = None;
             return;
         };
         if (self.pointer - at).length() > 3.0 {
             self.hover_since = Some((self.pointer, Instant::now()));
             self.tip = None;
             self.tip_of = None;
+            self.tip_want = None;
             return;
         }
         if Instant::now().duration_since(since) < self.tunables.drawer_dwell * 4 {
@@ -295,6 +317,7 @@ impl State {
 
         self.tip = None;
         self.tip_of = None;
+        self.tip_want = None;
     }
 
     pub(super) fn open_context(&mut self) -> bool {
@@ -558,7 +581,7 @@ impl State {
         {
             return;
         }
-        let mut image = look.paint(gauge, level, muted, self.font.as_ref());
+        let mut image = look.paint(gauge, level, muted, self.font.as_deref());
         let spot = match self.gauge_panel.as_ref().filter(|panel| panel.gauge == gauge) {
             Some(panel) => Some(panel.rect),
             None => self.gauge_rect(gauge).map(|under| look.rect(under, self.screen)),

@@ -24,25 +24,54 @@ impl State {
                 };
                 let layout =
                     drifter_core::switcher::Look::themed(&self.palette).layout(self.screen, order.len());
-                let apps: Vec<String> = order
-                    .iter()
-                    .filter_map(|id| self.windows.iter().find(|window| window.id == *id))
-                    .map(|window| window.app.clone())
-                    .collect();
-                let icons = apps
-                    .iter()
-                    .map(|app| self.switch_icon(app, layout.icon.round() as u32))
-                    .collect();
                 self.switch = Some(Switch {
+                    icons: vec![None; order.len()],
                     order,
                     at,
                     layout,
                     art: None,
-                    icons,
+                    lane: worker::Lane::default(),
                 });
+                self.refresh_switch_icons();
                 at
             }
         };
+        if let Some(open) = self.switch.as_mut() {
+            open.at = at;
+        }
+        self.paint_switch();
+    }
+
+    pub(super) fn refresh_switch_icons(&mut self) {
+        let Some(open) = self.switch.as_ref() else {
+            return;
+        };
+        let side = open.layout.icon.round() as u32;
+        let apps: Vec<String> = open
+            .order
+            .iter()
+            .map(|id| {
+                self.windows
+                    .iter()
+                    .find(|window| window.id == *id)
+                    .map(|window| window.app.clone())
+                    .unwrap_or_default()
+            })
+            .collect();
+        let icons: Vec<Option<TextureBuffer<Tex>>> = apps.iter().map(|app| self.app_icon_now(app, side)).collect();
+        let changed = self
+            .switch
+            .as_ref()
+            .is_some_and(|open| open.icons.iter().zip(&icons).any(|(a, b)| a.is_some() != b.is_some()));
+        if let Some(open) = self.switch.as_mut() {
+            open.icons = icons;
+        }
+        if changed {
+            self.paint_switch();
+        }
+    }
+
+    pub(super) fn paint_switch(&mut self) {
         let Some(open) = self.switch.as_ref() else {
             return;
         };
@@ -66,38 +95,45 @@ impl State {
             })
             .collect();
         let title = windows
-            .get(at)
+            .get(open.at)
             .map(|window| match window.title.is_empty() {
                 true => window.app.clone(),
                 false => window.title.clone(),
             })
             .unwrap_or_default();
-        let image = open.layout.paint(at, &title, &letters, self.font.as_ref());
-        let art = match self.upload_again(Some(&image), "switcher") {
-            Ok(art) => art,
-            Err(error) => {
-                log!("drifter: {error}");
-                None
-            }
-        };
-        if let Some(open) = self.switch.as_mut() {
-            open.at = at;
-            open.art = art;
-        }
-        self.kick_now();
+        let (layout, at) = (open.layout.clone(), open.at);
+        let font = self.font.clone();
+        self.paint_in_lane(
+            "switcher",
+            |state| state.switch.as_mut().map(|open| &mut open.lane),
+            State::paint_switch,
+            move || Some(layout.paint(at, &title, &letters, font.as_deref())),
+            |state, art| {
+                if let Some(open) = state.switch.as_mut() {
+                    open.art = Some(art);
+                }
+            },
+        );
     }
 
     pub(super) fn show_hud(&mut self, reading: drifter_core::hud::Reading) {
+        self.hud_want = Some(reading);
         let look = drifter_core::hud::Look::themed(&self.palette);
-        let image = look.paint(reading, self.font.as_ref());
-        match upload(&mut self.renderer, Some(&image), "hud") {
-            Ok(Some(art)) => {
-                self.hud = Some((art, look.rect(self.screen), Instant::now() + HUD_TIME));
-            }
-            Ok(None) => {}
-            Err(error) => log!("drifter: {error}"),
-        }
-        self.kick_now();
+        let font = self.font.clone();
+        let rect = look.rect(self.screen);
+        self.paint_in_lane(
+            "hud",
+            |state| Some(&mut state.hud_lane),
+            |state| {
+                if let Some(reading) = state.hud_want {
+                    state.show_hud(reading);
+                }
+            },
+            move || Some(look.paint(reading, font.as_deref())),
+            move |state, art| {
+                state.hud = Some((art, rect, Instant::now() + HUD_TIME));
+            },
+        );
     }
 
     pub(super) fn prompt_begin(&mut self, request: crate::polkit::Request) {
@@ -210,7 +246,7 @@ impl State {
     }
 
     pub(super) fn paint_prompt(&mut self) {
-        let (Some(pending), Some(font)) = (self.prompts.first(), self.font.as_ref()) else {
+        let (Some(pending), Some(font)) = (self.prompts.first(), self.font.clone()) else {
             self.prompt_art = None;
             self.kick_now();
             return;
@@ -223,14 +259,18 @@ impl State {
             busy: pending.busy,
         };
         let look = drifter_core::prompt::Look::themed(&self.palette);
-        let image = look.paint(&ask, font);
-        let rect = look.rect(self.screen, &ask, font);
-        match upload(&mut self.renderer, Some(&image), "password prompt") {
-            Ok(Some(art)) => self.prompt_art = Some((art, rect)),
-            Ok(None) => {}
-            Err(error) => log!("drifter: {error}"),
-        }
-        self.kick_now();
+        let rect = look.rect(self.screen, &ask, &font);
+        self.paint_in_lane(
+            "password prompt",
+            |state| Some(&mut state.prompt_lane),
+            State::paint_prompt,
+            move || Some(look.paint(&ask, &font)),
+            move |state, art| {
+                if !state.prompts.is_empty() {
+                    state.prompt_art = Some((art, rect));
+                }
+            },
+        );
     }
 
     pub(super) fn show_note(&mut self, mut note: drifter_core::notify::Note) {
@@ -244,7 +284,7 @@ impl State {
             self.tell_closed(note.id, 1);
             return;
         }
-        let Some(font) = self.font.as_ref() else {
+        let Some(font) = self.font.as_deref() else {
             self.tell_closed(note.id, 3);
             return;
         };
@@ -254,7 +294,6 @@ impl State {
             ..plain
         };
         let tall = look.height(&note, font);
-        let mut image = look.paint(&note, font);
         let mut heights: Vec<f64> = self.cards.iter().map(|card| card.tall).collect();
         let slot = match self.cards.iter().position(|held| held.note.id == note.id) {
             Some(at) => {
@@ -266,20 +305,28 @@ impl State {
                 0
             }
         };
-        if let Some(spot) = look.stack(self.screen, &heights).get(slot) {
-            self.frosted(&mut image, spot.origin, look.back_alpha);
-        }
-        let art = match upload(&mut self.renderer, Some(&image), "notification") {
-            Ok(Some(art)) => art,
-            Ok(None) => {
-                self.tell_closed(note.id, 3);
-                return;
-            }
-            Err(error) => {
-                log!("drifter: {error}");
-                self.tell_closed(note.id, 3);
-                return;
-            }
+        let spot = look.stack(self.screen, &heights).get(slot).copied();
+        let font = self.font.clone();
+        let frosting = self.frosting();
+        let painted = note.clone();
+        self.paint_on_worker(
+            "notification",
+            move || {
+                let font = font?;
+                let mut image = look.paint(&painted, &font);
+                if let Some(spot) = spot {
+                    worker::frost(&frosting, &mut image, spot.origin, look.back_alpha);
+                }
+                Some(image)
+            },
+            move |state, art| state.place_note(note, art, tall),
+        );
+    }
+
+    fn place_note(&mut self, note: drifter_core::notify::Note, art: Option<TextureBuffer<Tex>>, tall: f64) {
+        let Some(art) = art else {
+            self.tell_closed(note.id, 3);
+            return;
         };
         let until = note
             .expire
@@ -403,22 +450,4 @@ impl State {
         elements.push(Skin::Texture(element(art, panel, 1.0)));
     }
 
-    pub(super) fn switch_icon(&mut self, app: &str, side: u32) -> Option<TextureBuffer<Tex>> {
-        let key = format!("{app}@{side}");
-        if let Some(held) = self.app_icons.get(&key) {
-            return Some(held.clone());
-        }
-        if app.is_empty() || self.no_icon.contains(app) {
-            return None;
-        }
-        let image = crate::apps::find(app)
-            .and_then(|entry| entry.icon)
-            .and_then(|path| drifter_core::image::load_sized(&path, dense(side)).ok())
-            .map(|image| image.scaled(dense(side), dense(side)))?;
-        let buffer = upload(&mut self.renderer, Some(&image), "switcher icon")
-            .ok()
-            .flatten()?;
-        self.app_icons.insert(key, buffer.clone());
-        Some(buffer)
-    }
 }

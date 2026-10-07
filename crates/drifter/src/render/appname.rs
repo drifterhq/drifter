@@ -48,7 +48,7 @@ impl State {
         {
             return;
         }
-        let Some(font) = self.font.as_ref() else {
+        let Some(font) = self.font.as_deref() else {
             return;
         };
         let image = font.paint_bold(&name, self.tray.ink);

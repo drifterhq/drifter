@@ -3,9 +3,10 @@ use drifter_core::control::{Hit as ControlHit, Status, Tile};
 
 pub(super) struct Panel {
     pub rect: Rect,
-    pub art: TextureBuffer<Tex>,
+    pub art: Option<TextureBuffer<Tex>>,
     pub held: Option<usize>,
     pub last: usize,
+    pub lane: worker::Lane,
 }
 
 impl State {
@@ -63,23 +64,41 @@ impl State {
     }
 
     fn paint_control_art(&mut self) {
-        let Some(font) = self.font.as_ref() else {
+        let Some(font) = self.font.clone() else {
             return;
         };
         let look = self.control_look();
-        let mut image = look.paint(&self.control_status, font);
         let rect = match (self.control.as_ref(), self.control_rect()) {
             (Some(open), _) => open.rect,
             (None, Some(under)) => look.rect(under, self.screen),
             (None, None) => return,
         };
-        self.frosted(&mut image, rect.origin, look.back_alpha);
-        let Ok(Some(art)) = self.upload_again(Some(&image), "control center") else {
-            return;
-        };
-        let held = self.control.as_ref().and_then(|open| open.held);
-        let last = self.control.as_ref().map_or(1, |open| open.last);
-        self.control = Some(Panel { rect, art, held, last });
+        if self.control.is_none() {
+            self.control = Some(Panel {
+                rect,
+                art: None,
+                held: None,
+                last: 1,
+                lane: worker::Lane::default(),
+            });
+        }
+        let status = self.control_status.clone();
+        let frosting = self.frosting();
+        self.paint_in_lane(
+            "control center",
+            |state| state.control.as_mut().map(|open| &mut open.lane),
+            State::paint_control_art,
+            move || {
+                let mut image = look.paint(&status, &font);
+                worker::frost(&frosting, &mut image, rect.origin, look.back_alpha);
+                Some(image)
+            },
+            |state, art| {
+                if let Some(open) = state.control.as_mut() {
+                    open.art = Some(art);
+                }
+            },
+        );
     }
 
     fn close_panels(&mut self) {
@@ -264,30 +283,52 @@ impl State {
     }
 
     fn paint_notes(&mut self) {
-        let (Some(font), Some(title)) = (self.font.as_ref(), self.search_font.as_ref()) else {
+        let (Some(font), Some(title)) = (self.font.clone(), self.search_font.clone()) else {
             return;
         };
         let Some(under) = self.clock.as_ref().map(|(_, _, rect)| *rect) else {
             return;
         };
-        let notes = std::fs::read_to_string(Config::state_dir().join("notes"))
-            .map(|text| drifter_core::notify::recall(&text))
-            .unwrap_or_default();
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|since| since.as_secs())
-            .unwrap_or(0);
-        let today = drifter_core::calendar::today();
-        let rows = drifter_core::calendar::rows_now();
         let look = self.notes_look();
-        let mut image = look.paint(today, &notes, now, font, title);
-        let rect = look.rect(under, self.screen, rows, notes.len());
-        self.frosted(&mut image, rect.origin, look.back_alpha);
-        if let Ok(Some(art)) = self.upload_again(Some(&image), "notification center") {
-            self.notes_panel = Some((art, rect, rows));
+        let screen = self.screen;
+        let frosting = self.frosting();
+        if !self.notes_lane.claim() {
+            return;
         }
-        self.kick_now();
+        let id = self.notes_lane.id();
+        self.on_worker(
+            "notification center",
+            move || {
+                let notes = std::fs::read_to_string(Config::state_dir().join("notes"))
+                    .map(|text| drifter_core::notify::recall(&text))
+                    .unwrap_or_default();
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|since| since.as_secs())
+                    .unwrap_or(0);
+                let today = drifter_core::calendar::today();
+                let rows = drifter_core::calendar::rows_now();
+                let mut image = look.paint(today, &notes, now, &font, &title);
+                let rect = look.rect(under, screen, rows, notes.len());
+                worker::frost(&frosting, &mut image, rect.origin, look.back_alpha);
+                (image, rect, rows)
+            },
+            move |state, (image, rect, rows)| {
+                if state.notes_lane.id() != id {
+                    return;
+                }
+                let rerun = state.notes_lane.release();
+                if let Ok(Some(art)) = upload(&mut state.renderer, Some(&image), "notification center") {
+                    state.notes_panel = Some((art, rect, rows));
+                }
+                if rerun {
+                    state.paint_notes();
+                }
+                state.kick_now();
+            },
+        );
     }
+
 }
 
 fn radios() -> (Option<(bool, String)>, Option<bool>) {

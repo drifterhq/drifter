@@ -7,6 +7,7 @@ pub(super) struct Search {
     pub results: Vec<Found>,
     pub selected: usize,
     pub art: Option<(TextureBuffer<Tex>, Rect)>,
+    pub lane: worker::Lane,
 }
 
 impl State {
@@ -23,6 +24,7 @@ impl State {
             results: Vec::new(),
             selected: 0,
             art: None,
+            lane: worker::Lane::default(),
         });
         self.paint_search();
         let apps = self.installed_apps();
@@ -55,50 +57,45 @@ impl State {
     }
 
     pub(super) fn paint_search(&mut self) {
-        let Some(open) = self.search.as_ref() else {
-            return;
-        };
-        let (Some(big), Some(small)) = (self.search_font.as_ref(), self.font.as_ref()) else {
+        let (Some(big), Some(small)) = (self.search_font.clone(), self.font.clone()) else {
             return;
         };
         let look = self.search_look();
         let side = look.icon as u32;
-        let icons: Vec<Option<drifter_core::Image>> = open
-            .results
+        let Some(results) = self.search.as_ref().map(|open| open.results.clone()) else {
+            return;
+        };
+        let icons: Vec<Option<drifter_core::Image>> = results
             .iter()
             .map(|found| match (found.kind, found.icon.as_deref()) {
                 (Kind::App, None) if found.key == super::welcome::WELCOME_KEY => {
                     Some(drifter_core::welcome::icon(side))
                 }
-                (Kind::App, Some(name)) => self
-                    .search_icons
-                    .get(name)
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        drifter_core::icon::find(name, None, dense(side))
-                            .and_then(|path| drifter_core::image::load_sized(&path, dense(side)).ok())
-                            .map(|image| image.scaled(dense(side), dense(side)))
-                    }),
+                (Kind::App, Some(name)) => self.icon_now(name, side),
                 _ => None,
             })
             .collect();
-        let image = look.paint(&open.query, &open.results, &icons, open.selected, big, small);
-        let rect = look.rect(self.screen, open.results.len());
-        let mut image = image;
-        self.frosted(&mut image, rect.origin, look.back_alpha);
-        for (found, icon) in open.results.iter().zip(&icons) {
-            if let Some(name) = found.icon.clone() {
-                self.search_icons.entry(name).or_insert_with(|| icon.clone());
-            }
-        }
-        let art = self.upload_again(Some(&image), "search")
-            .ok()
-            .flatten()
-            .map(|buffer| (buffer, rect));
-        if let Some(open) = self.search.as_mut() {
-            open.art = art;
-        }
-        self.kick_now();
+        let Some(open) = self.search.as_ref() else {
+            return;
+        };
+        let (query, selected) = (open.query.clone(), open.selected);
+        let rect = look.rect(self.screen, results.len());
+        let frosting = self.frosting();
+        self.paint_in_lane(
+            "search",
+            |state| state.search.as_mut().map(|open| &mut open.lane),
+            State::paint_search,
+            move || {
+                let mut image = look.paint(&query, &results, &icons, selected, &big, &small);
+                worker::frost(&frosting, &mut image, rect.origin, look.back_alpha);
+                Some(image)
+            },
+            move |state, art| {
+                if let Some(open) = state.search.as_mut() {
+                    open.art = Some((art, rect));
+                }
+            },
+        );
     }
 
     pub(super) fn search_key(&mut self, key: LockKey) {

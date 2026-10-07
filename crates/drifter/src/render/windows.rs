@@ -635,7 +635,7 @@ impl State {
     }
 
     pub(super) fn wind_titles(&mut self) {
-        let Some(font) = self.font.as_ref() else {
+        let Some(font) = self.font.as_deref() else {
             return;
         };
         let wanted: Vec<String> = self
@@ -649,7 +649,7 @@ impl State {
             if self.titles.contains_key(&title) {
                 continue;
             }
-            let Some(font) = self.font.as_ref() else {
+            let Some(font) = self.font.as_deref() else {
                 return;
             };
             let image = font.paint(&title, self.tray.ink);

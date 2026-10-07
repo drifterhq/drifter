@@ -20,6 +20,7 @@ pub(super) struct DeskMenu {
     pub keys: Vec<LevelKey>,
     pub opened: Vec<Instant>,
     pub pending: Option<(usize, usize, Instant)>,
+    pub lane: worker::Lane,
 }
 
 type LevelKey = (usize, usize, Option<usize>, u64, [i64; 4]);
@@ -33,8 +34,9 @@ pub(super) struct Ripple {
 
 pub(super) struct Alert {
     pub action: Action,
-    pub art: TextureBuffer<Tex>,
+    pub art: Option<TextureBuffer<Tex>>,
     pub rect: Rect,
+    pub lane: worker::Lane,
 }
 
 impl State {
@@ -47,15 +49,21 @@ impl State {
     }
 
     fn small_icon(&mut self, name: &str) -> Option<drifter_core::Image> {
-        let key = format!("{name}@18");
-        if let Some(held) = self.search_icons.get(&key) {
-            return held.clone();
+        self.icon_now(name, 18)
+    }
+
+    pub(super) fn refresh_desk_icons(&mut self) {
+        if self.desk_menu.is_none() {
+            return;
         }
-        let image = drifter_core::icon::find(name, None, dense(18))
-            .and_then(|path| drifter_core::image::load_sized(&path, dense(18)).ok())
-            .map(|image| image.scaled(dense(18), dense(18)));
-        self.search_icons.insert(key, image.clone());
-        image
+        let mut picks = Vec::new();
+        let entries = self.desk_entries(&mut picks);
+        if let Some(open) = self.desk_menu.as_mut() {
+            open.menu.root = entries;
+            open.picks = picks;
+            open.keys.clear();
+        }
+        self.paint_desk_menu();
     }
 
     fn desk_entries(&mut self, picks: &mut Vec<Pick>) -> Vec<Entry> {
@@ -103,6 +111,7 @@ impl State {
             keys: Vec::new(),
             opened: vec![Instant::now()],
             pending: None,
+            lane: worker::Lane::default(),
         });
         self.paint_desk_menu();
     }
@@ -168,59 +177,83 @@ impl State {
     }
 
     pub(super) fn paint_desk_menu(&mut self) {
-        let Some(font) = self.font.as_ref() else {
+        let Some(font) = self.font.clone() else {
             return;
         };
         let look = self.cascade_look();
-        let Some(open) = self.desk_menu.as_ref() else {
+        let screen = self.screen;
+        let frosting = self.frosting();
+        let Some(open) = self.desk_menu.as_mut() else {
             return;
         };
-        let rects = open.menu.panels(&look, font, self.screen);
-        let mut levels = Vec::new();
-        for (level, rect) in rects.iter().enumerate() {
-            let items = open.menu.items(level);
-            let key: LevelKey = (
-                items.as_ptr() as usize,
-                items.len(),
-                open.menu.hover[level],
-                open.menu.scroll[level].to_bits(),
-                [rect.origin.x, rect.origin.y, rect.size.x, rect.size.y].map(|v| v.round() as i64),
-            );
-            let kept = (open.keys.get(level) == Some(&key))
-                .then(|| open.arts.get(level).cloned())
-                .flatten();
-            let image = match kept {
-                Some(_) => None,
-                None => Some(look.paint(items, rect.size, open.menu.hover[level], open.menu.scroll[level], font)),
-            };
-            levels.push((key, kept, image, *rect));
+        if !open.lane.claim() {
+            return;
         }
-        let mut arts = Vec::new();
-        let mut keys = Vec::new();
-        for (key, kept, image, rect) in levels {
-            let art = match (kept, image) {
-                (Some(kept), _) => Some(kept),
-                (None, Some(mut image)) => {
-                    self.frosted(&mut image, rect.origin, look.back_alpha);
-                    upload(&mut self.renderer, Some(&image), "desktop menu").ok().flatten().map(|art| (art, rect))
+        let id = open.lane.id();
+        let menu = open.menu.clone();
+        let had = open.keys.clone();
+        self.on_worker(
+            "desktop menu",
+            move || {
+                let rects = menu.panels(&look, &font, screen);
+                rects
+                    .iter()
+                    .enumerate()
+                    .map(|(level, rect)| {
+                        let items = menu.items(level);
+                        let key: LevelKey = (
+                            level,
+                            items.len(),
+                            menu.hover[level],
+                            menu.scroll[level].to_bits(),
+                            [rect.origin.x, rect.origin.y, rect.size.x, rect.size.y].map(|v| v.round() as i64),
+                        );
+                        let image = (had.get(level) != Some(&key)).then(|| {
+                            let mut image = look.paint(items, rect.size, menu.hover[level], menu.scroll[level], &font);
+                            worker::frost(&frosting, &mut image, rect.origin, look.back_alpha);
+                            image
+                        });
+                        (key, image, *rect)
+                    })
+                    .collect::<Vec<_>>()
+            },
+            move |state, levels| {
+                let Some(open) = state.desk_menu.as_mut().filter(|open| open.lane.id() == id) else {
+                    return;
+                };
+                let rerun = open.lane.release();
+                let held: Vec<(LevelKey, (TextureBuffer<Tex>, Rect))> =
+                    open.keys.iter().cloned().zip(open.arts.iter().cloned()).collect();
+                let mut arts = Vec::new();
+                let mut keys = Vec::new();
+                for (key, image, rect) in levels {
+                    let art = match image {
+                        Some(image) => upload(&mut state.renderer, Some(&image), "desktop menu")
+                            .ok()
+                            .flatten()
+                            .map(|art| (art, rect)),
+                        None => held.iter().find(|(had, _)| *had == key).map(|(_, art)| art.clone()),
+                    };
+                    if let Some(art) = art {
+                        arts.push(art);
+                        keys.push(key);
+                    }
                 }
-                (None, None) => None,
-            };
-            if let Some(art) = art {
-                arts.push(art);
-                keys.push(key);
-            }
-        }
-        if let Some(open) = self.desk_menu.as_mut() {
-            open.keys = keys;
-            let levels = open.menu.levels();
-            open.opened.truncate(levels);
-            while open.opened.len() < levels {
-                open.opened.push(Instant::now());
-            }
-            open.arts = arts;
-        }
-        self.kick_now();
+                if let Some(open) = state.desk_menu.as_mut() {
+                    open.keys = keys;
+                    let levels = open.menu.levels();
+                    open.opened.truncate(levels);
+                    while open.opened.len() < levels {
+                        open.opened.push(Instant::now());
+                    }
+                    open.arts = arts;
+                }
+                if rerun {
+                    state.paint_desk_menu();
+                }
+                state.kick_now();
+            },
+        );
     }
 
     pub(super) fn desk_menu_elements(&self, elements: &mut Vec<Skin>) {
@@ -255,7 +288,7 @@ impl State {
     }
 
     pub(super) fn hover_desk_menu(&mut self) {
-        let Some(font) = self.font.as_ref() else {
+        let Some(font) = self.font.as_deref() else {
             return;
         };
         let look = self.cascade_look();
@@ -315,7 +348,7 @@ impl State {
         if self.alert.is_some() {
             return self.press_alert();
         }
-        let Some(font) = self.font.as_ref() else {
+        let Some(font) = self.font.as_deref() else {
             return false;
         };
         let look = self.cascade_look();
@@ -347,7 +380,7 @@ impl State {
     }
 
     pub(super) fn scroll_desk_menu(&mut self, steps: f64) -> bool {
-        let Some(font) = self.font.as_ref() else {
+        let Some(font) = self.font.as_deref() else {
             return false;
         };
         let look = self.cascade_look();
@@ -444,7 +477,7 @@ impl State {
     }
 
     fn ask_alert(&mut self, action: Action) {
-        let (Some(font), Some(bold)) = (self.font.as_ref(), self.search_font.as_ref()) else {
+        let (Some(font), Some(bold)) = (self.font.clone(), self.search_font.clone()) else {
             return;
         };
         let (title, message, verb) = match action {
@@ -453,13 +486,29 @@ impl State {
             _ => ("Shut down now?", "Your apps will close.", "Shut Down"),
         };
         let look = self.alert_look();
-        let mut image = look.paint(title, message, verb, font, bold);
         let rect = look.rect(self.screen);
-        self.frosted(&mut image, rect.origin, look.back_alpha);
-        if let Ok(Some(art)) = upload(&mut self.renderer, Some(&image), "alert") {
-            self.alert = Some(Alert { action, art, rect });
-        }
-        self.kick_now();
+        let frosting = self.frosting();
+        self.alert = Some(Alert {
+            action,
+            art: None,
+            rect,
+            lane: worker::Lane::default(),
+        });
+        self.paint_in_lane(
+            "alert",
+            |state| state.alert.as_mut().map(|open| &mut open.lane),
+            |_| {},
+            move || {
+                let mut image = look.paint(title, message, verb, &font, &bold);
+                worker::frost(&frosting, &mut image, rect.origin, look.back_alpha);
+                Some(image)
+            },
+            |state, art| {
+                if let Some(open) = state.alert.as_mut() {
+                    open.art = Some(art);
+                }
+            },
+        );
     }
 
     fn press_alert(&mut self) -> bool {
@@ -490,8 +539,10 @@ impl State {
     }
 
     pub(super) fn alert_elements(&self, elements: &mut Vec<Skin>) {
-        if let Some(open) = self.alert.as_ref() {
-            elements.push(Skin::Texture(element(&open.art, open.rect, 1.0)));
+        if let Some(open) = self.alert.as_ref()
+            && let Some(art) = open.art.as_ref()
+        {
+            elements.push(Skin::Texture(element(art, open.rect, 1.0)));
             self.modal_shadow(open.rect, elements);
         }
     }

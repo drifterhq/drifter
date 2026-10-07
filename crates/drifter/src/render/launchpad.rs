@@ -9,9 +9,9 @@ pub(super) struct Pad {
     pub all: Vec<Found>,
     pub shown: Vec<Found>,
     pub page: usize,
-    pub base: drifter_core::Image,
     pub rect: Rect,
     pub art: Option<TextureBuffer<Tex>>,
+    pub lane: worker::Lane,
 }
 
 impl State {
@@ -29,19 +29,14 @@ impl State {
         all.sort_by_key(|found| found.title.to_lowercase());
         let look = drifter_core::launchpad::Look::themed(&self.palette);
         let rect = look.rect(self.screen);
-        let veil = self.veil(0.97);
-        let mut canvas = drifter_core::paint::Canvas::new(rect.size.x as u32, rect.size.y as u32);
-        canvas.round_rect(Rect::new(Vec2::ZERO, rect.size), look.radius, look.back, veil);
-        let mut base = canvas.image;
-        self.frosted(&mut base, rect.origin, veil);
         self.launchpad = Some(Pad {
             query: String::new(),
             shown: all.clone(),
             all,
             page: 0,
-            base,
             rect,
             art: None,
+            lane: worker::Lane::default(),
         });
         self.paint_launchpad();
     }
@@ -51,21 +46,13 @@ impl State {
             return Some(drifter_core::welcome::icon(side));
         }
         let name = found.icon.clone()?;
-        let key = format!("{name}@{side}");
-        if let Some(held) = self.search_icons.get(&key) {
-            return held.clone();
-        }
-        let image = drifter_core::icon::find(&name, None, dense(side))
-            .and_then(|path| drifter_core::image::load_sized(&path, dense(side)).ok())
-            .map(|image| image.scaled(dense(side), dense(side)));
-        self.search_icons.insert(key, image.clone());
-        image
+        self.icon_now(&name, side)
     }
 
     pub(super) fn paint_launchpad(&mut self) {
-        if self.font.is_none() {
+        let (Some(font), Some(big)) = (self.font.clone(), self.search_font.clone()) else {
             return;
-        }
+        };
         let look = drifter_core::launchpad::Look::themed(&self.palette);
         let side = look.icon as u32;
         let Some(pad) = self.launchpad.as_ref() else {
@@ -76,26 +63,32 @@ impl State {
         let visible: Vec<Found> = pad.shown.iter().skip(pad.page * per).take(per).cloned().collect();
         let skipped = pad.page * per;
         let total = pad.shown.len();
-        let mut apps: Vec<(String, Option<drifter_core::Image>)> =
-            vec![(String::new(), None); skipped];
+        let (query, page, origin) = (pad.query.clone(), pad.page, pad.rect.origin);
+        let mut apps: Vec<(String, Option<drifter_core::Image>)> = vec![(String::new(), None); skipped];
         for found in &visible {
             let icon = self.pad_icon(found, side);
             apps.push((found.title.clone(), icon));
         }
         apps.resize(total, (String::new(), None));
-        let (Some(font), Some(big), Some(pad)) = (
-            self.font.as_ref(),
-            self.search_font.as_ref(),
-            self.launchpad.as_ref(),
-        ) else {
-            return;
-        };
-        let image = look.paint(&pad.base, &pad.query, &apps, pad.page, font, big);
-        let art = self.upload_again(Some(&image), "apps").ok().flatten();
-        if let Some(pad) = self.launchpad.as_mut() {
-            pad.art = art;
-        }
-        self.kick_now();
+        let veil = self.veil(0.97);
+        let frosting = self.frosting();
+        self.paint_in_lane(
+            "apps",
+            |state| state.launchpad.as_mut().map(|pad| &mut pad.lane),
+            State::paint_launchpad,
+            move || {
+                let mut canvas = drifter_core::paint::Canvas::new(size.x as u32, size.y as u32);
+                canvas.round_rect(Rect::new(Vec2::ZERO, size), look.radius, look.back, veil);
+                let mut base = canvas.image;
+                worker::frost(&frosting, &mut base, origin, veil);
+                Some(look.paint(&base, &query, &apps, page, &font, &big))
+            },
+            |state, art| {
+                if let Some(pad) = state.launchpad.as_mut() {
+                    pad.art = Some(art);
+                }
+            },
+        );
     }
 
     pub(super) fn launchpad_key(&mut self, key: LockKey) {

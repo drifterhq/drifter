@@ -177,6 +177,7 @@ impl State {
                 });
                 self.tip = None;
                 self.tip_of = None;
+                self.tip_want = None;
             }
         }
         if self.dock_drag.is_some() {
@@ -589,7 +590,7 @@ impl State {
         if text.is_empty() {
             return None;
         }
-        let font = self.font.as_ref()?;
+        let font = self.font.as_deref()?;
         let words = font.paint(&text, [255, 255, 255]);
         let size = drifter_core::dock::badge_rect(
             Rect::new(Vec2::ZERO, Vec2::splat(self.dock.icon)),
