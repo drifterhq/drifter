@@ -47,6 +47,10 @@ impl Dock {
         self.ink
     }
 
+    pub fn spaced(self, gap: f64) -> Dock {
+        Dock { gap: gap.round().max(0.0), ..self }
+    }
+
     pub fn with_icon(self, icon: f64) -> Dock {
         let icon = icon.round();
         Dock {

@@ -152,6 +152,7 @@ apps = true
 # [drawers] bottom. Settings > Dock sets both.
 # icon = 52
 # padding = 6
+# spacing = 4
 
 # true makes the dock only as wide as its icons plus the padding.
 # false spans the whole screen.
@@ -266,6 +267,14 @@ stats = true
 #         or by device, like "sda3" or "nvme0n1p2".
 #         Its label is the device name, like SDA3.
 metrics = ["cpu", "ram", "/"]
+
+# How the system info looks. Point at it for a card with every number.
+# "calm"   one faint ring that fills in only under heavy load
+# "pills"  a slim capsule per item that fills from the bottom
+# "rings"  thin rings in one circle, CPU outside
+# "ticks"  a short bar per item, like a signal meter
+# "text"   the numbers as words
+style = "calm"
 
 # The battery icon and its charge, left of the power button. It glows
 # slowly while it charges. A computer with no battery never shows it.

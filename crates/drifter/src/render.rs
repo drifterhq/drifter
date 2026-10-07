@@ -499,6 +499,13 @@ pub struct State {
     stats: Option<(TextureBuffer<Tex>, Vec2)>,
     sampler: crate::stats::Sampler,
     sampled: Option<Instant>,
+    glance: drifter_core::glance::Style,
+    glance_fields: Vec<(String, u8)>,
+    cpu_history: Vec<u8>,
+    stats_busy: bool,
+    glance_card: Option<(TextureBuffer<Tex>, Rect)>,
+    card_busy: bool,
+    card_stale: bool,
     icons: Vec<(String, String, TextureBuffer<Tex>)>,
     tray_raw: Vec<crate::tray::Icon>,
     frost_key: Option<[i64; 8]>,
@@ -858,6 +865,10 @@ impl State {
         }
         if let Some(panel) = self.gauge_panel.as_ref().filter(|_| live) {
             elements.push(Skin::Texture(element(&panel.art, panel.rect, 1.0)));
+        }
+        if let Some((art, rect)) = self.glance_card.as_ref().filter(|_| live) {
+            elements.push(Skin::Texture(element(art, *rect, 1.0)));
+            self.modal_shadow(*rect, &mut elements);
         }
         if let Some((art, rect)) = self.tip.as_ref().filter(|_| live) {
             elements.push(Skin::Texture(element(art, *rect, 1.0)));

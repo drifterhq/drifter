@@ -334,6 +334,8 @@ pub struct DockConfig {
     #[serde(default)]
     pub padding: Option<f64>,
     #[serde(default)]
+    pub spacing: Option<f64>,
+    #[serde(default)]
     pub fit: bool,
 }
 
@@ -349,6 +351,7 @@ impl Default for DockConfig {
             apps: true,
             icon: None,
             padding: None,
+            spacing: None,
             fit: false,
         }
     }
@@ -402,6 +405,12 @@ pub struct TrayConfig {
     pub metrics: Vec<String>,
     #[serde(default = "yes")]
     pub battery: bool,
+    #[serde(default = "default_glance")]
+    pub style: String,
+}
+
+fn default_glance() -> String {
+    "calm".to_string()
 }
 
 fn default_stats() -> bool {
@@ -428,6 +437,7 @@ impl Default for TrayConfig {
             stats: default_stats(),
             metrics: default_metrics(),
             battery: true,
+            style: default_glance(),
         }
     }
 }
@@ -1346,6 +1356,13 @@ impl Config {
             .clamp(0.0, 40.0)
     }
 
+    pub fn dock_spacing(&self) -> f64 {
+        self.dock
+            .spacing
+            .unwrap_or((self.dock_icon() * 0.08).round().max(2.0))
+            .clamp(0.0, 48.0)
+    }
+
     pub fn dock_height(&self) -> f64 {
         self.dock_icon() + self.dock_padding() * 2.0
     }
@@ -1534,6 +1551,7 @@ impl Config {
         {
             item.check().map_err(ConfigError::Invalid)?;
         }
+        crate::glance::Style::parse(&self.tray.style).map_err(ConfigError::Invalid)?;
         for metric in &self.tray.metrics {
             crate::stats::Metric::parse(metric).map_err(ConfigError::Invalid)?;
         }
@@ -1740,6 +1758,8 @@ mod tests {
         assert_eq!(config.dock_height(), 64.0);
         assert_eq!(config.dock_icon(), 52.0);
         assert_eq!(config.dock_padding(), 6.0);
+        assert_eq!(config.dock_spacing(), 4.0);
+        assert_eq!(Config::parse("[dock]\nspacing = 12\n").unwrap().dock_spacing(), 12.0);
         let mine = Config::parse("[dock]\nicon = 40\npadding = 10\nfit = true\n").unwrap();
         assert_eq!(mine.dock_height(), 60.0);
         assert!(mine.dock.fit);

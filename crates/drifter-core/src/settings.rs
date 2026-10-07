@@ -262,6 +262,8 @@ pub struct Model {
     pub dock_icon: f64,
     pub dock_pad: f64,
     pub dock_fit: bool,
+    pub dock_gap: f64,
+    pub glance: usize,
     pub shows: [bool; 6],
     pub defaults: [Option<Launch>; 8],
     pub system: [Option<String>; 8],
@@ -433,6 +435,11 @@ impl Model {
             dock_icon: config.dock_icon(),
             dock_pad: config.dock_padding(),
             dock_fit: config.dock.fit,
+            dock_gap: config.dock_spacing(),
+            glance: crate::glance::Style::parse(&config.tray.style)
+                .ok()
+                .and_then(|style| crate::glance::Style::ALL.iter().position(|each| *each == style))
+                .unwrap_or(0),
             shows: [
                 config.dock.files,
                 config.dock.terminal,
@@ -1024,6 +1031,18 @@ impl Model {
                             },
                         )
                         .detail("Room around the icons. The dock is the icon size plus this above and below"),
+                        Row::new(
+                            Id::DockSpacing,
+                            "Icon spacing",
+                            Control::Slider {
+                                least: 0.0,
+                                most: 48.0,
+                                value: self.dock_gap,
+                                unit: " px",
+                                zero: None,
+                            },
+                        )
+                        .detail("Room between one icon and the next"),
                         Row::new(Id::DockFit, "Fit to icons", Control::Switch(self.dock_fit))
                             .detail("Only as wide as its icons. Off spans the whole screen"),
                         ],
@@ -1044,6 +1063,16 @@ impl Model {
             Section::TopBar => {
                 let mut info = vec![
                     Row::new(Id::Stats, "Show system info", Control::Switch(self.stats)),
+                    Row::new(
+                        Id::Glance,
+                        "Style",
+                        Control::Segments {
+                            options: crate::glance::Style::ALL.iter().map(|style| style.label()).collect(),
+                            chosen: self.glance,
+                        },
+                    )
+                    .detail("Point at it for every number")
+                    .enabled(self.stats),
                     Row::new(Id::Cpu, "CPU", Control::Switch(self.cpu))
                         .detail("All cores together")
                         .enabled(self.stats),
@@ -1663,6 +1692,8 @@ impl Model {
             (Id::DockIcon, Value::Number(n)) => self.dock_icon = n.round().clamp(16.0, 128.0),
             (Id::DockPadding, Value::Number(n)) => self.dock_pad = n.round().clamp(0.0, 40.0),
             (Id::DockFit, Value::Switch(on)) => self.dock_fit = on,
+            (Id::DockSpacing, Value::Number(n)) => self.dock_gap = n.round().clamp(0.0, 48.0),
+            (Id::Glance, Value::Choice(at)) => self.glance = at.min(crate::glance::Style::ALL.len() - 1),
             (Id::AutoEntry(at), Value::Switch(on)) => {
                 if let Some(entry) = self.autostarts.get_mut(at) {
                     entry.on = on;
@@ -1950,11 +1981,18 @@ impl Model {
                 toml_edit::Value::from(self.autostart),
             );
         }
+        if self.glance != before.glance {
+            let name = crate::glance::Style::ALL[self.glance.min(crate::glance::Style::ALL.len() - 1)].name();
+            put(&mut doc, "tray", "style", toml_edit::Value::from(name));
+        }
         if self.dock_icon != before.dock_icon {
             put(&mut doc, "dock", "icon", int(self.dock_icon));
         }
         if self.dock_pad != before.dock_pad {
             put(&mut doc, "dock", "padding", int(self.dock_pad));
+        }
+        if self.dock_gap != before.dock_gap {
+            put(&mut doc, "dock", "spacing", int(self.dock_gap));
         }
         if self.dock_fit != before.dock_fit {
             put(&mut doc, "dock", "fit", toml_edit::Value::from(self.dock_fit));
@@ -2249,6 +2287,8 @@ pub enum Id {
     DockIcon,
     DockPadding,
     DockFit,
+    DockSpacing,
+    Glance,
     Dock(usize),
     DockAdd,
     DockShow(usize),

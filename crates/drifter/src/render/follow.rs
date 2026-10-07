@@ -537,9 +537,10 @@ impl State {
         self.dock_pad = config.dock_padding();
         self.dock.margin = dock_margin(config);
         let resized = self.dock.with_icon(config.dock_icon());
+        self.dock.gap = config.dock_spacing();
         let regrown = resized.icon != self.dock.icon;
         if regrown {
-            self.dock = resized;
+            self.dock = resized.spaced(config.dock_spacing());
             let side = self.dock.icon as u32;
             let (trash, cog, spare) = load_dock_art(&mut self.renderer, config, side, &self.palette);
             self.trash = trash;
@@ -564,6 +565,9 @@ impl State {
             }
         }
         self.sampler.follow(&config.tray);
+        self.glance = drifter_core::glance::Style::parse(&config.tray.style).unwrap_or(drifter_core::glance::Style::Calm);
+        self.sampled = None;
+        self.glance_card = None;
         self.stats = None;
     }
 }

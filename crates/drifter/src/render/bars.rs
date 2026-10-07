@@ -941,14 +941,21 @@ impl State {
         Some(self.tray.battery_rect(self.tray_band()?, *size))
     }
 
+    pub(super) fn stats_spot(&self) -> Option<Rect> {
+        let band = self.tray_band()?;
+        let (_, size) = self.stats.as_ref()?;
+        let (_, shown) = self.tray_layout(band);
+        shown.then(|| self.tray.stats_rect(band, self.tray_lead(), *size))
+    }
+
     pub(super) fn wind_the_stats(&mut self) {
         if !self.drawers[Edge::Top.index()].visible() || self.font.is_none() {
+            self.glance_card = None;
             return;
         }
-        if self.stats.is_some()
-            && self
-                .sampled
-                .is_some_and(|at| at.elapsed() < Duration::from_secs(1))
+        self.wind_the_card();
+        if self.stats_busy
+            || (self.stats.is_some() && self.sampled.is_some_and(|at| at.elapsed() < Duration::from_secs(1)))
         {
             return;
         }
@@ -956,22 +963,82 @@ impl State {
         let fields = self.sampler.read();
         if fields.is_empty() {
             self.stats = None;
+            self.glance_card = None;
             return;
         }
-        let fields: Vec<(&str, u8)> = fields
-            .iter()
-            .map(|(label, value)| (label.as_str(), *value))
-            .collect();
-        let image = self
-            .font
-            .as_ref()
-            .map(|font| drifter_core::stats::paint(font, &fields, self.tray.ink))
-            .expect("the font was there a moment ago");
-        let size = drifter_core::paint::logical(&image);
-        match self.upload_again(Some(&image), "system info") {
-            Ok(Some(buffer)) => self.stats = Some((buffer, size)),
-            Ok(None) => {}
-            Err(error) => log!("drifter: {error}"),
+        if let Some((_, cpu)) = fields.iter().find(|(label, _)| label == "CPU") {
+            self.cpu_history.push(*cpu);
+            let extra = self.cpu_history.len().saturating_sub(drifter_core::glance::HISTORY);
+            self.cpu_history.drain(..extra);
         }
+        self.glance_fields = fields.clone();
+        self.card_stale = true;
+        self.stats_busy = true;
+        let (style, ink, font) = (self.glance, self.tray.ink, self.font.clone());
+        self.on_worker(
+            "system info",
+            move || {
+                let values: Vec<u8> = fields.iter().map(|(_, value)| *value).collect();
+                match (style, font) {
+                    (drifter_core::glance::Style::Text, Some(font)) => {
+                        let fields: Vec<(&str, u8)> = fields.iter().map(|(label, value)| (label.as_str(), *value)).collect();
+                        drifter_core::stats::paint(&font, &fields, ink)
+                    }
+                    _ => drifter_core::glance::paint(style, &values, ink),
+                }
+            },
+            |state, image| {
+                state.stats_busy = false;
+                let size = drifter_core::paint::logical(&image);
+                match upload(&mut state.renderer, Some(&image), "system info") {
+                    Ok(Some(buffer)) => state.stats = Some((buffer, size)),
+                    Ok(None) => {}
+                    Err(error) => log!("drifter: {error}"),
+                }
+                state.kick_now();
+            },
+        );
+    }
+
+    fn wind_the_card(&mut self) {
+        let Some(spot) = self.stats_spot().filter(|spot| spot.contains(self.pointer) && self.popover.is_none()) else {
+            self.glance_card = None;
+            return;
+        };
+        if self.card_busy || (self.glance_card.is_some() && !self.card_stale) {
+            return;
+        }
+        let (Some(font), Some(bold)) = (self.font.clone(), self.search_font.clone()) else {
+            return;
+        };
+        self.card_stale = false;
+        self.card_busy = true;
+        let card = drifter_core::glance::Card::themed(&self.palette);
+        let fields = self.glance_fields.clone();
+        let history = self.cpu_history.clone();
+        let height = card.height(fields.len(), history.len() > 1);
+        let x = (spot.origin.x - 8.0).clamp(8.0, (self.screen.x - card.width - 8.0).max(8.0));
+        let y = self.tray_band().map_or(spot.max().y, |band| band.max().y) + 8.0;
+        let rect = Rect::new(Vec2::new(x, y).round(), Vec2::new(card.width, height));
+        let frosting = self.frosting();
+        self.on_worker(
+            "system card",
+            move || {
+                let mut image = drifter_core::glance::paint_card(&card, &font, &bold, &fields, &history);
+                worker::frost(&frosting, &mut image, rect.origin, card.back_alpha);
+                image
+            },
+            move |state, image| {
+                state.card_busy = false;
+                if state.stats_spot().is_none_or(|spot| !spot.contains(state.pointer)) {
+                    state.glance_card = None;
+                    return;
+                }
+                if let Ok(Some(buffer)) = upload(&mut state.renderer, Some(&image), "system card") {
+                    state.glance_card = Some((buffer, rect));
+                    state.kick_now();
+                }
+            },
+        );
     }
 }

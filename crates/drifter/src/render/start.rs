@@ -421,7 +421,7 @@ pub fn open(
             settings: config.dock.settings,
             trash: config.dock.trash,
             margin: dock_margin(config),
-            ..Dock::themed(&palette).with_icon(config.dock_icon())
+            ..Dock::themed(&palette).with_icon(config.dock_icon()).spaced(config.dock_spacing())
         },
         pinned,
         pinned_from: (config.dock.clone(), config.apps.clone()),
@@ -490,6 +490,13 @@ pub fn open(
         battery_at: None,
         battery_busy: false,
         show_battery: config.tray.battery,
+        glance: drifter_core::glance::Style::parse(&config.tray.style).unwrap_or(drifter_core::glance::Style::Calm),
+        glance_fields: Vec::new(),
+        cpu_history: Vec::new(),
+        stats_busy: false,
+        glance_card: None,
+        card_busy: false,
+        card_stale: false,
         dock_fit: config.dock.fit,
         dock_pad: config.dock_padding(),
         fit_busy: false,
