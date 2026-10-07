@@ -41,9 +41,23 @@ pub(super) struct Welcome {
     accent: Option<TextureBuffer<Tex>>,
     shadow: Option<(TextureBuffer<Tex>, f64)>,
     job: u64,
-    painting: bool,
-    dirty: bool,
+    paint: worker::Lane,
+    scan: worker::Lane,
+    apps: Option<std::sync::Arc<Vec<Shelf>>>,
     swap: Option<f64>,
+}
+
+#[derive(Clone)]
+struct Known {
+    id: String,
+    name: String,
+    icon: Option<drifter_core::Image>,
+}
+
+struct Shelf {
+    role: Role,
+    now: Option<Known>,
+    have: Vec<Known>,
 }
 
 impl State {
@@ -140,12 +154,13 @@ impl State {
             accent: tint,
             shadow,
             job: 0,
-            painting: false,
-            dirty: false,
+            paint: worker::Lane::default(),
+            scan: worker::Lane::default(),
+            apps: None,
             swap: None,
         });
         self.welcome_read(&config);
-        self.welcome_tiles(&config);
+        self.welcome_scan();
         self.welcome_pictures();
         self.paint_welcome();
     }
@@ -208,53 +223,59 @@ impl State {
         (scales, head.scale, suggested, words)
     }
 
-    fn welcome_tiles(&mut self, config: &Config) {
-        let roles = Role::ALL;
-        let mut tiles = Vec::new();
-        let mut keys = Vec::new();
-        for role in roles {
-            let item = config
-                .apps
-                .get(role)
-                .cloned()
-                .or_else(|| drifter_core::desktop::system_default(role).map(drifter_core::Launch::App));
-            let id = item.as_ref().and_then(|item| item.app().map(str::to_string));
-            let entry = id.as_deref().and_then(crate::apps::find);
-            let name = item.as_ref().map(|item| {
-                entry
-                    .as_ref()
-                    .and_then(|entry| entry.name.clone())
-                    .unwrap_or_else(|| item.name())
-            });
-            let icon = id.as_deref().and_then(|id| self.welcome_icon(id, 68));
-            let busy = self
-                .welcome
-                .as_ref()
-                .is_some_and(|open| open.busy.iter().any(|offer| offer.role == role));
-            tiles.push(Tile { role, name, icon, busy });
-            keys.push(id);
+    fn welcome_scan(&mut self) {
+        let Some(open) = self.welcome.as_mut() else {
+            return;
+        };
+        if !open.scan.claim() {
+            return;
         }
-        if let Some(open) = self.welcome.as_mut() {
-            open.view.tiles = tiles;
-            open.tiles = keys;
-        }
+        let path = self.config_path.clone();
+        let density = self.density;
+        let job = open.job;
+        self.background("welcome-apps", move || {
+            drifter_core::paint::set_density(density);
+            let shelves = scan_apps(&path);
+            move |state: &mut State| state.welcome_scanned(shelves, job)
+        });
     }
 
-    fn welcome_icon(&mut self, id: &str, side: u32) -> Option<drifter_core::Image> {
-        let name = self
-            .installed_apps()
-            .iter()
-            .find(|app| app.id == id)
-            .and_then(|app| app.icon.clone())?;
-        let key = format!("{name}@welcome{side}");
-        if let Some(held) = self.search_icons.get(&key) {
-            return held.clone();
+    fn welcome_scanned(&mut self, shelves: Vec<Shelf>, job: u64) {
+        let Some(open) = self.welcome.as_mut() else {
+            return;
+        };
+        let again = open.scan.release();
+        if open.job == job && open.density == self.density {
+            let busy = open.busy.clone();
+            open.view.tiles = shelves
+                .iter()
+                .map(|shelf| Tile {
+                    role: shelf.role,
+                    name: shelf.now.as_ref().map(|known| known.name.clone()),
+                    icon: shelf.now.as_ref().and_then(|known| known.icon.clone()),
+                    busy: busy.iter().any(|offer| offer.role == shelf.role),
+                })
+                .collect();
+            open.tiles = shelves
+                .iter()
+                .map(|shelf| shelf.now.as_ref().map(|known| known.id.clone()))
+                .collect();
+            open.apps = Some(std::sync::Arc::new(shelves));
+            let choosing = open.view.choosing.as_ref().map(|(role, _)| *role);
+            if let Some(role) = choosing {
+                let note = open.view.note.clone();
+                self.welcome_choose(role);
+                if let Some(open) = self.welcome.as_mut()
+                    && open.view.note.is_none()
+                {
+                    open.view.note = note;
+                }
+            }
+            self.paint_welcome();
         }
-        let image = drifter_core::icon::find(&name, None, dense(side))
-            .and_then(|path| drifter_core::image::load_sized(&path, dense(side)).ok())
-            .map(|image| image.scaled(dense(side), dense(side)));
-        self.search_icons.insert(key, image.clone());
-        image
+        if again {
+            self.welcome_scan();
+        }
     }
 
     fn welcome_pictures(&mut self) {
@@ -327,61 +348,42 @@ impl State {
         };
         let look = drifter_core::welcome::Look::themed(&self.palette, self.look.accent);
         let veil = self.veil(0.97);
-        let frost = self
-            .wallpaper
-            .as_ref()
-            .map(|paper| paper.frost.clone())
-            .zip(self.laid_paper());
-        let density = self.density;
+        let frosting = self.frosting();
         let Some(open) = self.welcome.as_mut() else {
             return;
         };
-        if open.painting {
-            open.dirty = true;
+        if !open.paint.claim() {
             return;
         }
-        open.painting = true;
         let view = open.view.clone();
         let fonts = open.fonts.clone();
         let job = open.job;
-        self.background("welcome-paint", move || {
-            drifter_core::paint::set_density(density);
-            let mut image = look.paint(&view, &fonts, veil);
-            if let Some((frost, (laid, size))) = frost {
-                let dense = drifter_core::paint::density();
-                drifter_core::frost::underlay(&mut image, veil, |point| {
-                    frost.behind(&laid, size, rect.origin + point / dense)
-                });
-            }
-            move |state: &mut State| state.welcome_painted(image, job)
-        });
+        self.paint_on_worker(
+            "welcome-paint",
+            move || {
+                let mut image = look.paint(&view, &fonts, veil);
+                if let Some(frosting) = frosting {
+                    frosting.under(&mut image, rect.origin, veil);
+                }
+                Some(image)
+            },
+            move |state, art| state.welcome_painted(art, job),
+        );
     }
 
-    fn welcome_painted(&mut self, image: drifter_core::Image, job: u64) {
-        let art = match upload(&mut self.renderer, Some(&image), "welcome") {
-            Ok(art) => art,
-            Err(error) => {
-                log!("drifter: {error}");
-                None
-            }
-        };
+    fn welcome_painted(&mut self, art: Option<TextureBuffer<Tex>>, job: u64) {
         let Some(open) = self.welcome.as_mut() else {
             return;
         };
-        open.painting = false;
-        if open.job == job {
-            match open.swap.take() {
-                Some(way) => {
-                    open.leaving = open.art.take().map(|art| (art, way));
-                    open.moved = Instant::now();
-                }
-                None => {}
+        let again = open.paint.release();
+        if open.job == job && art.is_some() {
+            if let Some(way) = open.swap.take() {
+                open.leaving = open.art.take().map(|art| (art, way));
+                open.moved = Instant::now();
             }
-            if art.is_some() {
-                open.art = art;
-            }
+            open.art = art;
         }
-        if std::mem::take(&mut open.dirty) {
+        if again {
             self.paint_welcome();
         }
         self.kick_now();
@@ -646,10 +648,13 @@ impl State {
                 .find(|lesson| !open.view.done[lesson.index()])
                 .unwrap_or(Lesson::Search);
         }
-        let refresh = matches!(card, Card::Apps | Card::Display);
-        if refresh && let Ok(config) = Config::load_from(&self.config_path) {
+        if card == Card::Display
+            && let Ok(config) = Config::load_from(&self.config_path)
+        {
             self.welcome_read(&config);
-            self.welcome_tiles(&config);
+        }
+        if card == Card::Apps {
+            self.welcome_scan();
         }
         self.paint_welcome();
     }
@@ -703,15 +708,24 @@ impl State {
             }
             Hit::Text(large) => {
                 self.write_config(|text| drifter_core::settings::write_flag(text, "access", "large_text", large));
-                if let Some(open) = self.welcome.as_mut()
-                    && open.grow != grow_for(large)
-                    && let Ok(config) = Config::load_from(&self.config_path)
-                    && let Ok(fonts) = drifter_core::welcome::Fonts::load(config.font_path(), grow_for(large))
-                {
-                    open.fonts = std::sync::Arc::new(fonts);
-                    open.grow = grow_for(large);
-                }
                 self.welcome_reload();
+                let font = Config::load_from(&self.config_path).ok().and_then(|config| config.font_path());
+                let grow = grow_for(large);
+                self.background("welcome-fonts", move || {
+                    let fonts = drifter_core::welcome::Fonts::load(font, grow);
+                    move |state: &mut State| {
+                        let Ok(fonts) = fonts else {
+                            return;
+                        };
+                        if let Some(open) = state.welcome.as_mut()
+                            && open.grow != grow
+                        {
+                            open.fonts = std::sync::Arc::new(fonts);
+                            open.grow = grow;
+                            state.paint_welcome();
+                        }
+                    }
+                });
             }
             Hit::Scale(at) => {
                 let Some(scale) = open.view.scales.get(at).copied() else {
@@ -747,9 +761,6 @@ impl State {
                     open.view.choosing = None;
                     open.view.note = None;
                     open.view.hover = None;
-                }
-                if let Ok(config) = Config::load_from(&self.config_path) {
-                    self.welcome_tiles(&config);
                 }
                 self.paint_welcome();
             }
@@ -795,50 +806,64 @@ impl State {
     }
 
     fn welcome_choose(&mut self, role: Role) {
-        let have = drifter_core::desktop::serving(role);
-        let now = self
-            .welcome
+        let Some(open) = self.welcome.as_mut() else {
+            return;
+        };
+        let at = Role::ALL.iter().position(|each| *each == role).unwrap_or(0);
+        let now = open.tiles.get(at).cloned().flatten();
+        let have: Vec<Known> = open
+            .apps
             .as_ref()
-            .and_then(|open| open.tiles.get(Role::ALL.iter().position(|each| *each == role)?).cloned())
-            .flatten();
-        let busy: Vec<Offer> = self.welcome.as_ref().map(|open| open.busy.clone()).unwrap_or_default();
+            .and_then(|shelves| shelves.iter().find(|shelf| shelf.role == role))
+            .map(|shelf| shelf.have.clone())
+            .unwrap_or_default();
         let mut choices = Vec::new();
         let mut picks = Vec::new();
-        for app in have.iter().take(10) {
+        for known in have.iter().take(10) {
             choices.push(Choice {
-                name: app.name.clone(),
-                icon: self.welcome_icon(&app.id, 56),
-                chosen: now.as_deref() == Some(app.id.as_str()),
+                name: known.name.clone(),
+                icon: known.icon.clone(),
+                chosen: now.as_deref() == Some(known.id.as_str()),
                 installed: true,
                 busy: false,
             });
-            picks.push(Pick::Have(app.id.clone()));
+            picks.push(Pick::Have(known.id.clone()));
         }
-        for offer in drifter_core::desktop::offers(role, &have) {
-            if choices.len() >= 10 {
-                break;
+        if open.apps.is_some() {
+            let apps: Vec<drifter_core::desktop::App> = have
+                .iter()
+                .map(|known| drifter_core::desktop::App {
+                    id: known.id.clone(),
+                    name: known.name.clone(),
+                    icon: None,
+                    exec: None,
+                    words: String::new(),
+                    categories: Vec::new(),
+                })
+                .collect();
+            for offer in drifter_core::desktop::offers(role, &apps) {
+                if choices.len() >= 10 {
+                    break;
+                }
+                choices.push(Choice {
+                    name: offer.name.to_string(),
+                    icon: None,
+                    chosen: false,
+                    installed: false,
+                    busy: open.busy.contains(&offer),
+                });
+                picks.push(Pick::Get(offer));
             }
-            choices.push(Choice {
-                name: offer.name.to_string(),
-                icon: None,
-                chosen: false,
-                installed: false,
-                busy: busy.contains(&offer),
-            });
-            picks.push(Pick::Get(offer));
         }
-        let note = match installer() {
+        open.view.note = match installer() {
             None if picks.iter().any(|pick| matches!(pick, Pick::Get(_))) => {
                 Some("Getting new apps needs pkexec and apt or dnf.".to_string())
             }
             _ => None,
         };
-        if let Some(open) = self.welcome.as_mut() {
-            open.view.choosing = Some((role, choices));
-            open.view.note = note;
-            open.view.hover = None;
-            open.picks = picks;
-        }
+        open.view.choosing = Some((role, choices));
+        open.view.hover = None;
+        open.picks = picks;
         self.paint_welcome();
     }
 
@@ -876,16 +901,27 @@ impl State {
         };
         let launch = drifter_core::Launch::App(id.to_string());
         self.write_config(|text| drifter_core::settings::write_app(text, key, &launch));
-        let list = mimeapps();
-        let text = std::fs::read_to_string(&list).unwrap_or_default();
-        let out = drifter_core::desktop::set_default(&text, role, id);
-        if let Some(folder) = list.parent() {
-            let _ = std::fs::create_dir_all(folder);
-        }
-        if let Err(error) = std::fs::write(&list, out) {
-            log!("drifter: {} is left alone: {error}", list.display());
-        }
+        let id = id.to_string();
+        self.background("welcome-default", move || {
+            let list = mimeapps();
+            let text = std::fs::read_to_string(&list).unwrap_or_default();
+            let out = drifter_core::desktop::set_default(&text, role, &id);
+            if let Some(folder) = list.parent() {
+                let _ = std::fs::create_dir_all(folder);
+            }
+            if let Err(error) = std::fs::write(&list, out) {
+                log!("drifter: {} is left alone: {error}", list.display());
+            }
+            |_: &mut State| {}
+        });
         self.watch_config();
+        if let Some(open) = self.welcome.as_mut() {
+            let at = Role::ALL.iter().position(|each| *each == role).unwrap_or(0);
+            if let Some(slot) = open.tiles.get_mut(at) {
+                *slot = Some(launch.app().unwrap_or_default().to_string());
+            }
+        }
+        self.welcome_scan();
     }
 
     fn welcome_install(&mut self, offer: Offer) {
@@ -921,41 +957,36 @@ impl State {
                 .status()
                 .map(|status| status.success())
                 .unwrap_or(false);
-            move |state: &mut State| state.welcome_installed(offer, done)
+            let found = drifter_core::desktop::serving(offer.role)
+                .into_iter()
+                .find(|app| offer.ids.iter().any(|id| id.eq_ignore_ascii_case(&app.id)))
+                .map(|app| app.id)
+                .filter(|_| done);
+            move |state: &mut State| state.welcome_installed(offer, found)
         });
     }
 
-    fn welcome_installed(&mut self, offer: Offer, done: bool) {
+    fn welcome_installed(&mut self, offer: Offer, found: Option<String>) {
         self.installed = None;
         let Some(open) = self.welcome.as_mut() else {
             return;
         };
         open.busy.retain(|held| *held != offer);
-        let found = drifter_core::desktop::serving(offer.role)
-            .into_iter()
-            .find(|app| offer.ids.iter().any(|id| id.eq_ignore_ascii_case(&app.id)));
-        match (done, found) {
-            (true, Some(app)) => {
-                self.welcome_default(offer.role, &app.id);
-            }
-            _ => {
-                if let Some(open) = self.welcome.as_mut() {
-                    open.view.note = Some(format!("{} did not install.", offer.name));
+        if let Some((_, choices)) = open.view.choosing.as_mut() {
+            for (choice, pick) in choices.iter_mut().zip(&open.picks) {
+                if matches!(pick, Pick::Get(held) if *held == offer) {
+                    choice.busy = false;
                 }
             }
         }
-        let choosing = self
-            .welcome
-            .as_ref()
-            .and_then(|open| open.view.choosing.as_ref().map(|(role, _)| *role));
-        if let Ok(config) = Config::load_from(&self.config_path) {
-            self.welcome_tiles(&config);
+        for tile in open.view.tiles.iter_mut().filter(|tile| tile.role == offer.role) {
+            tile.busy = false;
         }
-        let note = self.welcome.as_ref().and_then(|open| open.view.note.clone());
-        if let Some(role) = choosing {
-            self.welcome_choose(role);
-            if let (Some(open), Some(note)) = (self.welcome.as_mut(), note) {
-                open.view.note = Some(note);
+        match found {
+            Some(id) => self.welcome_default(offer.role, &id),
+            None => {
+                open.view.note = Some(format!("{} did not install.", offer.name));
+                self.welcome_scan();
             }
         }
         self.paint_welcome();
@@ -1010,6 +1041,48 @@ impl State {
             self.paint_welcome();
         }
     }
+}
+
+fn scan_apps(config_path: &Path) -> Vec<Shelf> {
+    let config = Config::load_from(config_path).unwrap_or_default();
+    let installed = drifter_core::desktop::installed();
+    let icon = |id: &str, side: u32| -> Option<drifter_core::Image> {
+        let name = installed.iter().find(|app| app.id == id)?.icon.clone()?;
+        drifter_core::icon::find(&name, None, dense(side))
+            .and_then(|path| drifter_core::image::load_sized(&path, dense(side)).ok())
+            .map(|image| image.scaled(dense(side), dense(side)))
+    };
+    Role::ALL
+        .into_iter()
+        .map(|role| {
+            let item = config
+                .apps
+                .get(role)
+                .cloned()
+                .or_else(|| drifter_core::desktop::system_default(role).map(drifter_core::Launch::App));
+            let now = item.map(|item| {
+                let id = item.app().unwrap_or_default().to_string();
+                let name = crate::apps::find(&id)
+                    .and_then(|entry| entry.name)
+                    .unwrap_or_else(|| item.name());
+                Known {
+                    icon: icon(&id, 68),
+                    id,
+                    name,
+                }
+            });
+            let have = drifter_core::desktop::serving(role)
+                .into_iter()
+                .take(10)
+                .map(|app| Known {
+                    icon: icon(&app.id, 56),
+                    name: app.name,
+                    id: app.id,
+                })
+                .collect();
+            Shelf { role, now, have }
+        })
+        .collect()
 }
 
 fn grow_for(large: bool) -> f64 {

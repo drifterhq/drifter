@@ -22,6 +22,7 @@ mod power;
 mod search;
 mod start;
 mod welcome;
+mod worker;
 #[cfg(test)]
 mod tests;
 mod wallpaper;
