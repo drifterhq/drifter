@@ -47,6 +47,7 @@ pub(super) struct Welcome {
     apps: Option<std::sync::Arc<Vec<Shelf>>>,
     swap: Option<f64>,
     logo: Option<Logo>,
+    logo_clock: (f64, Instant),
 }
 
 pub(super) struct Logo {
@@ -166,6 +167,7 @@ impl State {
             apps: None,
             swap: None,
             logo: None,
+            logo_clock: (20.0, Instant::now()),
         });
         let logo = wallpaper::logo_program(&mut self.renderer).map(|program| Logo { program, sheet: None });
         if let Some(open) = self.welcome.as_mut() {
@@ -417,10 +419,22 @@ impl State {
         self.paint_welcome();
     }
 
+    fn welcome_logo_clock(&mut self) -> f64 {
+        let Some(open) = self.welcome.as_mut() else {
+            return 0.0;
+        };
+        let now = Instant::now();
+        let (then, at) = open.logo_clock;
+        let clock = then + now.duration_since(at).as_secs_f64() * logo_pace(open.view.motion, self.access.reduce_motion);
+        open.logo_clock = (clock, now);
+        clock
+    }
+
     pub(super) fn welcome_elements(&mut self, elements: &mut Vec<Skin>) {
         let Some(rect) = self.welcome_rect() else {
             return;
         };
+        let logo_clock = self.welcome_logo_clock();
         let reduce = self.access.reduce_motion;
         let screen = self.screen;
         let Some(open) = self.welcome.as_ref() else {
@@ -516,7 +530,7 @@ impl State {
         }
         let hello = open.view.card == Card::Hello && open.closing.is_none() && open.art.is_some();
         let logo_rect = look.logo_rect();
-        let clock = (now.duration_since(open.opened).as_secs_f64() + 20.0) * LOGO_PACE;
+        let clock = logo_clock;
         if hello && let Some(buffer) = self.welcome_logo(clock) {
             let target = Rect::new(here.origin + logo_rect.origin, logo_rect.size);
             elements.push(Skin::Texture(element(&buffer, target, (fade * t) as f32)));
@@ -579,7 +593,9 @@ impl State {
         };
         let now = Instant::now();
         open.closing.is_some()
-            || (open.view.card == Card::Hello && open.logo.is_some())
+            || (open.view.card == Card::Hello
+                && open.logo.is_some()
+                && logo_pace(open.view.motion, self.access.reduce_motion) > 0.0)
             || (open.intro && now.duration_since(open.opened) < INTRO)
             || now.duration_since(open.moved) < SLIDE
             || (open.view.card == Card::Look && open.hovered.is_some())
@@ -1140,6 +1156,14 @@ fn scan_apps(config_path: &Path) -> Vec<Shelf> {
         .collect()
 }
 
+
+fn logo_pace(motion: Motion, reduce: bool) -> f64 {
+    match (reduce, motion) {
+        (true, _) | (_, Motion::Still) => 0.0,
+        (_, Motion::Calm) => LOGO_PACE * 0.6,
+        (_, Motion::Full) => LOGO_PACE,
+    }
+}
 
 fn title_case(word: &str) -> String {
     let mut chars = word.chars();
