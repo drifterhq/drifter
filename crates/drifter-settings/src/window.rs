@@ -923,6 +923,15 @@ impl Settings {
                 Some(Ask::Reset) => self.reset_all(),
                 Some(Ask::Net(ask)) => self.net_ask(ask),
                 Some(Ask::User(ask)) => self.user_ask(ask),
+                Some(Ask::RenamePlace(at)) => {
+                    let name = self.model.places.get(at).map(|place| place.name.clone()).unwrap_or_default();
+                    self.sheet = Some(Sheet::form(
+                        For::PlaceName(at),
+                        "Rename this place",
+                        vec![Field::plain("Name", &name)],
+                        "Save",
+                    ));
+                }
                 Some(Ask::Forget) => {
                     if let Err(error) = std::fs::remove_file(history_path())
                         && error.kind() != std::io::ErrorKind::NotFound
@@ -1279,6 +1288,21 @@ impl Settings {
         use crate::users::Job;
 
         let text = |at: usize| texts.get(at).cloned().unwrap_or_default();
+        if let For::PlaceName(at) = purpose {
+            match self.model.rename_place(at, &text(0)) {
+                Ok(()) => {
+                    self.sheet = None;
+                    self.unsaved = true;
+                    self.stale = true;
+                }
+                Err(error) => {
+                    if let Some(sheet) = self.sheet.as_mut() {
+                        sheet.work(Some(&error), false);
+                    }
+                }
+            }
+            return;
+        }
         let checked: Result<(Job, String), String> = match purpose {
             For::MyName => users::check_full(&text(0))
                 .map(|full| (Job::Rename(full), "Saving…".to_string())),

@@ -210,6 +210,7 @@ pub enum Ask {
     Forget,
     Reset,
     User(UserAsk),
+    RenamePlace(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -4331,7 +4332,8 @@ mod tests {
         assert_eq!(row.detail.as_deref(), Some("Super + 1, zoom 50%"));
 
         let mut after = before.clone();
-        after.press(Id::Place(0), 0);
+        assert_eq!(after.press(Id::Place(0), 0), Some(Ask::RenamePlace(0)));
+        after.press(Id::Place(0), 1);
         let out = after.write(&before, text).unwrap();
         let back = Config::parse(&out).unwrap();
         back.validate().unwrap();
@@ -4339,7 +4341,10 @@ mod tests {
         assert_eq!(back.dock.pinned[0].command(), Some("drifter:place Place 1"));
 
         let mut later = model(&back);
-        later.press(Id::Place(0), 1);
+        later.rename_place(0, "Studio").unwrap();
+        assert!(later.rename_place(1, "Studio").is_err());
+        assert_eq!(later.dock.len(), 1);
+        later.press(Id::Place(0), 2);
         let out = later.write(&model(&back), &out).unwrap();
         let back = Config::parse(&out).unwrap();
         assert_eq!(back.place.len(), 1);

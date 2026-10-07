@@ -39,6 +39,7 @@ pub enum For {
     NewFace,
     RemoveUser(usize),
     MakeAdmin(usize),
+    PlaceName(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -663,6 +664,7 @@ impl Sheet {
             For::AddUser => "Add a user",
             For::RemoveUser(_) => "Remove a user",
             For::MakeAdmin(_) => "Change a user",
+            For::PlaceName(_) => "Rename this place",
         }
     }
 

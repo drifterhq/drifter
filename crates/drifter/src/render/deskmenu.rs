@@ -241,7 +241,7 @@ impl State {
     }
 
     pub(super) fn paint_desk_menu(&mut self) {
-        let Some(font) = self.font.clone() else {
+        let Some(font) = self.note_head.clone() else {
             return;
         };
         let look = self.cascade_look();
@@ -371,7 +371,7 @@ impl State {
     }
 
     pub(super) fn hover_desk_menu(&mut self) {
-        let Some(font) = self.font.as_deref() else {
+        let Some(font) = self.note_head.as_deref() else {
             return;
         };
         let look = self.cascade_look();
@@ -431,7 +431,7 @@ impl State {
         if self.alert.is_some() {
             return self.press_alert();
         }
-        let Some(font) = self.font.as_deref() else {
+        let Some(font) = self.note_head.as_deref() else {
             return false;
         };
         let look = self.cascade_look();
@@ -463,7 +463,7 @@ impl State {
     }
 
     pub(super) fn scroll_desk_menu(&mut self, steps: f64) -> bool {
-        let Some(font) = self.font.as_deref() else {
+        let Some(font) = self.note_head.as_deref() else {
             return false;
         };
         let look = self.cascade_look();
@@ -599,7 +599,7 @@ impl State {
     }
 
     fn paint_alert(&mut self) {
-        let (Some(font), Some(bold)) = (self.font.clone(), self.search_font.clone()) else {
+        let (Some(font), Some(bold)) = (self.note_head.clone(), self.note_head.clone()) else {
             self.alert = None;
             return;
         };

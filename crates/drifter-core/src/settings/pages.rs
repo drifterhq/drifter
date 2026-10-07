@@ -297,6 +297,27 @@ impl Model {
         ]
     }
 
+    pub fn rename_place(&mut self, at: usize, name: &str) -> Result<(), String> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err("Type a name for this place.".to_string());
+        }
+        if self.places.iter().enumerate().any(|(other, place)| other != at && place.name == name) {
+            return Err(format!("Another place is already called {name}."));
+        }
+        let Some(place) = self.places.get_mut(at) else {
+            return Err("That place is gone.".to_string());
+        };
+        let (old, new) = (place_button(&place.name), place_button(name));
+        place.name = name.to_string();
+        for each in &mut self.dock {
+            if *each == old {
+                *each = new.clone();
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn appearance_groups(&self) -> Vec<Group> {
         let look = &self.appearance;
         let named = |name: &Option<String>, none: &str| name.clone().unwrap_or(none.to_string());
@@ -547,8 +568,8 @@ impl Model {
                 let detail = format!("{key}, zoom {}%", (place.zoom * 100.0).round());
                 let docked = self.dock.contains(&place_button(&place.name));
                 let marks = match docked {
-                    true => vec![Mark::Text("Undock"), Mark::Minus],
-                    false => vec![Mark::Text("Dock"), Mark::Minus],
+                    true => vec![Mark::Text("Rename"), Mark::Text("Undock"), Mark::Minus],
+                    false => vec![Mark::Text("Rename"), Mark::Text("Dock"), Mark::Minus],
                 };
                 Row::new(Id::Place(at), &place.name, Control::Buttons(marks)).detail(&detail)
             })
@@ -1104,7 +1125,8 @@ impl Model {
                     (true, false, _) => NetAsk::Remove(at),
                 }));
             }
-            (Id::Place(at), 0) if at < self.places.len() => {
+            (Id::Place(at), 0) if at < self.places.len() => return Some(Ask::RenamePlace(at)),
+            (Id::Place(at), 1) if at < self.places.len() => {
                 let button = place_button(&self.places[at].name);
                 match self.dock.iter().position(|each| *each == button) {
                     Some(found) => {

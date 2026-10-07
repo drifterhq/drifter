@@ -46,7 +46,7 @@ impl State {
             return;
         }
         let look = self.menu_look();
-        let size = look.size(&items, self.font.as_deref());
+        let size = look.size(&items, self.note_head.as_deref());
         let rect = look.rect(at, size, self.screen);
         self.popover = Some(Popover {
             items,
@@ -76,7 +76,7 @@ impl State {
 
     pub(super) fn paint_popover(&mut self) {
         let look = self.menu_look();
-        let font = self.font.clone();
+        let font = self.note_head.clone();
         let frosting = self.frosting();
         let Some(open) = self.popover.as_ref() else {
             return;
@@ -220,7 +220,7 @@ impl State {
             least_width: 0.0,
             ..self.menu_look()
         };
-        let size = look.size(&items, self.font.as_deref());
+        let size = look.size(&items, self.note_head.as_deref());
         let at = Vec2::new(
             under.center().x - size.x / 2.0,
             if below {
@@ -230,7 +230,7 @@ impl State {
             },
         );
         let rect = look.rect(at, size, self.screen);
-        let font = self.font.clone();
+        let font = self.note_head.clone();
         let frosting = self.frosting();
         let text = text.to_string();
         self.tip_want = Some(text.clone());
@@ -584,7 +584,7 @@ impl State {
         {
             return;
         }
-        let mut image = look.paint(gauge, level, muted, self.font.as_deref());
+        let mut image = look.paint(gauge, level, muted, self.note_head.as_deref());
         let spot = match self.gauge_panel.as_ref().filter(|panel| panel.gauge == gauge) {
             Some(panel) => Some(panel.rect),
             None => self.gauge_rect(gauge).map(|under| look.rect(under, self.screen)),
