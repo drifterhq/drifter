@@ -64,7 +64,7 @@ impl State {
     }
 
     fn paint_control_art(&mut self) {
-        let Some(font) = self.font.clone() else {
+        let (Some(font), Some(small)) = (self.note_body.clone(), self.card_font.clone()) else {
             return;
         };
         let look = self.control_look();
@@ -89,7 +89,7 @@ impl State {
             |state| state.control.as_mut().map(|open| &mut open.lane),
             State::paint_control_art,
             move || {
-                let mut image = look.paint(&status, &font);
+                let mut image = look.paint(&status, &font, &small);
                 worker::frost(&frosting, &mut image, rect.origin, look.back_alpha);
                 Some(image)
             },

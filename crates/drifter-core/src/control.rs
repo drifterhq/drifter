@@ -186,7 +186,7 @@ impl Look {
         None
     }
 
-    pub fn paint(&self, status: &Status, font: &Font) -> Image {
+    pub fn paint(&self, status: &Status, font: &Font, small: &Font) -> Image {
         let size = self.size();
         let mut canvas = Canvas::new(size.x as u32, size.y as u32);
         canvas.round_rect(Rect::new(Vec2::ZERO, size), self.radius, self.back, self.back_alpha);
@@ -199,8 +199,8 @@ impl Look {
             symbol(&mut canvas, tile, dot, if on { [255, 255, 255] } else { self.ink });
             let x = rect.origin.x + 50.0;
             let room = (rect.max().x - x - 8.0).max(1.0);
-            let label = font.paint(&fit(font, tile.label(), room), self.ink);
-            let note = font.paint(&fit(font, &status.note(tile), room), self.dim);
+            let label = font.paint_weight(&fit(font, tile.label(), room), self.ink, 600.0);
+            let note = small.paint(&fit(small, &status.note(tile), room), self.dim);
             canvas.stamp(&label, Vec2::new(x, rect.center().y - crate::paint::logical(&label).y - 1.0), 1.0);
             canvas.stamp(&note, Vec2::new(x, rect.center().y + 1.0), 1.0);
         }
@@ -213,7 +213,7 @@ impl Look {
         {
             let card = self.slider_rect(which);
             canvas.round_rect(card, 12.0, self.card, 0.85);
-            let title = font.paint(name, self.ink);
+            let title = font.paint_weight(name, self.ink, 600.0);
             canvas.stamp(&title, card.origin + Vec2::new(12.0, 8.0), 1.0);
             let track = self.track(which);
             canvas.round_rect(track, 4.0, self.off, 1.0);
@@ -309,7 +309,7 @@ mod tests {
             volume: Some((0.4, false)),
             ..Status::default()
         };
-        crate::paint::same_at_two("control", || look.paint(&status, &font));
+        crate::paint::same_at_two("control", || look.paint(&status, &font, &font));
         crate::paint::same_at_two("control icon", || paint_icon(20, [255, 255, 255]));
     }
 
