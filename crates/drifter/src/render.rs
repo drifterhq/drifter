@@ -497,7 +497,7 @@ pub struct State {
     badge_art: std::collections::HashMap<String, (TextureBuffer<Tex>, Vec2)>,
     drops: Vec<TextureBuffer<Tex>>,
     frost_at: Option<Instant>,
-    frost_drift: Option<([i64; 2], Instant)>,
+    frost_drift: Option<([i64; 3], Instant)>,
     palette: drifter_core::theme::Palette,
     popover: Option<Popover>,
     desk_menu: Option<deskmenu::DeskMenu>,

@@ -347,8 +347,13 @@ impl State {
             drift[0],
             drift[1],
         ];
-        if self.frost_drift.is_none_or(|(was, _)| was != drift) {
-            self.frost_drift = Some((drift, Instant::now()));
+        let aim = [
+            self.camera.center.x.round() as i64,
+            self.camera.center.y.round() as i64,
+            (self.camera.zoom * 1000.0).round() as i64,
+        ];
+        if self.frost_drift.is_none_or(|(was, _)| was != aim) {
+            self.frost_drift = Some((aim, Instant::now()));
         }
         let drifting = self
             .frost_key
