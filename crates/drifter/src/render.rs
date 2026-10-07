@@ -541,6 +541,7 @@ pub struct State {
     gauge_panel: Option<GaugePanel>,
     lock_big: Option<std::sync::Arc<Font>>,
     lock_small: Option<std::sync::Arc<Font>>,
+    lock_name: Option<std::sync::Arc<Font>>,
     verify: smithay::reexports::calloop::channel::Sender<(u64, crate::auth::Verdict)>,
     tickets: u64,
     power: Option<TextureBuffer<Tex>>,

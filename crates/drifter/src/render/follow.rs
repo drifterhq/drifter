@@ -261,6 +261,7 @@ impl State {
             }
             self.lock_big = Font::find(config.font_path(), 96.0).ok().map(std::sync::Arc::new);
             self.lock_small = Font::find(config.font_path(), 17.0).ok().map(std::sync::Arc::new);
+            self.lock_name = Font::find(config.font_path(), 26.0).ok().map(std::sync::Arc::new);
             self.clock = None;
             self.stats = None;
             self.titles.clear();

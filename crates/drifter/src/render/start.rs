@@ -312,6 +312,7 @@ pub fn open(
     let power = upload(&mut renderer, Some(&power_image), "power")?;
     let lock_big = Font::find(config.font_path(), 96.0).ok().map(std::sync::Arc::new);
     let lock_small = Font::find(config.font_path(), 17.0).ok().map(std::sync::Arc::new);
+    let lock_name = Font::find(config.font_path(), 26.0).ok().map(std::sync::Arc::new);
     let (checked_tx, checked_rx) =
         smithay::reexports::calloop::channel::channel::<(String, crate::polkit::Outcome)>();
     let (paper_tx, paper_rx) = smithay::reexports::calloop::channel::channel::<(
@@ -455,6 +456,7 @@ pub fn open(
         gauge_panel: None,
         lock_big,
         lock_small,
+        lock_name,
         verify: verify_tx,
         tickets: 0,
         power,

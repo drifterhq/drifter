@@ -104,7 +104,7 @@ pub struct Look {
 impl Look {
     pub fn themed(p: &crate::theme::Palette) -> Look {
         Look {
-            size: Vec2::new(300.0, 108.0),
+            size: Vec2::new(320.0, 128.0),
             back: p.back,
             field: p.raised,
             ink: p.ink,
@@ -112,7 +112,7 @@ impl Look {
             alert: p.alert,
             pill: 0.55,
             veil: 0.32,
-            logo: 104.0,
+            logo: 144.0,
             dot: 10.0,
             step: 16.0,
         }
@@ -127,8 +127,8 @@ impl Default for Look {
 
 impl Look {
     pub fn field_rect(&self) -> Rect {
-        let side = 30.0;
-        Rect::new(Vec2::new(side, 34.0), Vec2::new(self.size.x - side * 2.0, 36.0))
+        let side = 40.0;
+        Rect::new(Vec2::new(side, 54.0), Vec2::new(self.size.x - side * 2.0, 36.0))
     }
 
     pub fn shown(&self) -> usize {
@@ -150,7 +150,7 @@ impl Look {
     pub fn rect(&self, screen: Vec2) -> Rect {
         let logo = self.logo_rect(screen);
         Rect::new(
-            Vec2::new((screen.x - self.size.x) / 2.0, logo.max().y + 18.0).round(),
+            Vec2::new((screen.x - self.size.x) / 2.0, logo.max().y + 6.0).round(),
             self.size,
         )
     }
@@ -188,7 +188,7 @@ pub fn paint_top(look: &Look, big: Option<&Font>, small: Option<&Font>, words: &
     canvas.image
 }
 
-pub fn paint(look: &Look, small: Option<&Font>, name: &str, dots: usize, note: Note) -> Image {
+pub fn paint(look: &Look, small: Option<&Font>, named: Option<&Font>, name: &str, dots: usize, note: Note) -> Image {
     let mut canvas = crate::paint::Canvas::new(look.size.x.round() as u32, look.size.y.round() as u32);
     let field = look.field_rect();
     canvas.round_rect(field, field.size.y / 2.0, look.back, look.pill);
@@ -202,8 +202,8 @@ pub fn paint(look: &Look, small: Option<&Font>, name: &str, dots: usize, note: N
         return canvas.image;
     };
     let centered = |piece: &Image, y: f64| Vec2::new((look.size.x - crate::paint::logical(piece).x) / 2.0, y).round();
-    let named = font.paint_bold(name, look.ink);
-    canvas.stamp(&named, centered(&named, 4.0), 1.0);
+    let named = named.unwrap_or(font).paint_bold(name, look.ink);
+    canvas.stamp(&named, centered(&named, 0.0), 1.0);
     if count == 0 && note == Note::Ask {
         let hint = font.paint(note.text(), look.dim);
         let y = field.center().y - crate::paint::logical(&hint).y / 2.0;
@@ -237,7 +237,7 @@ mod tests {
     }
 
     fn panel(dots: usize, note: Note) -> Image {
-        paint(&Look::default(), None, "Ada", dots, note)
+        paint(&Look::default(), None, None, "Ada", dots, note)
     }
 
     #[test]
@@ -245,7 +245,7 @@ mod tests {
         let look = Look::default();
         let big = Font::find(None, 96.0).ok();
         let small = Font::find(None, 17.0).ok();
-        crate::paint::same_at_two("lock", || paint(&look, small.as_ref(), "Ada Lovelace", 5, Note::Wrong));
+        crate::paint::same_at_two("lock", || paint(&look, small.as_ref(), big.as_ref(), "Ada Lovelace", 5, Note::Wrong));
         crate::paint::same_at_two("lock top", || paint_top(&look, big.as_ref(), small.as_ref(), &words()));
     }
 
@@ -376,8 +376,8 @@ mod tests {
     fn a_wrong_password_is_written_in_the_alert_color() {
         let Some(font) = Font::find(None, 17.0).ok() else { return };
         let look = Look::default();
-        let plain = paint(&look, Some(&font), "Ada", 0, Note::Ask);
-        let wrong = paint(&look, Some(&font), "Ada", 0, Note::Wrong);
+        let plain = paint(&look, Some(&font), None, "Ada", 0, Note::Ask);
+        let wrong = paint(&look, Some(&font), None, "Ada", 0, Note::Wrong);
         assert_ne!(plain.rgba, wrong.rgba);
     }
 

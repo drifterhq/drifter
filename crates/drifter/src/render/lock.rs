@@ -339,6 +339,7 @@ impl State {
             );
         }
         let name = lock_name(self);
+        let named = self.lock_name.clone();
         let rect = look.rect(self.screen);
         let frosting = self.frosting();
         let painted = key.clone();
@@ -347,7 +348,7 @@ impl State {
             |state| state.lock.as_mut().map(|lock| &mut lock.lane),
             State::paint_lock,
             move || {
-                let mut image = drifter_core::lock::paint(&look, small.as_deref(), &name, painted.2, painted.3);
+                let mut image = drifter_core::lock::paint(&look, small.as_deref(), named.as_deref(), &name, painted.2, painted.3);
                 worker::frost(&frosting, &mut image, rect.origin, look.pill);
                 Some(image)
             },
