@@ -38,7 +38,7 @@ pub struct Look {
 impl Look {
     pub fn themed(p: &crate::theme::Palette) -> Look {
         Look {
-            width: 320.0,
+            width: 360.0,
             pad: 24.0,
             field: 34.0,
             button: Vec2::new(130.0, 30.0),
