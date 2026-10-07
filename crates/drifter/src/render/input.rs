@@ -360,8 +360,27 @@ impl State {
         };
     }
 
+    pub(super) fn work_zone(&self) -> Rect {
+        let zone = smithay::desktop::layer_map_for_output(&self.output).non_exclusive_zone();
+        let mut top = f64::from(zone.loc.y);
+        let mut bottom = f64::from(zone.loc.y + zone.size.h);
+        if !self.tunables.bar_hides[Edge::Top.index()] {
+            let band = self.drawers[Edge::Top.index()].open_band(self.screen, &self.shapes[Edge::Top.index()]);
+            top = top.max(band.max().y);
+        }
+        if !self.tunables.bar_hides[Edge::Bottom.index()] {
+            let band = self.drawers[Edge::Bottom.index()].open_band(self.screen, &self.shapes[Edge::Bottom.index()]);
+            bottom = bottom.min(band.origin.y);
+        }
+        Rect::new(
+            Vec2::new(f64::from(zone.loc.x), top),
+            Vec2::new(f64::from(zone.size.w), (bottom - top).max(1.0)),
+        )
+    }
+
     pub(super) fn land(&mut self, index: usize, zone: Zone) {
-        let view = self.camera.visible_rect(self.screen);
+        let work = self.work_zone();
+        let view = Rect::new(self.in_world(work.origin), work.size / self.camera.zoom);
         let frame = self.snap.rect(zone, view);
         let chrome = self.chrome_of(index);
         let want = Rect::new(
@@ -418,12 +437,7 @@ impl State {
             }
             ChromeButton::Maximize | ChromeButton::Restore => {
                 let chrome = self.chrome_of(index);
-                let zone =
-                    smithay::desktop::layer_map_for_output(&self.output).non_exclusive_zone();
-                let zone = Rect::new(
-                    Vec2::new(f64::from(zone.loc.x), f64::from(zone.loc.y)),
-                    Vec2::new(f64::from(zone.size.w), f64::from(zone.size.h)),
-                );
+                let zone = self.work_zone();
                 let view = Rect::new(self.in_world(zone.origin), zone.size / self.camera.zoom);
                 let room = view.size.min(zone.size);
                 let full = Rect::new(view.center() - room / 2.0, room);

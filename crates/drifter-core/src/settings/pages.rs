@@ -129,13 +129,13 @@ impl Model {
                         "Auto hide top bar",
                         Control::Switch(motion.hide_top),
                     )
-                    .detail("Off keeps the top bar on screen"),
+                    .detail("Off keeps the top bar on screen, and maximized windows leave room for it"),
                     Row::new(
                         Id::HideBottom,
                         "Auto hide bottom bar",
                         Control::Switch(motion.hide_bottom),
                     )
-                    .detail("Off keeps the bottom bar on screen"),
+                    .detail("Off keeps the dock on screen, and maximized windows leave room for it"),
                     slider(Id::BarOpen, "Open after", WAIT_MS, motion.bar_open, " ms")
                         .detail("How long the pointer rests at the edge"),
                     slider(

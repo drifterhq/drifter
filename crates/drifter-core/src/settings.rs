@@ -117,8 +117,8 @@ impl Section {
             Section::Wallpaper => "background picture image photo",
             Section::Appearance => "theme dark light accent color icons cursor font",
             Section::Window => "title bar buttons close minimize maximize",
-            Section::Dock => "apps pinned trash bottom bar",
-            Section::TopBar => "clock tray cpu memory battery disk",
+            Section::Dock => "apps pinned trash bottom bar hide always visible",
+            Section::TopBar => "clock tray cpu memory battery disk hide always visible",
             Section::Notifications => "alerts do not disturb history",
             Section::Network => "wifi wireless network internet password join",
             Section::Bluetooth => "bluetooth pair headphones speaker mouse keyboard devices",
@@ -993,7 +993,9 @@ impl Model {
                 vec![
                     Group {
                         header: None,
-                        rows: vec![Row::new(
+                        rows: vec![Row::new(Id::HideBottom, "Auto hide", Control::Switch(self.motion.hide_bottom))
+                            .detail("Off keeps the dock on screen, and maximized windows leave room for it"),
+                        Row::new(
                             Id::Bottom,
                             "Size",
                             Control::Slider {
@@ -1039,6 +1041,8 @@ impl Model {
                     Group {
                         header: None,
                         rows: vec![
+                            Row::new(Id::HideTop, "Auto hide", Control::Switch(self.motion.hide_top))
+                                .detail("Off keeps the top bar on screen, and maximized windows leave room for it"),
                             Row::new(
                                 Id::Top,
                                 "Bar height",
