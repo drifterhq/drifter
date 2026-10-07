@@ -14,6 +14,7 @@ use smithay::utils::Serial;
 use smithay::wayland::buffer::BufferHandler;
 use smithay::wayland::compositor::{
     CompositorClientState, CompositorHandler, CompositorState, get_parent, is_sync_subsurface,
+    with_states,
 };
 use smithay::wayland::selection::SelectionHandler;
 use smithay::wayland::selection::data_device::{
@@ -211,6 +212,7 @@ impl XdgShellHandler for State {
         surface.send_configure();
         let start = self.opening_motion();
         let id = self.next_window_id();
+        let decorated = asked_for_frame(surface.wl_surface());
         self.windows.push(Window {
             id,
             toplevel: surface,
@@ -221,7 +223,7 @@ impl XdgShellHandler for State {
             touched: false,
             born: std::time::Instant::now(),
             hidden: false,
-            decorated: true,
+            decorated,
             app: String::new(),
             title: String::new(),
             restore: None,
@@ -373,8 +375,24 @@ impl XdgShellHandler for State {
     }
 }
 
+struct FrameAsk(std::cell::Cell<bool>);
+
+fn asked_for_frame(surface: &WlSurface) -> bool {
+    with_states(surface, |states| {
+        states.data_map.get::<FrameAsk>().is_some_and(|ask| ask.0.get())
+    })
+}
+
 impl State {
     pub fn set_decorated(&mut self, surface: &WlSurface, decorated: bool) {
+        with_states(surface, |states| {
+            states
+                .data_map
+                .insert_if_missing(|| FrameAsk(std::cell::Cell::new(decorated)));
+            if let Some(ask) = states.data_map.get::<FrameAsk>() {
+                ask.0.set(decorated);
+            }
+        });
         if let Some(window) = self
             .windows
             .iter_mut()
@@ -390,14 +408,7 @@ impl State {
             state.decoration_mode = Some(mode);
         });
         toplevel.send_configure();
-        if let Some(window) = self
-            .windows
-            .iter_mut()
-            .find(|window| &window.toplevel == toplevel)
-        {
-            window.decorated = mode == DecorationMode::ServerSide;
-        }
-        self.kick_now();
+        self.set_decorated(toplevel.wl_surface(), mode == DecorationMode::ServerSide);
     }
 }
 

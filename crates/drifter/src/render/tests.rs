@@ -163,7 +163,7 @@ delegate_noop!(Client: ignore wl_seat::WlSeat);
 delegate_noop!(Client: ZwpKeyboardShortcutsInhibitManagerV1);
 delegate_noop!(Client: ignore ZwpKeyboardShortcutsInhibitorV1);
 
-fn run_client_with(stop: Arc<AtomicBool>, inhibit: bool) {
+fn run_client_with(stop: Arc<AtomicBool>, inhibit: bool, decorations: WindowDecorations) {
     let connection = Connection::connect_to_env().expect("the test client connects");
     let (globals, mut queue) = registry_queue_init(&connection).expect("a registry");
     let qh = queue.handle();
@@ -171,7 +171,7 @@ fn run_client_with(stop: Arc<AtomicBool>, inhibit: bool) {
     let shell = XdgShell::bind(&globals, &qh).expect("xdg shell");
     let shm = Shm::bind(&globals, &qh).expect("wl_shm");
     let surface = compositor.create_surface(&qh);
-    let window = shell.create_window(surface, WindowDecorations::RequestServer, &qh);
+    let window = shell.create_window(surface, decorations, &qh);
     window.set_title("red");
     window.set_app_id("drifter-test-red");
     window.commit();
@@ -237,14 +237,18 @@ fn start(name: &str, config: &Config, wallpaper: Option<Image>) -> Run {
 }
 
 fn red_window(run: &mut Run) -> (Arc<AtomicBool>, std::thread::JoinHandle<()>) {
-    red_window_with(run, false)
+    red_window_with(run, false, WindowDecorations::RequestServer)
 }
 
-fn red_window_with(run: &mut Run, inhibit: bool) -> (Arc<AtomicBool>, std::thread::JoinHandle<()>) {
+fn red_window_with(
+    run: &mut Run,
+    inhibit: bool,
+    decorations: WindowDecorations,
+) -> (Arc<AtomicBool>, std::thread::JoinHandle<()>) {
     let stop = Arc::new(AtomicBool::new(false));
     let client = {
         let stop = stop.clone();
-        std::thread::spawn(move || run_client_with(stop, inhibit))
+        std::thread::spawn(move || run_client_with(stop, inhibit, decorations))
     };
     pump(&mut run.screen, |state| {
         state
@@ -399,6 +403,22 @@ fn a_window_is_drawn_at_its_size_and_halves_at_half_zoom() {
         "half zoom halves the window: {width} x {height}"
     );
 
+    stop.store(true, Ordering::Relaxed);
+    let _ = client.join();
+}
+
+#[test]
+fn a_window_that_asks_for_no_frame_draws_its_own() {
+    let mut run = start("own-chrome", &Config::default(), None);
+    let (stop, client) = red_window_with(&mut run, false, WindowDecorations::ClientOnly);
+    let window = run
+        .screen
+        .state
+        .windows
+        .iter()
+        .find(|window| window.app == "drifter-test-red")
+        .expect("the red window is placed");
+    assert!(!window.decorated, "a client that asks for nothing draws its own chrome");
     stop.store(true, Ordering::Relaxed);
     let _ = client.join();
 }
@@ -942,7 +962,7 @@ fn other_apps_see_each_window_come_and_go() {
 #[test]
 fn a_window_that_inhibits_shortcuts_keeps_them_while_focused() {
     let mut run = start("inhibit", &Config::default(), None);
-    let (stop, client) = red_window_with(&mut run, true);
+    let (stop, client) = red_window_with(&mut run, true, WindowDecorations::RequestServer);
     pump(&mut run.screen, |state| state.shortcuts_inhibited());
     assert!(
         run.screen.state.shortcuts_inhibited(),
