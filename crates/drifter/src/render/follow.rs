@@ -427,6 +427,11 @@ impl State {
         let laid = (config.workspace.width, config.workspace.height) != self.screens_wide
             || config.monitor != self.monitors;
         self.screens_wide = (config.workspace.width, config.workspace.height);
+        let reduce = config.access.reduce_motion;
+        self.dock_logo.pace = drifter_core::welcome::logo_pace(
+            drifter_core::welcome::Motion::of(reduce, config.workspace.wallpaper_motion),
+            reduce,
+        );
         self.monitors = config.monitor.clone();
         self.mode = config.workspace.wallpaper_mode;
         self.holds = config.input.modifier;

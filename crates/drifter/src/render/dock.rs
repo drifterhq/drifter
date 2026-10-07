@@ -674,6 +674,13 @@ impl State {
             let lift = self.bounce_of(&app.key);
             let rect = self.dock.slot_rect(band, count, hidden.len(), Slot::Pinned(slot));
             let rect = Rect::new(rect.origin + Vec2::new(0.0, lift), rect.size);
+            if drifter_core::launchpad::is_button(&app.launch) {
+                let hot = self.dock.at(band, self.pointer, count, hidden.len()) == Some(Slot::Pinned(slot));
+                if let Some((buffer, shown)) = self.dock_logo_frame(rect, hot) {
+                    elements.push(Skin::Texture(element(&buffer, shown, 1.0)));
+                    continue;
+                }
+            }
             if let Some(buffer) = self.dock_icon(app) {
                 elements.push(Skin::Texture(element(&buffer, rect, 1.0)));
             }

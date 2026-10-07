@@ -11,6 +11,7 @@ mod capture;
 mod centers;
 mod deskmenu;
 mod dock;
+mod docklogo;
 mod follow;
 mod heads;
 mod launchpad;
@@ -492,6 +493,7 @@ pub struct State {
     search: Option<search::Search>,
     launchpad: Option<launchpad::Pad>,
     welcome: Option<welcome::Welcome>,
+    dock_logo: docklogo::DockLogo,
     welcome_wanted: bool,
     search_font: Option<std::sync::Arc<Font>>,
     search_icons: std::collections::HashMap<String, Option<drifter_core::Image>>,
@@ -624,6 +626,7 @@ impl State {
             || self.desk_menu_busy()
             || self.thumb_moving()
             || self.welcome_busy()
+            || self.dock_logo.hot
             || self.heads.iter().enumerate().any(|(index, head)| {
                 index != self.at
                     && (head.flight.is_some() || head.drawers.iter().any(|d| !d.settled()))
