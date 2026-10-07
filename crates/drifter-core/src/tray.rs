@@ -35,15 +35,11 @@ impl Default for Tray {
 
 impl Tray {
     pub fn control_rect(&self, band: Rect) -> Rect {
-        let power = self.power_rect(band).origin.x;
-        match self.battery > 0.0 {
-            true => self.left_of(band, power - self.button_gap - self.battery),
-            false => self.left_of(band, power),
-        }
+        self.left_of(band, self.power_rect(band).origin.x)
     }
 
     pub fn battery_rect(&self, band: Rect, size: Vec2) -> Rect {
-        let x = self.power_rect(band).origin.x - self.button_gap - size.x;
+        let x = self.control_rect(band).origin.x - self.button_gap - size.x;
         Rect::new(Vec2::new(x, self.centered(band, size.y)), size)
     }
 
@@ -53,7 +49,11 @@ impl Tray {
     }
 
     pub fn clock_rect(&self, band: Rect, text: Vec2) -> Rect {
-        let x = self.control_rect(band).origin.x - self.button_gap - text.x;
+        let left = match self.battery > 0.0 {
+            true => self.control_rect(band).origin.x - self.button_gap - self.battery,
+            false => self.control_rect(band).origin.x,
+        };
+        let x = left - self.button_gap - text.x;
         Rect::new(Vec2::new(x, self.centered(band, text.y)), text)
     }
 

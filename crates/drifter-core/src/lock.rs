@@ -628,7 +628,7 @@ mod tests {
         let size = crate::paint::logical(&corner);
         let spot = tray.status_rect(band, size);
         assert_eq!(spot.max().x, tray.power_rect(band).max().x);
-        assert_eq!(spot.origin.x, tray.battery_rect(band, crate::paint::logical(&battery)).origin.x);
+        assert!(spot.origin.x < tray.power_rect(band).origin.x - crate::paint::logical(&battery).x);
         assert!(paint_corner(&look, font.as_ref(), None, &tray).width < corner.width);
         crate::paint::same_at_two("lock corner", || paint_corner(&look, font.as_ref(), Some((false, 5)), &tray));
     }
@@ -658,14 +658,19 @@ mod tests {
     }
 
     #[test]
-    fn the_control_button_steps_left_of_the_battery() {
+    fn the_battery_sits_left_of_the_control_button_and_the_clock_makes_room() {
         let band = Rect::new(Vec2::ZERO, Vec2::new(1600.0, 32.0));
         let mut tray = crate::tray::Tray::default();
-        let bare = tray.control_rect(band);
+        let text = Vec2::new(80.0, 16.0);
+        let bare = tray.clock_rect(band, text);
         tray.battery = 60.0;
-        let moved = tray.control_rect(band);
-        assert_eq!(bare.origin.x - moved.origin.x, 60.0 + tray.button_gap);
-        assert!(moved.max().x <= tray.battery_rect(band, Vec2::new(60.0, 28.0)).origin.x);
+        let control = tray.control_rect(band);
+        let battery = tray.battery_rect(band, Vec2::new(60.0, 28.0));
+        assert!(battery.max().x <= control.origin.x);
+        assert!(control.max().x <= tray.power_rect(band).origin.x);
+        let clock = tray.clock_rect(band, text);
+        assert_eq!(bare.origin.x - clock.origin.x, 60.0 + tray.button_gap);
+        assert!(clock.max().x <= battery.origin.x);
     }
 
     #[test]
