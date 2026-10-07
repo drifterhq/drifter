@@ -401,26 +401,6 @@ impl State {
                     }
                 },
             );
-            let Some(open) = self.welcome.as_mut() else {
-                return;
-            };
-            if !open.paint.claim() {
-                return;
-            }
-            let view = open.view.clone();
-            let fonts = open.fonts.clone();
-            let job = open.job;
-            return self.paint_on_worker(
-                "welcome-paint",
-                move || {
-                    let mut image = look.paint(&view, &fonts, veil);
-                    if let Some(frosting) = frosting {
-                        frosting.under(&mut image, rect.origin, veil);
-                    }
-                    Some(image)
-                },
-                move |state, art| state.welcome_painted(art, job),
-            );
         }
         self.paint_on_worker(
             "welcome-paint",
@@ -601,6 +581,7 @@ impl State {
         };
         if open.view.card == Card::Comfort
             && open.closing.is_none()
+            && open.swap.is_none()
             && let Some((note, size)) = open.note.as_ref()
         {
             let desk = look.desk_rect();
