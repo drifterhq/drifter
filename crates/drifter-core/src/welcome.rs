@@ -28,8 +28,30 @@ pub fn logo_pace(motion: Motion, reduce: bool) -> f64 {
     }
 }
 
-pub fn note_drift(clock: f64) -> Vec2 {
-    Vec2::new(26.0 * (clock * 0.55).sin(), 7.0 * (clock * 0.9 + 1.0).sin())
+pub const DESK_BODY: &str = include_str!("desk.glsl");
+pub const DESK_CYCLE: f64 = 6.0;
+
+pub fn desk_source() -> String {
+    format!("{}{DESK_BODY}", crate::shader::HEAD)
+}
+
+pub fn desk_speed(motion: Motion, reduce: bool) -> f64 {
+    match (reduce, motion) {
+        (true, _) | (_, Motion::Still) => 0.0,
+        (_, Motion::Calm) => 0.4,
+        (_, Motion::Full) => 1.0,
+    }
+}
+
+pub fn desk_moment(seconds: f64, animate: bool) -> (f64, f64) {
+    let t = seconds.rem_euclid(DESK_CYCLE);
+    let ease = |from: f64, length: f64| match animate {
+        true => crate::motion::smooth(((t - from) / length).clamp(0.0, 1.0)),
+        false => f64::from(u8::from(t >= from)),
+    };
+    let window = ease(0.6, 0.35) * (1.0 - ease(4.2, 0.25));
+    let dock = 1.0 - ease(2.0, 0.3) * (1.0 - ease(3.2, 0.3));
+    (window, dock)
 }
 
 pub fn logo_source() -> String {
@@ -287,8 +309,8 @@ impl Fonts {
             body: font(14.5)?,
             small: font(12.5)?,
             key: Font::find(path.clone(), 11.0)?,
-            note_title: note(22.0)?,
-            note_body: note(14.0)?,
+            note_title: note(19.0)?,
+            note_body: note(12.5)?,
         })
     }
 }
@@ -655,12 +677,7 @@ impl Look {
         self.segments(canvas, fonts, self.segments_rect(2, 186.0), &["Regular", "Large"], usize::from(view.large), hover);
         if view.live_note {
             let desk = self.desk_rect();
-            let (top, bottom) = match self.light {
-                true => ([226, 229, 236], [214, 218, 227]),
-                false => (lift(self.well, -0.25), lift(self.well, -0.05)),
-            };
-            canvas.shade(desk, 16.0, top, bottom, 1.0);
-            canvas.ring(desk, 16.0, 1.0, self.rule, 0.5);
+            canvas.shadow(desk, 12.0, 10.0, 0.18);
             return;
         }
         let sheet = Rect::new(Vec2::new(PAD, 244.0), Vec2::new(SIZE.x - PAD * 2.0, 164.0));
@@ -669,11 +686,11 @@ impl Look {
     }
 
     pub fn desk_rect(&self) -> Rect {
-        Rect::new(Vec2::new(PAD, 244.0), Vec2::new(SIZE.x - PAD * 2.0, 164.0))
+        Rect::new(Vec2::new(PAD, 236.0), Vec2::new(SIZE.x - PAD * 2.0, 178.0))
     }
 
     pub fn note_size(&self) -> Vec2 {
-        Vec2::new(500.0, 140.0)
+        Vec2::new(400.0, 116.0)
     }
 
     pub fn paint_note(&self, fonts: &Fonts) -> Image {
@@ -692,18 +709,18 @@ impl Look {
         canvas.round_rect(sheet, 14.0, paper, 1.0);
         canvas.ring(sheet, 14.0, 1.0, self.rule, 0.7);
         for (at, color) in [[255, 95, 87], [254, 188, 46], [40, 200, 64]].into_iter().enumerate() {
-            canvas.circle(sheet.origin + Vec2::new(20.0 + at as f64 * 18.0, 18.0), 5.5, color, 1.0);
+            canvas.circle(sheet.origin + Vec2::new(16.0 + at as f64 * 15.0, 14.0), 4.5, color, 1.0);
         }
         let heading = fonts.note_title.paint_bold("Notes for Tuesday", self.ink);
-        canvas.stamp(&heading, sheet.origin + Vec2::new(22.0, 34.0), 1.0);
+        canvas.stamp(&heading, sheet.origin + Vec2::new(18.0, 30.0), 1.0);
         let lines = [
             "Walk before lunch. Water the fern.",
             "Call about the bike, then rest a little.",
         ];
-        let mut y = sheet.origin.y + 34.0 + logical(&heading).y + 10.0;
+        let mut y = sheet.origin.y + 30.0 + logical(&heading).y + 6.0;
         for line in lines {
             let words = fonts.note_body.paint(line, self.dim);
-            canvas.stamp(&words, Vec2::new(sheet.origin.x + 22.0, y).round(), 1.0);
+            canvas.stamp(&words, Vec2::new(sheet.origin.x + 18.0, y).round(), 1.0);
             y += logical(&words).y + 6.0;
         }
         canvas.image
@@ -1586,6 +1603,23 @@ mod tests {
 #[cfg(test)]
 mod note_tests {
     use super::*;
+
+    #[test]
+    fn the_desk_shader_reads_its_inputs_and_still_means_no_tween() {
+        let source = desk_source();
+        for name in ["T", "L", "U", "S0", "S1", "A", "B", "C", "v_coords", "alpha"] {
+            assert!(source.contains(name), "{name}");
+        }
+        for at in 0..120 {
+            let (window, dock) = desk_moment(f64::from(at) * 0.05, false);
+            assert!(window == 0.0 || window == 1.0, "{window}");
+            assert!(dock == 0.0 || dock == 1.0, "{dock}");
+        }
+        assert!(desk_moment(0.7, true).0 > 0.0 && desk_moment(0.7, true).0 < 1.0);
+        assert_eq!(desk_moment(2.5, false), (1.0, 0.0));
+        assert_eq!(desk_speed(Motion::Still, false), 0.0);
+        assert_eq!(desk_speed(Motion::Full, true), 0.0);
+    }
 
     #[test]
     fn the_comfort_card_and_its_note_paint() {

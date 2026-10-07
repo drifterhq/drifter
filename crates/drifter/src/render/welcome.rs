@@ -50,7 +50,9 @@ pub(super) struct Welcome {
     note: Option<(TextureBuffer<Tex>, Vec2)>,
     note_lane: worker::Lane,
     note_key: Option<(bool, bool)>,
-    note_clock: (f64, Instant),
+    desk: Option<Logo>,
+    desk_clock: (f64, Instant),
+    desk_since: Instant,
 }
 
 pub(super) struct Logo {
@@ -174,13 +176,17 @@ impl State {
             note: None,
             note_lane: worker::Lane::default(),
             note_key: None,
-            note_clock: (0.0, Instant::now()),
+            desk: None,
+            desk_clock: (30.0, Instant::now()),
+            desk_since: Instant::now(),
         });
         let logo = wallpaper::logo_program(&mut self.renderer).map(|program| Logo { program, sheet: None });
+        let desk = wallpaper::desk_program(&mut self.renderer).map(|program| Logo { program, sheet: None });
         if let Some(open) = self.welcome.as_mut() {
             open.view.live_logo = logo.is_some();
-            open.view.live_note = true;
+            open.view.live_note = desk.is_some();
             open.logo = logo;
+            open.desk = desk;
         }
         self.welcome_read(&config);
         self.welcome_scan();
@@ -459,15 +465,40 @@ impl State {
         clock
     }
 
-    fn welcome_note_clock(&mut self) -> f64 {
-        let Some(open) = self.welcome.as_mut() else {
-            return 0.0;
-        };
+    fn welcome_desk(&mut self) -> Option<(TextureBuffer<Tex>, f64)> {
+        let reduce = self.access.reduce_motion;
+        let look = drifter_core::welcome::Look::themed(&self.palette, self.look.accent);
+        let rect = look.desk_rect();
+        let size = (dense(rect.size.x as u32) as i32, dense(rect.size.y as u32) as i32);
+        let open = self.welcome.as_mut()?;
         let now = Instant::now();
-        let (then, at) = open.note_clock;
-        let clock = then + now.duration_since(at).as_secs_f64() * drifter_core::welcome::logo_pace(open.view.motion, self.access.reduce_motion);
-        open.note_clock = (clock, now);
-        clock
+        let speed = drifter_core::welcome::desk_speed(open.view.motion, reduce);
+        let animate = speed > 0.0;
+        let (then, at) = open.desk_clock;
+        let clock = then + now.duration_since(at).as_secs_f64() * speed * 6.0;
+        open.desk_clock = (clock, now);
+        let (window, dock) = drifter_core::welcome::desk_moment(now.duration_since(open.desk_since).as_secs_f64(), animate);
+        let mut desk = open.desk.take()?;
+        if desk.sheet.as_ref().is_none_or(|(_, had)| *had != size) {
+            match wallpaper::sheet(&mut self.renderer, size) {
+                Ok(sheet) => desk.sheet = Some((sheet, size)),
+                Err(error) => log!("drifter: the welcome desk has no texture: {error}"),
+            }
+        }
+        let hour = drifter_core::shader::hour_now();
+        let mut drawn = None;
+        if let Some((sheet, _)) = desk.sheet.as_mut() {
+            let extra = Some([dock as f32, window as f32, 0.0, 0.0]);
+            match wallpaper::paint_logo(&desk.program, &mut self.renderer, sheet, size, clock, hour, extra) {
+                Ok(()) => drawn = Some(sheet.texture.clone()),
+                Err(error) => log!("drifter: the welcome desk did not draw: {error}"),
+            }
+        }
+        if let Some(open) = self.welcome.as_mut() {
+            open.desk = Some(desk);
+        }
+        let density = drifter_core::paint::density() as i32;
+        drawn.map(|texture| (TextureBuffer::from_texture(&self.renderer, Tex::Gles(texture), density, Transform::Normal, None), window))
     }
 
     pub(super) fn welcome_elements(&mut self, elements: &mut Vec<Skin>) {
@@ -475,7 +506,13 @@ impl State {
             return;
         };
         let logo_clock = self.welcome_logo_clock();
-        let note_clock = self.welcome_note_clock();
+        let on_comfort = self.welcome.as_ref().is_some_and(|open| {
+            open.view.card == Card::Comfort && open.closing.is_none() && open.swap.is_none() && open.art.is_some()
+        });
+        let desk = match on_comfort {
+            true => self.welcome_desk(),
+            false => None,
+        };
         let reduce = self.access.reduce_motion;
         let screen = self.screen;
         let Some(open) = self.welcome.as_ref() else {
@@ -579,14 +616,16 @@ impl State {
         let Some(open) = self.welcome.as_ref() else {
             return;
         };
-        if open.view.card == Card::Comfort
-            && open.closing.is_none()
-            && open.swap.is_none()
-            && let Some((note, size)) = open.note.as_ref()
-        {
-            let desk = look.desk_rect();
-            let at = here.origin + desk.center() + drifter_core::welcome::note_drift(note_clock) - *size / 2.0;
-            elements.push(Skin::Texture(element(note, Rect::new(at, *size), (fade * t) as f32)));
+        if let Some((buffer, window)) = desk.as_ref() {
+            let area = look.desk_rect();
+            if let Some((note, size)) = open.note.as_ref().filter(|_| *window > 0.001) {
+                let grow = 0.9 + 0.1 * window;
+                let shown = *size * grow;
+                let at = here.origin + area.center() + Vec2::new(0.0, 2.0) - shown / 2.0;
+                elements.push(Skin::Texture(element(note, Rect::new(at, shown), (fade * t * window) as f32)));
+            }
+            let target = Rect::new(here.origin + area.origin, area.size);
+            elements.push(Skin::Texture(element(buffer, target, (fade * t) as f32)));
         }
         if let Some(art) = open.art.as_ref() {
             elements.push(Skin::Texture(element(art, here, (fade * t) as f32)));
@@ -625,7 +664,7 @@ impl State {
         let hour = drifter_core::shader::hour_now();
         let mut drawn = None;
         if let Some((sheet, _)) = logo.sheet.as_mut() {
-            match wallpaper::paint_logo(&logo.program, &mut self.renderer, sheet, size, clock, hour) {
+            match wallpaper::paint_logo(&logo.program, &mut self.renderer, sheet, size, clock, hour, None) {
                 Ok(()) => drawn = Some(sheet.texture.clone()),
                 Err(error) => log!("drifter: the welcome logo did not draw: {error}"),
             }
@@ -643,9 +682,7 @@ impl State {
         };
         let now = Instant::now();
         open.closing.is_some()
-            || (open.view.card == Card::Comfort
-                && open.note.is_some()
-                && drifter_core::welcome::logo_pace(open.view.motion, self.access.reduce_motion) > 0.0)
+            || (open.view.card == Card::Comfort && open.desk.is_some())
             || (open.view.card == Card::Hello
                 && open.logo.is_some()
                 && drifter_core::welcome::logo_pace(open.view.motion, self.access.reduce_motion) > 0.0)
@@ -777,6 +814,11 @@ impl State {
         }
         if card == Card::Apps {
             self.welcome_scan();
+        }
+        if card == Card::Comfort
+            && let Some(open) = self.welcome.as_mut()
+        {
+            open.desk_since = Instant::now();
         }
         self.paint_welcome();
     }

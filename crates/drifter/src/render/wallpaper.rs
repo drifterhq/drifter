@@ -208,6 +208,14 @@ fn paint(
 }
 
 pub(super) fn logo_program(renderer: &mut Painter) -> Option<GlesPixelProgram> {
+    overlay_program(renderer, drifter_core::welcome::logo_source(), false)
+}
+
+pub(super) fn desk_program(renderer: &mut Painter) -> Option<GlesPixelProgram> {
+    overlay_program(renderer, drifter_core::welcome::desk_source(), true)
+}
+
+fn overlay_program(renderer: &mut Painter, source: String, extra: bool) -> Option<GlesPixelProgram> {
     let Painter::Gles(gles) = renderer else {
         return None;
     };
@@ -217,10 +225,13 @@ pub(super) fn logo_program(renderer: &mut Painter) -> Option<GlesPixelProgram> {
         UniformName::new("W", UniformType::_2f),
     ];
     names.extend(["S0", "S1", "A", "B", "C"].map(|name| UniformName::new(name, UniformType::_3f)));
-    match gles.compile_custom_pixel_shader(drifter_core::welcome::logo_source(), &names) {
+    if extra {
+        names.push(UniformName::new("U", UniformType::_4f));
+    }
+    match gles.compile_custom_pixel_shader(source, &names) {
         Ok(program) => Some(program),
         Err(error) => {
-            log!("drifter: the welcome logo does not compile: {error}");
+            log!("drifter: a welcome shader does not compile: {error}");
             None
         }
     }
@@ -233,6 +244,7 @@ pub(super) fn paint_logo(
     size: (i32, i32),
     clock: f64,
     hour: f64,
+    extra: Option<[f32; 4]>,
 ) -> Result<(), String> {
     let Painter::Gles(gles) = renderer else {
         return Err("the welcome logo needs the gles renderer".to_string());
@@ -244,6 +256,9 @@ pub(super) fn paint_logo(
         Uniform::new("W", (size.0 as f32, size.1 as f32)),
     ];
     uniforms.extend(sky.uniforms().map(|(name, value)| Uniform::new(name, value)));
+    if let Some(u) = extra {
+        uniforms.push(Uniform::new("U", (u[0], u[1], u[2], u[3])));
+    }
     let whole = smithay::utils::Rectangle::from_size(size.into());
     let mut target = gles.bind(&mut sheet.texture).map_err(|e| e.to_string())?;
     let mut frame = gles
