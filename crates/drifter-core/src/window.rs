@@ -571,6 +571,7 @@ pub fn shadow_patch(radius: f64, blur: f64) -> Image {
     let corner = (blur + radius).ceil();
     let side = (corner * 2.0 + 1.0) as u32;
     let sigma = blur / 2.6;
+    let floor = (-(blur * blur) / (2.0 * sigma * sigma)).exp();
     let mut rgba = vec![0u8; (side * side * 4) as usize];
     let inner_lo = blur;
     let inner_hi = f64::from(side) - blur;
@@ -580,7 +581,7 @@ pub fn shadow_patch(radius: f64, blur: f64) -> Image {
             let cx = p.x.clamp(inner_lo + radius, inner_hi - radius);
             let cy = p.y.clamp(inner_lo + radius, inner_hi - radius);
             let away = ((p - Vec2::new(cx, cy)).length() - radius).max(0.0);
-            let alpha = (-(away * away) / (2.0 * sigma * sigma)).exp();
+            let alpha = (((-(away * away) / (2.0 * sigma * sigma)).exp() - floor) / (1.0 - floor)).max(0.0);
             rgba[((y * side + x) * 4 + 3) as usize] = (alpha * 255.0).round() as u8;
         }
     }
