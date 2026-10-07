@@ -8,7 +8,7 @@ const FROST_SETTLE: Duration = Duration::from_millis(150);
 const ART_KEEP: Duration = Duration::from_secs(5);
 
 pub(super) struct Sheet {
-    texture: GlesTexture,
+    pub texture: GlesTexture,
     pub buffer: TextureBuffer<Tex>,
 }
 

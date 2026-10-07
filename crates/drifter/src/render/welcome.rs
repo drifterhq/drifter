@@ -561,7 +561,7 @@ impl State {
         let mut drawn = None;
         if let Some((sheet, _)) = logo.sheet.as_mut() {
             match wallpaper::paint_logo(&logo.program, &mut self.renderer, sheet, size, clock, hour) {
-                Ok(()) => drawn = Some(sheet.buffer.clone()),
+                Ok(()) => drawn = Some(sheet.texture.clone()),
                 Err(error) => log!("drifter: the welcome logo did not draw: {error}"),
             }
         }
@@ -569,10 +569,7 @@ impl State {
             open.logo = Some(logo);
         }
         let density = drifter_core::paint::density() as i32;
-        drawn.map(|buffer| match density {
-            1 => buffer,
-            _ => TextureBuffer::from_texture(&self.renderer, buffer.texture().clone(), density, Transform::Normal, None),
-        })
+        drawn.map(|texture| TextureBuffer::from_texture(&self.renderer, Tex::Gles(texture), density, Transform::Normal, None))
     }
 
     pub(super) fn welcome_busy(&self) -> bool {
