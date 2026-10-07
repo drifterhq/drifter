@@ -659,6 +659,9 @@ impl State {
         if self.lock.is_some() {
             return Some(SECOND_TICK);
         }
+        if drifter_core::sun::lapsing() {
+            return Some(TICK);
+        }
         if let Some((_, _, until)) = self.hud.as_ref() {
             return Some(until.saturating_duration_since(Instant::now()).max(TICK));
         }

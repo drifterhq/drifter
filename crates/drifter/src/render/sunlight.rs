@@ -43,9 +43,6 @@ impl State {
             self.sunlight.glow = upload_flat(&mut self.renderer, Some(&glow), "sun sheen").ok().flatten();
             self.sunlight.key = Some(now);
         }
-        if drifter_core::sun::lapsing() {
-            self.kick_now();
-        }
     }
 
     pub(super) fn sun_rim(&self, content: Rect, dressed: bool, fade: f32, elements: &mut Vec<Skin>) {
