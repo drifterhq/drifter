@@ -402,14 +402,14 @@ impl State {
         let Some((buffer, corner)) = self.window_shadow.as_ref() else {
             return;
         };
-        let strength = fade * if awake { 0.42 } else { 0.22 };
+        let strength = fade * if awake { 0.2 } else { 0.105 };
         let edge = match dressed {
             true => self.chrome.layout(content).frame,
             false => content,
         };
         let frame = self.on_screen(edge);
         for (source, target) in
-            drifter_core::window::shadow_slices(frame, *corner, self.camera.zoom, 6.0)
+            drifter_core::window::shadow_slices(frame, *corner, self.camera.zoom, 10.0)
         {
             elements.push(Skin::Texture(faded(buffer, source, target, strength)));
         }
