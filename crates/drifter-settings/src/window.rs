@@ -129,8 +129,11 @@ pub struct Settings {
     resized: bool,
     stale: bool,
     shown: Option<std::time::Instant>,
-    painted: Option<(u64, f64)>,
+    painted: Option<(u64, f64, f64)>,
+    last: Option<(u64, drifter_core::Image)>,
+    side_pages: Vec<Option<drifter_core::Image>>,
     pages: Vec<Option<drifter_core::Image>>,
+    sheet_pages: (u64, Vec<Option<drifter_core::Image>>),
     under: Option<(u64, f64, drifter_core::Image)>,
     qh: QueueHandle<Settings>,
     handle: smithay_client_toolkit::reexports::calloop::LoopHandle<'static, Settings>,
@@ -325,7 +328,10 @@ pub fn run() -> Result<(), String> {
         stale: false,
         shown: None,
         painted: None,
+        last: None,
+        side_pages: Vec::new(),
         pages: Vec::new(),
+        sheet_pages: (0, Vec::new()),
         under: None,
         qh: qh.clone(),
         handle: events.handle(),
@@ -817,15 +823,20 @@ impl Settings {
             title: &held.2,
         };
         let key = self.fingerprint();
-        let plain = |this: &Self, scroll: f64| {
+        let sided = |this: &Self, scroll: f64, side: f64| {
             let art = Art {
                 wallpaper: this.wallpaper.as_ref(),
                 icons: &this.icons,
                 thumbs: &this.thumbs,
                 sheet: None,
             };
-            this.look.paint(this.view(), this.section, &this.model, scroll, &fonts, &art)
+            let look = Look {
+                side_scroll: side,
+                ..this.look.clone()
+            };
+            look.paint(this.view(), this.section, &this.model, scroll, &fonts, &art)
         };
+        let plain = |this: &Self, scroll: f64| sided(this, scroll, this.look.side_scroll);
         let image = match self.sheet.as_ref() {
             Some(sheet) => {
                 let fresh = self.under.as_ref().is_some_and(|(held, at, _)| *held == key && *at == self.scroll);
@@ -833,28 +844,99 @@ impl Settings {
                     let base = plain(self, self.scroll);
                     self.under = Some((key, self.scroll, base));
                 }
-                let base = match self.under.as_ref() {
-                    Some((_, _, base)) => base.clone(),
-                    None => plain(self, self.scroll),
+                let lay = |this: &Self, sheet: &Sheet| {
+                    let base = match this.under.as_ref() {
+                        Some((_, _, base)) => base.clone(),
+                        None => plain(this, this.scroll),
+                    };
+                    let mut canvas = drifter_core::paint::Canvas { image: base };
+                    sheet.paint(&mut canvas, &this.look, &fonts, &this.icons);
+                    canvas.image
                 };
-                let mut canvas = drifter_core::paint::Canvas { image: base };
-                sheet.paint(&mut canvas, &self.look, &fonts, &self.icons);
-                canvas.image
+                match sheet.scroll_list(self.view()) {
+                    Some((list, scroll)) if list.size.y > 1.0 => {
+                        let sheet = sheet.clone();
+                        let still = {
+                            use std::hash::{Hash, Hasher};
+                            let mut hash = std::collections::hash_map::DefaultHasher::new();
+                            key.hash(&mut hash);
+                            format!("{:?}", sheet.scrolled_to(0.0)).hash(&mut hash);
+                            hash.finish()
+                        };
+                        if self.sheet_pages.0 != still {
+                            self.sheet_pages = (still, Vec::new());
+                        }
+                        let page = (scroll / list.size.y).floor().max(0.0) as usize;
+                        for at in [page, page + 1] {
+                            if self.sheet_pages.1.len() <= at {
+                                self.sheet_pages.1.resize(at + 1, None);
+                            }
+                            if self.sheet_pages.1[at].is_none() {
+                                let image = lay(self, &sheet.scrolled_to(at as f64 * list.size.y));
+                                self.sheet_pages.1[at] = Some(image);
+                            }
+                        }
+                        let offset = scroll - page as f64 * list.size.y;
+                        match (&self.sheet_pages.1[page], &self.sheet_pages.1[page + 1]) {
+                            (Some(top), Some(next)) => {
+                                let mut image = top.clone();
+                                match splice(&mut image, top, next, self.view(), list, offset) {
+                                    true => image,
+                                    false => lay(self, &sheet),
+                                }
+                            }
+                            _ => lay(self, &sheet),
+                        }
+                    }
+                    _ => {
+                        self.sheet_pages = (0, Vec::new());
+                        lay(self, sheet)
+                    }
+                }
             }
             None => {
                 self.under = None;
-                let scrolled_only = self.painted.is_some_and(|(held, at)| held == key && at != self.scroll);
-                if !scrolled_only || self.painted.is_none_or(|(held, _)| held != key) {
-                    self.pages.clear();
-                }
-                let image = match scrolled_only {
-                    true => self.compose_pages(&plain),
-                    false => None,
+                self.sheet_pages = (0, Vec::new());
+                let side = self.look.side_scroll;
+                let (was_scroll, was_side) = self
+                    .painted
+                    .filter(|(held, _, _)| *held == key)
+                    .map_or((f64::NAN, f64::NAN), |(_, at, side)| (at, side));
+                let moved = was_scroll != self.scroll || was_side != side;
+                let last = self.last.take().filter(|(held, _)| *held == key && moved);
+                let image = match last {
+                    Some((_, mut image)) => {
+                        let mut fine = true;
+                        if was_scroll != self.scroll {
+                            fine &= self.compose_pages(&mut image, &plain);
+                        }
+                        if fine && was_side != side {
+                            fine &= self.compose_side(&mut image, &sided);
+                        }
+                        match fine {
+                            true => image,
+                            false => plain(self, self.scroll),
+                        }
+                    }
+                    None => {
+                        if self.painted.is_none_or(|(held, _, _)| held != key) || !moved {
+                            self.pages.clear();
+                            self.side_pages.clear();
+                        }
+                        plain(self, self.scroll)
+                    }
                 };
-                image.unwrap_or_else(|| plain(self, self.scroll))
+                self.painted = Some((key, self.scroll, side));
+                self.show(&image);
+                self.last = Some((key, image));
+                return;
             }
         };
-        self.painted = Some((key, self.scroll));
+        self.painted = Some((key, self.scroll, self.look.side_scroll));
+        self.show(&image);
+    }
+
+    fn show(&mut self, image: &drifter_core::Image) {
         let (width, height) = (image.width, image.height);
         let stride = width as i32 * 4;
         let (buffer, canvas) = match self.pool.create_buffer(
@@ -896,7 +978,10 @@ impl Settings {
             "{:?}|{:?}|{:?}|{:?}|{}|{}|{}|{}",
             self.section,
             self.model.groups(self.section),
-            self.look,
+            Look {
+                side_scroll: 0.0,
+                ..self.look.clone()
+            },
             self.size,
             self.model.query,
             self.icons.len(),
@@ -908,10 +993,45 @@ impl Settings {
         hash.finish()
     }
 
-    fn compose_pages(&mut self, plain: &dyn Fn(&Self, f64) -> drifter_core::Image) -> Option<drifter_core::Image> {
+    fn compose_side(
+        &mut self,
+        base: &mut drifter_core::Image,
+        sided: &dyn Fn(&Self, f64, f64) -> drifter_core::Image,
+    ) -> bool {
+        let view = self.view();
+        let tall = view.y;
+        if tall <= 0.0 {
+            return false;
+        }
+        let side = self.look.side_scroll;
+        let page = (side / tall).floor().max(0.0) as usize;
+        for at in [page, page + 1] {
+            if self.side_pages.len() <= at {
+                self.side_pages.resize(at + 1, None);
+            }
+            if self.side_pages[at].is_none() {
+                let image = sided(self, self.scroll, at as f64 * tall);
+                self.side_pages[at] = Some(image);
+            }
+        }
+        let (Some(top), Some(next)) = (&self.side_pages[page], &self.side_pages[page + 1]) else {
+            return false;
+        };
+        let region = drifter_core::Rect::new(
+            drifter_core::Vec2::ZERO,
+            drifter_core::Vec2::new(self.look.sidebar.min(view.x), view.y),
+        );
+        splice(base, top, next, view, region, side - page as f64 * tall)
+    }
+
+    fn compose_pages(
+        &mut self,
+        base: &mut drifter_core::Image,
+        plain: &dyn Fn(&Self, f64) -> drifter_core::Image,
+    ) -> bool {
         let tall = self.view().y;
         if tall <= 0.0 {
-            return None;
+            return false;
         }
         let page = (self.scroll / tall).floor().max(0.0) as usize;
         for at in [page, page + 1] {
@@ -923,32 +1043,15 @@ impl Settings {
                 self.pages[at] = Some(image);
             }
         }
-        let top = self.pages[page].as_ref()?;
-        let next = self.pages[page + 1].as_ref()?;
-        let (width, height) = (top.width as usize, top.height as usize);
-        if next.width as usize != width || next.height as usize != height {
-            return None;
-        }
-        let dense = f64::from(height as u32) / tall;
-        let offset = ((self.scroll - page as f64 * tall) * dense).round() as usize;
-        let side = ((self.look.sidebar * dense).round() as usize).min(width);
-        let row = width * 4;
-        let mut rgba = vec![0u8; row * height];
-        for y in 0..height {
-            let into = &mut rgba[y * row..(y + 1) * row];
-            into[..side * 4].copy_from_slice(&top.rgba[y * row..y * row + side * 4]);
-            let source = offset + y;
-            let (from, line) = match source < height {
-                true => (top, source),
-                false => (next, source - height),
-            };
-            into[side * 4..].copy_from_slice(&from.rgba[line * row + side * 4..(line + 1) * row]);
-        }
-        Some(drifter_core::Image {
-            width: width as u32,
-            height: height as u32,
-            rgba,
-        })
+        let (Some(top), Some(next)) = (&self.pages[page], &self.pages[page + 1]) else {
+            return false;
+        };
+        let view = self.view();
+        let region = drifter_core::Rect::new(
+            drifter_core::Vec2::new(self.look.sidebar, 0.0),
+            drifter_core::Vec2::new((view.x - self.look.sidebar).max(0.0), view.y),
+        );
+        splice(base, top, next, view, region, self.scroll - page as f64 * tall)
     }
 
     fn clamp_scroll(&mut self) {
@@ -2492,3 +2595,36 @@ delegate_keyboard!(Settings);
 delegate_xdg_shell!(Settings);
 delegate_xdg_window!(Settings);
 delegate_registry!(Settings);
+
+fn splice(
+    out: &mut drifter_core::Image,
+    top: &drifter_core::Image,
+    next: &drifter_core::Image,
+    view: drifter_core::Vec2,
+    region: drifter_core::Rect,
+    offset: f64,
+) -> bool {
+    let (width, height) = (top.width as usize, top.height as usize);
+    let same = |image: &drifter_core::Image| image.width as usize == width && image.height as usize == height;
+    if !same(top) || !same(next) || !same(out) || view.y <= 0.0 {
+        return false;
+    }
+    let dense = height as f64 / view.y;
+    let px = |v: f64, most: usize| ((v * dense).round().max(0.0) as usize).min(most);
+    let (x0, x1) = (px(region.origin.x, width), px(region.max().x, width));
+    let (y0, y1) = (px(region.origin.y, height), px(region.max().y, height));
+    let tall = y1.saturating_sub(y0);
+    let shift = px(offset, tall);
+    let row = width * 4;
+    for y in 0..tall {
+        let source = shift + y;
+        let (from, line) = match source < tall {
+            true => (top, y0 + source),
+            false => (next, y0 + source - tall),
+        };
+        let into = (y0 + y) * row;
+        let back = line * row;
+        out.rgba[into + x0 * 4..into + x1 * 4].copy_from_slice(&from.rgba[back + x0 * 4..back + x1 * 4]);
+    }
+    true
+}

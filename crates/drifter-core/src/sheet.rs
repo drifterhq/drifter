@@ -567,6 +567,31 @@ impl Sheet {
         }
     }
 
+    pub fn scroll_list(&self, size: Vec2) -> Option<(Rect, f64)> {
+        match self {
+            Sheet::Picker { tab: Tab::Command, .. } => None,
+            Sheet::Picker { .. }
+            | Sheet::Files { .. }
+            | Sheet::Choices { .. }
+            | Sheet::Info { .. }
+            | Sheet::Faces { .. } => Some((frame(size, self).list, self.scroll())),
+            Sheet::Capture { .. } | Sheet::Secret { .. } | Sheet::Form { .. } => None,
+        }
+    }
+
+    pub fn scrolled_to(&self, to: f64) -> Sheet {
+        let mut sheet = self.clone();
+        match &mut sheet {
+            Sheet::Picker { scroll, .. }
+            | Sheet::Files { scroll, .. }
+            | Sheet::Choices { scroll, .. }
+            | Sheet::Info { scroll, .. }
+            | Sheet::Faces { scroll, .. } => *scroll = to,
+            Sheet::Capture { .. } | Sheet::Secret { .. } | Sheet::Form { .. } => {}
+        }
+        sheet
+    }
+
     pub fn scroll_by(&mut self, size: Vec2, by: f64) {
         let list = frame(size, self).list;
         let most = (self.content_height(list) - list.size.y).max(0.0);
