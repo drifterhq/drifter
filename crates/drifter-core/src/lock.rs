@@ -5,10 +5,11 @@ use crate::image::Image;
 use crate::text::Font;
 
 pub const MAX_LEN: usize = 256;
-pub const GLASS: &str = include_str!("glass.glsl");
+pub const TINT: f64 = 0.45;
 pub const BLINK: std::time::Duration = std::time::Duration::from_millis(530);
 const INDENT: f64 = 26.0;
 const SHADE: f64 = 28.0;
+const LIFT: f64 = 6.0;
 const CORNER: f64 = 28.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -131,6 +132,31 @@ impl Default for Look {
 }
 
 impl Look {
+    pub fn over(self, behind: [f64; 3]) -> Look {
+        let mixed: Vec<f64> = (0..3)
+            .map(|c| behind[c] * (1.0 - self.veil) + f64::from(self.back[c]) * self.veil)
+            .collect();
+        let light = 0.2126 * mixed[0] + 0.7152 * mixed[1] + 0.0722 * mixed[2];
+        match light > 150.0 {
+            true => Look {
+                ink: [22, 22, 26],
+                dim: [70, 70, 76],
+                back: [246, 246, 248],
+                ..self
+            },
+            false => Look {
+                ink: [255, 255, 255],
+                dim: [228, 228, 234],
+                back: [36, 36, 42],
+                ..self
+            },
+        }
+    }
+
+    pub fn dark_ink(&self) -> bool {
+        self.ink.iter().map(|c| u32::from(*c)).sum::<u32>() < 384
+    }
+
     pub fn field_rect(&self) -> Rect {
         let side = 40.0;
         Rect::new(Vec2::new(side, 54.0), Vec2::new(self.size.x - side * 2.0, 36.0))
@@ -183,10 +209,9 @@ impl Look {
         Rect::new(logo.origin - Vec2::splat(SHADE), logo.size + Vec2::splat(SHADE * 2.0))
     }
 
-    pub fn clock_rect(&self, screen: Vec2, date: Vec2, clock: Vec2) -> Rect {
-        let top = self.top_rect(screen, date);
+    pub fn clock_rect(&self, screen: Vec2, clock: Vec2) -> Rect {
         Rect::new(
-            Vec2::new((screen.x - clock.x) / 2.0, top.max().y - clock.y * 0.12).round(),
+            Vec2::new((screen.x - clock.x) / 2.0, screen.y * 0.09 + 36.0 - clock.y * 0.12).round(),
             clock,
         )
     }
@@ -206,12 +231,57 @@ pub struct Words<'a> {
 
 pub fn paint_top(look: &Look, font: Option<&Font>, date: &str) -> Image {
     match font {
-        Some(font) => font.paint_weight(date, look.ink, 540.0),
+        Some(font) => soft_shadow(&font.paint_weight(date, look.ink, 540.0), look.dark_ink()),
         None => crate::paint::Canvas::new(1, 1).image,
     }
 }
 
-pub fn glass_mask(font: &Font, clock: &str) -> Image {
+pub fn soft_shadow(piece: &Image, dark_ink: bool) -> Image {
+    let pad = crate::paint::dense(LIFT) as usize;
+    let drop = crate::paint::dense(1.5) as usize;
+    let reach = crate::paint::dense(2.5).max(1) as usize;
+    let (pw, ph) = (piece.width as usize, piece.height as usize);
+    let (width, height) = (pw + pad * 2, ph + pad * 2);
+    let mut cover = vec![0.0f32; width * height];
+    for y in 0..ph {
+        for x in 0..pw {
+            let to = (y + pad + drop).min(height - 1) * width + x + pad;
+            cover[to] = f32::from(piece.rgba[(y * pw + x) * 4 + 3]) / 255.0;
+        }
+    }
+    let shade = blurred(&cover, width, height, reach);
+    let (tone, deep) = match dark_ink {
+        true => (255.0, 0.45),
+        false => (0.0, 0.40),
+    };
+    let mut rgba = Vec::with_capacity(width * height * 4);
+    for y in 0..height {
+        for x in 0..width {
+            let a = shade[y * width + x] * deep;
+            let mut px = [tone * a, tone * a, tone * a, a * 255.0];
+            if (pad..pad + pw).contains(&x) && (pad..pad + ph).contains(&y) {
+                let at = ((y - pad) * pw + x - pad) * 4;
+                let over = f32::from(piece.rgba[at + 3]) / 255.0;
+                for c in 0..4 {
+                    px[c] = f32::from(piece.rgba[at + c]) + px[c] * (1.0 - over);
+                }
+            }
+            rgba.extend(px.map(|v| v.round().clamp(0.0, 255.0) as u8));
+        }
+    }
+    Image {
+        width: width as u32,
+        height: height as u32,
+        rgba,
+    }
+}
+
+pub struct Frosted {
+    pub body: Image,
+    pub shadow: Image,
+}
+
+pub fn frosted_clock(font: &Font, clock: &str, dark: bool) -> Frosted {
     let text = font.paint_bold(clock, [255, 255, 255]);
     let size = crate::paint::logical(&text);
     let pad = (size.y * 0.22).round();
@@ -219,19 +289,49 @@ pub fn glass_mask(font: &Font, clock: &str) -> Image {
     canvas.stamp(&text, Vec2::splat(pad), 1.0);
     let (width, height) = (canvas.image.width as usize, canvas.image.height as usize);
     let cover: Vec<f32> = canvas.image.rgba.chunks(4).map(|px| f32::from(px[3]) / 255.0).collect();
-    let reach = (text.height as f64 * 0.045).max(1.0) as usize;
-    let height_map = blurred(&cover, width, height, reach);
-    let shade = blurred(&cover, width, height, reach * 3);
+    let reach = (text.height as f64 * 0.03).max(1.0) as usize;
+    let inner = blurred(&cover, width, height, reach);
+    let shade = blurred(&cover, width, height, reach * 4);
+    let drop = (text.height as f64 * 0.035).round() as usize;
     let byte = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
-    let mut rgba = Vec::with_capacity(width * height * 4);
-    for at in 0..width * height {
-        rgba.extend_from_slice(&[byte(cover[at]), byte(height_map[at]), byte(shade[at]), 255]);
+    let mut body = Vec::with_capacity(width * height * 4);
+    let mut shadow = Vec::with_capacity(width * height * 4);
+    for y in 0..height {
+        for x in 0..width {
+            let at = y * width + x;
+            let rim = cover[at] * (1.0 - (inner[at] * 1.6 - 0.6).clamp(0.0, 1.0));
+            let a = cover[at] * TINT as f32 + rim * (1.0 - TINT as f32) * 0.85;
+            let v = byte(a);
+            let tone = match dark {
+                true => 0,
+                false => v,
+            };
+            body.extend_from_slice(&[tone, tone, tone, v]);
+            let above = y.checked_sub(drop).map_or(0.0, |up| shade[up * width + x]);
+            let deep = match dark {
+                true => 0.12,
+                false => 0.30,
+            };
+            shadow.extend_from_slice(&[0, 0, 0, byte(above * deep)]);
+        }
     }
-    Image {
+    let image = |rgba| Image {
         width: width as u32,
         height: height as u32,
         rgba,
+    };
+    Frosted {
+        body: image(body),
+        shadow: image(shadow),
     }
+}
+
+pub fn finish_clock(frosted: &Frosted) -> Image {
+    let size = crate::paint::logical(&frosted.body);
+    let mut canvas = crate::paint::Canvas::new(size.x.round() as u32, size.y.round() as u32);
+    canvas.stamp(&frosted.shadow, Vec2::ZERO, 1.0);
+    canvas.stamp(&frosted.body, Vec2::ZERO, 1.0);
+    canvas.image
 }
 
 fn blurred(values: &[f32], width: usize, height: usize, reach: usize) -> Vec<f32> {
@@ -357,8 +457,8 @@ pub fn paint(look: &Look, small: Option<&Font>, named: Option<&Font>, name: &str
         return canvas.image;
     };
     let centered = |piece: &Image, y: f64| Vec2::new((look.size.x - crate::paint::logical(piece).x) / 2.0, y).round();
-    let named = named.unwrap_or(font).paint_bold(name, look.ink);
-    canvas.stamp(&named, centered(&named, 0.0), 1.0);
+    let named = soft_shadow(&named.unwrap_or(font).paint_bold(name, look.ink), look.dark_ink());
+    canvas.stamp(&named, centered(&named, -LIFT), 1.0);
     if count == 0 && note == Note::Ask {
         let hint = font.paint(note.text(), look.dim);
         let y = field.center().y - crate::paint::logical(&hint).y / 2.0;
@@ -555,16 +655,17 @@ mod tests {
     }
 
     #[test]
-    fn the_glass_clock_mask_holds_shape_height_and_shade() {
+    fn the_frosted_clock_is_see_through_white_with_a_bright_edge_and_a_shadow() {
         let Ok(font) = Font::find(None, 64.0) else { return };
-        let mask = glass_mask(&font, "9:41");
-        let at = |x: u32, y: u32| pixel(&mask, x, y);
-        assert!(mask.rgba.chunks(4).all(|px| px[3] == 255));
-        assert_eq!(at(0, 0)[0], 0, "the corner is outside the digits");
-        let inside = mask.rgba.chunks(4).filter(|px| px[0] == 255).count();
-        assert!(inside > 100, "the digits are solid");
-        let soft = mask.rgba.chunks(4).filter(|px| px[0] == 0 && px[2] > 0).count();
-        assert!(soft > 0, "the shade reaches past the digits");
+        let frosted = frosted_clock(&font, "9:41", false);
+        let alphas: Vec<u8> = frosted.body.rgba.chunks(4).map(|px| px[3]).collect();
+        let most = *alphas.iter().max().unwrap();
+        let tint = (TINT * 255.0).round() as u8;
+        assert!(alphas.iter().any(|a| *a == tint), "the inside is a light white tint");
+        assert!(most > tint + 40, "the edge is brighter than the inside");
+        assert!(frosted.body.rgba.chunks(4).all(|px| px[0] == px[3]), "white, premultiplied");
+        assert!(frosted.shadow.rgba.chunks(4).any(|px| px[3] > 0));
+        crate::paint::same_at_two("frosted clock", || finish_clock(&frosted_clock(&font, "9:41", true)));
     }
 
     #[test]
@@ -572,10 +673,35 @@ mod tests {
         let look = Look::default();
         let screen = Vec2::new(1600.0, 1067.0);
         let date = look.top_rect(screen, Vec2::new(300.0, 34.0));
-        let clock = look.clock_rect(screen, date.size, Vec2::new(500.0, 230.0));
+        let clock = look.clock_rect(screen, Vec2::new(500.0, 230.0));
         assert!(clock.origin.y > date.origin.y);
         assert!(clock.max().y < look.logo_shadow_rect(screen).origin.y);
         assert_eq!(clock.center().x, 800.0);
+    }
+
+    #[test]
+    fn words_turn_black_over_a_bright_wallpaper_and_white_over_a_dark_one() {
+        for palette in [crate::theme::DARK, crate::theme::LIGHT] {
+            let look = Look::themed(&palette);
+            assert!(look.over([250.0, 250.0, 240.0]).dark_ink());
+            assert!(!look.over([20.0, 30.0, 60.0]).dark_ink());
+        }
+    }
+
+    #[test]
+    fn a_soft_shadow_pads_the_words_and_keeps_them_on_top() {
+        let Ok(font) = Font::find(None, 24.0) else { return };
+        let words = font.paint("Ada", [255, 255, 255]);
+        let shadowed = soft_shadow(&words, false);
+        let pad = crate::paint::dense(LIFT);
+        assert_eq!(shadowed.width, words.width + pad * 2);
+        let solid = words.rgba.chunks(4).position(|px| px[3] == 255).unwrap();
+        let (x, y) = (solid as u32 % words.width + pad, solid as u32 / words.width + pad);
+        assert_eq!(pixel(&shadowed, x, y), [255, 255, 255, 255]);
+        let below = pixel(&shadowed, x, words.height + pad + 1);
+        assert!(below[3] > 0 && below[0] == 0, "a dark shade falls under white words");
+        let glow = soft_shadow(&font.paint("Ada", [20, 20, 20]), true);
+        assert!(glow.rgba.chunks(4).any(|px| px[3] > 0 && px[3] < 200 && px[0] == px[3]));
     }
 
     #[test]

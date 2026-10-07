@@ -483,7 +483,6 @@ pub fn open(
         welcome: None,
         dock_logo: docklogo::DockLogo::default(),
         lock_logo: docklogo::DockLogo::default(),
-        glass: None,
         welcome_wanted: live && config.welcome.show,
         login_lock: live && !config.login.automatic,
         search_font: Font::find(config.font_path(), 20.0).ok().map(std::sync::Arc::new),

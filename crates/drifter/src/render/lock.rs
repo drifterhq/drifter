@@ -27,10 +27,10 @@ impl State {
             .top
             .as_ref()
             .map(|(art, size)| (art.clone(), look.top_rect(self.screen, *size)));
-        let clock = match (lock.clock.as_ref(), lock.top.as_ref()) {
-            (Some((art, size)), Some((_, date))) => Some((art.clone(), look.clock_rect(self.screen, *date, *size))),
-            _ => None,
-        };
+        let clock = lock
+            .clock
+            .as_ref()
+            .map(|(art, size)| (art.clone(), look.clock_rect(self.screen, *size)));
         let shade = lock.shade.clone();
         let veil = lock.veil.as_ref().map(|(art, _)| art.clone());
         if let Some(frame) = self.lock_logo_frame(logo) {
@@ -83,7 +83,7 @@ impl State {
             typed: Instant::now(),
             corner_lane: worker::Lane::default(),
             clock: None,
-            clock_sheet: None,
+            clock_lane: worker::Lane::default(),
             shade: None,
             shade_lane: worker::Lane::default(),
             shown: (String::new(), String::new(), usize::MAX, Note::Ask, [0; 3]),
@@ -329,7 +329,10 @@ impl State {
         let clock = drifter_core::tray::now("%-I:%M").unwrap_or_default();
         let date = drifter_core::tray::now("%A, %B %-d").unwrap_or_default();
         let look = drifter_core::lock::Look::themed(&self.palette);
-        let key = (clock, date, lock.pad.len(), lock.note, look.ink);
+        let frosting = self.frosting();
+        let rect = look.rect(self.screen);
+        let login = worker::contrast(&frosting, look, rect);
+        let key = (clock, date, lock.pad.len(), lock.note, login.ink);
         let shown = lock.shown.clone();
         let fresh = lock.art.is_some() && lock.top.is_some() && lock.corner.is_some() && lock.clock.is_some();
         let shaded = lock.shade.is_some();
@@ -344,11 +347,11 @@ impl State {
         {
             lock.veil = Some((art, look.back));
         }
-        if self.lock.as_ref().is_some_and(|lock| lock.caret.as_ref().is_none_or(|(_, color)| *color != look.ink))
-            && let Ok(Some(art)) = upload(&mut self.renderer, Some(&pixel(look.ink)), "lock caret")
+        if self.lock.as_ref().is_some_and(|lock| lock.caret.as_ref().is_none_or(|(_, color)| *color != login.ink))
+            && let Ok(Some(art)) = upload(&mut self.renderer, Some(&pixel(login.ink)), "lock caret")
             && let Some(lock) = self.lock.as_mut()
         {
-            lock.caret = Some((art, look.ink));
+            lock.caret = Some((art, login.ink));
         }
         if fresh && shown == key {
             return;
@@ -359,13 +362,16 @@ impl State {
             let words = (key.0.clone(), key.1.clone());
             let date = self.lock_name.clone();
             let corner_font = small.clone();
+            let screen = self.screen;
+            let corner_look = worker::contrast(&frosting, look, look.corner_rect(screen, Vec2::new(160.0, 28.0)));
+            let date_look = worker::contrast(&frosting, look, look.top_rect(screen, Vec2::new(screen.x * 0.25, 40.0)));
             self.paint_in_lane_sized(
                 "lock corner",
                 |state| state.lock.as_mut().map(|lock| &mut lock.corner_lane),
                 State::paint_lock,
                 move || {
                     let battery = crate::stats::battery().map(|(label, percent)| (label == "CHG", percent));
-                    Some(drifter_core::lock::paint_corner(&look, corner_font.as_deref(), battery))
+                    Some(drifter_core::lock::paint_corner(&corner_look, corner_font.as_deref(), battery))
                 },
                 |state, art, size| {
                     if let Some(lock) = state.lock.as_mut() {
@@ -378,7 +384,7 @@ impl State {
                 |state| state.lock.as_mut().map(|lock| &mut lock.top_lane),
                 State::paint_lock,
                 move || {
-                    Some(drifter_core::lock::paint_top(&look, date.as_deref(), &words.1))
+                    Some(drifter_core::lock::paint_top(&date_look, date.as_deref(), &words.1))
                 },
                 |state, art, size| {
                     if let Some(lock) = state.lock.as_mut() {
@@ -388,7 +394,7 @@ impl State {
             );
         }
         if clock_moved {
-            self.paint_lock_clock(key.0.clone(), big.clone());
+            self.paint_lock_clock(key.0.clone(), big.clone(), look);
         }
         if !shaded {
             self.paint_in_lane(
@@ -405,9 +411,8 @@ impl State {
         }
         let name = lock_name(self);
         let named = self.lock_name.clone();
-        let rect = look.rect(self.screen);
-        let frosting = self.frosting();
         let painted = key.clone();
+        let look = login;
         self.paint_in_lane(
             "lock",
             |state| state.lock.as_mut().map(|lock| &mut lock.lane),
@@ -623,78 +628,30 @@ impl State {
 }
 
 impl State {
-    fn glass_ready(&mut self) -> bool {
-        if self.glass.is_none() {
-            self.glass = Some(wallpaper::glass_program(&mut self.renderer));
-        }
-        matches!(self.glass, Some(Some(_)))
-    }
-
-    fn paint_lock_clock(&mut self, clock: String, font: Option<std::sync::Arc<Font>>) {
+    fn paint_lock_clock(&mut self, clock: String, font: Option<std::sync::Arc<Font>>, look: drifter_core::lock::Look) {
         let Some(font) = font else {
             return;
         };
-        let glassy = self.glass_ready();
-        let ink = self.palette.ink;
-        self.on_worker(
-            "lock clock glass",
-            move || match glassy {
-                true => drifter_core::lock::glass_mask(&font, &clock),
-                false => font.paint_bold(&clock, ink),
+        let screen = self.screen;
+        let frosting = self.frosting();
+        let near = look.clock_rect(screen, Vec2::new(screen.x * 0.3, screen.y * 0.2));
+        let look = worker::contrast(&frosting, look, near);
+        self.paint_in_lane_sized(
+            "lock clock",
+            |state| state.lock.as_mut().map(|lock| &mut lock.clock_lane),
+            |_| {},
+            move || {
+                let mut frosted = drifter_core::lock::frosted_clock(&font, &clock, look.dark_ink());
+                let rect = look.clock_rect(screen, drifter_core::paint::logical(&frosted.body));
+                worker::frost(&frosting, &mut frosted.body, rect.origin, drifter_core::lock::TINT);
+                Some(drifter_core::lock::finish_clock(&frosted))
             },
-            move |state, image| {
-                if state.lock.is_none() {
-                    return;
-                }
-                let size = drifter_core::paint::logical(&image);
-                let shown = match glassy {
-                    true => state.glaze(&image),
-                    false => upload(&mut state.renderer, Some(&image), "lock clock").ok().flatten(),
-                };
-                if let (Some(shown), Some(lock)) = (shown, state.lock.as_mut()) {
-                    lock.clock = Some((shown, size));
-                    state.kick_now();
+            |state, art, size| {
+                if let Some(lock) = state.lock.as_mut() {
+                    lock.clock = Some((art, size));
                 }
             },
         );
-    }
-
-    fn glaze(&mut self, mask: &drifter_core::Image) -> Option<TextureBuffer<Tex>> {
-        use smithay::backend::renderer::ImportMem;
-        let pixels = (mask.width as i32, mask.height as i32);
-        let texture = match self.renderer.import_memory(
-            &mask.rgba,
-            smithay::backend::allocator::Fourcc::Abgr8888,
-            pixels.into(),
-            false,
-        ) {
-            Ok(Tex::Gles(texture)) => texture,
-            Ok(_) => return None,
-            Err(error) => {
-                log!("drifter: the glass clock mask did not load: {error}");
-                return None;
-            }
-        };
-        let program = self.glass.clone().flatten()?;
-        let mut sheet = match wallpaper::sheet(&mut self.renderer, pixels) {
-            Ok(sheet) => sheet,
-            Err(error) => {
-                log!("drifter: the glass clock has no texture: {error}");
-                return None;
-            }
-        };
-        let hour = drifter_core::shader::hour_now();
-        if let Err(error) = wallpaper::paint_glass(&program, &mut self.renderer, &texture, &mut sheet, pixels, hour) {
-            log!("drifter: the glass clock did not draw: {error}");
-            self.glass = Some(None);
-            return None;
-        }
-        let density = drifter_core::paint::density() as i32;
-        let frame = TextureBuffer::from_texture(&self.renderer, Tex::Gles(sheet.texture.clone()), density, Transform::Normal, None);
-        if let Some(lock) = self.lock.as_mut() {
-            lock.clock_sheet = Some(sheet);
-        }
-        Some(frame)
     }
 
     fn locked_press(&mut self) {

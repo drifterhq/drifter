@@ -50,11 +50,37 @@ pub(super) struct Frosting {
 }
 
 impl Frosting {
+    pub(super) fn average(&self, rect: Rect) -> [f64; 3] {
+        let mut sum = [0.0; 3];
+        let steps = 6;
+        for y in 0..steps {
+            for x in 0..steps {
+                let at = rect.origin
+                    + Vec2::new(
+                        rect.size.x * (f64::from(x) + 0.5) / f64::from(steps),
+                        rect.size.y * (f64::from(y) + 0.5) / f64::from(steps),
+                    );
+                let seen = self.frost.behind(&self.laid, self.size, at);
+                for c in 0..3 {
+                    sum[c] += seen[c];
+                }
+            }
+        }
+        sum.map(|v| v / f64::from(steps * steps))
+    }
+
     pub(super) fn under(&self, image: &mut drifter_core::Image, origin: Vec2, solid: f64) {
         let dense = drifter_core::paint::density();
         drifter_core::frost::underlay(image, solid, |point| {
             self.frost.behind(&self.laid, self.size, origin + point / dense)
         });
+    }
+}
+
+pub(super) fn contrast(frosting: &Option<Frosting>, look: drifter_core::lock::Look, rect: Rect) -> drifter_core::lock::Look {
+    match frosting {
+        Some(frosting) => look.over(frosting.average(rect)),
+        None => look,
     }
 }
 
