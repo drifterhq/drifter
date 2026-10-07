@@ -1,15 +1,37 @@
 use super::*;
 
 impl State {
-    pub(super) fn lock_elements(&self) -> Vec<Skin> {
+    pub(super) fn lock_elements(&mut self) -> Vec<Skin> {
+        let look = drifter_core::lock::Look::themed(&self.palette);
+        let logo = look.logo_rect(self.screen);
+        let mut elements = Vec::new();
         let Some(lock) = self.lock.as_ref() else {
-            return Vec::new();
+            return elements;
         };
-        let rect = drifter_core::lock::Look::themed(&self.palette).rect(self.screen);
-        match lock.art.as_ref() {
-            Some(art) => vec![Skin::Texture(element(art, rect, 1.0))],
-            None => Vec::new(),
+        if let Some(art) = lock.art.as_ref() {
+            elements.push(Skin::Texture(element(art, look.rect(self.screen), 1.0)));
         }
+        let top = lock
+            .top
+            .as_ref()
+            .map(|(art, size)| (art.clone(), look.top_rect(self.screen, *size)));
+        let veil = lock.veil.as_ref().map(|(art, _)| art.clone());
+        if let Some(frame) = self.lock_logo_frame(logo) {
+            elements.push(Skin::Texture(element(&frame, logo, 1.0)));
+        }
+        if let Some((art, rect)) = top {
+            elements.push(Skin::Texture(element(&art, rect, 1.0)));
+        }
+        if let Some(veil) = veil {
+            elements.push(Skin::Texture(fill(&veil, Rect::new(Vec2::ZERO, self.screen), look.veil as f32)));
+        }
+        let view = (self.mode, self.screen, self.world, self.camera);
+        let clock = self.paper_clock();
+        let every = self.live_every();
+        if let Some(paper) = self.wallpaper.as_mut() {
+            paper_pieces(&mut self.renderer, paper, view, 1.0, (clock, Some(every)), &mut elements);
+        }
+        elements
     }
 
     pub(super) fn lock_now(&mut self) -> bool {
@@ -31,9 +53,12 @@ impl State {
             checking: None,
             ticket: None,
             art: None,
-            rect: Rect::new(Vec2::ZERO, Vec2::ZERO),
-            shown: (String::new(), String::new(), usize::MAX, Note::Ask),
+            top: None,
+            veil: None,
+            shown: (String::new(), String::new(), usize::MAX, Note::Ask, [0; 3]),
             lane: worker::Lane::default(),
+            top_lane: worker::Lane::default(),
+            name: full_name(&user),
             user,
             refocus,
         });
@@ -270,31 +295,65 @@ impl State {
         let Some(lock) = self.lock.as_ref() else {
             return;
         };
-        let clock = drifter_core::tray::now("%I:%M %p").unwrap_or_default();
-        let date = drifter_core::tray::now("%A, %B %d").unwrap_or_default();
-        let key = (clock, date, lock.pad.len(), lock.note);
-        if lock.art.is_some() && lock.shown == key {
+        let clock = drifter_core::tray::now("%-I:%M").unwrap_or_default();
+        let date = drifter_core::tray::now("%A, %B %-d").unwrap_or_default();
+        let look = drifter_core::lock::Look::themed(&self.palette);
+        let key = (clock, date, lock.pad.len(), lock.note, look.ink);
+        let shown = lock.shown.clone();
+        let fresh = lock.art.is_some() && lock.top.is_some();
+        if lock.veil.as_ref().is_none_or(|(_, color)| *color != look.back) {
+            let pixel = drifter_core::Image {
+                width: 1,
+                height: 1,
+                rgba: vec![look.back[0], look.back[1], look.back[2], 255],
+            };
+            if let Ok(Some(art)) = upload(&mut self.renderer, Some(&pixel), "lock veil")
+                && let Some(lock) = self.lock.as_mut()
+            {
+                lock.veil = Some((art, look.back));
+            }
+        }
+        if fresh && shown == key {
             return;
         }
-        let look = drifter_core::lock::Look::themed(&self.palette);
-        let rect = look.rect(self.screen);
         let (big, small) = (self.lock_big.clone(), self.lock_small.clone());
+        if !fresh || (shown.0, shown.1, shown.4) != (key.0.clone(), key.1.clone(), key.4) {
+            let words = (key.0.clone(), key.1.clone());
+            let (big, small) = (big.clone(), small.clone());
+            self.paint_in_lane_sized(
+                "lock clock",
+                |state| state.lock.as_mut().map(|lock| &mut lock.top_lane),
+                State::paint_lock,
+                move || {
+                    let words = drifter_core::lock::Words {
+                        clock: &words.0,
+                        date: &words.1,
+                    };
+                    Some(drifter_core::lock::paint_top(&look, big.as_deref(), small.as_deref(), &words))
+                },
+                |state, art, size| {
+                    if let Some(lock) = state.lock.as_mut() {
+                        lock.top = Some((art, size));
+                    }
+                },
+            );
+        }
+        let name = lock_name(self);
+        let rect = look.rect(self.screen);
+        let frosting = self.frosting();
         let painted = key.clone();
         self.paint_in_lane(
             "lock",
             |state| state.lock.as_mut().map(|lock| &mut lock.lane),
             State::paint_lock,
             move || {
-                let words = drifter_core::lock::Words {
-                    clock: &painted.0,
-                    date: &painted.1,
-                };
-                Some(drifter_core::lock::paint(&look, big.as_deref(), small.as_deref(), &words, painted.2, painted.3))
+                let mut image = drifter_core::lock::paint(&look, small.as_deref(), &name, painted.2, painted.3);
+                worker::frost(&frosting, &mut image, rect.origin, look.pill);
+                Some(image)
             },
             move |state, art| {
                 if let Some(lock) = state.lock.as_mut() {
                     lock.art = Some(art);
-                    lock.rect = rect;
                     lock.shown = key;
                 }
             },
@@ -455,6 +514,25 @@ impl State {
         }
         self.last = Instant::now();
     }
+}
+
+fn lock_name(state: &State) -> String {
+    state.lock.as_ref().map(|lock| lock.name.clone()).unwrap_or_default()
+}
+
+fn full_name(login: &std::ffi::CStr) -> String {
+    let login = login.to_string_lossy().into_owned();
+    std::fs::read_to_string("/etc/passwd")
+        .ok()
+        .and_then(|passwd| {
+            passwd.lines().find_map(|line| {
+                let fields: Vec<&str> = line.split(':').collect();
+                (fields.first() == Some(&login.as_str()))
+                    .then(|| fields.get(4).and_then(|gecos| gecos.split(',').next()).unwrap_or("").trim().to_string())
+            })
+        })
+        .filter(|full| !full.is_empty())
+        .unwrap_or(login)
 }
 
 pub(super) fn lock_marker() -> Option<PathBuf> {

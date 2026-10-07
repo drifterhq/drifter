@@ -259,8 +259,8 @@ impl State {
                 Ok(font) => self.font = Some(std::sync::Arc::new(font)),
                 Err(error) => log!("drifter: no clock: {error}"),
             }
-            self.lock_big = Font::find(config.font_path(), 56.0).ok().map(std::sync::Arc::new);
-            self.lock_small = Font::find(config.font_path(), 15.0).ok().map(std::sync::Arc::new);
+            self.lock_big = Font::find(config.font_path(), 96.0).ok().map(std::sync::Arc::new);
+            self.lock_small = Font::find(config.font_path(), 17.0).ok().map(std::sync::Arc::new);
             self.clock = None;
             self.stats = None;
             self.titles.clear();
@@ -432,6 +432,7 @@ impl State {
             drifter_core::welcome::Motion::of(reduce, config.workspace.wallpaper_motion),
             reduce,
         );
+        self.lock_logo.pace = self.dock_logo.pace;
         self.monitors = config.monitor.clone();
         self.mode = config.workspace.wallpaper_mode;
         self.holds = config.input.modifier;

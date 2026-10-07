@@ -360,9 +360,12 @@ struct Lock {
     checking: Option<Instant>,
     ticket: Option<u64>,
     art: Option<TextureBuffer<Tex>>,
-    rect: Rect,
-    shown: (String, String, usize, Note),
+    top: Option<(TextureBuffer<Tex>, Vec2)>,
+    veil: Option<(TextureBuffer<Tex>, [u8; 3])>,
+    shown: (String, String, usize, Note, [u8; 3]),
     lane: worker::Lane,
+    top_lane: worker::Lane,
+    name: String,
     user: std::ffi::CString,
     refocus: Option<smithay::reexports::wayland_server::protocol::wl_surface::WlSurface>,
 }
@@ -495,6 +498,7 @@ pub struct State {
     launchpad: Option<launchpad::Pad>,
     welcome: Option<welcome::Welcome>,
     dock_logo: docklogo::DockLogo,
+    lock_logo: docklogo::DockLogo,
     welcome_wanted: bool,
     login_lock: bool,
     search_font: Option<std::sync::Arc<Font>>,
@@ -638,7 +642,7 @@ impl State {
 
     fn pending(&self) -> Option<Duration> {
         let rest = self.waiting();
-        if self.dark || self.lock.is_some() {
+        if self.dark {
             return rest;
         }
         let live = self
@@ -657,7 +661,10 @@ impl State {
             return None;
         }
         if self.lock.is_some() {
-            return Some(SECOND_TICK);
+            return Some(match self.lock_logo.pace > 0.0 {
+                true => TICK,
+                false => SECOND_TICK,
+            });
         }
         if let Some((_, _, until)) = self.hud.as_ref() {
             return Some(until.saturating_duration_since(Instant::now()).max(TICK));
