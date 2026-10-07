@@ -90,14 +90,17 @@ impl Canvas {
                     continue;
                 }
                 let to = ((ty * i64::from(self.image.width) + tx) * 4) as usize;
+                if a >= 1.0 {
+                    self.image.rgba[to..to + 4].copy_from_slice(&piece.rgba[from..from + 4]);
+                    continue;
+                }
                 for channel in 0..3 {
                     let src = f64::from(piece.rgba[from + channel]) * alpha;
                     let dst = f64::from(self.image.rgba[to + channel]);
-                    self.image.rgba[to + channel] =
-                        (src + dst * (1.0 - a)).round().min(255.0) as u8;
+                    self.image.rgba[to + channel] = byte(src + dst * (1.0 - a));
                 }
                 let dst = f64::from(self.image.rgba[to + 3]) / 255.0;
-                self.image.rgba[to + 3] = ((a + dst * (1.0 - a)) * 255.0).round().min(255.0) as u8;
+                self.image.rgba[to + 3] = byte((a + dst * (1.0 - a)) * 255.0);
             }
         }
     }
@@ -118,16 +121,24 @@ impl Canvas {
                     continue;
                 }
                 let at = ((y * self.image.width + x) * 4) as usize;
+                if a >= 1.0 {
+                    self.image.rgba[at..at + 3].copy_from_slice(&color);
+                    self.image.rgba[at + 3] = 255;
+                    continue;
+                }
                 for (channel, value) in color.iter().enumerate() {
                     let dst = f64::from(self.image.rgba[at + channel]);
-                    self.image.rgba[at + channel] =
-                        (f64::from(*value) * a + dst * (1.0 - a)).round().min(255.0) as u8;
+                    self.image.rgba[at + channel] = byte(f64::from(*value) * a + dst * (1.0 - a));
                 }
                 let dst = f64::from(self.image.rgba[at + 3]) / 255.0;
-                self.image.rgba[at + 3] = ((a + dst * (1.0 - a)) * 255.0).round().min(255.0) as u8;
+                self.image.rgba[at + 3] = byte((a + dst * (1.0 - a)) * 255.0);
             }
         }
     }
+}
+
+fn byte(value: f64) -> u8 {
+    (value + 0.5) as u8
 }
 
 fn inside_round(p: Vec2, size: Vec2, radius: f64) -> f64 {
