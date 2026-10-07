@@ -1071,7 +1071,6 @@ impl Model {
                             chosen: self.glance,
                         },
                     )
-                    .detail("Point at it for every number")
                     .enabled(self.stats),
                     Row::new(Id::Cpu, "CPU", Control::Switch(self.cpu))
                         .detail("All cores together")
@@ -1125,7 +1124,7 @@ impl Model {
                         header: Some("System info"),
                         rows: info,
                         footer: Some(
-                            "Each one shows as a percentage, right of the tray icons.".into(),
+                            "Point at the system info in the top bar for a card with every number.".into(),
                         ),
                         thumbs: None,
                     },
@@ -2408,6 +2407,8 @@ impl Mark {
     }
 }
 
+const SEGMENTS_WIDE: f64 = 300.0;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Control {
     Switch(bool),
@@ -2780,14 +2781,12 @@ impl Look {
     }
 
     pub fn segment_rect(&self, row: Rect, count: usize, slot: usize) -> Rect {
-        let whole = self.segment.x * count as f64;
+        let each = self.segment.x.min(SEGMENTS_WIDE / count.max(1) as f64).floor();
+        let whole = each * count as f64;
         let left = row.max().x - 14.0 - whole;
         Rect::new(
-            Vec2::new(
-                left + self.segment.x * slot as f64,
-                row.center().y - self.segment.y / 2.0,
-            ),
-            self.segment,
+            Vec2::new(left + each * slot as f64, row.center().y - self.segment.y / 2.0),
+            Vec2::new(each, self.segment.y),
         )
     }
 
@@ -4650,6 +4649,17 @@ mod tests {
             look.hit(SIZE, Section::Time, &model, 0.0, seconds),
             Some(Hit::Change(Id::Seconds, Value::Switch(false)))
         );
+    }
+
+    #[test]
+    fn five_segments_stay_clear_of_the_row_label() {
+        let look = Look::default();
+        let row = Rect::new(Vec2::new(0.0, 0.0), Vec2::new(560.0, 44.0));
+        let first = look.segment_rect(row, 5, 0);
+        let last = look.segment_rect(row, 5, 4);
+        assert!(last.max().x - first.origin.x <= SEGMENTS_WIDE);
+        assert!(first.origin.x > 200.0, "room is left for the label");
+        assert_eq!(look.segment_rect(row, 2, 0).size.x, look.segment.x);
     }
 
     #[test]

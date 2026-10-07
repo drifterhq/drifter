@@ -964,7 +964,12 @@ impl State {
             return;
         }
         self.sampled = Some(Instant::now());
-        let fields = self.sampler.read();
+        let fields: Vec<(String, u8)> = self
+            .sampler
+            .read()
+            .into_iter()
+            .filter(|(label, _)| drifter_core::glance::is_load(label) || self.glance == drifter_core::glance::Style::Text)
+            .collect();
         if fields.is_empty() {
             self.stats = None;
             self.glance_card = None;

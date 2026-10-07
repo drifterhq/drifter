@@ -4,6 +4,7 @@ use crate::paint::Canvas;
 use crate::text::Font;
 
 pub const WARM: [u8; 3] = [255, 159, 82];
+pub const HOT: [u8; 3] = [255, 84, 84];
 pub const HISTORY: usize = 30;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,8 +52,17 @@ impl Style {
 }
 
 pub fn tone(ink: [u8; 3], value: f64) -> [u8; 3] {
-    let t = ((value - 0.75) / 0.2).clamp(0.0, 1.0);
-    std::array::from_fn(|c| (f64::from(ink[c]) + (f64::from(WARM[c]) - f64::from(ink[c])) * t).round() as u8)
+    let mix = |from: [u8; 3], to: [u8; 3], t: f64| -> [u8; 3] {
+        std::array::from_fn(|c| (f64::from(from[c]) + (f64::from(to[c]) - f64::from(from[c])) * t.clamp(0.0, 1.0)).round() as u8)
+    };
+    match value < 0.88 {
+        true => mix(ink, WARM, (value - 0.7) / 0.18),
+        false => mix(WARM, HOT, (value - 0.88) / 0.1),
+    }
+}
+
+pub fn is_load(label: &str) -> bool {
+    !matches!(label, "BAT" | "CHG")
 }
 
 fn share(value: u8) -> f64 {
@@ -117,7 +127,7 @@ fn calm(values: &[u8], ink: [u8; 3]) -> Image {
     let mut canvas = Canvas::new(14, 14);
     canvas.ring(Rect::new(Vec2::splat(1.4), Vec2::splat(11.2)), 5.6, 1.2, ink, 0.32 + busy * 0.45);
     if busy > 0.01 {
-        canvas.circle(Vec2::splat(7.0), 5.0 * busy, tone(ink, 0.75 + busy * 0.2), 0.25 + busy * 0.55);
+        canvas.circle(Vec2::splat(7.0), 5.0 * busy, tone(ink, load), 0.25 + busy * 0.55);
     }
     canvas.image
 }
@@ -273,7 +283,9 @@ mod tests {
     fn load_warms_only_near_the_top() {
         let ink = [244, 245, 250];
         assert_eq!(tone(ink, 0.5), ink);
-        assert_eq!(tone(ink, 1.0), WARM);
+        assert_eq!(tone(ink, 0.88), WARM);
+        assert_eq!(tone(ink, 1.0), HOT);
+        assert!(!is_load("CHG") && !is_load("BAT") && is_load("CPU"));
     }
 
     #[test]
