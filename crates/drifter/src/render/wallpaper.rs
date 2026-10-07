@@ -3,6 +3,7 @@ use smithay::backend::renderer::gles::{GlesPixelProgram, GlesTexture, Uniform, U
 use smithay::backend::renderer::{Bind, Frame, Offscreen, Renderer};
 
 const STRIPS: i32 = 15;
+const FROST_SETTLE: Duration = Duration::from_millis(150);
 const ART_KEEP: Duration = Duration::from_secs(5);
 
 struct Sheet {
@@ -335,17 +336,28 @@ impl State {
         };
         let q = |v: f64| (v / 6.0).round() as i64;
         let zoom = laid.target.size.x / laid.source.size.x.max(f64::MIN_POSITIVE);
+        let drift = [q(laid.source.origin.x * zoom), q(laid.source.origin.y * zoom)];
         let key = [
             q(laid.target.origin.x),
             q(laid.target.origin.y),
             q(laid.target.size.x),
             q(laid.target.size.y),
-            q(laid.source.origin.x * zoom),
-            q(laid.source.origin.y * zoom),
             q(self.screen.x),
             i64::from(self.palette.veil) * 1000 + i64::from(self.palette.bar[0]),
+            drift[0],
+            drift[1],
         ];
+        if self.frost_drift.is_none_or(|(was, _)| was != drift) {
+            self.frost_drift = Some((drift, Instant::now()));
+        }
+        let drifting = self
+            .frost_key
+            .is_some_and(|built| built[..6] == key[..6])
+            && self
+                .frost_drift
+                .is_some_and(|(_, since)| since.elapsed() < FROST_SETTLE);
         if self.frost_key == Some(key)
+            || drifting
             || self
                 .frost_at
                 .is_some_and(|at| at.elapsed() < Duration::from_millis(60))

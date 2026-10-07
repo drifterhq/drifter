@@ -491,6 +491,7 @@ pub fn open(
         badge_art: std::collections::HashMap::new(),
         drops,
         frost_at: None,
+        frost_drift: None,
         tip: None,
         tip_of: None,
         snap: Snap::default(),
