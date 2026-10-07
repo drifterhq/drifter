@@ -2,7 +2,7 @@ use super::*;
 use smithay::backend::renderer::gles::{GlesPixelProgram, GlesTexture, Uniform, UniformName, UniformType};
 use smithay::backend::renderer::{Bind, Frame, Offscreen, Renderer};
 
-const STRIPS: i32 = 15;
+const STRIPS: i32 = 6;
 const FROST_SETTLE: Duration = Duration::from_millis(150);
 const ART_KEEP: Duration = Duration::from_secs(5);
 
@@ -256,7 +256,7 @@ impl State {
 
     pub(super) fn live_every(&self) -> Duration {
         match self.paper.drift > 0.0 {
-            true => LIVE_EVERY,
+            true => LIVE_EVERY.div_f64(self.paper.drift.min(1.0)).min(LIVE_STILL),
             false => LIVE_STILL,
         }
     }
