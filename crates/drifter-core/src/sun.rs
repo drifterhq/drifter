@@ -13,6 +13,7 @@ pub struct Sun {
     pub strength: f64,
     pub glint: [f64; 3],
     pub rim: f64,
+    pub sheen: f64,
     pub side: f64,
 }
 
@@ -41,8 +42,8 @@ pub fn sun(hour: f64) -> Sun {
     let moon_side = -moon_arc.cos() * moon_arc.sin() * 1.4;
 
     let low = 1.0 - height;
-    let day_cast = Vec2::new(-side * (10.0 + 30.0 * low), 8.0 + 14.0 * low);
-    let night_cast = Vec2::new(-moon_side * 10.0, 10.0);
+    let day_cast = Vec2::new(-side * (14.0 + 46.0 * low), 8.0 + 18.0 * low);
+    let night_cast = Vec2::new(-moon_side * 16.0, 10.0);
     let cast = Vec2::new(
         night_cast.x + (day_cast.x - night_cast.x) * up,
         night_cast.y + (day_cast.y - night_cast.y) * up,
@@ -50,13 +51,15 @@ pub fn sun(hour: f64) -> Sun {
 
     let warm = mix3(rgb(0xff9a5c), rgb(0xfff4e0), smoothstep(0.0, 0.6, height));
     let glint = mix3(rgb(0xa8bfff), warm, up);
-    let rim = 0.16 + up * (0.30 + 0.30 * low);
+    let rim = 0.4 + up * (0.2 + 0.35 * low);
+    let sheen = 0.1 + up * (0.06 + 0.12 * low);
     Sun {
         cast,
         spread: 1.0 + 0.5 * low * up,
-        strength: 0.9 + 0.25 * up * height,
+        strength: 1.0 + 0.4 * up * low,
         glint,
         rim,
+        sheen,
         side: moon_side + (side - moon_side) * up,
     }
 }
@@ -118,6 +121,26 @@ pub fn rim_strip(sun: &Sun, length: u32, along_x: bool) -> crate::Image {
     }
 }
 
+pub fn sheen(sun: &Sun, size: u32) -> crate::Image {
+    let n = size.max(2);
+    let from = (0.5 + 0.6 * sun.side, -0.15);
+    let mut rgba = Vec::with_capacity((n * n * 4) as usize);
+    for y in 0..n {
+        for x in 0..n {
+            let u = (f64::from(x) + 0.5) / f64::from(n) - from.0;
+            let v = (f64::from(y) + 0.5) / f64::from(n) - from.1;
+            let (px, py) = ((f64::from(x) + 0.5) / f64::from(n), (f64::from(y) + 0.5) / f64::from(n));
+            let edge = smoothstep(0.0, 0.05, px.min(1.0 - px)) * smoothstep(0.0, 0.05, py.min(1.0 - py));
+            let a = ((-(u * u * 1.6 + v * v * 3.0)).exp() * edge).clamp(0.0, 1.0);
+            for c in sun.glint {
+                rgba.push((c * a * 255.0).round() as u8);
+            }
+            rgba.push((a * 255.0).round() as u8);
+        }
+    }
+    crate::Image { width: n, height: n, rgba }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -154,6 +177,13 @@ mod tests {
             assert!((now.rim - last.rim).abs() < 0.05, "rim jumps at {step}");
             last = now;
         }
+    }
+
+    #[test]
+    fn the_sheen_glows_from_the_sun_side() {
+        let evening = sheen(&sun(17.5), 64);
+        let alpha = |x: u32| evening.rgba[((4 * 64 + x) * 4 + 3) as usize];
+        assert!(alpha(56) > alpha(8));
     }
 
     #[test]
