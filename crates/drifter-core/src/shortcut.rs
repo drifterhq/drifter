@@ -209,10 +209,14 @@ impl Combo {
     pub fn resolve(&self, camera: Modifier) -> Combo {
         let mut mods = self.mods;
         if self.camera {
-            match camera {
-                Modifier::Super => mods.logo = true,
-                Modifier::Alt => mods.alt = true,
-                Modifier::Ctrl => mods.ctrl = true,
+            let held = match camera {
+                Modifier::Super => &mut mods.logo,
+                Modifier::Alt => &mut mods.alt,
+                Modifier::Ctrl => &mut mods.ctrl,
+            };
+            match *held {
+                true => mods.shift = true,
+                false => *held = true,
             }
         }
         Combo {
@@ -222,16 +226,14 @@ impl Combo {
         }
     }
 
-    pub fn shown(&self) -> String {
+    pub fn shown(&self, camera: crate::config::Modifier) -> String {
+        let real = self.resolve(camera);
         let mut parts: Vec<String> = Vec::new();
-        if self.camera {
-            parts.push("Camera key".into());
-        }
         let mods = [
-            (self.mods.ctrl, "Ctrl"),
-            (self.mods.alt, "Alt"),
-            (self.mods.shift, "Shift"),
-            (self.mods.logo, "Super"),
+            (real.mods.ctrl, "Ctrl"),
+            (real.mods.alt, "Alt"),
+            (real.mods.shift, "Shift"),
+            (real.mods.logo, "Super"),
         ];
         for (held, name) in mods {
             if held {
@@ -292,6 +294,18 @@ pub fn pretty(key: &str) -> String {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn saving_a_place_never_takes_the_fly_back_key() {
+        use crate::config::Modifier;
+        let go = Combo::parse("camera+1").unwrap().unwrap();
+        let save = Combo::parse("camera+ctrl+1").unwrap().unwrap();
+        for camera in [Modifier::Super, Modifier::Alt, Modifier::Ctrl] {
+            assert_ne!(go.resolve(camera), save.resolve(camera), "{camera:?}");
+        }
+        assert_eq!(save.shown(Modifier::Ctrl), "Ctrl + Shift + 1");
+        assert_eq!(go.shown(Modifier::Super), "Super + 1");
+    }
+
+    #[test]
     fn the_modifier_keys_are_known_by_their_xkb_code() {
         for code in [37, 105, 50, 62, 64, 108, 133, 134] {
             assert!(super::is_modifier_code(code), "{code} is a modifier");
@@ -333,7 +347,8 @@ mod tests {
     #[test]
     fn the_camera_key_becomes_its_modifier() {
         let lock = Combo::parse("camera+l").unwrap().unwrap();
-        assert_eq!(lock.shown(), "Camera key + L");
+        assert_eq!(lock.shown(crate::config::Modifier::Super), "Super + L");
+        assert_eq!(lock.shown(crate::config::Modifier::Ctrl), "Ctrl + L");
         let plain = lock.resolve(Modifier::Ctrl);
         assert!(plain.mods.ctrl && !plain.camera);
         let held = Mods {
@@ -386,6 +401,6 @@ mod tests {
     #[test]
     fn keys_read_well() {
         let combo = Combo::parse("ctrl+shift+Return").unwrap().unwrap();
-        assert_eq!(combo.shown(), "Ctrl + Shift + Enter");
+        assert_eq!(combo.shown(crate::config::Modifier::Super), "Ctrl + Shift + Enter");
     }
 }

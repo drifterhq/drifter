@@ -912,10 +912,10 @@ impl Model {
                         )
                         .detail("Screens across and screens down"),
                     ],
-                    footer: Some(
-                        "Hold the camera key and push an edge to pan, or scroll to zoom out."
-                            .into(),
-                    ),
+                    footer: Some(format!(
+                        "Hold {} and push an edge to pan, or scroll to zoom out.",
+                        self.modifier.name()
+                    )),
                     thumbs: None,
                 }];
                 groups.push(self.place_group());
@@ -4284,7 +4284,7 @@ mod tests {
             .flat_map(|group| group.rows)
             .find(|row| row.id == Id::Place(0))
             .unwrap();
-        assert_eq!(row.detail.as_deref(), Some("Camera key + 1, zoom 50%"));
+        assert_eq!(row.detail.as_deref(), Some("Super + 1, zoom 50%"));
 
         let mut after = before.clone();
         after.press(Id::Place(0), 0);

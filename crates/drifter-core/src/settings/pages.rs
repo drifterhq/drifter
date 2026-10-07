@@ -248,7 +248,7 @@ impl Model {
                 header: None,
                 rows: vec![Row::new(
                     Id::Modifier,
-                    "Camera key",
+                    "Hold to move the camera",
                     Control::Segments {
                         options: vec!["Super", "Alt", "Ctrl"],
                         chosen: match self.modifier {
@@ -527,7 +527,7 @@ impl Model {
             .enumerate()
             .map(|(at, action)| {
                 let shown = match Combo::parse(self.keys.get(*action)) {
-                    Ok(Some(combo)) => combo.shown(),
+                    Ok(Some(combo)) => combo.shown(self.modifier),
                     Ok(None) => "None".to_string(),
                     Err(_) => format!("{} (not understood)", self.keys.get(*action)),
                 };
@@ -562,7 +562,7 @@ impl Model {
                     .key
                     .as_deref()
                     .and_then(|key| Combo::parse(key).ok().flatten())
-                    .map(|combo| combo.shown())
+                    .map(|combo| combo.shown(self.modifier))
                     .unwrap_or_else(|| "No key".to_string());
                 let detail = format!("{key}, zoom {}%", (place.zoom * 100.0).round());
                 let docked = self.dock.contains(&place_button(&place.name));
@@ -576,10 +576,13 @@ impl Model {
         Group {
             header: Some("Places"),
             rows,
-            footer: Some(
-                "Camera key + Ctrl + 1 to 9 saves this view. Camera key + 1 to 9 flies back."
-                    .into(),
-            ),
+            footer: Some({
+                let key = self.modifier.name();
+                match self.modifier {
+                    crate::config::Modifier::Ctrl => format!("{key} + Shift + 1 to 9 saves this view. {key} + 1 to 9 flies back."),
+                    _ => format!("{key} + Ctrl + 1 to 9 saves this view. {key} + 1 to 9 flies back."),
+                }
+            }),
             thumbs: None,
         }
     }
@@ -1213,7 +1216,7 @@ impl Model {
         let now = Combo::parse(self.keys.get(action))
             .ok()
             .flatten()
-            .map(|combo| combo.shown())
+            .map(|combo| combo.shown(self.modifier))
             .unwrap_or_default();
         (action.label().to_string(), now)
     }

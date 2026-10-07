@@ -143,7 +143,7 @@ impl State {
                         self.places.push((saved, combo));
                     }
                 }
-                (format!("{name} saved"), format!("The camera key and {slot} come back here."))
+                (format!("{name} saved"), format!("{} + {slot} comes back here.", self.holds.name()))
             }
             Err(error) => (format!("{name} not saved"), error),
         };

@@ -479,8 +479,13 @@ impl State {
             }
             BAR_SETTINGS => self.open_settings_at("dock"),
             size if size > BAR_SIZE_BASE => {
-                let height = i64::from(size - BAR_SIZE_BASE);
-                self.save_key(|text| drifter_core::settings::write_number(text, "drawers", "bottom", height));
+                let height = f64::from(size - BAR_SIZE_BASE);
+                let icon = (height * 0.82).round();
+                let padding = ((height - icon) / 2.0).round();
+                self.save_key(|text| {
+                    drifter_core::settings::write_number(text, "dock", "icon", icon as i64)
+                        .and_then(|text| drifter_core::settings::write_number(&text, "dock", "padding", padding as i64))
+                });
             }
             _ => {}
         }

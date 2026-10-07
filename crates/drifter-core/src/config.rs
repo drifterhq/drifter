@@ -26,6 +26,14 @@ pub enum Modifier {
 }
 
 impl Modifier {
+    pub fn name(self) -> &'static str {
+        match self {
+            Modifier::Super => "Super",
+            Modifier::Alt => "Alt",
+            Modifier::Ctrl => "Ctrl",
+        }
+    }
+
     pub fn keys(self) -> [u32; 2] {
         match self {
             Modifier::Super => [133, 134],
