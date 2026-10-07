@@ -129,7 +129,7 @@ impl Section {
             Section::Shortcuts => "keys hotkeys keybindings screenshot folder format png jpeg",
             Section::Access => "accessibility large text bigger high contrast reduce motion animation sticky keys a11y",
             Section::Power => "sleep suspend lid battery shutdown profile performance saver balanced",
-            Section::Lock => "password idle screen off",
+            Section::Lock => "password idle screen off login automatic",
             Section::Users => "user account people password picture photo avatar face admin administrator name add remove login",
             Section::Time => "clock zone ntp date",
             Section::Login => "startup autostart apps",
@@ -256,6 +256,7 @@ pub struct Model {
     pub screen_off: u64,
     pub login: Vec<Launch>,
     pub autostart: bool,
+    pub automatic: bool,
     pub autostarts: Vec<crate::autostart::Entry>,
     pub dock: Vec<Launch>,
     pub shows: [bool; 6],
@@ -423,6 +424,7 @@ impl Model {
             screen_off: config.lock.screen_off,
             login: config.login.start.clone(),
             autostart: config.login.autostart,
+            automatic: config.login.automatic,
             autostarts: Vec::new(),
             dock: config.dock.pinned.clone(),
             shows: [
@@ -1129,6 +1131,14 @@ impl Model {
                 ],
                 footer: Some("A video that is playing keeps the screen awake.".into()),
                 thumbs: None,
+            }, Group {
+                header: Some("Login"),
+                rows: vec![
+                    Row::new(Id::AutoLogin, "Log in automatically", Control::Switch(self.automatic))
+                        .detail("Skip the password when Drifter starts"),
+                ],
+                footer: Some("This counts when Drifter starts from a text console. A login screen such as GDM or SDDM asks for the password itself.".into()),
+                thumbs: None,
             }],
             Section::Apps => vec![Group {
                 header: None,
@@ -1628,6 +1638,7 @@ impl Model {
             (Id::Ram, Value::Switch(on)) => self.ram = on,
             (Id::Battery, Value::Switch(on)) => self.battery = on,
             (Id::Autostart, Value::Switch(on)) => self.autostart = on,
+            (Id::AutoLogin, Value::Switch(on)) => self.automatic = on,
             (Id::AutoEntry(at), Value::Switch(on)) => {
                 if let Some(entry) = self.autostarts.get_mut(at) {
                     entry.on = on;
@@ -1912,6 +1923,14 @@ impl Model {
                 toml_edit::Value::from(self.autostart),
             );
         }
+        if self.automatic != before.automatic {
+            put(
+                &mut doc,
+                "login",
+                "automatic",
+                toml_edit::Value::from(self.automatic),
+            );
+        }
         if self.dock != before.dock {
             put(&mut doc, "dock", "pinned", launches(&self.dock));
         }
@@ -2190,6 +2209,7 @@ pub enum Id {
     LoginAdd,
     Autostart,
     AutoEntry(usize),
+    AutoLogin,
     Dock(usize),
     DockAdd,
     DockShow(usize),

@@ -262,6 +262,8 @@ pub struct LoginConfig {
     pub start: Vec<Launch>,
     #[serde(default = "yes")]
     pub autostart: bool,
+    #[serde(default)]
+    pub automatic: bool,
 }
 
 impl Default for LoginConfig {
@@ -269,6 +271,7 @@ impl Default for LoginConfig {
         LoginConfig {
             start: Vec::new(),
             autostart: true,
+            automatic: false,
         }
     }
 }
@@ -1799,6 +1802,8 @@ mod tests {
     #[test]
     fn autostart_is_on_unless_the_config_turns_it_off() {
         assert!(Config::default().login.autostart);
+        assert!(!Config::default().login.automatic);
+        assert!(Config::parse("[login]\nautomatic = true\n").unwrap().login.automatic);
         assert!(
             Config::parse("[login]\nstart = []\n")
                 .unwrap()

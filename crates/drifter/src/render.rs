@@ -496,6 +496,7 @@ pub struct State {
     welcome: Option<welcome::Welcome>,
     dock_logo: docklogo::DockLogo,
     welcome_wanted: bool,
+    login_lock: bool,
     search_font: Option<std::sync::Arc<Font>>,
     search_icons: std::collections::HashMap<String, Option<drifter_core::Image>>,
     app_label: Option<(String, TextureBuffer<Tex>, Vec2)>,
@@ -1438,7 +1439,9 @@ impl Screen {
             ..
         } = self;
 
-        if lock_marker().is_some_and(|marker| marker.exists()) {
+        if lock_marker().is_some_and(|marker| marker.exists())
+            || (state.login_lock && crate::logind::from_console())
+        {
             state.lock_now();
         }
         state.draw()?;

@@ -43,6 +43,25 @@ pub fn start() -> Result<Channel<Event>, String> {
     Ok(rx)
 }
 
+pub fn from_console() -> bool {
+    let service = Connection::system()
+        .map_err(|e| e.to_string())
+        .and_then(|bus| {
+            let path = session_path(&bus)?;
+            let session = Proxy::new(&bus, SERVICE, path, SESSION).map_err(|e| e.to_string())?;
+            session
+                .get_property::<String>("Service")
+                .map_err(|e| e.to_string())
+        });
+    match service {
+        Ok(service) => service == "login",
+        Err(error) => {
+            log!("drifter: cannot tell how this session logged in: {error}");
+            false
+        }
+    }
+}
+
 fn session_path(bus: &Connection) -> Result<OwnedObjectPath, String> {
     let manager = Proxy::new(bus, SERVICE, PATH, MANAGER).map_err(|e| e.to_string())?;
     let found = match std::env::var("XDG_SESSION_ID") {

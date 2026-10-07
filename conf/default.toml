@@ -231,6 +231,12 @@ start = []
 # Settings > Login Items turns each one on or off.
 autostart = true
 
+# When Drifter starts from a text console, it opens on the lock screen
+# and asks for your password. true skips it. A login screen such as GDM
+# or SDDM asks for the password itself, so this changes nothing there.
+# Settings > Lock Screen turns it on or off.
+automatic = false
+
 [tray]
 # strftime. %a weekday, %b month, %d day, %I hour on 12, %H hour on 24,
 # %M minute, %S second, %p AM or PM.
