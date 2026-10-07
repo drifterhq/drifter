@@ -458,6 +458,7 @@ pub struct State {
     eaten: Vec<u32>,
     frame_timer: bool,
     cursor_status: smithay::input::pointer::CursorImageStatus,
+    client_cursor: smithay::input::pointer::CursorImageStatus,
     named_cursors: std::collections::HashMap<&'static str, Option<ThemeCursor>>,
     layer_focus: Option<smithay::reexports::wayland_server::protocol::wl_surface::WlSurface>,
     skin: std::collections::HashMap<String, (TextureBuffer<Tex>, Vec2)>,
@@ -1159,7 +1160,10 @@ impl State {
     }
 
     pub fn set_cursor(&mut self, status: smithay::input::pointer::CursorImageStatus) {
-        self.cursor_status = status;
+        self.client_cursor = status.clone();
+        if self.grip_under().is_none() {
+            self.cursor_status = status;
+        }
     }
 
     fn draw(&mut self) -> Result<bool, String> {

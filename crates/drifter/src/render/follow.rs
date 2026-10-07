@@ -434,6 +434,10 @@ impl State {
         let laid = (config.workspace.width, config.workspace.height) != self.screens_wide
             || config.monitor != self.monitors;
         self.screens_wide = (config.workspace.width, config.workspace.height);
+        if config.tray.battery && !self.show_battery {
+            self.battery_at = None;
+            self.battery_seen = None;
+        }
         self.show_battery = config.tray.battery;
         self.window_pace = window_pace(config);
         let reduce = config.access.reduce_motion;

@@ -182,6 +182,8 @@ impl State {
             self.cursor_status = CursorImageStatus::Named(icon);
         } else if focus.is_none() {
             self.cursor_status = smithay::input::pointer::CursorImageStatus::default_named();
+        } else {
+            self.cursor_status = self.client_cursor.clone();
         }
         let pointer = self.wayland.pointer.clone();
         let world = self.in_world(self.pointer);

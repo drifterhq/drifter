@@ -716,16 +716,31 @@ impl Model {
         let mut rows = Vec::new();
         if let Some(now) = Model::shown_mode(monitor) {
             let marks = vec![Mark::Minus, Mark::Plus];
-            rows.push(
-                Row::new(Id::Resolution, "Resolution", Control::Buttons(marks.clone()))
-                    .detail(&format!("{} × {}", now.width, now.height)),
-            );
+            let mut sizes: Vec<(u32, u32)> = monitor.modes.iter().map(|mode| (mode.width, mode.height)).collect();
+            sizes.dedup();
+            sizes.sort_unstable();
+            sizes.dedup();
+            let rates = monitor
+                .modes
+                .iter()
+                .filter(|mode| (mode.width, mode.height) == (now.width, now.height))
+                .count();
+            let stepped = |id: Id, label: &str, many: bool, shown: String| match many {
+                true => Row::new(id, label, Control::Buttons(marks.clone())).detail(&shown),
+                false => Row::new(id, label, Control::Note(shown)),
+            };
+            rows.push(stepped(
+                Id::Resolution,
+                "Resolution",
+                sizes.len() > 1,
+                format!("{} × {}", now.width, now.height),
+            ));
             let hertz = f64::from(now.refresh_mhz) / 1000.0;
             let rate = match now.refresh_mhz % 1000 {
                 0 => format!("{} Hz", now.refresh_mhz / 1000),
                 _ => format!("{hertz:.2} Hz"),
             };
-            rows.push(Row::new(Id::Refresh, "Refresh rate", Control::Buttons(marks)).detail(&rate));
+            rows.push(stepped(Id::Refresh, "Refresh rate", rates > 1, rate));
         }
         if self.monitors.len() > 1 {
             let others_on = self

@@ -394,6 +394,7 @@ pub fn open(
         eaten: Vec::new(),
         frame_timer: false,
         cursor_status: smithay::input::pointer::CursorImageStatus::default_named(),
+        client_cursor: smithay::input::pointer::CursorImageStatus::default_named(),
         named_cursors: std::collections::HashMap::new(),
         layer_focus: None,
         skin,
