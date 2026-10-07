@@ -1751,3 +1751,42 @@ fn the_shell_at_paint_density_two_matches_density_one() {
         wild * 100.0
     );
 }
+
+fn sky(width: u32, height: u32) -> Image {
+    let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+    for y in 0..height {
+        for x in 0..width {
+            let (u, v) = (f64::from(x) / f64::from(width), f64::from(y) / f64::from(height));
+            rgba.extend_from_slice(&[(40.0 + 180.0 * u) as u8, (90.0 + 80.0 * v) as u8, (200.0 - 60.0 * u) as u8, 255]);
+        }
+    }
+    Image {
+        width,
+        height,
+        rgba,
+    }
+}
+
+#[test]
+fn the_lock_screen_shows_the_wallpaper_under_a_veil_in_either_theme() {
+    let mut run = start("own-lock", &Config::default(), Some(sky(1600, 1200)));
+    let open = run.shot("open");
+    if !run.screen.state.lock_now() {
+        return;
+    }
+    for (name, palette) in [("dark", drifter_core::theme::DARK), ("light", drifter_core::theme::LIGHT)] {
+        run.screen.state.palette = palette;
+        if let Some(lock) = run.screen.state.lock.as_mut() {
+            lock.art = None;
+            lock.top = None;
+        }
+        run.screen.state.paint_lock();
+        pump(&mut run.screen, |state| {
+            state.lock.as_ref().is_some_and(|lock| lock.art.is_some() && lock.top.is_some() && lock.veil.is_some())
+        });
+        let shot = run.shot(&format!("locked-{name}"));
+        let corner = pixel(&shot, 10, SIZE.1 - 10);
+        assert!(!is_background(corner), "the wallpaper shows under the {name} lock");
+        assert_ne!(corner, pixel(&open, 10, SIZE.1 - 10), "a {name} veil tints the wallpaper");
+    }
+}
