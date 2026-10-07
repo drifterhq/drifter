@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use super::{
-    Control, Group, Id, Mark, Model, NetAsk, PROFILES, Row, Value, drop_key, file_name, put,
+    Control, Group, Id, Mark, Model, NetAsk, PROFILES, Row, Value, drop_key, put,
 };
 use crate::config::{
     ShotFormat,
@@ -300,14 +300,6 @@ impl Model {
     pub(super) fn appearance_groups(&self) -> Vec<Group> {
         let look = &self.appearance;
         let named = |name: &Option<String>, none: &str| name.clone().unwrap_or(none.to_string());
-        let mut art = Vec::new();
-        for (at, (_, label, none)) in ASSETS.iter().enumerate().skip(1) {
-            let held = &self.assets[at];
-            art.push(
-                Row::new(Id::Asset(at), label, choose_and_reset(held.is_some()))
-                    .detail(&file_name(held.as_deref(), none)),
-            );
-        }
         vec![
             Group {
                 header: Some("Style"),
@@ -366,20 +358,8 @@ impl Model {
                                 .unwrap_or(0),
                         },
                     ),
-                    Row::new(
-                        Id::Asset(0),
-                        ASSETS[0].1,
-                        choose_and_reset(self.assets[0].is_some()),
-                    )
-                    .detail(&file_name(self.assets[0].as_deref(), ASSETS[0].2)),
                 ],
-                footer: Some("Apps opened after a change use the new cursor.".into()),
-                thumbs: None,
-            },
-            Group {
-                header: Some("Drifter's own art"),
-                rows: art,
-                footer: Some("Reset goes back to what Drifter draws itself.".into()),
+                footer: Some("The pointer changes at once. Apps opened after a change use it too. Window edges show resize arrows from the cursor theme.".into()),
                 thumbs: None,
             },
         ]

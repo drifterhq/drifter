@@ -91,12 +91,15 @@ pub(super) fn load_arrow(
         crate::cursors::load(&["default", "left_ptr"], look.cursor_theme.as_deref(), look.cursor_size * dense)
             .map(|(image, hotspot)| (image, hotspot, dense))
     };
-    let (image, hotspot, scale) = match supplied {
-        Some(image) => (image, Vec2::ZERO, 1),
-        None => themed().unwrap_or_else(|| {
-            let drawn = Cursor::default();
-            (drawn.paint(), drawn.hotspot(), 1)
-        }),
+    let (image, hotspot, scale) = match themed() {
+        Some(found) => found,
+        None => match supplied {
+            Some(image) => (image, Vec2::ZERO, 1),
+            None => {
+                let drawn = Cursor::default();
+                (drawn.paint(), drawn.hotspot(), 1)
+            }
+        },
     };
     let size = image.size() / f64::from(scale);
     let arrow = upload_at(renderer, Some(&image), "cursor", scale as i32)?
@@ -168,9 +171,17 @@ pub(super) fn load_dock_art(
             }
         }
     };
-    let trash_image =
-        from_art("trash").unwrap_or_else(|| drifter_core::dock::paint_trash(side, look.rule_ink()));
-    let cog_image = from_art("settings")
+    let themed = |names: &[&str]| -> Option<drifter_core::Image> {
+        names.iter().find_map(|name| {
+            let path = drifter_core::icon::find(name, None, dense(side))?;
+            drifter_core::image::load_sized(&path, dense(side)).ok()
+        })
+    };
+    let trash_image = themed(&["user-trash", "user-trash-empty"])
+        .or_else(|| from_art("trash"))
+        .unwrap_or_else(|| drifter_core::dock::paint_trash(side, look.rule_ink()));
+    let cog_image = themed(&["preferences-system", "org.gnome.Settings", "systemsettings"])
+        .or_else(|| from_art("settings"))
         .unwrap_or_else(|| drifter_core::dock::paint_cog(side, look.rule_ink()));
     let mut built =
         |image: &drifter_core::Image, what: &str| match upload(renderer, Some(image), what) {

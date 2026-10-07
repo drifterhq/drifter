@@ -165,7 +165,22 @@ impl State {
         use smithay::utils::SERIAL_COUNTER;
 
         let focus = self.pointer_focus();
-        if focus.is_none() || self.grip_under().is_some() {
+        if let Some((_, grip)) = self.grip_under() {
+            use drifter_core::window::Grip;
+            use smithay::input::pointer::{CursorIcon, CursorImageStatus};
+            let icon = match grip {
+                Grip::Left => CursorIcon::WResize,
+                Grip::Right => CursorIcon::EResize,
+                Grip::Top => CursorIcon::NResize,
+                Grip::Bottom => CursorIcon::SResize,
+                Grip::TopLeft => CursorIcon::NwResize,
+                Grip::TopRight => CursorIcon::NeResize,
+                Grip::BottomLeft => CursorIcon::SwResize,
+                Grip::BottomRight => CursorIcon::SeResize,
+                Grip::Title | Grip::Button(_) => CursorIcon::Default,
+            };
+            self.cursor_status = CursorImageStatus::Named(icon);
+        } else if focus.is_none() {
             self.cursor_status = smithay::input::pointer::CursorImageStatus::default_named();
         }
         let pointer = self.wayland.pointer.clone();

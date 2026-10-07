@@ -755,11 +755,14 @@ impl State {
     fn full_trash(&mut self) -> Option<TextureBuffer<Tex>> {
         if self.trash_full_art.is_none() {
             let side = self.dock.icon as u32;
-            let from_art = self
-                .dock_art_dir
-                .as_ref()
-                .and_then(|dir| drifter_core::image::load(&dir.join("trash-full.png")).ok())
-                .map(|image| image.scaled(dense(side), dense(side)));
+            let themed = drifter_core::icon::find("user-trash-full", None, dense(side))
+                .and_then(|path| drifter_core::image::load_sized(&path, dense(side)).ok());
+            let from_art = themed.or_else(|| {
+                self.dock_art_dir
+                    .as_ref()
+                    .and_then(|dir| drifter_core::image::load(&dir.join("trash-full.png")).ok())
+                    .map(|image| image.scaled(dense(side), dense(side)))
+            });
             let dock = drifter_core::dock::Dock::themed(&self.palette);
             let image = from_art
                 .unwrap_or_else(|| drifter_core::dock::paint_trash_full(side, dock.rule_ink()));
