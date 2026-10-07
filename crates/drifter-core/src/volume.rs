@@ -80,15 +80,19 @@ fn segment(image: &mut Image, from: Vec2, to: Vec2, thick: f64, color: [u8; 3]) 
     let long = along.length().max(0.001);
     for y in 0..image.height {
         for x in 0..image.width {
-            let p = Vec2::new(f64::from(x) + 0.5, f64::from(y) + 0.5) - from;
+            let p = spot(x, y) - from;
             let t = ((p.x * along.x + p.y * along.y) / (long * long)).clamp(0.0, 1.0);
             let away = (p - along * t).length();
-            let ink = (thick / 2.0 - away + 0.5).clamp(0.0, 1.0);
+            let ink = ((thick / 2.0 - away) * crate::paint::density() + 0.5).clamp(0.0, 1.0);
             if ink > 0.0 {
                 put(image, x, y, color, ink);
             }
         }
     }
+}
+
+fn spot(x: u32, y: u32) -> Vec2 {
+    Vec2::new(f64::from(x) + 0.5, f64::from(y) + 0.5) / crate::paint::density()
 }
 
 fn put(image: &mut Image, x: u32, y: u32, color: [u8; 3], ink: f64) {
@@ -105,11 +109,11 @@ fn arc(image: &mut Image, center: Vec2, radius: f64, thick: f64, color: [u8; 3])
     let spread = 0.78_f64;
     for y in 0..image.height {
         for x in 0..image.width {
-            let d = Vec2::new(f64::from(x) + 0.5, f64::from(y) + 0.5) - center;
+            let d = spot(x, y) - center;
             if d.x <= 0.0 || d.y.atan2(d.x).abs() > spread {
                 continue;
             }
-            let ink = (thick / 2.0 - (d.length() - radius).abs() + 0.5).clamp(0.0, 1.0);
+            let ink = ((thick / 2.0 - (d.length() - radius).abs()) * crate::paint::density() + 0.5).clamp(0.0, 1.0);
             if ink > 0.0 {
                 put(image, x, y, color, ink);
             }
@@ -120,14 +124,15 @@ fn arc(image: &mut Image, center: Vec2, radius: f64, thick: f64, color: [u8; 3])
 fn cross(image: &mut Image, center: Vec2, reach: f64, thick: f64, color: [u8; 3]) {
     for y in 0..image.height {
         for x in 0..image.width {
-            let d = Vec2::new(f64::from(x) + 0.5, f64::from(y) + 0.5) - center;
+            let d = spot(x, y) - center;
             if d.x.abs() > reach + thick || d.y.abs() > reach + thick {
                 continue;
             }
+            let dense = crate::paint::density();
             let line = |a: f64, b: f64| (a - b).abs() / std::f64::consts::SQRT_2;
             let away = line(d.x, d.y).min(line(d.x, -d.y));
-            let inside = (reach - d.x.abs().max(d.y.abs()) + 0.5).clamp(0.0, 1.0);
-            let ink = (thick / 2.0 - away + 0.5).clamp(0.0, 1.0) * inside;
+            let inside = ((reach - d.x.abs().max(d.y.abs())) * dense + 0.5).clamp(0.0, 1.0);
+            let ink = ((thick / 2.0 - away) * dense + 0.5).clamp(0.0, 1.0) * inside;
             if ink > 0.0 {
                 put(image, x, y, color, ink);
             }
@@ -275,8 +280,8 @@ impl Panel {
             let words = format!("{}%", (level * 100.0).round() as i64);
             let reading = font.paint(&words, if muted { self.dim } else { self.ink });
             let at = Vec2::new(
-                self.size.x - self.pad - f64::from(reading.width),
-                track.center().y - f64::from(reading.height) / 2.0,
+                self.size.x - self.pad - crate::paint::logical(&reading).x,
+                track.center().y - crate::paint::logical(&reading).y / 2.0,
             );
             canvas.stamp(&reading, at, 1.0);
             for (rect, hit) in buttons {
@@ -287,7 +292,7 @@ impl Panel {
                     _ => "Sound Settings",
                 };
                 let text = font.paint(label, self.ink);
-                canvas.stamp(&text, rect.center() - text.size() / 2.0, 1.0);
+                canvas.stamp(&text, rect.center() - crate::paint::logical(&text) / 2.0, 1.0);
             }
         }
         canvas.image
@@ -300,6 +305,16 @@ mod tests {
 
     fn inked(image: &Image) -> usize {
         image.rgba.chunks(4).filter(|pixel| pixel[3] > 128).count()
+    }
+
+    #[test]
+    fn gauges_at_density_two_match_density_one() {
+        let font = crate::text::Font::find(None, 13.0).ok();
+        let panel = Panel::themed(&crate::theme::DARK);
+        crate::paint::same_at_two("speaker", || paint_speaker(20, 0.7, false, [255, 255, 255]));
+        crate::paint::same_at_two("muted", || paint_speaker(20, 0.7, true, [255, 255, 255]));
+        crate::paint::same_at_two("sun", || paint_sun(20, [255, 255, 255]));
+        crate::paint::same_at_two("panel", || panel.paint(crate::hud::Gauge::Volume, 0.4, false, font.as_ref()));
     }
 
     #[test]

@@ -52,6 +52,9 @@ pub mod volume;
 pub mod wallpaper;
 pub mod window;
 
+#[cfg(test)]
+mod density_tests;
+
 pub use camera::Camera;
 pub use config::{
     Accent, Access, Appearance, AppsConfig, Assets, ButtonName, Config, DockConfig, Keyboard, Keys,

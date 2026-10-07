@@ -506,6 +506,7 @@ pub struct State {
     installed: Option<(std::sync::Arc<Vec<drifter_core::desktop::App>>, Instant)>,
     app_names: std::cell::RefCell<std::collections::HashMap<String, String>>,
     resizing: Option<u64>,
+    density: u32,
     palette: drifter_core::theme::Palette,
     popover: Option<Popover>,
     desk_menu: Option<deskmenu::DeskMenu>,
@@ -976,14 +977,15 @@ impl State {
                     names.extend_from_slice(icon.alt_names());
                     let theme = self.appearance.cursor_theme.as_deref();
                     let size = self.appearance.cursor_size;
-                    let art =
-                        crate::cursors::load(&names, theme, size).and_then(|(image, hotspot)| {
-                            let size = image.size();
-                            upload(&mut self.renderer, Some(&image), "cursor")
-                                .ok()
-                                .flatten()
-                                .map(|buffer| (buffer, size, hotspot))
-                        });
+                    let dense = self.density;
+                    let art = crate::cursors::load(&names, theme, size * dense).and_then(|(image, hotspot)| {
+                        let scale = f64::from(dense);
+                        let size = image.size() / scale;
+                        upload_at(&mut self.renderer, Some(&image), "cursor", dense as i32)
+                            .ok()
+                            .flatten()
+                            .map(|buffer| (buffer, size, hotspot / scale))
+                    });
                     self.named_cursors.insert(name, art);
                 }
                 match self.named_cursors.get(name) {
@@ -1464,10 +1466,35 @@ impl Screen {
     }
 }
 
+fn dense(side: u32) -> u32 {
+    drifter_core::paint::dense(f64::from(side))
+}
+
 fn upload(
     renderer: &mut Painter,
     image: Option<&Image>,
     what: &str,
+) -> Result<Option<TextureBuffer<Tex>>, String> {
+    let scale = match image {
+        Some(image) if image.width > 1 || image.height > 1 => drifter_core::paint::density() as i32,
+        _ => 1,
+    };
+    upload_at(renderer, image, what, scale)
+}
+
+fn upload_flat(
+    renderer: &mut Painter,
+    image: Option<&Image>,
+    what: &str,
+) -> Result<Option<TextureBuffer<Tex>>, String> {
+    upload_at(renderer, image, what, 1)
+}
+
+fn upload_at(
+    renderer: &mut Painter,
+    image: Option<&Image>,
+    what: &str,
+    scale: i32,
 ) -> Result<Option<TextureBuffer<Tex>>, String> {
     match image {
         None => Ok(None),
@@ -1477,7 +1504,7 @@ fn upload(
             DrmFourcc::Abgr8888,
             (image.width as i32, image.height as i32),
             false,
-            1,
+            scale,
             Transform::Normal,
             None,
         )
@@ -1521,7 +1548,8 @@ impl State {
             let region = smithay::utils::Rectangle::from_size(size.into());
             match smithay::backend::renderer::ImportMem::update_memory(&mut self.renderer, &tex, &image.rgba, region) {
                 Ok(()) => {
-                    return Ok(Some(TextureBuffer::from_texture(&self.renderer, tex, 1, Transform::Normal, None)));
+                    let scale = drifter_core::paint::density() as i32;
+                    return Ok(Some(TextureBuffer::from_texture(&self.renderer, tex, scale, Transform::Normal, None)));
                 }
                 Err(error) => log!("drifter: cannot update {what}: {error}"),
             }
@@ -1535,7 +1563,8 @@ impl State {
         )
         .map_err(|e| format!("cannot upload {what}: {e}"))?;
         self.reused.insert(what, tex.clone());
-        Ok(Some(TextureBuffer::from_texture(&self.renderer, tex, 1, Transform::Normal, None)))
+        let scale = drifter_core::paint::density() as i32;
+        Ok(Some(TextureBuffer::from_texture(&self.renderer, tex, scale, Transform::Normal, None)))
     }
 }
 
@@ -1566,7 +1595,7 @@ fn paper_pieces(
     for piece in paper.pyramid.pieces(laid.source, laid.target) {
         if !paper.resident.contains_key(&piece.key) {
             let image = paper.pyramid.tile(piece.key);
-            match upload(renderer, Some(&image), "wallpaper tile") {
+            match upload_flat(renderer, Some(&image), "wallpaper tile") {
                 Ok(Some(buffer)) => {
                     paper.resident.insert(piece.key, (buffer, now));
                 }

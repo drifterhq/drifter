@@ -132,7 +132,7 @@ impl Look {
         let left = card.origin.x + 10.0;
         for (at, letter) in ["S", "M", "T", "W", "T", "F", "S"].iter().enumerate() {
             let text = font.paint(letter, self.dim);
-            let x = left + step * at as f64 + (step - f64::from(text.width)) / 2.0;
+            let x = left + step * at as f64 + (step - crate::paint::logical(&text).x) / 2.0;
             canvas.stamp(&text, Vec2::new(x, card.origin.y + 44.0), 1.0);
         }
         let row_tall = self.cell * 0.8;
@@ -149,7 +149,7 @@ impl Look {
                 canvas.circle(center, row_tall * 0.45, self.accent, 1.0);
             }
             let text = font.paint(&day.to_string(), if mine { [255, 255, 255] } else { self.ink });
-            canvas.stamp(&text, center - text.size() / 2.0, 1.0);
+            canvas.stamp(&text, center - crate::paint::logical(&text) / 2.0, 1.0);
         }
 
         let top = self.list_top(rows);
@@ -157,13 +157,13 @@ impl Look {
         canvas.stamp(&heading, Vec2::new(self.pad + 4.0, top + 3.0), 1.0);
         if notes.is_empty() {
             let none = font.paint("No Notifications", self.dim);
-            canvas.stamp(&none, Vec2::new((self.width - f64::from(none.width)) / 2.0, top + 40.0), 1.0);
+            canvas.stamp(&none, Vec2::new((self.width - crate::paint::logical(&none).x) / 2.0, top + 40.0), 1.0);
             return canvas.image;
         }
         let clear = self.clear_rect(rows);
         canvas.round_rect(clear, 11.0, self.card, 0.9);
         let word = font.paint("Clear", self.ink);
-        canvas.stamp(&word, clear.center() - word.size() / 2.0, 1.0);
+        canvas.stamp(&word, clear.center() - crate::paint::logical(&word) / 2.0, 1.0);
         for (index, note) in notes.iter().take(NOTES).enumerate() {
             let rect = Rect::new(
                 Vec2::new(self.pad, top + 30.0 + (self.note + 8.0) * index as f64),
@@ -174,7 +174,7 @@ impl Look {
             let app = font.paint(&note.app, self.dim);
             let when = font.paint(&crate::notify::ago(note.when, now), self.dim);
             canvas.stamp(&app, rect.origin + Vec2::new(12.0, 8.0), 1.0);
-            canvas.stamp(&when, Vec2::new(rect.max().x - 12.0 - f64::from(when.width), rect.origin.y + 8.0), 1.0);
+            canvas.stamp(&when, Vec2::new(rect.max().x - 12.0 - crate::paint::logical(&when).x, rect.origin.y + 8.0), 1.0);
             let summary = font.paint_bold(&fit(font, &note.summary, room), self.ink);
             canvas.stamp(&summary, rect.origin + Vec2::new(12.0, 26.0), 1.0);
             let body = font.paint(&fit(font, &note.body, room), self.dim);
@@ -215,6 +215,21 @@ mod tests {
         assert_eq!(feb.iter().flatten().count(), 29, "a leap year");
         let dec = month_grid(NaiveDate::from_ymd_opt(2026, 12, 1).unwrap());
         assert_eq!(dec.iter().flatten().count(), 31);
+    }
+
+    #[test]
+    fn the_calendar_at_density_two_matches_density_one() {
+        let look = Look::themed(&crate::theme::DARK, [10, 122, 255]);
+        let font = crate::text::Font::find(None, 13.0).unwrap();
+        let title = crate::text::Font::find(None, 15.0).unwrap();
+        let today = NaiveDate::from_ymd_opt(2026, 10, 6).unwrap();
+        let notes = [Recent {
+            when: 1_000,
+            app: "Mail".to_string(),
+            summary: "New message".to_string(),
+            body: "Lunch at noon?".to_string(),
+        }];
+        crate::paint::same_at_two("calendar", || look.paint(today, &notes, 1_600, &font, &title));
     }
 
     #[test]

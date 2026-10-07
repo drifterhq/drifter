@@ -201,7 +201,7 @@ impl Look {
             let room = (rect.max().x - x - 8.0).max(1.0);
             let label = font.paint(&fit(font, tile.label(), room), self.ink);
             let note = font.paint(&fit(font, &status.note(tile), room), self.dim);
-            canvas.stamp(&label, Vec2::new(x, rect.center().y - f64::from(label.height) - 1.0), 1.0);
+            canvas.stamp(&label, Vec2::new(x, rect.center().y - crate::paint::logical(&label).y - 1.0), 1.0);
             canvas.stamp(&note, Vec2::new(x, rect.center().y + 1.0), 1.0);
         }
         for (which, (name, level)) in [
@@ -244,11 +244,13 @@ fn fit(font: &Font, text: &str, room: f64) -> String {
 }
 
 fn shape(canvas: &mut Canvas, at: Vec2, ink: [u8; 3], inside: impl Fn(f64, Vec2) -> f64) {
+    let dense = crate::paint::density();
+    let (at, reach) = (at * dense, 10.0 * dense);
     let image = &mut canvas.image;
-    for y in (at.y - 10.0).max(0.0) as u32..((at.y + 10.0) as u32).min(image.height) {
-        for x in (at.x - 10.0).max(0.0) as u32..((at.x + 10.0) as u32).min(image.width) {
-            let p = Vec2::new(f64::from(x) + 0.5, f64::from(y) + 0.5) - at;
-            let cover = (inside(p.length(), p) + 0.5).clamp(0.0, 1.0);
+    for y in (at.y - reach).max(0.0) as u32..((at.y + reach) as u32).min(image.height) {
+        for x in (at.x - reach).max(0.0) as u32..((at.x + reach) as u32).min(image.width) {
+            let p = (Vec2::new(f64::from(x) + 0.5, f64::from(y) + 0.5) - at) / dense;
+            let cover = (inside(p.length(), p) * dense + 0.5).clamp(0.0, 1.0);
             if cover <= 0.0 {
                 continue;
             }
@@ -295,6 +297,21 @@ fn symbol(canvas: &mut Canvas, tile: Tile, at: Vec2, ink: [u8; 3]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn control_center_at_density_two_matches_density_one() {
+        let look = Look::themed(&crate::theme::DARK, [10, 122, 255]);
+        let font = Font::find(None, 13.0).unwrap();
+        let status = Status {
+            wifi: Some((true, "Home".to_string())),
+            bluetooth: Some(false),
+            light: Some(0.6),
+            volume: Some((0.4, false)),
+            ..Status::default()
+        };
+        crate::paint::same_at_two("control", || look.paint(&status, &font));
+        crate::paint::same_at_two("control icon", || paint_icon(20, [255, 255, 255]));
+    }
 
     #[test]
     fn tiles_and_sliders_are_found_by_where_the_pointer_is() {

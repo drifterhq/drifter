@@ -52,7 +52,7 @@ impl State {
             return;
         };
         let image = font.paint_bold(&name, self.tray.ink);
-        let size = image.size();
+        let size = drifter_core::paint::logical(&image);
         match upload(&mut self.renderer, Some(&image), "app name") {
             Ok(Some(buffer)) => self.app_label = Some((name, buffer, size)),
             Ok(None) => {}

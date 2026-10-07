@@ -773,7 +773,7 @@ impl Sheet {
                 let text = fonts
                     .body
                     .paint(name, if picked { look.ink } else { look.dim });
-                canvas.stamp(&text, cell.center() - text.size() / 2.0, 1.0);
+                canvas.stamp(&text, cell.center() - crate::paint::logical(&text) / 2.0, 1.0);
             }
         }
 
@@ -784,7 +784,7 @@ impl Sheet {
             let path = fonts.small.paint(&shown, look.dim);
             let at = Vec2::new(
                 frame.list.origin.x,
-                up.center().y - f64::from(path.height) / 2.0,
+                up.center().y - crate::paint::logical(&path).y / 2.0,
             );
             canvas.stamp(&path, at, 1.0);
         }
@@ -814,12 +814,12 @@ impl Sheet {
                 let painted = fonts.body.paint(&fit_left(fonts.body, shown, room), ink);
                 let at = Vec2::new(
                     field.origin.x + 12.0,
-                    field.center().y - f64::from(painted.height) / 2.0,
+                    field.center().y - crate::paint::logical(&painted).y / 2.0,
                 );
                 canvas.stamp(&painted, at, 1.0);
                 let caret_x = match text.is_empty() {
                     true => at.x,
-                    false => at.x + f64::from(painted.width) + 1.0,
+                    false => at.x + crate::paint::logical(&painted).x + 1.0,
                 };
                 let caret = Rect::new(
                     Vec2::new(caret_x, field.center().y - 9.0),
@@ -861,12 +861,12 @@ impl Sheet {
                 let painted = fonts.body.paint(&fit_left(fonts.body, shown, room), ink);
                 let at = Vec2::new(
                     field.origin.x + 12.0,
-                    field.center().y - f64::from(painted.height) / 2.0,
+                    field.center().y - crate::paint::logical(&painted).y / 2.0,
                 );
                 canvas.stamp(&painted, at, 1.0);
                 let caret_x = match text.is_empty() {
                     true => at.x,
-                    false => at.x + f64::from(painted.width) + 1.0,
+                    false => at.x + crate::paint::logical(&painted).x + 1.0,
                 };
                 let caret = Rect::new(
                     Vec2::new(caret_x, field.center().y - 9.0),
@@ -890,7 +890,7 @@ impl Sheet {
                     false => now.clone(),
                 };
                 let keys = fonts.title.paint(&shown, look.ink);
-                canvas.stamp(&keys, list.center() - keys.size() / 2.0, 1.0);
+                canvas.stamp(&keys, list.center() - crate::paint::logical(&keys) / 2.0, 1.0);
                 let lines = [
                     "Hold Ctrl, Alt, Shift or Super and press a key.",
                     "Esc keeps the old shortcut.",
@@ -900,7 +900,7 @@ impl Sheet {
                     let y = list.origin.y + 18.0 + at as f64 * 18.0;
                     canvas.stamp(
                         &text,
-                        Vec2::new(list.center().x - f64::from(text.width) / 2.0, y),
+                        Vec2::new(list.center().x - crate::paint::logical(&text).x / 2.0, y),
                         1.0,
                     );
                 }
@@ -909,7 +909,7 @@ impl Sheet {
                     let y = list.max().y - 30.0;
                     canvas.stamp(
                         &text,
-                        Vec2::new(list.center().x - f64::from(text.width) / 2.0, y),
+                        Vec2::new(list.center().x - crate::paint::logical(&text).x / 2.0, y),
                         1.0,
                     );
                 }
@@ -971,7 +971,7 @@ impl Sheet {
                 .paint("Click the picture to choose another.", look.dim);
             let at = Vec2::new(
                 spot.max().x + 16.0,
-                spot.center().y - f64::from(hint.height) / 2.0,
+                spot.center().y - crate::paint::logical(&hint).y / 2.0,
             );
             canvas.stamp(&hint, at, 1.0);
         }
@@ -991,7 +991,7 @@ impl Sheet {
             let painted = fonts.body.paint(&fit_left(fonts.body, shown, room), look.ink);
             let left = Vec2::new(
                 rect.origin.x + 12.0,
-                rect.center().y - f64::from(painted.height) / 2.0,
+                rect.center().y - crate::paint::logical(&painted).y / 2.0,
             );
             if !shown.is_empty() {
                 canvas.stamp(&painted, left, 1.0);
@@ -999,7 +999,7 @@ impl Sheet {
             if mine {
                 let caret_x = match shown.is_empty() {
                     true => left.x,
-                    false => left.x + f64::from(painted.width) + 1.0,
+                    false => left.x + crate::paint::logical(&painted).x + 1.0,
                 };
                 let caret = Rect::new(
                     Vec2::new(caret_x, rect.center().y - 8.0),
@@ -1015,7 +1015,7 @@ impl Sheet {
             );
             canvas.stamp(
                 &text,
-                Vec2::new(row.origin.x + 2.0, row.center().y - f64::from(text.height) / 2.0),
+                Vec2::new(row.origin.x + 2.0, row.center().y - crate::paint::logical(&text).y / 2.0),
                 1.0,
             );
             let pill = Rect::new(
@@ -1069,7 +1069,7 @@ impl Sheet {
         };
         if rows.is_empty() {
             let empty = fonts.small.paint("Nothing here", look.dim);
-            inside.stamp(&empty, list.size / 2.0 - empty.size() / 2.0, 1.0);
+            inside.stamp(&empty, list.size / 2.0 - crate::paint::logical(&empty) / 2.0, 1.0);
         }
         for (index, (name, icon, folder)) in rows.iter().enumerate() {
             let top = index as f64 * ROW - scroll;
@@ -1082,7 +1082,7 @@ impl Sheet {
             }
             let spot = Rect::new(Vec2::new(12.0, top + (ROW - 22.0) / 2.0), Vec2::splat(22.0));
             match icon.as_ref().and_then(|key| icons.get(key)) {
-                Some(image) => inside.stamp(image, spot.center() - image.size() / 2.0, 1.0),
+                Some(image) => inside.stamp(image, spot.center() - crate::paint::logical(&image) / 2.0, 1.0),
                 None if *folder => {
                     inside.round_rect(
                         Rect::new(spot.origin + Vec2::new(0.0, 4.0), Vec2::new(22.0, 16.0)),
@@ -1100,7 +1100,7 @@ impl Sheet {
                 None => letter(&mut inside, look, fonts, spot, name),
             }
             let text = fonts.body.paint(name, look.ink);
-            let at = Vec2::new(46.0, top + (ROW - f64::from(text.height)) / 2.0);
+            let at = Vec2::new(46.0, top + (ROW - crate::paint::logical(&text).y) / 2.0);
             inside.stamp(&text, at, 1.0);
         }
         canvas.stamp(&inside.image, list.origin, 1.0);
@@ -1116,7 +1116,7 @@ pub fn paint_face(
 ) {
     let found = picture.and_then(|path| icons.get(&face_key(path, spot.size.x as u32)));
     match found {
-        Some(image) => canvas.stamp(image, spot.center() - image.size() / 2.0, 1.0),
+        Some(image) => canvas.stamp(image, spot.center() - crate::paint::logical(&image) / 2.0, 1.0),
         None => {
             let r = spot.size.x / 2.0;
             canvas.circle(spot.center(), r, look.off, 1.0);
@@ -1170,7 +1170,7 @@ fn paint_faces(
         let empty = fonts
             .small
             .paint("No pictures here yet. Choose a file instead.", look.dim);
-        inside.stamp(&empty, list.size / 2.0 - empty.size() / 2.0, 1.0);
+        inside.stamp(&empty, list.size / 2.0 - crate::paint::logical(&empty) / 2.0, 1.0);
     }
     for (path, cell) in stock.iter().zip(face_cells(list.size.x, stock.len())) {
         let cell = Rect::new(cell.origin - Vec2::new(0.0, scroll), cell.size);
@@ -1190,7 +1190,7 @@ pub fn letter(canvas: &mut Canvas, look: &Look, fonts: &Fonts, spot: Rect, name:
     canvas.round_rect(spot, spot.size.x * 0.25, look.off, 1.0);
     let first: String = name.chars().take(1).collect::<String>().to_uppercase();
     let text = fonts.small.paint(&first, look.ink);
-    canvas.stamp(&text, spot.center() - text.size() / 2.0, 1.0);
+    canvas.stamp(&text, spot.center() - crate::paint::logical(&text) / 2.0, 1.0);
 }
 
 fn search(canvas: &mut Canvas, look: &Look, fonts: &Fonts, field: Rect, text: &str) {
@@ -1212,12 +1212,12 @@ fn search(canvas: &mut Canvas, look: &Look, fonts: &Fonts, field: Rect, text: &s
     let painted = fonts.body.paint(&fit_left(fonts.body, shown, room), ink);
     let at = Vec2::new(
         field.origin.x + 12.0,
-        field.center().y - f64::from(painted.height) / 2.0,
+        field.center().y - crate::paint::logical(&painted).y / 2.0,
     );
     canvas.stamp(&painted, at, 1.0);
     let caret_x = match text.is_empty() {
         true => at.x,
-        false => at.x + f64::from(painted.width) + 1.0,
+        false => at.x + crate::paint::logical(&painted).x + 1.0,
     };
     let caret = Rect::new(
         Vec2::new(caret_x, field.center().y - 8.0),
@@ -1244,15 +1244,15 @@ fn paint_info(
         }
         if value.is_empty() {
             let text = fonts.small.paint(key, look.accent);
-            let at = Vec2::new(12.0, top + LINE - f64::from(text.height) - 4.0);
+            let at = Vec2::new(12.0, top + LINE - crate::paint::logical(&text).y - 4.0);
             inside.stamp(&text, at, 1.0);
             continue;
         }
         let label = fonts.small.paint(&fit_left(fonts.small, key, key_w - 20.0), look.dim);
-        inside.stamp(&label, Vec2::new(12.0, top + (LINE - f64::from(label.height)) / 2.0), 1.0);
+        inside.stamp(&label, Vec2::new(12.0, top + (LINE - crate::paint::logical(&label).y) / 2.0), 1.0);
         let room = list.size.x - key_w - 12.0;
         let text = fonts.small.paint(&fit_left(fonts.small, value, room), look.ink);
-        inside.stamp(&text, Vec2::new(key_w, top + (LINE - f64::from(text.height)) / 2.0), 1.0);
+        inside.stamp(&text, Vec2::new(key_w, top + (LINE - crate::paint::logical(&text).y) / 2.0), 1.0);
     }
     canvas.stamp(&inside.image, list.origin, 1.0);
 }
@@ -1261,7 +1261,7 @@ fn button(canvas: &mut Canvas, look: &Look, fonts: &Fonts, rect: Rect, label: &s
     let color = if main { look.accent } else { look.off };
     canvas.round_rect(rect, 7.0, color, 1.0);
     let text = fonts.body.paint(label, look.ink);
-    canvas.stamp(&text, rect.center() - text.size() / 2.0, 1.0);
+    canvas.stamp(&text, rect.center() - crate::paint::logical(&text) / 2.0, 1.0);
 }
 
 fn fit_left(font: &crate::text::Font, text: &str, width: f64) -> String {

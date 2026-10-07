@@ -168,8 +168,9 @@ impl Look {
         hover: Option<usize>,
         font: Option<&Font>,
     ) -> Image {
-        let width = size.x.round().max(1.0) as u32;
-        let height = size.y.round().max(1.0) as u32;
+        let dense = crate::paint::density();
+        let width = crate::paint::dense(size.x.round().max(1.0));
+        let height = crate::paint::dense(size.y.round().max(1.0));
         let mut image = Image {
             width,
             height,
@@ -177,11 +178,12 @@ impl Look {
         };
 
         let alpha = f64::from(self.back_alpha) / 255.0;
+        let big = size * dense;
         for y in 0..height {
             let py = f64::from(y) + 0.5;
             for x in 0..width {
                 let px = f64::from(x) + 0.5;
-                let coverage = (corner(px, py, size, self.radius) + 0.5).clamp(0.0, 1.0);
+                let coverage = (corner(px, py, big, self.radius * dense) + 0.5).clamp(0.0, 1.0);
                 if coverage <= 0.0 {
                     continue;
                 }
@@ -225,7 +227,7 @@ impl Look {
             let text = font.paint(&item.label, ink);
             let at = Vec2::new(
                 rect.origin.x + self.pad * 2.0,
-                rect.origin.y + (rect.size.y - f64::from(text.height)) / 2.0,
+                rect.origin.y + (rect.size.y - crate::paint::logical(&text).y) / 2.0,
             );
             stamp(&mut image, &text, at);
         }
@@ -235,11 +237,13 @@ impl Look {
 }
 
 fn paint_arrow(image: &mut Image, tip: Vec2, ink: [u8; 3]) {
-    let (tip_x, mid_y) = (tip.x.round() as i64, tip.y.round() as i64);
-    for dy in -4i64..=4 {
-        let reach = 4 - dy.abs();
+    let dense = crate::paint::density();
+    let half = (4.0 * dense).round() as i64;
+    let (tip_x, mid_y) = ((tip.x * dense).round() as i64, (tip.y * dense).round() as i64);
+    for dy in -half..=half {
+        let reach = half - dy.abs();
         for dx in 0..=reach {
-            let (x, y) = (tip_x - 4 + dx, mid_y + dy);
+            let (x, y) = (tip_x - half + dx, mid_y + dy);
             if x < 0 || y < 0 || x >= i64::from(image.width) || y >= i64::from(image.height) {
                 continue;
             }
@@ -274,6 +278,8 @@ pub(crate) fn corner(px: f64, py: f64, size: Vec2, radius: f64) -> f64 {
 }
 
 pub(crate) fn fill_round(image: &mut Image, rect: Rect, radius: f64, color: [u8; 3]) {
+    let dense = crate::paint::density();
+    let (rect, radius) = (Rect::new(rect.origin * dense, rect.size * dense), radius * dense);
     let from_y = rect.origin.y.max(0.0) as u32;
     let to_y = (rect.max().y.min(f64::from(image.height))).ceil() as u32;
     let from_x = rect.origin.x.max(0.0) as u32;
@@ -297,10 +303,18 @@ pub(crate) fn fill_round(image: &mut Image, rect: Rect, radius: f64, color: [u8;
 }
 
 pub(crate) fn paint_rule(image: &mut Image, from: f64, to: f64, y: f64, color: [u8; 3]) {
-    let row = y.round().max(0.0) as u32;
-    if row >= image.height {
-        return;
+    let dense = crate::paint::density();
+    let (from, to) = (from * dense, to * dense);
+    let first = (y.round() * dense).max(0.0) as u32;
+    for row in first..first + dense as u32 {
+        if row >= image.height {
+            return;
+        }
+        rule_row(image, from, to, row, color);
     }
+}
+
+fn rule_row(image: &mut Image, from: f64, to: f64, row: u32, color: [u8; 3]) {
     for x in (from.max(0.0) as u32)..(to.min(f64::from(image.width)) as u32) {
         let index = ((row as usize) * (image.width as usize) + x as usize) * 4;
         if image.rgba[index + 3] == 0 {
@@ -314,6 +328,7 @@ pub(crate) fn paint_rule(image: &mut Image, from: f64, to: f64, y: f64, color: [
 }
 
 pub(crate) fn stamp(image: &mut Image, text: &Image, at: Vec2) {
+    let at = at * crate::paint::density();
     for y in 0..text.height {
         let target_y = at.y.round() as i64 + i64::from(y);
         if target_y < 0 || target_y >= i64::from(image.height) {
@@ -368,6 +383,17 @@ mod tests {
     }
 
     const SCREEN: Vec2 = Vec2::new(1920.0, 1080.0);
+
+    #[test]
+    fn a_menu_at_density_two_matches_density_one() {
+        let look = Look::default();
+        let font = crate::text::Font::find(None, 13.0).ok();
+        let mut list = items();
+        list.push(Item::more(90, "More"));
+        list.push(Item::rule(91));
+        let size = look.size(&list, font.as_ref());
+        crate::paint::same_at_two("menu", || look.paint(&list, size, Some(1), font.as_ref()));
+    }
 
     fn items() -> Vec<Item> {
         vec![

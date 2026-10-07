@@ -160,7 +160,7 @@ impl Look {
         let room = card.max().x - x - 20.0;
         let Some(me) = me else {
             let text = fonts.body.paint("Reading your account…", self.dim);
-            canvas.stamp(&text, Vec2::new(x, card.center().y - f64::from(text.height) / 2.0), 1.0);
+            canvas.stamp(&text, Vec2::new(x, card.center().y - crate::paint::logical(&text).y / 2.0), 1.0);
             return;
         };
         let name = fonts.title.paint(&super::fit(fonts.title, me.shown(), room), self.ink);
@@ -169,12 +169,12 @@ impl Look {
             self.dim,
         );
         let hint = fonts.small.paint("Click the picture to change it.", self.dim);
-        let tall = f64::from(name.height + kind.height + hint.height) + 10.0;
+        let tall = crate::paint::logical(&name).y + crate::paint::logical(&kind).y + crate::paint::logical(&hint).y + 10.0;
         let mut y = card.center().y - tall / 2.0;
         canvas.stamp(&name, Vec2::new(x, y), 1.0);
-        y += f64::from(name.height) + 4.0;
+        y += crate::paint::logical(&name).y + 4.0;
         canvas.stamp(&kind, Vec2::new(x, y), 1.0);
-        y += f64::from(kind.height) + 6.0;
+        y += crate::paint::logical(&kind).y + 6.0;
         canvas.stamp(&hint, Vec2::new(x, y), 1.0);
     }
 }

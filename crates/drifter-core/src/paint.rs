@@ -1,14 +1,47 @@
 use crate::geom::{Rect, Vec2};
 use crate::image::Image;
 
+thread_local! {
+    static DENSITY: std::cell::Cell<u32> = const { std::cell::Cell::new(1) };
+}
+
+pub fn density() -> f64 {
+    f64::from(DENSITY.with(|density| density.get()))
+}
+
+pub fn set_density(density: u32) {
+    DENSITY.with(|cell| cell.set(density.clamp(1, 4)));
+}
+
+pub fn at_density<T>(density: u32, work: impl FnOnce() -> T) -> T {
+    let was = DENSITY.with(|cell| cell.get());
+    set_density(density);
+    let out = work();
+    set_density(was);
+    out
+}
+
+pub fn dense(logical: f64) -> u32 {
+    (logical * density()).round().max(1.0) as u32
+}
+
+pub fn logical(image: &Image) -> Vec2 {
+    image.size() / density()
+}
+
+fn up(rect: Rect) -> Rect {
+    let d = density();
+    Rect::new(rect.origin * d, rect.size * d)
+}
+
 pub struct Canvas {
     pub image: Image,
 }
 
 impl Canvas {
     pub fn new(width: u32, height: u32) -> Canvas {
-        let width = width.max(1);
-        let height = height.max(1);
+        let width = dense(f64::from(width.max(1)));
+        let height = dense(f64::from(height.max(1)));
         Canvas {
             image: Image {
                 width,
@@ -19,10 +52,11 @@ impl Canvas {
     }
 
     pub fn size(&self) -> Vec2 {
-        self.image.size()
+        logical(&self.image)
     }
 
     pub fn round_rect(&mut self, rect: Rect, radius: f64, color: [u8; 3], alpha: f64) {
+        let (rect, radius) = (up(rect), radius * density());
         let radius = radius
             .min(rect.size.x / 2.0)
             .min(rect.size.y / 2.0)
@@ -34,12 +68,13 @@ impl Canvas {
     }
 
     pub fn circle(&mut self, center: Vec2, radius: f64, color: [u8; 3], alpha: f64) {
+        let (center, radius) = (center * density(), radius * density());
         let rect = Rect::from_center(center, Vec2::splat(radius * 2.0));
         self.shape(rect, color, alpha, |p| radius - (p - center).length());
     }
 
     pub fn triangle(&mut self, corners: [Vec2; 3], color: [u8; 3], alpha: f64) {
-        let [a, b, c] = corners;
+        let [a, b, c] = corners.map(|corner| corner * density());
         let low = a.min(b).min(c);
         let high = a.max(b).max(c);
         let turn = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
@@ -55,6 +90,7 @@ impl Canvas {
     }
 
     pub fn shadow(&mut self, rect: Rect, radius: f64, blur: f64, alpha: f64) {
+        let (rect, radius, blur) = (up(rect), radius * density(), blur * density());
         let grown = Rect::new(
             rect.origin - Vec2::splat(blur),
             rect.size + Vec2::splat(blur * 2.0),
@@ -72,6 +108,7 @@ impl Canvas {
     }
 
     pub fn stamp(&mut self, piece: &Image, at: Vec2, alpha: f64) {
+        let at = at * density();
         let left = at.x.round() as i64;
         let top = at.y.round() as i64;
         for y in 0..piece.height {
@@ -223,4 +260,48 @@ mod tests {
             assert!(pixel[0] <= pixel[3] && pixel[1] <= pixel[3] && pixel[2] <= pixel[3]);
         }
     }
+}
+
+#[cfg(test)]
+pub fn same_at_two(what: &str, paint: impl Fn() -> Image) {
+    let one = at_density(1, &paint);
+    let two = at_density(2, &paint);
+    assert_eq!(
+        (two.width, two.height),
+        (one.width * 2, one.height * 2),
+        "{what}: density 2 is twice the size"
+    );
+    let mut total = 0u64;
+    let mut far = 0usize;
+    for y in 0..one.height {
+        for x in 0..one.width {
+            for channel in 0..4 {
+                let mut sum = 0u32;
+                for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                    let at = (((y * 2 + dy) * two.width + x * 2 + dx) * 4) as usize + channel;
+                    sum += u32::from(two.rgba[at]);
+                }
+                let shrunk = (sum + 2) / 4;
+                let was = u32::from(one.rgba[((y * one.width + x) * 4) as usize + channel]);
+                let gap = shrunk.abs_diff(was);
+                total += u64::from(gap);
+                if gap > 96 {
+                    far += 1;
+                }
+            }
+        }
+    }
+    let count = (one.width * one.height * 4) as f64;
+    let mean = total as f64 / count;
+    let wild = far as f64 / count;
+    if mean >= 8.0 || wild >= 0.01 {
+        let dir = std::env::temp_dir();
+        let _ = crate::image::save_png(&one, &dir.join(format!("density-{what}-1.png")));
+        let _ = crate::image::save_png(&two, &dir.join(format!("density-{what}-2.png")));
+    }
+    assert!(
+        mean < 8.0 && wild < 0.01,
+        "{what}: density 2 does not match density 1 (mean {mean:.2}, wild {:.2}%)",
+        wild * 100.0
+    );
 }

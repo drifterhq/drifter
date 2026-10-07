@@ -166,7 +166,7 @@ impl Look {
         ] {
             canvas.round_rect(rect, 8.0, color, if ask.busy { 0.5 } else { 1.0 });
             let painted = font.paint(label, self.ink);
-            canvas.stamp(&painted, rect.center() - painted.size() / 2.0, 1.0);
+            canvas.stamp(&painted, rect.center() - crate::paint::logical(&painted) / 2.0, 1.0);
         }
         canvas.image
     }
@@ -222,6 +222,13 @@ mod tests {
 
     fn font() -> Font {
         Font::find(None, 13.0).expect("a font")
+    }
+
+    #[test]
+    fn a_prompt_at_density_two_matches_density_one() {
+        let look = Look::default();
+        let font = font();
+        crate::paint::same_at_two("prompt", || look.paint(&ask(), &font));
     }
 
     #[test]

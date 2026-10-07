@@ -40,14 +40,14 @@ pub(super) fn dock_items(
             && item.icon().is_none();
         let path = path.filter(|_| !marked);
         let art = path
-            .and_then(|path| match drifter_core::image::load_sized(&path, side) {
+            .and_then(|path| match drifter_core::image::load_sized(&path, dense(side)) {
                 Ok(image) => Some(image),
                 Err(error) => {
                     log!("drifter: no dock icon for {}: {error}", item.name());
                     None
                 }
             })
-            .map(|image| image.scaled(side, side))
+            .map(|image| image.scaled(dense(side), dense(side)))
             .or_else(|| marked.then(|| drifter_core::place::icon(side)))
             .or_else(|| {
                 drifter_core::launchpad::is_button(&item)
@@ -86,22 +86,22 @@ pub(super) fn load_arrow(
             }
         });
     let look = &config.appearance;
-    let (image, hotspot) = match supplied {
-        Some(image) => (image, Vec2::ZERO),
-        None => crate::cursors::load(
-            &["default", "left_ptr"],
-            look.cursor_theme.as_deref(),
-            look.cursor_size,
-        )
-        .unwrap_or_else(|| {
+    let dense = drifter_core::paint::density() as u32;
+    let themed = || {
+        crate::cursors::load(&["default", "left_ptr"], look.cursor_theme.as_deref(), look.cursor_size * dense)
+            .map(|(image, hotspot)| (image, hotspot, dense))
+    };
+    let (image, hotspot, scale) = match supplied {
+        Some(image) => (image, Vec2::ZERO, 1),
+        None => themed().unwrap_or_else(|| {
             let drawn = Cursor::default();
-            (drawn.paint(), drawn.hotspot())
+            (drawn.paint(), drawn.hotspot(), 1)
         }),
     };
-    let size = image.size();
-    let arrow = upload(renderer, Some(&image), "cursor")?
+    let size = image.size() / f64::from(scale);
+    let arrow = upload_at(renderer, Some(&image), "cursor", scale as i32)?
         .ok_or_else(|| "cannot build the cursor".to_string())?;
-    Ok((arrow, size, hotspot))
+    Ok((arrow, size, hotspot / f64::from(scale)))
 }
 
 pub(super) fn load_skin(
@@ -124,12 +124,13 @@ pub(super) fn load_skin(
                 .inspect_err(|error| log!("drifter: no window art: {error}"))
                 .ok()
         });
-        let Some(image) = from_file.or_else(|| drifter_core::window::painted(&name, &drawn)) else {
+        let painted = || drifter_core::paint::at_density(1, || drifter_core::window::painted(&name, &drawn));
+        let Some(image) = from_file.or_else(painted) else {
             continue;
         };
         let image = tile_skin(&name, image);
         let size = image.size();
-        match upload(renderer, Some(&image), &name) {
+        match upload_flat(renderer, Some(&image), &name) {
             Ok(Some(buffer)) => {
                 skin.insert(name, (buffer, size));
             }
@@ -160,7 +161,7 @@ pub(super) fn load_dock_art(
     let from_art = |name: &str| -> Option<drifter_core::Image> {
         let dir = art.as_ref()?;
         match drifter_core::image::load(&dir.join(format!("{name}.png"))) {
-            Ok(image) => Some(image.scaled(side, side)),
+            Ok(image) => Some(image.scaled(dense(side), dense(side))),
             Err(error) => {
                 log!("drifter: no dock art for {name}: {error}");
                 None

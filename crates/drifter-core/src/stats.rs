@@ -33,15 +33,17 @@ pub fn paint(font: &Font, fields: &[(&str, u8)], color: [u8; 3]) -> Image {
         ));
     }
 
-    let width = pen.ceil().max(1.0) as u32;
-    let height = font.line_height().ceil().max(1.0) as u32;
+    let dense = crate::paint::density();
+    let width = crate::paint::dense(pen.ceil().max(1.0));
+    let height = crate::paint::dense(font.line_height().ceil().max(1.0));
     let mut canvas = Image {
         width,
         height,
         rgba: vec![0; (width as usize) * (height as usize) * 4],
     };
     for (x, piece, right) in pieces {
-        stamp(&mut canvas, &piece, x.round() as i64, right);
+        let right = right.map(|right| (right as f64 * dense).round() as i64);
+        stamp(&mut canvas, &piece, (x.round() * dense).round() as i64, right);
     }
     canvas
 }

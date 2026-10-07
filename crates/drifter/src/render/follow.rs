@@ -288,7 +288,7 @@ impl State {
         self.asset_paths = paths;
     }
 
-    fn recolor(&mut self, config: &Config, palette: drifter_core::theme::Palette) {
+    pub(super) fn recolor(&mut self, config: &Config, palette: drifter_core::theme::Palette) {
         self.palette = palette;
         self.look = Look::themed(&palette);
         self.popover = None;

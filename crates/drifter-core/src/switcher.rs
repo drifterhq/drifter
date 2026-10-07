@@ -107,7 +107,7 @@ impl Layout {
             canvas.round_rect(icon, self.icon * 0.22, look.blank, 1.0);
             if let Some(font) = font {
                 let text = font.paint(&letter.to_uppercase().to_string(), look.ink);
-                let at = icon.center() - text.size() / 2.0;
+                let at = icon.center() - crate::paint::logical(&text) / 2.0;
                 canvas.stamp(&text, at, 1.0);
             }
         }
@@ -117,8 +117,8 @@ impl Layout {
             let text = font.paint(&fit(font, title, room), look.ink);
             let row = look.pad + self.tile;
             let at = Vec2::new(
-                (size.x - f64::from(text.width)) / 2.0,
-                row + (look.title - f64::from(text.height)) / 2.0 + look.pad / 2.0,
+                (size.x - crate::paint::logical(&text).x) / 2.0,
+                row + (look.title - crate::paint::logical(&text).y) / 2.0 + look.pad / 2.0,
             );
             canvas.stamp(&text, at, 1.0);
         }
@@ -153,6 +153,14 @@ mod tests {
     use super::*;
 
     const SCREEN: Vec2 = Vec2::new(1920.0, 1080.0);
+
+    #[test]
+    fn the_switcher_at_density_two_matches_density_one() {
+        let layout = Look::default().layout(SCREEN, 3);
+        let font = crate::text::Font::find(None, 13.0).ok();
+        let letters = [Some('T'), None, Some('F')];
+        crate::paint::same_at_two("switcher", || layout.paint(1, "Terminal", &letters, font.as_ref()));
+    }
 
     #[test]
     fn the_panel_is_centered_on_the_screen() {

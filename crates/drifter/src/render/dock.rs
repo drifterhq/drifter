@@ -593,7 +593,7 @@ impl State {
         let words = font.paint(&text, [255, 255, 255]);
         let size = drifter_core::dock::badge_rect(
             Rect::new(Vec2::ZERO, Vec2::splat(self.dock.icon)),
-            f64::from(words.width),
+            drifter_core::paint::logical(&words).x,
         )
         .size;
         let mut canvas = drifter_core::paint::Canvas::new(size.x as u32, size.y as u32);
@@ -603,7 +603,7 @@ impl State {
             [235, 64, 52],
             1.0,
         );
-        canvas.stamp(&words, (size - words.size()) / 2.0, 1.0);
+        canvas.stamp(&words, (size - drifter_core::paint::logical(&words)) / 2.0, 1.0);
         let buffer = upload(&mut self.renderer, Some(&canvas.image), "dock badge").ok()??;
         self.badge_art.insert(app.to_string(), (buffer.clone(), size));
         Some((buffer, size))
@@ -746,7 +746,7 @@ impl State {
                 .dock_art_dir
                 .as_ref()
                 .and_then(|dir| drifter_core::image::load(&dir.join("trash-full.png")).ok())
-                .map(|image| image.scaled(side, side));
+                .map(|image| image.scaled(dense(side), dense(side)));
             let dock = drifter_core::dock::Dock::themed(&self.palette);
             let image = from_art
                 .unwrap_or_else(|| drifter_core::dock::paint_trash_full(side, dock.rule_ink()));

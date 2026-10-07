@@ -123,7 +123,7 @@ impl Tray {
 }
 
 pub fn paint_power(side: u32, color: [u8; 3]) -> Image {
-    let side = side.max(8);
+    let side = crate::paint::dense(f64::from(side.max(8)));
     let size = f64::from(side);
     let middle = size / 2.0;
     let ring = size * 0.36;

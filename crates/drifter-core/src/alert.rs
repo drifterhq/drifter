@@ -74,13 +74,13 @@ impl Look {
         let head = bold.paint_bold(title, self.ink);
         canvas.stamp(
             &head,
-            Vec2::new((size.x - f64::from(head.width)) / 2.0, 26.0).round(),
+            Vec2::new((size.x - crate::paint::logical(&head).x) / 2.0, 26.0).round(),
             1.0,
         );
         let body = font.paint(message, self.dim);
         canvas.stamp(
             &body,
-            Vec2::new((size.x - f64::from(body.width)) / 2.0, 62.0).round(),
+            Vec2::new((size.x - crate::paint::logical(&body).x) / 2.0, 62.0).round(),
             1.0,
         );
         let [cancel, confirm] = self.buttons();
@@ -91,7 +91,7 @@ impl Look {
             (confirm, verb, [255, 255, 255]),
         ] {
             let text = font.paint(word, ink);
-            canvas.stamp(&text, (rect.center() - text.size() / 2.0).round(), 1.0);
+            canvas.stamp(&text, (rect.center() - crate::paint::logical(&text) / 2.0).round(), 1.0);
         }
         canvas.image
     }
@@ -100,6 +100,13 @@ impl Look {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_alert_at_density_two_matches_density_one() {
+        let look = Look::themed(&crate::theme::DARK, [10, 122, 255]);
+        let font = crate::text::Font::find(None, 13.0).unwrap();
+        crate::paint::same_at_two("alert", || look.paint("Log out?", "All apps will close.", "Log Out", &font, &font));
+    }
 
     #[test]
     fn the_two_buttons_are_found_and_the_rest_is_nothing() {

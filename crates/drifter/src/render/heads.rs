@@ -535,7 +535,46 @@ impl State {
         let edge = (self.screen - Vec2::splat(1.0)).max(Vec2::ZERO);
         self.pointer = self.pointer.clamp(Vec2::ZERO, edge);
         self.tell_scales();
+        self.follow_density();
         self.sync_wlr_outputs(false);
+    }
+
+    pub(super) fn follow_density(&mut self) {
+        let density = self.top_scale().ceil().clamp(1.0, 4.0) as u32;
+        self.use_density(density);
+    }
+
+    pub(super) fn use_density(&mut self, density: u32) {
+        if density == self.density {
+            return;
+        }
+        self.density = density;
+        drifter_core::paint::set_density(density);
+        self.app_icons.clear();
+        self.no_icon.clear();
+        self.search_icons.clear();
+        self.reused.clear();
+        self.named_cursors.clear();
+        self.frost_key = None;
+        match Config::load_from(&self.config_path) {
+            Ok(config) => {
+                self.recolor(&config, self.palette);
+                match load_arrow(&mut self.renderer, &config) {
+                    Ok((arrow, size, hotspot)) => {
+                        self.arrow = arrow;
+                        self.arrow_size = size;
+                        self.arrow_hotspot = hotspot;
+                    }
+                    Err(error) => log!("drifter: {error}"),
+                }
+                let side = self.dock.icon as u32;
+                match dock_items(&mut self.renderer, &config, side, self.dock_spare.as_ref()) {
+                    Ok(pinned) => self.pinned = pinned,
+                    Err(error) => log!("drifter: {error}"),
+                }
+            }
+            Err(error) => log!("drifter: the screen scale waits, the config did not load: {error}"),
+        }
     }
 
     pub(super) fn seen_outputs(&self) -> Vec<crate::wlr_output::Seen> {

@@ -187,11 +187,12 @@ pub fn paint(edge: Edge, width: u32, panel: &Panel, color: [u8; 3], alpha: u8) -
 }
 
 pub fn rim(image: &mut Image, edge: Edge, panel: &Panel, color: [u8; 3], strength: f64) {
-    let w = f64::from(image.width);
+    let dense = crate::paint::density();
+    let w = f64::from(image.width) / dense;
     for y in 0..image.height {
-        let py = f64::from(y) + 0.5;
+        let py = (f64::from(y) + 0.5) / dense;
         for x in 0..image.width {
-            let d = depth(edge, f64::from(x) + 0.5, py, w, panel);
+            let d = depth(edge, (f64::from(x) + 0.5) / dense, py, w, panel);
             let weight = strength * (1.0 - (d - 0.5).abs()).clamp(0.0, 1.0);
             if weight <= 0.0 {
                 continue;
@@ -208,19 +209,21 @@ pub fn rim(image: &mut Image, edge: Edge, panel: &Panel, color: [u8; 3], strengt
 }
 
 pub fn drop_shadow(edge: Edge, width: u32, panel: &Panel, strength: f64) -> Image {
+    let dense = crate::paint::density();
     let reach = panel.shadow.max(1.0).round();
     let radius = panel.radius.max(0.0).round();
-    let height = (reach + radius) as u32;
     let w = f64::from(width);
+    let height = crate::paint::dense(reach + radius);
+    let width = crate::paint::dense(w);
     let mut rgba = vec![0u8; (width as usize) * (height as usize) * 4];
     let sigma = reach / 2.6;
     for y in 0..height {
         let from_edge = match edge {
-            Edge::Top => f64::from(y) + 0.5 - radius,
-            Edge::Bottom => f64::from(height - y) - 0.5 - radius,
+            Edge::Top => (f64::from(y) + 0.5) / dense - radius,
+            Edge::Bottom => (f64::from(height - y) - 0.5) / dense - radius,
         };
         for x in 0..width {
-            let px = f64::from(x) + 0.5;
+            let px = (f64::from(x) + 0.5) / dense;
             let corner = if px < radius {
                 Some(radius)
             } else if px > w - radius {
@@ -240,7 +243,7 @@ pub fn drop_shadow(edge: Edge, width: u32, panel: &Panel, strength: f64) -> Imag
                 continue;
             }
             let falloff = (-(away * away) / (2.0 * sigma * sigma)).exp();
-            let fade_in = away.min(1.0);
+            let fade_in = (away * dense).min(1.0);
             let alpha = (strength * falloff * fade_in * 255.0).round().clamp(0.0, 255.0) as u8;
             rgba[(y as usize * width as usize + x as usize) * 4 + 3] = alpha;
         }
@@ -263,17 +266,19 @@ pub fn shadow_rect(band: Rect, edge: Edge, panel: &Panel) -> Rect {
 }
 
 pub fn paint_flat(edge: Edge, width: u32, panel: &Panel, color: [u8; 3], alpha: u8) -> Image {
-    let height = panel.texture_height().round().max(1.0) as u32;
-    let mut rgba = vec![0u8; (width as usize) * (height as usize) * 4];
+    let dense = crate::paint::density();
+    let height = crate::paint::dense(panel.texture_height().round().max(1.0));
     let a = f64::from(alpha) / 255.0;
     let w = f64::from(width);
+    let width = crate::paint::dense(w);
+    let mut rgba = vec![0u8; (width as usize) * (height as usize) * 4];
 
     for y in 0..height {
-        let py = f64::from(y) + 0.5;
+        let py = (f64::from(y) + 0.5) / dense;
         for x in 0..width {
-            let px = f64::from(x) + 0.5;
+            let px = (f64::from(x) + 0.5) / dense;
             let into_panel = depth(edge, px, py, w, panel);
-            let coverage = (into_panel + 0.5).clamp(0.0, 1.0);
+            let coverage = (into_panel * dense + 0.5).clamp(0.0, 1.0);
             if coverage <= 0.0 {
                 continue;
             }
@@ -305,6 +310,20 @@ mod tests {
 
     fn panel() -> Panel {
         Panel::default()
+    }
+
+    #[test]
+    fn bars_at_density_two_match_density_one() {
+        let panel = panel();
+        for edge in Edge::ALL {
+            crate::paint::same_at_two("bar", || paint_flat(edge, 300, &panel, [30, 30, 34], 220));
+            crate::paint::same_at_two("rim", || {
+                let mut image = paint_flat(edge, 300, &panel, [30, 30, 34], 220);
+                rim(&mut image, edge, &panel, [255, 255, 255], 0.4);
+                image
+            });
+            crate::paint::same_at_two("shadow", || drop_shadow(edge, 300, &panel, 0.5));
+        }
     }
 
     fn opened(edge: Edge) -> Drawer {

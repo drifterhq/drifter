@@ -2,7 +2,6 @@ use zeroize::{Zeroize, Zeroizing};
 
 use crate::geom::{Rect, Vec2};
 use crate::image::Image;
-use crate::menu::{corner, stamp};
 use crate::text::Font;
 
 pub const MAX_LEN: usize = 256;
@@ -165,86 +164,35 @@ pub fn paint(
     dots: usize,
     note: Note,
 ) -> Image {
-    let width = look.size.x.round() as u32;
-    let height = look.size.y.round() as u32;
-    let mut image = Image {
-        width,
-        height,
-        rgba: vec![0u8; (width as usize) * (height as usize) * 4],
-    };
-
-    for y in 0..height {
-        for x in 0..width {
-            let cover = (corner(
-                f64::from(x) + 0.5,
-                f64::from(y) + 0.5,
-                look.size,
-                look.radius,
-            ) + 0.5)
-                .clamp(0.0, 1.0);
-            blend(&mut image, x, y, look.back, cover);
-        }
-    }
-
-    let field = look.field_rect();
-    for y in (field.origin.y as u32)..(field.max().y as u32) {
-        for x in (field.origin.x as u32)..(field.max().x as u32) {
-            let inside = Vec2::new(f64::from(x) + 0.5, f64::from(y) + 0.5) - field.origin;
-            let cover = (corner(inside.x, inside.y, field.size, 10.0) + 0.5).clamp(0.0, 1.0);
-            blend(&mut image, x, y, look.field, cover);
-        }
-    }
+    let mut canvas = crate::paint::Canvas::new(look.size.x.round() as u32, look.size.y.round() as u32);
+    canvas.round_rect(Rect::new(Vec2::ZERO, look.size), look.radius, look.back, 1.0);
+    canvas.round_rect(look.field_rect(), 10.0, look.field, 1.0);
 
     let count = dots.min(look.shown());
     for slot in 0..count {
-        let center = look.dot_center(slot, count);
-        let reach = look.dot / 2.0 + 1.0;
-        for y in ((center.y - reach) as u32)..=((center.y + reach) as u32) {
-            for x in ((center.x - reach) as u32)..=((center.x + reach) as u32) {
-                let dx = f64::from(x) + 0.5 - center.x;
-                let dy = f64::from(y) + 0.5 - center.y;
-                let cover = (look.dot / 2.0 - (dx * dx + dy * dy).sqrt() + 0.5).clamp(0.0, 1.0);
-                blend(&mut image, x, y, look.ink, cover);
-            }
-        }
+        canvas.circle(look.dot_center(slot, count), look.dot / 2.0, look.ink, 1.0);
     }
 
+    let centered = |piece: &Image, y: f64| Vec2::new((look.size.x - crate::paint::logical(piece).x) / 2.0, y);
     if let Some(font) = big {
         let text = font.paint(words.clock, look.ink);
-        let at = Vec2::new((look.size.x - f64::from(text.width)) / 2.0, 26.0);
-        stamp(&mut image, &text, at);
+        canvas.stamp(&text, centered(&text, 26.0), 1.0);
     }
     if let Some(font) = small {
         let date = font.paint(words.date, look.dim);
-        let at = Vec2::new((look.size.x - f64::from(date.width)) / 2.0, 106.0);
-        stamp(&mut image, &date, at);
+        canvas.stamp(&date, centered(&date, 106.0), 1.0);
 
         let color = match note {
             Note::Wrong => look.alert,
             _ => look.dim,
         };
         let line = font.paint(note.text(), color);
-        let at = Vec2::new((look.size.x - f64::from(line.width)) / 2.0, 222.0);
-        stamp(&mut image, &line, at);
+        canvas.stamp(&line, centered(&line, 222.0), 1.0);
     }
 
-    image
+    canvas.image
 }
 
-fn blend(image: &mut Image, x: u32, y: u32, color: [u8; 3], cover: f64) {
-    if cover <= 0.0 || x >= image.width || y >= image.height {
-        return;
-    }
-    let at = ((y as usize) * (image.width as usize) + x as usize) * 4;
-    for (channel, value) in color.iter().enumerate() {
-        let under = f64::from(image.rgba[at + channel]) * (1.0 - cover);
-        image.rgba[at + channel] = (under + f64::from(*value) * cover)
-            .round()
-            .clamp(0.0, 255.0) as u8;
-    }
-    let under = f64::from(image.rgba[at + 3]) * (1.0 - cover);
-    image.rgba[at + 3] = (under + 255.0 * cover).round().clamp(0.0, 255.0) as u8;
-}
 
 #[cfg(test)]
 mod tests {
@@ -258,6 +206,14 @@ mod tests {
             image.rgba[at + 2],
             image.rgba[at + 3],
         ]
+    }
+
+    #[test]
+    fn the_lock_at_density_two_matches_density_one() {
+        let look = Look::default();
+        let big = Font::find(None, 56.0).ok();
+        let small = Font::find(None, 15.0).ok();
+        crate::paint::same_at_two("lock", || paint(&look, big.as_ref(), small.as_ref(), &words(), 5, Note::Wrong));
     }
 
     fn words() -> Words<'static> {

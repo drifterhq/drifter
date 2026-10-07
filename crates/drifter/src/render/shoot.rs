@@ -185,7 +185,7 @@ impl State {
             Some(words) if self.shooter.as_ref().and_then(|shooter| shooter.tag.as_ref()).map(|(_, held, _)| held) != Some(&words) => {
                 self.font.as_ref().and_then(|font| {
                     let image = grab::paint_tag(&words, font);
-                    let size = image.size();
+                    let size = drifter_core::paint::logical(&image);
                     upload(&mut self.renderer, Some(&image), "size tag")
                         .ok()
                         .flatten()
@@ -466,7 +466,7 @@ impl State {
             return;
         }
         let image = grab::paint_stop(seconds, font);
-        let size = image.size();
+        let size = drifter_core::paint::logical(&image);
         let rect = Rect::new(Vec2::new(((self.screen.x - size.x) / 2.0).round(), 4.0), size);
         if let Ok(Some(art)) = upload(&mut self.renderer, Some(&image), "recording") {
             if let Some(recording) = self.recording.as_mut() {
@@ -552,7 +552,7 @@ impl State {
 
     pub(super) fn show_thumb(&mut self, shot: &drifter_core::Image) {
         let image = grab::paint_thumb(shot, THUMB_WIDE);
-        let rect = grab::thumb_rect(image.size(), self.screen);
+        let rect = grab::thumb_rect(drifter_core::paint::logical(&image), self.screen);
         let Ok(Some(art)) = upload(&mut self.renderer, Some(&image), "thumbnail") else {
             return;
         };

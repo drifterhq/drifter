@@ -51,9 +51,9 @@ impl State {
         if let Some(held) = self.search_icons.get(&key) {
             return held.clone();
         }
-        let image = drifter_core::icon::find(name, None, 18)
-            .and_then(|path| drifter_core::image::load_sized(&path, 18).ok())
-            .map(|image| image.scaled(18, 18));
+        let image = drifter_core::icon::find(name, None, dense(18))
+            .and_then(|path| drifter_core::image::load_sized(&path, dense(18)).ok())
+            .map(|image| image.scaled(dense(18), dense(18)));
         self.search_icons.insert(key, image.clone());
         image
     }
@@ -159,7 +159,7 @@ impl State {
         let Some(image) = ripple.fresh.lock().ok().and_then(|mut slot| slot.take()) else {
             return;
         };
-        let art = self.upload_again(Some(&image), "ripple").ok().flatten();
+        let art = upload_flat(&mut self.renderer, Some(&image), "ripple").ok().flatten();
         if let Some(ripple) = self.ripple.as_mut()
             && art.is_some()
         {

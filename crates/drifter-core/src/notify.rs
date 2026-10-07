@@ -297,7 +297,8 @@ impl Look {
         let spot = Rect::new(Vec2::splat(self.pad), Vec2::splat(self.icon));
         match &note.icon {
             Some(image) => {
-                let fitted = image.scaled(self.icon as u32, self.icon as u32);
+                let side = crate::paint::dense(self.icon);
+                let fitted = image.scaled(side, side);
                 canvas.stamp(&fitted, spot.origin, 1.0);
             }
             None => {
@@ -309,7 +310,7 @@ impl Look {
                 };
                 let first: String = name.chars().take(1).collect::<String>().to_uppercase();
                 let letter = font.paint(&first, self.ink);
-                canvas.stamp(&letter, spot.center() - letter.size() / 2.0, 1.0);
+                canvas.stamp(&letter, spot.center() - crate::paint::logical(&letter) / 2.0, 1.0);
             }
         }
         let x = self.text_x();
@@ -349,6 +350,14 @@ mod tests {
             critical: false,
             icon: None,
         }
+    }
+
+    #[test]
+    fn a_note_at_density_two_matches_density_one() {
+        let font = font();
+        let look = Look::default();
+        let note = note("A longer body that wraps onto a second line for the check");
+        crate::paint::same_at_two("note", || look.paint(&note, &font));
     }
 
     #[test]

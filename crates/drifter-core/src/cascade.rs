@@ -210,7 +210,7 @@ impl Look {
             let mut x = row.origin.x + 8.0;
             if has_icons {
                 if let Some(icon) = entry.icon.as_ref() {
-                    let at = Vec2::new(x, row.center().y - f64::from(icon.height) / 2.0).round();
+                    let at = Vec2::new(x, row.center().y - crate::paint::logical(icon).y / 2.0).round();
                     canvas.stamp(icon, at, 1.0);
                 }
                 x += self.icon + 8.0;
@@ -218,7 +218,7 @@ impl Look {
             let text = font.paint(&entry.label, ink);
             canvas.stamp(
                 &text,
-                Vec2::new(x, row.center().y - f64::from(text.height) / 2.0).round(),
+                Vec2::new(x, row.center().y - crate::paint::logical(&text).y / 2.0).round(),
                 1.0,
             );
             if matches!(entry.kind, Kind::Submenu(_)) {
@@ -482,6 +482,15 @@ mod tests {
         let path =
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fonts/WorkSans.ttf");
         Font::load(&path, 13.0).unwrap()
+    }
+
+    #[test]
+    fn a_cascade_at_density_two_matches_density_one() {
+        let font = font();
+        let look = Look::themed(&crate::theme::DARK, [10, 122, 255]);
+        let items = menu();
+        let size = Vec2::new(220.0, 200.0);
+        crate::paint::same_at_two("cascade", || look.paint(&items, size, Some(1), 0.0, &font));
     }
 
     fn menu() -> Vec<Entry> {

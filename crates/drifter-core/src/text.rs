@@ -58,7 +58,7 @@ struct Kit {
     shape: ShapeContext,
     scale: ScaleContext,
     shapes: HashMap<(String, u32), Arc<Vec<Placed>>>,
-    glyphs: HashMap<(u16, u8, u32), Arc<Raster>>,
+    glyphs: HashMap<(u16, u8, u32, u32), Arc<Raster>>,
 }
 
 pub struct Font {
@@ -227,11 +227,12 @@ impl Font {
         out
     }
 
-    fn raster(&self, id: u16, step: u8, weight: f32, darken: f32) -> Arc<Raster> {
+    fn raster(&self, id: u16, step: u8, weight: f32, darken: f32, density: f32) -> Arc<Raster> {
         let key = (
             id,
             step,
             weight.to_bits() ^ darken.to_bits().rotate_left(16),
+            density.to_bits(),
         );
         let mut kit = self
             .kit
@@ -245,7 +246,7 @@ impl Font {
         let mut scaler = kit
             .scale
             .builder(font)
-            .size(self.px)
+            .size(self.px * density)
             .hint(false)
             .normalized_coords(&coords)
             .build();
@@ -254,7 +255,7 @@ impl Font {
             .format(Format::Alpha)
             .offset(Vector::new(f32::from(step) / STEPS, 0.0));
         if darken > 0.0 {
-            render.embolden(darken);
+            render.embolden(darken * density);
         }
         let raster = match render.render(&mut scaler, id) {
             Some(image) if image.content == Content::Mask => Raster {
@@ -281,19 +282,21 @@ impl Font {
         let wide = placed
             .last()
             .map_or(0.0, |last| f64::from(last.x + last.advance));
-        let width = (wide + f64::from(extra) * 2.0).ceil().max(1.0) as u32;
-        let height = self.line_height().ceil().max(1.0) as u32;
+        let density = crate::paint::density();
+        let width = ((wide + f64::from(extra) * 2.0).ceil().max(1.0) * density) as u32;
+        let height = (self.line_height().ceil().max(1.0) * density) as u32;
         let mut rgba = vec![0u8; (width as usize) * (height as usize) * 4];
-        let baseline = self.ascent.round() as i64;
+        let baseline = (self.ascent.round() * density) as i64;
+        let density = density as f32;
         for glyph in placed {
-            let x = glyph.x + extra;
+            let x = (glyph.x + extra) * density;
             let whole = x.floor();
             let step = ((x - whole) * STEPS).round() as i64;
             let (whole, step) = match step >= STEPS as i64 {
                 true => (whole as i64 + 1, 0u8),
                 false => (whole as i64, step as u8),
             };
-            let raster = self.raster(glyph.id, step, weight, self.darken + extra);
+            let raster = self.raster(glyph.id, step, weight, self.darken + extra, density);
             for row in 0..raster.height as i64 {
                 let y = baseline - i64::from(raster.top) + row;
                 if y < 0 || y >= i64::from(height) {
@@ -334,6 +337,7 @@ fn darken_for(px: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::geom::Rect;
 
     fn font() -> Font {
         Font::find(None, 22.0).expect("this machine has no usable font")
@@ -362,6 +366,27 @@ mod tests {
             .iter()
             .filter(|pixel| pixel[3] > 0)
             .count()
+    }
+
+    #[test]
+    fn text_at_density_two_matches_density_one() {
+        let font = font();
+        crate::paint::same_at_two("text", || font.paint("Mon Sep 28 12:35:26 AM AVATAR", [240, 240, 240]));
+        crate::paint::same_at_two("bold", || font.paint_bold("Terminal Settings", [20, 20, 20]));
+        crate::paint::same_at_two("digits", || font.paint_even_digits("10:08:59", [255, 255, 255]));
+    }
+
+    #[test]
+    fn a_canvas_at_density_two_matches_density_one() {
+        crate::paint::same_at_two("canvas", || {
+            let mut canvas = crate::paint::Canvas::new(120, 60);
+            canvas.round_rect(Rect::new(Vec2::new(4.0, 4.0), Vec2::new(100.0, 40.0)), 9.0, [40, 90, 200], 1.0);
+            canvas.circle(Vec2::new(30.0, 30.0), 10.0, [250, 250, 250], 0.8);
+            canvas.shadow(Rect::new(Vec2::new(60.0, 10.0), Vec2::new(40.0, 30.0)), 6.0, 5.0, 0.5);
+            let label = font().paint("Hi", [0, 0, 0]);
+            canvas.stamp(&label, Vec2::new(50.0, 20.0), 1.0);
+            canvas.image
+        });
     }
 
     #[test]

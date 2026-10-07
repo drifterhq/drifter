@@ -51,9 +51,9 @@ impl State {
         if let Some(held) = self.search_icons.get(&key) {
             return held.clone();
         }
-        let image = drifter_core::icon::find(&name, None, side)
-            .and_then(|path| drifter_core::image::load_sized(&path, side).ok())
-            .map(|image| image.scaled(side, side));
+        let image = drifter_core::icon::find(&name, None, dense(side))
+            .and_then(|path| drifter_core::image::load_sized(&path, dense(side)).ok())
+            .map(|image| image.scaled(dense(side), dense(side)));
         self.search_icons.insert(key, image.clone());
         image
     }

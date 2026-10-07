@@ -308,7 +308,7 @@ impl Bar {
                 Slot::Tool(tool) => tool_mark(&mut canvas, tool, center, self.ink),
                 Slot::Options => {
                     let word = font.paint("Options", self.ink);
-                    let at = Vec2::new(rect.origin.x + 12.0, center.y - f64::from(word.height) / 2.0);
+                    let at = Vec2::new(rect.origin.x + 12.0, center.y - crate::paint::logical(&word).y / 2.0);
                     canvas.stamp(&word, at.round(), 1.0);
                     let tip = Vec2::new(rect.max().x - 16.0, center.y + 2.0);
                     canvas.triangle(
@@ -321,7 +321,7 @@ impl Bar {
                     let pill = Rect::new(rect.origin + Vec2::new(0.0, 6.0), rect.size - Vec2::new(0.0, 12.0));
                     canvas.round_rect(pill, 8.0, self.accent, 1.0);
                     let word = font.paint(chosen.go_word(), [255, 255, 255]);
-                    let at = pill.center() - word.size() / 2.0;
+                    let at = pill.center() - crate::paint::logical(&word) / 2.0;
                     canvas.stamp(&word, at.round(), 1.0);
                 }
             }
@@ -417,7 +417,7 @@ pub fn paint_cross(side: u32) -> Image {
 
 pub fn paint_tag(text: &str, font: &Font) -> Image {
     let word = font.paint_even_digits(text, [255, 255, 255]);
-    let size = word.size() + Vec2::new(12.0, 6.0);
+    let size = crate::paint::logical(&word) + Vec2::new(12.0, 6.0);
     let mut canvas = Canvas::new(size.x.ceil() as u32, size.y.ceil() as u32);
     canvas.round_rect(Rect::new(Vec2::ZERO, size), 5.0, [0, 0, 0], 0.6);
     canvas.stamp(&word, Vec2::new(6.0, 3.0), 1.0);
@@ -430,13 +430,13 @@ pub fn size_tag(rect: Rect) -> String {
 
 pub fn paint_stop(seconds: u64, font: &Font) -> Image {
     let time = font.paint_even_digits(&clock(seconds), [255, 255, 255]);
-    let height = f64::from(time.height) + 14.0;
-    let width = 18.0 + 10.0 + f64::from(time.width) + 14.0 + 16.0 + 12.0;
+    let height = crate::paint::logical(&time).y + 14.0;
+    let width = 18.0 + 10.0 + crate::paint::logical(&time).x + 14.0 + 16.0 + 12.0;
     let mut canvas = Canvas::new(width.ceil() as u32, height.ceil() as u32);
     canvas.round_rect(Rect::new(Vec2::ZERO, Vec2::new(width, height)), height / 2.0, [24, 24, 28], 0.92);
     let mid = height / 2.0;
     canvas.circle(Vec2::new(18.0, mid), 5.0, [255, 69, 58], 1.0);
-    canvas.stamp(&time, Vec2::new(30.0, mid - f64::from(time.height) / 2.0).round(), 1.0);
+    canvas.stamp(&time, Vec2::new(30.0, mid - crate::paint::logical(&time).y / 2.0).round(), 1.0);
     let stop = Rect::from_center(Vec2::new(width - 20.0, mid), Vec2::splat(11.0));
     canvas.round_rect(stop, 2.0, [255, 255, 255], 1.0);
     canvas.image
@@ -449,7 +449,7 @@ pub fn thumb_size(shot: Vec2, widest: f64) -> Vec2 {
 
 pub fn paint_thumb(shot: &Image, widest: f64) -> Image {
     let inner = thumb_size(shot.size(), widest);
-    let small = shot.scaled(inner.x as u32, inner.y as u32);
+    let small = shot.scaled(crate::paint::dense(inner.x), crate::paint::dense(inner.y));
     let (rim, blur) = (3.0, 10.0);
     let card = Rect::new(Vec2::splat(blur), inner + Vec2::splat(rim * 2.0));
     let size = card.size + Vec2::splat(blur * 2.0);

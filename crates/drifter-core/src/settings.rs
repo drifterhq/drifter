@@ -2515,7 +2515,7 @@ impl Look {
 
     pub fn preview_size(&self) -> (u32, u32) {
         let tall = self.picture - 24.0;
-        ((tall * 16.0 / 9.0).round() as u32, tall.round() as u32)
+        (crate::paint::dense(tall * 16.0 / 9.0), crate::paint::dense(tall))
     }
 
     pub fn picture_rect(&self, size: Vec2, scroll: f64) -> Rect {
@@ -2909,7 +2909,7 @@ impl Look {
             let label = fonts.body.paint(each.name(), self.ink);
             let at = Vec2::new(
                 icon.max().x + 10.0,
-                rect.center().y - f64::from(label.height) / 2.0,
+                rect.center().y - crate::paint::logical(&label).y / 2.0,
             );
             canvas.stamp(&label, at, 1.0);
         }
@@ -2928,7 +2928,7 @@ impl Look {
             .paint(&fit(fonts.body, &words, field.size.x - 20.0), ink);
         let at = Vec2::new(
             field.origin.x + 10.0,
-            field.center().y - f64::from(text.height) / 2.0,
+            field.center().y - crate::paint::logical(&text).y / 2.0,
         );
         canvas.stamp(&text, at, 1.0);
         if shown.is_empty() {
@@ -2957,7 +2957,7 @@ impl Look {
         if let Some(key) = &row.icon {
             let spot = Rect::new(Vec2::new(x, rect.center().y - 13.0), Vec2::splat(26.0));
             match icons.get(key) {
-                Some(image) => canvas.stamp(image, spot.center() - image.size() / 2.0, fade),
+                Some(image) => canvas.stamp(image, spot.center() - crate::paint::logical(&image) / 2.0, fade),
                 None => crate::sheet::letter(canvas, self, fonts, spot, &row.label),
             }
             x = spot.max().x + 12.0;
@@ -2987,13 +2987,13 @@ impl Look {
         match &row.detail {
             Some(detail) => {
                 let small = fonts.small.paint(&fit(fonts.small, detail, room), self.dim);
-                let total = f64::from(label.height + small.height);
+                let total = crate::paint::logical(&label).y + crate::paint::logical(&small).y;
                 let top = rect.center().y - total / 2.0;
                 canvas.stamp(&label, Vec2::new(x, top), fade);
-                canvas.stamp(&small, Vec2::new(x, top + f64::from(label.height)), fade);
+                canvas.stamp(&small, Vec2::new(x, top + crate::paint::logical(&label).y), fade);
             }
             None => {
-                let at = Vec2::new(x, rect.center().y - f64::from(label.height) / 2.0);
+                let at = Vec2::new(x, rect.center().y - crate::paint::logical(&label).y / 2.0);
                 canvas.stamp(&label, at, fade);
             }
         }
@@ -3047,8 +3047,8 @@ impl Look {
                 };
                 let reading = fonts.body.paint(&words, self.ink);
                 let at = Vec2::new(
-                    rect.max().x - 14.0 - f64::from(reading.width),
-                    rect.center().y - f64::from(reading.height) / 2.0,
+                    rect.max().x - 14.0 - crate::paint::logical(&reading).x,
+                    rect.center().y - crate::paint::logical(&reading).y / 2.0,
                 );
                 canvas.stamp(&reading, at, fade);
             }
@@ -3072,7 +3072,7 @@ impl Look {
                         .body
                         .paint(name, if picked { self.ink } else { self.dim });
                     let at = cell.center()
-                        - Vec2::new(f64::from(text.width), f64::from(text.height)) / 2.0;
+                        - Vec2::new(crate::paint::logical(&text).x, crate::paint::logical(&text).y) / 2.0;
                     canvas.stamp(&text, at, fade);
                 }
             }
@@ -3093,8 +3093,8 @@ impl Look {
                 let room = rect.size.x * 0.62 - 14.0;
                 let painted = fonts.body.paint(&fit(fonts.body, text, room), self.dim);
                 let at = Vec2::new(
-                    rect.max().x - 14.0 - f64::from(painted.width),
-                    rect.center().y - f64::from(painted.height) / 2.0,
+                    rect.max().x - 14.0 - crate::paint::logical(&painted).x,
+                    rect.center().y - crate::paint::logical(&painted).y / 2.0,
                 );
                 canvas.stamp(&painted, at, fade);
             }
@@ -3146,7 +3146,7 @@ impl Look {
                         }
                         Mark::Text(text) => {
                             let painted = fonts.body.paint(text, white);
-                            canvas.stamp(&painted, c - painted.size() / 2.0, fade);
+                            canvas.stamp(&painted, c - crate::paint::logical(&painted) / 2.0, fade);
                         }
                     }
                 }
@@ -3190,18 +3190,18 @@ impl Look {
             let scale = fonts
                 .small
                 .paint(&screens::scale_word(monitor.scale), self.dim);
-            let tall = f64::from(name.height + scale.height);
+            let tall = crate::paint::logical(&name).y + crate::paint::logical(&scale).y;
             let top = inner.center().y - tall / 2.0;
             canvas.stamp(
                 &name,
-                Vec2::new(inner.center().x - f64::from(name.width) / 2.0, top),
+                Vec2::new(inner.center().x - crate::paint::logical(&name).x / 2.0, top),
                 1.0,
             );
             canvas.stamp(
                 &scale,
                 Vec2::new(
-                    inner.center().x - f64::from(scale.width) / 2.0,
-                    top + f64::from(name.height),
+                    inner.center().x - crate::paint::logical(&scale).x / 2.0,
+                    top + crate::paint::logical(&name).y,
                 ),
                 1.0,
             );
@@ -3242,7 +3242,7 @@ impl Look {
             self.dim,
         );
         let at = Vec2::new(
-            card.center().x - f64::from(caption.width) / 2.0,
+            card.center().x - crate::paint::logical(&caption).x / 2.0,
             area.max().y + 8.0,
         );
         canvas.stamp(&caption, at, 1.0);
@@ -3274,8 +3274,8 @@ impl Look {
         if model.title {
             let text = fonts.small.paint("Window title", self.dim);
             let at = Vec2::new(
-                window.center().x - f64::from(text.width) / 2.0,
-                window.origin.y + 15.0 - f64::from(text.height) / 2.0,
+                window.center().x - crate::paint::logical(&text).x / 2.0,
+                window.origin.y + 15.0 - crate::paint::logical(&text).y / 2.0,
             );
             canvas.stamp(&text, at, 1.0);
         }
@@ -3293,7 +3293,7 @@ impl Look {
         );
         match wallpaper {
             Some(art) => {
-                let (wide, tall) = (shown.size.x.round() as u32, shown.size.y.round() as u32);
+                let (wide, tall) = (crate::paint::dense(shown.size.x), crate::paint::dense(shown.size.y));
                 match (art.width, art.height) == (wide, tall) {
                     true => canvas.stamp(art, shown.origin, 1.0),
                     false => canvas.stamp(&cover(art, wide, tall), shown.origin, 1.0),
@@ -3559,6 +3559,32 @@ mod tests {
             "254:1" => Some("vda1".into()),
             "8:3" => Some("sda3".into()),
             _ => None,
+        }
+    }
+
+    #[test]
+    fn every_page_at_density_two_matches_density_one() {
+        let body = Font::find(None, 13.0).unwrap();
+        let small = Font::find(None, 11.5).unwrap();
+        let title = Font::find(None, 22.0).unwrap();
+        let fonts = Fonts {
+            body: &body,
+            small: &small,
+            title: &title,
+        };
+        let (icons, thumbs) = (HashMap::new(), HashMap::new());
+        let art = Art {
+            wallpaper: None,
+            icons: &icons,
+            thumbs: &thumbs,
+            sheet: None,
+        };
+        let look = Look::default();
+        let model = model(&Config::default());
+        for section in Section::ALL {
+            crate::paint::same_at_two(section.name(), || {
+                look.paint(Vec2::new(860.0, 620.0), section, &model, 0.0, &fonts, &art)
+            });
         }
     }
 

@@ -96,7 +96,7 @@ impl Look {
                 Gauge::Brightness => "Brightness",
             };
             let label = font.paint(name, self.ink);
-            let at = Vec2::new(24.0, (self.size.y - f64::from(label.height)) / 2.0);
+            let at = Vec2::new(24.0, (self.size.y - crate::paint::logical(&label).y) / 2.0);
             canvas.stamp(&label, at, 1.0);
 
             let words = match reading.muted {
@@ -105,8 +105,8 @@ impl Look {
             };
             let value = font.paint(&words, if reading.muted { self.dim } else { self.ink });
             let at = Vec2::new(
-                self.size.x - 24.0 - f64::from(value.width),
-                (self.size.y - f64::from(value.height)) / 2.0,
+                self.size.x - 24.0 - crate::paint::logical(&value).x,
+                (self.size.y - crate::paint::logical(&value).y) / 2.0,
             );
             canvas.stamp(&value, at, 1.0);
         }
@@ -130,6 +130,18 @@ mod tests {
         assert_eq!(parse_wpctl(""), None);
         assert_eq!(parse_wpctl("Volume: loud"), None);
         assert_eq!(parse_wpctl("Error: no sink"), None);
+    }
+
+    #[test]
+    fn the_hud_at_density_two_matches_density_one() {
+        let look = Look::default();
+        let font = crate::text::Font::find(None, 13.0).ok();
+        let reading = Reading {
+            gauge: Gauge::Brightness,
+            level: 0.6,
+            muted: false,
+        };
+        crate::paint::same_at_two("hud", || look.paint(reading, font.as_ref()));
     }
 
     #[test]

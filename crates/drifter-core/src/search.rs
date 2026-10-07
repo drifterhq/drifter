@@ -259,11 +259,11 @@ impl Look {
         };
         let words = big.paint(text, ink);
         let left = self.pad * 2.5 + 30.0;
-        let at = Vec2::new(left, (self.field - f64::from(words.height)) / 2.0);
+        let at = Vec2::new(left, (self.field - crate::paint::logical(&words).y) / 2.0);
         canvas.stamp(&words, at, 1.0);
         if !query.is_empty() {
             let caret = Rect::new(
-                Vec2::new(at.x + f64::from(words.width) + 2.0, self.field / 2.0 - 12.0),
+                Vec2::new(at.x + crate::paint::logical(&words).x + 2.0, self.field / 2.0 - 12.0),
                 Vec2::new(2.0, 24.0),
             );
             canvas.round_rect(caret, 1.0, self.accent, 1.0);
@@ -297,10 +297,10 @@ impl Look {
             let title = small.paint(&found.title, ink);
             let detail = small.paint(&found.detail, dim);
             let x = spot.max().x + 12.0;
-            canvas.stamp(&title, Vec2::new(x, row.center().y - f64::from(title.height) / 2.0), 1.0);
-            let right = row.max().x - 12.0 - f64::from(detail.width);
-            if right > x + f64::from(title.width) + 16.0 {
-                canvas.stamp(&detail, Vec2::new(right, row.center().y - f64::from(detail.height) / 2.0), 1.0);
+            canvas.stamp(&title, Vec2::new(x, row.center().y - crate::paint::logical(&title).y / 2.0), 1.0);
+            let right = row.max().x - 12.0 - crate::paint::logical(&detail).x;
+            if right > x + crate::paint::logical(&title).x + 16.0 {
+                canvas.stamp(&detail, Vec2::new(right, row.center().y - crate::paint::logical(&detail).y / 2.0), 1.0);
             }
         }
         canvas.image
@@ -336,6 +336,16 @@ mod tests {
             extra: extra.into(),
             icon: None,
         }
+    }
+
+    #[test]
+    fn search_at_density_two_matches_density_one() {
+        let look = Look::themed(&crate::theme::DARK, [10, 122, 255]);
+        let big = crate::text::Font::find(None, 20.0).unwrap();
+        let small = crate::text::Font::find(None, 13.0).unwrap();
+        let results = vec![item(Kind::App, "Terminal", ""), item(Kind::Setting, "Displays", "")];
+        let icons = vec![None, None];
+        crate::paint::same_at_two("search", || look.paint("ter", &results, &icons, 0, &big, &small));
     }
 
     #[test]

@@ -413,8 +413,8 @@ impl State {
         }
         let image = crate::apps::find(app)
             .and_then(|entry| entry.icon)
-            .and_then(|path| drifter_core::image::load_sized(&path, side).ok())
-            .map(|image| image.scaled(side, side))?;
+            .and_then(|path| drifter_core::image::load_sized(&path, dense(side)).ok())
+            .map(|image| image.scaled(dense(side), dense(side)))?;
         let buffer = upload(&mut self.renderer, Some(&image), "switcher icon")
             .ok()
             .flatten()?;

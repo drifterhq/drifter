@@ -1704,3 +1704,50 @@ fn a_shader_wallpaper_moves_with_parallax() {
         "a shader wallpaper moves {expected:.1} px, not {shift} ({score})"
     );
 }
+
+#[test]
+fn the_shell_at_paint_density_two_matches_density_one() {
+    let mut config = Config::default();
+    config.motion.hide_top = false;
+    config.motion.hide_bottom = false;
+    let mut run = start("density", &config, Some(pattern(1600, 1200)));
+    let shoot = |run: &mut Run, name: &str| {
+        for edge in Edge::ALL {
+            run.screen.state.set(edge, true);
+        }
+        run.screen.state.kick_now();
+        pump(&mut run.screen, |state| {
+            state.drawers.iter().all(|drawer| drawer.settled())
+                && state.clock.is_some()
+                && state.frost_key.is_some()
+                && !state.frost_busy
+        });
+        run.screen.state.toggle_control();
+        run.screen.state.control_status.wifi = None;
+        run.screen.state.control_status.bluetooth = None;
+        run.screen.state.paint_control();
+        assert!(run.screen.state.control.is_some(), "Control Center opens");
+        let image = run.shot(name);
+        run.screen.state.toggle_control();
+        image
+    };
+    let one = shoot(&mut run, "density-one");
+    run.screen.state.use_density(2);
+    let two = shoot(&mut run, "density-two");
+    run.screen.state.use_density(1);
+    let (mut total, mut wild) = (0u64, 0usize);
+    for (a, b) in one.rgba.iter().zip(&two.rgba) {
+        let gap = a.abs_diff(*b);
+        total += u64::from(gap);
+        if gap > 96 {
+            wild += 1;
+        }
+    }
+    let count = one.rgba.len() as f64;
+    let (mean, wild) = (total as f64 / count, wild as f64 / count);
+    assert!(
+        mean < 3.0 && wild < 0.002,
+        "the shell at density 2 drifts from density 1: mean {mean:.3}, wild {:.3}%",
+        wild * 100.0
+    );
+}

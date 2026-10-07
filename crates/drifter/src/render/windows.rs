@@ -653,7 +653,7 @@ impl State {
                 return;
             };
             let image = font.paint(&title, self.tray.ink);
-            let size = image.size();
+            let size = drifter_core::paint::logical(&image);
             match upload(&mut self.renderer, Some(&image), "window title") {
                 Ok(Some(buffer)) => {
                     self.titles.insert(title, (buffer, size));
@@ -789,9 +789,9 @@ impl State {
         let wanted = self.dock.icon as u32;
         let art = crate::apps::find(&name)
             .and_then(|entry| entry.icon)
-            .and_then(|path| drifter_core::image::load_sized(&path, wanted).ok())
+            .and_then(|path| drifter_core::image::load_sized(&path, dense(wanted)).ok())
             .or_else(|| self.dock_spare.clone())
-            .map(|image| image.scaled(wanted, wanted));
+            .map(|image| image.scaled(dense(wanted), dense(wanted)));
         let Some(image) = art else {
             log!("drifter: no dock icon for {name}");
             self.no_icon.insert(name);

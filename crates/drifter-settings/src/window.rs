@@ -358,6 +358,12 @@ pub fn run() -> Result<(), String> {
     Ok(())
 }
 
+static SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+
+fn scale() -> u32 {
+    SCALE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 fn loaders(done: LoopSender<(PathBuf, Option<Image>)>) -> Sender<PathBuf> {
     let (tx, rx) = std::sync::mpsc::channel::<PathBuf>();
     let rx: Arc<Mutex<Receiver<PathBuf>>> = Arc::new(Mutex::new(rx));
@@ -376,8 +382,8 @@ fn loaders(done: LoopSender<(PathBuf, Option<Image>)>) -> Sender<PathBuf> {
                     let image = drifter_core::image::load(&path).ok().map(|image| {
                         drifter_core::settings::cover(
                             &image,
-                            look.thumb.x as u32,
-                            look.thumb.y as u32,
+                            look.thumb.x as u32 * scale(),
+                            look.thumb.y as u32 * scale(),
                         )
                     });
                     if done.send((path, image)).is_err() {
@@ -653,9 +659,10 @@ fn icon_file(name: &str) -> Option<PathBuf> {
 }
 
 fn icon_image(path: &Path) -> Option<Image> {
-    drifter_core::image::load_sized(path, ICON)
+    let side = ICON * scale();
+    drifter_core::image::load_sized(path, side)
         .ok()
-        .map(|image| image.scaled(ICON, ICON))
+        .map(|image| image.scaled(side, side))
 }
 
 impl Settings {
@@ -666,7 +673,7 @@ impl Settings {
     fn icon_for(&self, key: &str) -> Option<Image> {
         if let Some((px, path)) = drifter_core::sheet::face_of(key) {
             let image = drifter_core::image::load(&path).ok()?;
-            let square = drifter_core::users::square(&image, px);
+            let square = drifter_core::users::square(&image, px * scale());
             return Some(drifter_core::users::round(&square));
         }
         if key.starts_with("letter:") {
@@ -743,7 +750,6 @@ impl Settings {
 
     fn draw(&mut self) {
         self.stale = false;
-        let (width, height) = self.size;
         let fonts = Fonts {
             body: &self.fonts.0,
             small: &self.fonts.1,
@@ -763,6 +769,7 @@ impl Settings {
             &fonts,
             &art,
         );
+        let (width, height) = (image.width, image.height);
         let stride = width as i32 * 4;
         let (buffer, canvas) = match self.pool.create_buffer(
             width as i32,
@@ -784,6 +791,7 @@ impl Settings {
             to[3] = from[3];
         }
         let surface = self.window.wl_surface();
+        surface.set_buffer_scale(scale() as i32);
         surface.damage_buffer(0, 0, width as i32, height as i32);
         if let Err(error) = buffer.attach_to(surface) {
             log!("drifter-settings: {error}");
@@ -2044,8 +2052,21 @@ impl CompositorHandler for Settings {
         _: &Connection,
         _: &QueueHandle<Self>,
         _: &wl_surface::WlSurface,
-        _: i32,
+        factor: i32,
     ) {
+        let factor = factor.clamp(1, 4) as u32;
+        if factor == scale() {
+            return;
+        }
+        SCALE.store(factor, std::sync::atomic::Ordering::Relaxed);
+        drifter_core::paint::set_density(factor);
+        self.icons.clear();
+        self.thumbs.clear();
+        self.asked.clear();
+        self.load_row_icons();
+        self.reload_wallpaper();
+        self.want_thumbs();
+        self.stale = true;
     }
 
     fn transform_changed(

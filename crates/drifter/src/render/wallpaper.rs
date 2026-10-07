@@ -318,8 +318,9 @@ impl State {
         let (Some(paper), Some((laid, size))) = (self.wallpaper.as_ref(), self.laid_paper()) else {
             return;
         };
+        let dense = drifter_core::paint::density();
         drifter_core::frost::underlay(image, solid, |point| {
-            paper.frost.behind(&laid, size, origin + point)
+            paper.frost.behind(&laid, size, origin + point / dense)
         });
     }
 
@@ -380,7 +381,10 @@ impl State {
         self.frost_busy = true;
         let (shapes, screen, palette, at) = (self.shapes, self.screen, self.palette, self.at);
         let picture = self.wallpaper.as_ref().map(|paper| paper.pyramid.size()).unwrap_or(screen);
+        let density = self.density;
         self.background("frost", move || {
+            drifter_core::paint::set_density(density);
+            let dense = f64::from(density);
             let veil = palette.veil;
             let images = Edge::ALL.map(|edge| {
                 let shape = shapes[edge.index()];
@@ -391,7 +395,7 @@ impl State {
                 let mut image =
                     drifter_core::drawer::paint_flat(edge, screen.x.max(1.0) as u32, &shape, palette.bar, veil);
                 drifter_core::frost::underlay(&mut image, f64::from(veil) / 255.0, |point| {
-                    frost.behind(&laid, picture, origin + point)
+                    frost.behind(&laid, picture, origin + point / dense)
                 });
                 drifter_core::drawer::rim(&mut image, edge, &shape, palette.rim, f64::from(palette.rim_alpha) / 255.0);
                 image

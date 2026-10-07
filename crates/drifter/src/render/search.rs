@@ -71,9 +71,9 @@ impl State {
                     .get(name)
                     .cloned()
                     .unwrap_or_else(|| {
-                        drifter_core::icon::find(name, None, side)
-                            .and_then(|path| drifter_core::image::load_sized(&path, side).ok())
-                            .map(|image| image.scaled(side, side))
+                        drifter_core::icon::find(name, None, dense(side))
+                            .and_then(|path| drifter_core::image::load_sized(&path, dense(side)).ok())
+                            .map(|image| image.scaled(dense(side), dense(side)))
                     }),
                 _ => None,
             })

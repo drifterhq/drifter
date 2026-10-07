@@ -45,6 +45,8 @@ fn blend(image: &mut Image, x: u32, y: u32, color: [f64; 3], cover: f64) {
 pub fn paint_icon(side: u32) -> Image {
     let side = side.max(16);
     let size = f64::from(side);
+    let dense = crate::paint::density();
+    let side = crate::paint::dense(size);
     let mut image = Image {
         width: side,
         height: side,
@@ -68,9 +70,9 @@ pub fn paint_icon(side: u32) -> Image {
     let first = center - Vec2::splat(pitch);
     for y in 0..side {
         for x in 0..side {
-            let p = Vec2::new(f64::from(x) + 0.5, f64::from(y) + 0.5);
+            let p = Vec2::new(f64::from(x) + 0.5, f64::from(y) + 0.5) / dense;
             let edge = squircle(p - center, half);
-            let body = (edge + 0.5).clamp(0.0, 1.0);
+            let body = (edge * dense + 0.5).clamp(0.0, 1.0);
             let shade = (p.y - (center.y - half)) / (half * 2.0);
             blend(&mut image, x, y, mix([250, 251, 253], [214, 219, 230], shade), body);
             let rim = (1.0 - (edge - 0.6).abs()).clamp(0.0, 1.0) * body;
@@ -79,7 +81,7 @@ pub fn paint_icon(side: u32) -> Image {
                 let at = first + Vec2::new(pitch * (index % 3) as f64, pitch * (index / 3) as f64);
                 let local = p - at;
                 let inside = squircle(local, tile / 2.0);
-                let cover = (inside + 0.5).clamp(0.0, 1.0);
+                let cover = (inside * dense + 0.5).clamp(0.0, 1.0);
                 if cover > 0.0 {
                     let t = (local.y + tile / 2.0) / tile;
                     blend(&mut image, x, y, mix(*top, *bottom, t), cover);
@@ -179,7 +181,7 @@ impl Look {
         font: &Font,
         big: &Font,
     ) -> Image {
-        let size = base.size();
+        let size = crate::paint::logical(&base);
         let mut canvas = Canvas { image: base.clone() };
         let field = self.field_rect(size);
         let glass = Vec2::new(self.pad + 10.0, field.center().y - 2.0);
@@ -194,7 +196,7 @@ impl Look {
             false => (query, self.ink),
         };
         let words = big.paint(text, ink);
-        canvas.stamp(&words, Vec2::new(self.pad + 32.0, field.center().y - f64::from(words.height) / 2.0), 1.0);
+        canvas.stamp(&words, Vec2::new(self.pad + 32.0, field.center().y - crate::paint::logical(&words).y / 2.0), 1.0);
         canvas.round_rect(
             Rect::new(Vec2::new(0.0, field.max().y), Vec2::new(size.x, 1.0)),
             0.0,
@@ -213,13 +215,13 @@ impl Look {
             let text = font.paint(&label, self.ink);
             canvas.stamp(
                 &text,
-                Vec2::new(spot.center().x - f64::from(text.width) / 2.0, spot.max().y + 7.0).round(),
+                Vec2::new(spot.center().x - crate::paint::logical(&text).x / 2.0, spot.max().y + 7.0).round(),
                 1.0,
             );
         }
         if apps.is_empty() {
             let none = font.paint("No apps match", self.dim);
-            canvas.stamp(&none, Vec2::new((size.x - f64::from(none.width)) / 2.0, size.y / 2.0), 1.0);
+            canvas.stamp(&none, Vec2::new((size.x - crate::paint::logical(&none).x) / 2.0, size.y / 2.0), 1.0);
         }
 
         let pages = self.pages(size, apps.len());
@@ -254,6 +256,20 @@ mod tests {
     use super::*;
 
     const SCREEN: Vec2 = Vec2::new(1200.0, 800.0);
+
+    #[test]
+    fn apps_at_density_two_match_density_one() {
+        let look = Look::themed(&crate::theme::DARK);
+        let font = crate::text::Font::find(None, 13.0).unwrap();
+        let big = crate::text::Font::find(None, 20.0).unwrap();
+        let apps = vec![("Terminal".to_string(), None), ("Files".to_string(), None)];
+        crate::paint::same_at_two("apps icon", || paint_icon(48));
+        crate::paint::same_at_two("apps", || {
+            let size = look.rect(SCREEN).size;
+            let base = crate::paint::Canvas::new(size.x as u32, size.y as u32).image;
+            look.paint(&base, "te", &apps, 0, &font, &big)
+        });
+    }
 
     #[test]
     fn the_panel_is_a_centered_modal_not_the_whole_screen() {

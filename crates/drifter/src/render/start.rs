@@ -301,7 +301,7 @@ pub fn open(
     let side = trash_look.icon as u32;
     let (trash, cog, spare) = load_dock_art(&mut renderer, config, side, &palette);
     let shadow_image = drifter_core::window::shadow_patch(chrome.radius, drifter_core::window::SHADOW_BLUR);
-    let window_shadow = upload(&mut renderer, Some(&shadow_image), "window shadow")?
+    let window_shadow = upload_flat(&mut renderer, Some(&shadow_image), "window shadow")?
         .map(|buffer| (buffer, f64::from(shadow_image.width - 1) / 2.0));
     let control_icon = upload(
         &mut renderer,
@@ -498,6 +498,7 @@ pub fn open(
         installed: None,
         app_names: std::cell::RefCell::new(std::collections::HashMap::new()),
         resizing: None,
+        density: 1,
         tip: None,
         tip_of: None,
         snap: Snap::default(),
@@ -577,6 +578,7 @@ pub fn open(
         true => state.scan_heads(),
         false => state.add_offscreen_head(virtual_size)?,
     }
+    state.follow_density();
     if state.heads.is_empty() {
         return Err("no connected monitor with modes".to_string());
     }

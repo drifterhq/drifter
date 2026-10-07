@@ -13,7 +13,7 @@ pub fn heat(pointer: Vec2, reach: f64) -> f64 {
 }
 
 pub fn paint_glow(side: u32, color: [u8; 3]) -> Image {
-    let side = side.max(2);
+    let side = crate::paint::dense(f64::from(side.max(2)));
     let reach = f64::from(side);
     let mut rgba = vec![0u8; (side as usize) * (side as usize) * 4];
 

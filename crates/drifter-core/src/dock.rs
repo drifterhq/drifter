@@ -276,7 +276,7 @@ mod tail_tests {
 }
 
 pub fn paint_cog(side: u32, color: [u8; 3]) -> Image {
-    let side = side.max(8);
+    let side = crate::paint::dense(f64::from(side.max(8)));
     let size = f64::from(side);
     let middle = size / 2.0;
     let outer = size * 0.44;
@@ -313,10 +313,10 @@ pub fn paint_cog(side: u32, color: [u8; 3]) -> Image {
 }
 
 pub fn paint_dot(side: u32, color: [u8; 3]) -> Image {
-    let side = side.max(2);
+    let side = crate::paint::dense(f64::from(side.max(2)));
     let size = f64::from(side);
     let middle = size / 2.0;
-    let radius = middle - 0.5;
+    let radius = middle - 0.5 * crate::paint::density();
     let mut rgba = vec![0u8; (side as usize) * (side as usize) * 4];
 
     for y in 0..side {
@@ -351,6 +351,7 @@ pub fn paint_trash_full(side: u32, color: [u8; 3]) -> Image {
 }
 
 fn trash_with(side: u32, color: [u8; 3], full: bool) -> Image {
+    let side = crate::paint::dense(f64::from(side));
     let size = f64::from(side.max(8));
     let mut rgba = vec![0u8; (side as usize) * (side as usize) * 4];
     let unit = size / 24.0;

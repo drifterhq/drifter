@@ -29,7 +29,7 @@ impl State {
         self.icons.clear();
         self.tray_raw = icons.clone();
         for icon in icons {
-            let mut image = icon.image.scaled(wanted, wanted);
+            let mut image = icon.image.scaled(dense(wanted), dense(wanted));
             if icon.symbolic {
                 image.tint(self.palette.glyph);
             }
@@ -798,7 +798,7 @@ impl State {
             .as_ref()
             .map(|font| font.paint_even_digits(&reading, tray.ink))
             .expect("the font was there a moment ago");
-        let rect = tray.clock_rect(band, image.size());
+        let rect = tray.clock_rect(band, drifter_core::paint::logical(&image));
         match self.upload_again(Some(&image), "clock") {
             Ok(Some(buffer)) => self.clock = Some((reading, buffer, rect)),
             Ok(None) => {}
@@ -832,7 +832,7 @@ impl State {
             .as_ref()
             .map(|font| drifter_core::stats::paint(font, &fields, self.tray.ink))
             .expect("the font was there a moment ago");
-        let size = image.size();
+        let size = drifter_core::paint::logical(&image);
         match self.upload_again(Some(&image), "system info") {
             Ok(Some(buffer)) => self.stats = Some((buffer, size)),
             Ok(None) => {}
