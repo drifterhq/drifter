@@ -7,7 +7,15 @@ pub struct Entry {
 }
 
 pub fn find(app_id: &str) -> Option<Entry> {
-    let file = desktop_file(app_id)?;
+    let Some(file) = desktop_file(app_id) else {
+        return drifter_core::activity::own_app()
+            .filter(|app| app.id == app_id)
+            .map(|app| Entry {
+                name: Some(app.name),
+                icon: app.icon.as_deref().and_then(icon_file),
+                exec: app.exec,
+            });
+    };
     let text = std::fs::read_to_string(&file).ok()?;
     let mut icon = None;
     let mut exec = None;

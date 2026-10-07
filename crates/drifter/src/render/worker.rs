@@ -255,7 +255,6 @@ impl State {
                     .map(|(app, side)| {
                         let image = crate::apps::find(&app)
                             .and_then(|entry| entry.icon)
-                            .or_else(|| (app == drifter_core::activity::ACTIVITY_APP).then(|| std::path::PathBuf::from(drifter_core::activity::art_icon())))
                             .and_then(|path| load(&path, side));
                         (app.clone(), format!("{app}@{side}"), image)
                     })

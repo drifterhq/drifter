@@ -24,6 +24,18 @@ pub fn art_icon() -> String {
         .clone()
 }
 
+pub fn own_app() -> Option<App> {
+    let program = std::env::current_exe().ok()?.with_file_name(ACTIVITY_APP);
+    program.is_file().then(|| App {
+        id: ACTIVITY_APP.to_string(),
+        name: "Activity".to_string(),
+        icon: Some(art_icon()),
+        exec: Some(format!("\"{}\"", program.display())),
+        words: "task manager process cpu memory monitor system".to_string(),
+        categories: vec!["System".to_string(), "Monitor".to_string()],
+    })
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Proc {
     pub pid: u32,

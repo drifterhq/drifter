@@ -175,7 +175,14 @@ pub fn grouped(apps: &[App]) -> Vec<(&'static str, Vec<App>)> {
 }
 
 pub fn installed() -> Vec<App> {
-    installed_in(&roots())
+    let mut apps = installed_in(&roots());
+    if let Some(own) = crate::activity::own_app()
+        && !apps.iter().any(|app| app.id == own.id)
+    {
+        apps.push(own);
+        apps.sort_by_key(|app| app.name.to_lowercase());
+    }
+    apps
 }
 
 fn desktop_id(path: &Path) -> Option<String> {
