@@ -38,11 +38,11 @@ pub struct Look {
 impl Look {
     pub fn themed(p: &crate::theme::Palette) -> Look {
         Look {
-            width: 440.0,
+            width: 320.0,
             pad: 24.0,
-            field: 38.0,
-            button: Vec2::new(130.0, 32.0),
-            radius: 14.0,
+            field: 34.0,
+            button: Vec2::new(130.0, 30.0),
+            radius: 16.0,
             back: p.surface,
             well: p.well,
             rule: p.rule,
@@ -61,20 +61,58 @@ impl Default for Look {
     }
 }
 
-pub const MOST_DOTS: usize = 24;
+pub const MOST_DOTS: usize = 18;
+const LOCK: f64 = 52.0;
+const ASK: &str = "Enter your password to allow this.";
+
+pub fn plain(message: &str) -> String {
+    let message = message.trim();
+    if let Some(command) = message
+        .strip_prefix("Authentication is needed to run `")
+        .and_then(|rest| rest.split('\'').next())
+    {
+        let words: Vec<&str> = command.split_whitespace().collect();
+        let installs = words.iter().position(|word| *word == "install");
+        let wanted: Vec<&str> = installs
+            .map(|at| words[at + 1..].iter().copied().filter(|word| !word.starts_with('-')).collect())
+            .unwrap_or_default();
+        return match wanted.as_slice() {
+            [] if installs.is_some() => "Drifter wants to install software.".to_string(),
+            [] => "Drifter wants to make a change.".to_string(),
+            names => format!("Drifter wants to install {}.", names.iter().map(|name| title(name)).collect::<Vec<_>>().join(", ")),
+        };
+    }
+    let rest = ["Authentication is required to ", "Authentication is needed to "]
+        .iter()
+        .find_map(|head| message.strip_prefix(head));
+    match rest {
+        Some(rest) => format!("Drifter wants to {}", rest.trim_end_matches('.')).trim().to_string() + ".",
+        None => message.to_string(),
+    }
+}
+
+fn title(word: &str) -> String {
+    let mut chars = word.chars();
+    chars
+        .next()
+        .map(|first| first.to_uppercase().collect::<String>() + chars.as_str())
+        .unwrap_or_default()
+}
 
 impl Look {
     fn lines(&self, ask: &Ask, font: &Font) -> Vec<String> {
-        crate::notify::wrap(font, &ask.message, self.width - self.pad * 2.0, 4)
+        crate::notify::wrap(font, &plain(&ask.message), self.width - self.pad * 2.0, 3)
+    }
+
+    fn top(&self, ask: &Ask, font: &Font) -> f64 {
+        let line = font.line_height().ceil();
+        self.pad + LOCK + 14.0 + line * self.lines(ask, font).len() as f64 + 4.0 + line + 16.0
     }
 
     pub fn size(&self, ask: &Ask, font: &Font) -> Vec2 {
         let line = font.line_height().ceil();
-        let text = line * (3.0 + self.lines(ask, font).len() as f64);
-        Vec2::new(
-            self.width,
-            (self.pad * 2.0 + text + 18.0 + self.field + line + 24.0 + self.button.y).ceil(),
-        )
+        let tall = self.top(ask, font) + self.field + 6.0 + line + 10.0 + self.button.y + self.pad;
+        Vec2::new(self.width, tall.ceil())
     }
 
     pub fn rect(&self, screen: Vec2, ask: &Ask, font: &Font) -> Rect {
@@ -83,28 +121,27 @@ impl Look {
     }
 
     fn field_rect(&self, size: Vec2, line: f64) -> Rect {
-        let top = size.y - self.pad - self.button.y - line - 24.0 - self.field;
-        Rect::new(
-            Vec2::new(self.pad, top),
-            Vec2::new(size.x - self.pad * 2.0, self.field),
-        )
+        let top = size.y - self.pad - self.button.y - 10.0 - line - 6.0 - self.field;
+        Rect::new(Vec2::new(self.pad, top), Vec2::new(size.x - self.pad * 2.0, self.field))
+    }
+
+    fn half(&self, size: Vec2) -> f64 {
+        (size.x - self.pad * 2.0 - 10.0) / 2.0
     }
 
     fn go_rect(&self, size: Vec2) -> Rect {
+        let half = self.half(size);
         Rect::new(
-            Vec2::new(
-                size.x - self.pad - self.button.x,
-                size.y - self.pad - self.button.y,
-            ),
-            self.button,
+            Vec2::new(size.x - self.pad - half, size.y - self.pad - self.button.y),
+            Vec2::new(half, self.button.y),
         )
     }
 
     fn cancel_rect(&self, size: Vec2) -> Rect {
-        let go = self.go_rect(size);
+        let half = self.half(size);
         Rect::new(
-            Vec2::new(go.origin.x - 10.0 - self.button.x, go.origin.y),
-            self.button,
+            Vec2::new(self.pad, size.y - self.pad - self.button.y),
+            Vec2::new(half, self.button.y),
         )
     }
 
@@ -117,39 +154,58 @@ impl Look {
             .then_some(Press::Cancel)
     }
 
+    fn lock(&self, canvas: &mut Canvas, center: Vec2) {
+        let body = Rect::from_center(center + Vec2::new(0.0, 8.0), Vec2::new(40.0, 30.0));
+        let bow = Rect::new(Vec2::new(center.x - 12.0, center.y - 24.0), Vec2::new(24.0, 40.0));
+        canvas.ring(bow, 12.0, 5.0, [168, 172, 182], 1.0);
+        canvas.shadow(body, 8.0, 5.0, 0.22);
+        canvas.shade(body, 8.0, [255, 196, 64], [236, 150, 20], 1.0);
+        canvas.circle(body.center() - Vec2::new(0.0, 2.0), 4.0, [150, 92, 10], 1.0);
+        canvas.round_rect(
+            Rect::from_center(body.center() + Vec2::new(0.0, 4.0), Vec2::new(3.0, 8.0)),
+            1.5,
+            [150, 92, 10],
+            1.0,
+        );
+    }
+
     pub fn paint(&self, ask: &Ask, font: &Font) -> Image {
         let size = self.size(ask, font);
         let mut canvas = Canvas::new(size.x as u32, size.y as u32);
         canvas.round_rect(Rect::new(Vec2::ZERO, size), self.radius, self.back, 1.0);
         let line = font.line_height().ceil();
-        let mut y = self.pad;
-        let title = font.paint("Authentication required", self.ink);
-        canvas.stamp(&title, Vec2::new(self.pad, y), 1.0);
-        y += line * 1.5;
+        let middle = size.x / 2.0;
+        self.lock(&mut canvas, Vec2::new(middle, self.pad + LOCK / 2.0));
+        let mut y = self.pad + LOCK + 14.0;
         for text in self.lines(ask, font) {
-            let painted = font.paint(&text, self.dim);
-            canvas.stamp(&painted, Vec2::new(self.pad, y), 1.0);
+            let painted = font.paint_bold(&text, self.ink);
+            canvas.stamp(&painted, Vec2::new(middle - crate::paint::logical(&painted).x / 2.0, y).round(), 1.0);
             y += line;
         }
-        y += line * 0.5;
-        let who = font.paint(&format!("Password for {}", ask.user), self.ink);
-        canvas.stamp(&who, Vec2::new(self.pad, y), 1.0);
+        let painted = font.paint(ASK, self.dim);
+        canvas.stamp(&painted, Vec2::new(middle - crate::paint::logical(&painted).x / 2.0, y + 4.0).round(), 1.0);
 
         let field = self.field_rect(size, line);
         canvas.round_rect(field, 8.0, self.rule, 1.0);
         canvas.round_rect(
-            Rect::new(
-                field.origin + Vec2::splat(1.0),
-                field.size - Vec2::splat(2.0),
-            ),
+            Rect::new(field.origin + Vec2::splat(1.0), field.size - Vec2::splat(2.0)),
             7.0,
             self.well,
             1.0,
         );
         let dots = ask.typed.min(MOST_DOTS);
-        for slot in 0..dots {
-            let center = Vec2::new(field.origin.x + 16.0 + slot as f64 * 14.0, field.center().y);
-            canvas.circle(center, 4.0, self.ink, 1.0);
+        match dots {
+            0 => {
+                let hint = font.paint("Password", self.dim);
+                let at = Vec2::new(field.origin.x + 12.0, field.center().y - crate::paint::logical(&hint).y / 2.0);
+                canvas.stamp(&hint, at.round(), 0.7);
+            }
+            _ => {
+                for slot in 0..dots {
+                    let center = Vec2::new(field.origin.x + 16.0 + slot as f64 * 13.0, field.center().y);
+                    canvas.circle(center, 3.5, self.ink, 1.0);
+                }
+            }
         }
         let note = match (ask.busy, &ask.error) {
             (true, _) => Some(("Checking…".to_string(), self.dim)),
@@ -158,15 +214,15 @@ impl Look {
         };
         if let Some((text, ink)) = note {
             let painted = font.paint(&text, ink);
-            canvas.stamp(&painted, Vec2::new(self.pad, field.max().y + 8.0), 1.0);
+            canvas.stamp(&painted, Vec2::new(middle - crate::paint::logical(&painted).x / 2.0, field.max().y + 6.0).round(), 1.0);
         }
-        for (rect, label, color) in [
-            (self.cancel_rect(size), "Cancel", self.off),
-            (self.go_rect(size), "Authenticate", self.accent),
+        for (rect, label, color, ink) in [
+            (self.cancel_rect(size), "Cancel", self.off, self.ink),
+            (self.go_rect(size), "Allow", self.accent, [255, 255, 255]),
         ] {
             canvas.round_rect(rect, 8.0, color, if ask.busy { 0.5 } else { 1.0 });
-            let painted = font.paint(label, self.ink);
-            canvas.stamp(&painted, rect.center() - crate::paint::logical(&painted) / 2.0, 1.0);
+            let painted = font.paint(label, ink);
+            canvas.stamp(&painted, (rect.center() - crate::paint::logical(&painted) / 2.0).round(), 1.0);
         }
         canvas.image
     }
@@ -270,7 +326,23 @@ mod tests {
         assert!((rect.center().x - 960.0).abs() <= 1.0);
         let line = font.line_height().ceil();
         let field = look.field_rect(rect.size, line);
-        assert!(field.max().y + line + 8.0 < look.go_rect(rect.size).origin.y);
-        assert!(look.cancel_rect(rect.size).origin.x > look.pad);
+        assert!(field.max().y + line + 6.0 <= look.go_rect(rect.size).origin.y);
+        assert!(look.cancel_rect(rect.size).max().x < look.go_rect(rect.size).origin.x);
+    }
+
+    #[test]
+    fn the_prompt_says_what_it_is_for_and_never_shows_the_command() {
+        assert_eq!(
+            plain("Authentication is needed to run `/usr/bin/env DEBIAN_FRONTEND=noninteractive apt-get install -y thunderbird' as the super user"),
+            "Drifter wants to install Thunderbird."
+        );
+        assert_eq!(
+            plain("Authentication is needed to run `/usr/bin/true' as the super user"),
+            "Drifter wants to make a change."
+        );
+        assert_eq!(
+            plain("Authentication is required to change the system time."),
+            "Drifter wants to change the system time."
+        );
     }
 }
