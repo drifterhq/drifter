@@ -329,6 +329,9 @@ impl State {
     }
 
     pub(super) fn live_every(&self) -> Duration {
+        if drifter_core::sun::lapsing() {
+            return Duration::ZERO;
+        }
         match self.paper.drift > 0.0 {
             true => LIVE_EVERY.div_f64(self.paper.drift.min(1.0)).min(LIVE_STILL),
             false => LIVE_STILL,

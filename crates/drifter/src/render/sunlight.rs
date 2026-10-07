@@ -6,7 +6,8 @@ const SHEEN_SIZE: u32 = 128;
 
 pub(super) struct Sunlight {
     pub(super) sun: Sun,
-    key: Option<[i32; 5]>,
+    key: Option<[i32; 4]>,
+    painting: bool,
     along: Option<TextureBuffer<Tex>>,
     down: Option<TextureBuffer<Tex>>,
     glow: Option<TextureBuffer<Tex>>,
@@ -17,6 +18,7 @@ impl Default for Sunlight {
         Sunlight {
             sun: drifter_core::sun::sun(drifter_core::shader::hour_now()),
             key: None,
+            painting: false,
             along: None,
             down: None,
             glow: None,
@@ -24,9 +26,9 @@ impl Default for Sunlight {
     }
 }
 
-fn key(sun: &Sun) -> [i32; 5] {
-    let q = |v: f64| (v * 64.0).round() as i32;
-    [q(sun.glint[0]), q(sun.glint[1]), q(sun.glint[2]), q(sun.rim), q(sun.side)]
+fn key(sun: &Sun) -> [i32; 4] {
+    let q = |v: f64| (v * 24.0).round() as i32;
+    [q(sun.glint[0]), q(sun.glint[1]), q(sun.glint[2]), (sun.side * 16.0).round() as i32]
 }
 
 impl State {
@@ -34,15 +36,31 @@ impl State {
         let sun = drifter_core::sun::sun(drifter_core::shader::hour_now());
         self.sunlight.sun = sun;
         let now = key(&sun);
-        if self.sunlight.key != Some(now) {
-            let along = drifter_core::sun::rim_strip(&sun, RIM_LENGTH, true);
-            let down = drifter_core::sun::rim_strip(&sun, RIM_LENGTH, false);
-            self.sunlight.along = upload_flat(&mut self.renderer, Some(&along), "sun rim").ok().flatten();
-            self.sunlight.down = upload_flat(&mut self.renderer, Some(&down), "sun side").ok().flatten();
-            let glow = drifter_core::sun::sheen(&sun, SHEEN_SIZE);
-            self.sunlight.glow = upload_flat(&mut self.renderer, Some(&glow), "sun sheen").ok().flatten();
-            self.sunlight.key = Some(now);
+        if self.sunlight.key == Some(now) || self.sunlight.painting {
+            return;
         }
+        self.sunlight.painting = true;
+        self.on_worker(
+            "drifter-sunlight",
+            move || {
+                (
+                    drifter_core::sun::rim_strip(&sun, RIM_LENGTH, true),
+                    drifter_core::sun::rim_strip(&sun, RIM_LENGTH, false),
+                    drifter_core::sun::sheen(&sun, SHEEN_SIZE),
+                )
+            },
+            move |state, (along, down, glow)| {
+                let art = |state: &mut State, image: &drifter_core::Image, what| {
+                    upload_flat(&mut state.renderer, Some(image), what).ok().flatten()
+                };
+                state.sunlight.along = art(state, &along, "sun rim");
+                state.sunlight.down = art(state, &down, "sun side");
+                state.sunlight.glow = art(state, &glow, "sun sheen");
+                state.sunlight.key = Some(now);
+                state.sunlight.painting = false;
+                state.kick_now();
+            },
+        );
     }
 
     pub(super) fn sun_rim(&self, content: Rect, dressed: bool, fade: f32, elements: &mut Vec<Skin>) {
