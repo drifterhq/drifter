@@ -14,8 +14,6 @@ precision highp float;
 precision mediump float;
 #endif
 uniform vec2 size;
-uniform vec2 O;
-uniform vec2 S;
 uniform vec2 W;
 uniform float alpha;
 varying vec2 v_coords;
@@ -39,8 +37,7 @@ float fbm(vec2 p){float v=0.,a=.5;mat2 m=mat2(1.6,1.2,-1.2,1.6);
 
 pub const FOOT: &str = "
 void main(){
- vec2 Q=O+v_coords*S;
- vec2 P=vec2(Q.x,W.y-Q.y);
+ vec2 P=vec2(v_coords.x,1.-v_coords.y)*R;
  vec3 c=wall(P)+(h(P)-.5)/255.;
  gl_FragColor=vec4(clamp(c,0.,1.),1.)*alpha;
 }

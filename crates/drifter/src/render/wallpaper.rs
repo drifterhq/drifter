@@ -2,12 +2,22 @@ use super::*;
 use smithay::backend::renderer::gles::{GlesPixelProgram, GlesTexture, Uniform, UniformName, UniformType};
 use smithay::backend::renderer::{Bind, Frame, Offscreen, Renderer};
 
-struct Art {
-    size: (i32, i32),
-    view: (Rect, Vec2),
+const STRIPS: i32 = 15;
+const ART_KEEP: Duration = Duration::from_secs(5);
+
+struct Sheet {
     texture: GlesTexture,
     buffer: TextureBuffer<Tex>,
-    drawn: Instant,
+}
+
+struct Art {
+    size: (i32, i32),
+    front: Sheet,
+    back: Option<Sheet>,
+    strip: i32,
+    cycle: Option<(f64, f64)>,
+    started: Instant,
+    used: Instant,
 }
 
 pub(super) struct Live {
@@ -31,8 +41,8 @@ impl Live {
         let mut names = vec![
             UniformName::new("T", UniformType::_1f),
             UniformName::new("L", UniformType::_1f),
+            UniformName::new("W", UniformType::_2f),
         ];
-        names.extend(["O", "S", "W"].map(|name| UniformName::new(name, UniformType::_2f)));
         names.extend(["S0", "S1", "A", "B", "C"].map(|name| UniformName::new(name, UniformType::_3f)));
         match gles.compile_custom_pixel_shader(drifter_core::shader::source(&body), &names) {
             Ok(program) => Some(Live {
@@ -47,90 +57,152 @@ impl Live {
         }
     }
 
-    pub(super) fn draw(
+    pub(super) fn show(
         &mut self,
         renderer: &mut Painter,
-        seen: &drifter_core::wallpaper::Placement,
         paper: Vec2,
         clock: f64,
         every: Option<Duration>,
     ) -> Option<(TextureBuffer<Tex>, Vec2)> {
         let div = if self.half { 2.0 } else { 1.0 };
         let size = (
-            ((seen.target.size.x / div).round() as i32).max(1),
-            ((seen.target.size.y / div).round() as i32).max(1),
+            ((paper.x / div).round() as i32).max(1),
+            ((paper.y / div).round() as i32).max(1),
         );
-        let view = (seen.source, paper);
-        let at = self.arts.iter().position(|art| art.size == size);
-        let stale = match at {
-            None => true,
-            Some(at) => {
-                self.arts[at].view != view
-                    || every.is_some_and(|every| self.arts[at].drawn.elapsed() >= every)
-            }
+        let result = match self.arts.iter().position(|art| art.size == size) {
+            Some(at) => match every {
+                Some(every) => self.advance(renderer, at, paper, clock, every),
+                None => Ok(()),
+            },
+            None => self.first(renderer, size, paper, clock),
         };
-        if stale && let Err(error) = self.paint(renderer, size, view, clock, at) {
+        if let Err(error) = result {
             log!("drifter: the live wallpaper did not draw: {error}");
+        }
+        let art = self.arts.iter_mut().find(|art| art.size == size)?;
+        art.used = Instant::now();
+        Some((art.front.buffer.clone(), Vec2::new(f64::from(size.0), f64::from(size.1))))
+    }
+
+    pub(super) fn wait(&self, every: Duration) -> Duration {
+        if self.arts.is_empty() || self.arts.iter().any(|art| art.cycle.is_some()) {
+            return TICK;
         }
         self.arts
             .iter()
-            .find(|art| art.size == size)
-            .map(|art| (art.buffer.clone(), Vec2::new(f64::from(size.0), f64::from(size.1))))
+            .map(|art| every.saturating_sub(art.started.elapsed()))
+            .min()
+            .unwrap_or(every)
+            .max(TICK)
     }
 
-    fn paint(
-        &mut self,
-        renderer: &mut Painter,
-        size: (i32, i32),
-        view: (Rect, Vec2),
-        clock: f64,
-        at: Option<usize>,
-    ) -> Result<(), String> {
-        let Painter::Gles(gles) = renderer else {
-            return Err("the live wallpaper needs the gles renderer".to_string());
-        };
-        let mut texture = match at {
-            Some(at) => self.arts.remove(at).texture,
-            None => Offscreen::<GlesTexture>::create_buffer(gles, DrmFourcc::Abgr8888, size.into())
-                .map_err(|e| e.to_string())?,
-        };
-        let sky = drifter_core::shader::sky(drifter_core::shader::hour_now());
-        let mut uniforms = vec![
-            Uniform::new("T", clock as f32),
-            Uniform::new("L", sky.light as f32),
-            Uniform::new("O", (view.0.origin.x as f32, view.0.origin.y as f32)),
-            Uniform::new("S", (view.0.size.x as f32, view.0.size.y as f32)),
-            Uniform::new("W", (view.1.x as f32, view.1.y as f32)),
-        ];
-        uniforms.extend(sky.uniforms().map(|(name, value)| Uniform::new(name, value)));
-        {
-            let mut target = gles.bind(&mut texture).map_err(|e| e.to_string())?;
-            let mut frame = gles
-                .render(&mut target, size.into(), Transform::Normal)
-                .map_err(|e| e.to_string())?;
-            frame
-                .render_pixel_shader_to(
-                    &self.program,
-                    smithay::utils::Rectangle::from_size((f64::from(size.0), f64::from(size.1)).into()),
-                    smithay::utils::Rectangle::from_size(size.into()),
-                    size.into(),
-                    None,
-                    1.0,
-                    &uniforms,
-                )
-                .map_err(|e| e.to_string())?;
-            let _ = frame.finish().map_err(|e| e.to_string())?;
-        }
-        let buffer = TextureBuffer::from_texture(&*renderer, Tex::Gles(texture.clone()), 1, Transform::Normal, None);
+    fn first(&mut self, renderer: &mut Painter, size: (i32, i32), paper: Vec2, clock: f64) -> Result<(), String> {
+        self.arts.retain(|art| art.used.elapsed() < ART_KEEP);
+        let mut front = sheet(renderer, size)?;
+        let moment = (clock, drifter_core::shader::hour_now());
+        paint(&self.program, renderer, &mut front, size, paper, moment, None)?;
         self.arts.push(Art {
             size,
-            view,
-            texture,
-            buffer,
-            drawn: Instant::now(),
+            front,
+            back: None,
+            strip: 0,
+            cycle: None,
+            started: Instant::now(),
+            used: Instant::now(),
         });
         Ok(())
     }
+
+    fn advance(
+        &mut self,
+        renderer: &mut Painter,
+        at: usize,
+        paper: Vec2,
+        clock: f64,
+        every: Duration,
+    ) -> Result<(), String> {
+        let art = &mut self.arts[at];
+        if art.cycle.is_none() {
+            if art.started.elapsed() < every {
+                return Ok(());
+            }
+            art.cycle = Some((clock, drifter_core::shader::hour_now()));
+            art.strip = 0;
+            art.started = Instant::now();
+        }
+        let Some(moment) = art.cycle else {
+            return Ok(());
+        };
+        let mut back = match art.back.take() {
+            Some(back) => back,
+            None => sheet(renderer, art.size)?,
+        };
+        let top = art.size.1 * art.strip / STRIPS;
+        let bottom = art.size.1 * (art.strip + 1) / STRIPS;
+        let painted = paint(&self.program, renderer, &mut back, art.size, paper, moment, Some((top, bottom)));
+        art.back = Some(back);
+        painted?;
+        art.strip += 1;
+        if art.strip >= STRIPS {
+            if let Some(back) = art.back.as_mut() {
+                std::mem::swap(&mut art.front, back);
+            }
+            art.cycle = None;
+        }
+        Ok(())
+    }
+}
+
+fn sheet(renderer: &mut Painter, size: (i32, i32)) -> Result<Sheet, String> {
+    let Painter::Gles(gles) = renderer else {
+        return Err("the live wallpaper needs the gles renderer".to_string());
+    };
+    let texture = Offscreen::<GlesTexture>::create_buffer(gles, DrmFourcc::Abgr8888, size.into())
+        .map_err(|e| e.to_string())?;
+    let buffer = TextureBuffer::from_texture(&*renderer, Tex::Gles(texture.clone()), 1, Transform::Normal, None);
+    Ok(Sheet { texture, buffer })
+}
+
+fn paint(
+    program: &GlesPixelProgram,
+    renderer: &mut Painter,
+    sheet: &mut Sheet,
+    size: (i32, i32),
+    paper: Vec2,
+    (clock, hour): (f64, f64),
+    rows: Option<(i32, i32)>,
+) -> Result<(), String> {
+    let Painter::Gles(gles) = renderer else {
+        return Err("the live wallpaper needs the gles renderer".to_string());
+    };
+    let sky = drifter_core::shader::sky(hour);
+    let mut uniforms = vec![
+        Uniform::new("T", clock as f32),
+        Uniform::new("L", sky.light as f32),
+        Uniform::new("W", (paper.x as f32, paper.y as f32)),
+    ];
+    uniforms.extend(sky.uniforms().map(|(name, value)| Uniform::new(name, value)));
+    let whole = smithay::utils::Rectangle::from_size(size.into());
+    let band = rows.map(|(top, bottom)| {
+        [smithay::utils::Rectangle::new((0, top).into(), (size.0, (bottom - top).max(0)).into())]
+    });
+    let mut target = gles.bind(&mut sheet.texture).map_err(|e| e.to_string())?;
+    let mut frame = gles
+        .render(&mut target, size.into(), Transform::Normal)
+        .map_err(|e| e.to_string())?;
+    frame
+        .render_pixel_shader_to(
+            program,
+            smithay::utils::Rectangle::from_size((f64::from(size.0), f64::from(size.1)).into()),
+            whole,
+            size.into(),
+            band.as_ref().map(|band| band.as_slice()),
+            1.0,
+            &uniforms,
+        )
+        .map_err(|e| e.to_string())?;
+    let _ = frame.finish().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 impl State {

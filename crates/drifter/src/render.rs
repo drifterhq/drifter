@@ -89,7 +89,7 @@ const BTN_RIGHT: u32 = 0x111;
 const BTN_MIDDLE: u32 = 0x112;
 const CLOSE_PATIENCE: Duration = Duration::from_secs(2);
 const PAPER_FADE: Duration = Duration::from_millis(1500);
-const LIVE_EVERY: Duration = Duration::from_millis(166);
+const LIVE_EVERY: Duration = Duration::from_millis(250);
 const LIVE_STILL: Duration = Duration::from_secs(10);
 const PANEL_ALPHA: u8 = 235;
 const TICK: Duration = Duration::from_millis(8);
@@ -631,8 +631,8 @@ impl State {
         if self.drawers[Edge::Top.index()].visible() && self.font.is_some() {
             return Some(SECOND_TICK);
         }
-        if self.wallpaper.as_ref().is_some_and(|paper| paper.live.is_some()) {
-            return Some(self.live_every());
+        if let Some(live) = self.wallpaper.as_ref().and_then(|paper| paper.live.as_ref()) {
+            return Some(live.wait(self.live_every()));
         }
         None
     }
@@ -1450,13 +1450,15 @@ fn paper_pieces(
     elements: &mut Vec<Skin>,
 ) {
     let whole = paper.paper(screen);
-    let seen = drifter_core::wallpaper::place(mode, whole, screen, world, &camera).seen(screen);
     if let Some((buffer, size)) = paper
         .live
         .as_mut()
-        .and_then(|live| live.draw(renderer, &seen, whole, clock, every))
+        .and_then(|live| live.show(renderer, whole, clock, every))
     {
-        elements.push(Skin::Texture(faded(&buffer, Rect::new(Vec2::ZERO, size), seen.target, alpha)));
+        let seen = drifter_core::wallpaper::place(mode, whole, screen, world, &camera)
+            .seen(screen)
+            .onto(whole, size);
+        elements.push(Skin::Texture(faded(&buffer, seen.source, seen.target, alpha)));
         return;
     }
     let laid = paper.laid(mode, screen, world, &camera);
