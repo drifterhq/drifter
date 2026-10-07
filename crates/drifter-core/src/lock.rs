@@ -10,6 +10,7 @@ pub const BLINK: std::time::Duration = std::time::Duration::from_millis(530);
 const INDENT: f64 = 26.0;
 const SHADE: f64 = 28.0;
 const LIFT: f64 = 6.0;
+pub const FULL: [u8; 3] = [52, 199, 89];
 const CORNER: f64 = 28.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -414,6 +415,7 @@ fn battery_layer(look: &Look, font: Option<&Font>, (charging, percent): (bool, u
     let inner = Rect::new(body.origin + Vec2::splat(2.5), body.size - Vec2::splat(5.0));
     let full = inner.size.x * f64::from(percent.min(100)) / 100.0;
     let color = match (charging, percent) {
+        (_, 100..) => FULL,
         (false, 0..=10) => look.alert,
         _ => look.ink,
     };
@@ -642,6 +644,17 @@ mod tests {
         assert_eq!(ebb(0.0), 0.0);
         assert!((ebb(EBB / 2.0) - 1.0).abs() < 1e-6);
         assert!(ebb(EBB / 4.0) > 0.4 && ebb(EBB / 4.0) < 0.6);
+    }
+
+    #[test]
+    fn a_full_battery_fills_green_inside_its_own_border() {
+        let look = Look::default();
+        let full = paint_battery(&look, None, (false, 100));
+        let half = paint_battery(&look, None, (false, 50));
+        let green = |image: &Image| image.rgba.chunks(4).any(|px| px[3] == 255 && px[..3] == FULL);
+        assert!(green(&full));
+        assert!(!green(&half));
+        assert!(full.rgba.chunks(4).any(|px| px[3] > 0 && px[0] > 200 && px[1] > 200 && px[2] > 200), "the border stays light");
     }
 
     #[test]
