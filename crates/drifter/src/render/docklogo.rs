@@ -41,6 +41,9 @@ impl State {
 fn logo_frame(logo: &mut DockLogo, renderer: &mut Painter, shown: Vec2, hot: bool, name: &str) -> Option<TextureBuffer<Tex>> {
     let moving = hot && logo.pace > 0.0;
     let was_moving = std::mem::replace(&mut logo.hot, moving);
+    if moving && !was_moving {
+        logo.clock.1 = Instant::now();
+    }
     let minute = (drifter_core::shader::hour_now() * 60.0) as i64;
     let side = dense(shown.x.round() as u32) as i32;
     let size = (side, side);
