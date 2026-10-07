@@ -155,6 +155,7 @@ pub struct Paint<'a> {
     pub counts: (usize, usize),
     pub accent: [u8; 3],
     pub undo: Option<&'a str>,
+    pub ready: bool,
 }
 
 fn reopen_words(name: &str) -> String {
@@ -174,7 +175,7 @@ pub fn paint(layout: &Layout, what: &Paint) -> Image {
     let head = what.font.paint_weight("Using the most", card.dim, 600.0);
     canvas.stamp(&head, Vec2::new(PAD, layout.system() + HEAD - 6.0 - logical(&head).y).round(), 1.0);
     if what.tops.is_empty() {
-        let note = what.font.paint("No apps are open.", card.dim);
+        let note = what.font.paint(if what.ready { "No apps are open." } else { "Reading…" }, card.dim);
         canvas.stamp(&note, Vec2::new(PAD, layout.system() + HEAD + ROW / 2.0 - logical(&note).y / 2.0).round(), 1.0);
     }
     for (at, top) in what.tops.iter().enumerate() {

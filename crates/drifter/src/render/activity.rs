@@ -11,6 +11,8 @@ pub(super) struct GlancePanel {
     pub hover: Option<usize>,
     pub undo: Option<Gone>,
     pub lane: worker::Lane,
+    pub pinned: bool,
+    pub ready: bool,
 }
 
 impl State {
@@ -29,11 +31,20 @@ impl State {
     }
 
     pub(super) fn toggle_glance(&mut self) {
-        if self.glance_panel.take().is_some() {
+        if let Some(panel) = self.glance_panel.as_mut() {
+            if !panel.pinned {
+                panel.pinned = true;
+                return;
+            }
+            self.glance_panel = None;
             self.sampler.watch(false);
             self.kick_now();
             return;
         }
+        self.open_glance(true);
+    }
+
+    fn open_glance(&mut self, pinned: bool) {
         self.close_panels();
         self.glance_card = None;
         self.sampler.watch(true);
@@ -46,6 +57,8 @@ impl State {
             hover: None,
             undo: None,
             lane: worker::Lane::default(),
+            pinned,
+            ready: false,
         });
         self.refresh_glance();
     }
@@ -58,6 +71,7 @@ impl State {
         let (groups, total) = groups;
         let held = self.glance_panel.as_ref().is_some_and(|panel| panel.rect.contains(self.pointer));
         if let Some(panel) = self.glance_panel.as_mut() {
+            panel.ready = true;
             let fresh = glance::pick(&groups, total);
             panel.counts = (
                 groups.iter().filter(|group| matches!(group.kind, drifter_core::activity::Kind::App | drifter_core::activity::Kind::Drifter)).count(),
@@ -111,7 +125,7 @@ impl State {
         let rect = Rect::new(Vec2::new(x, y).round(), Vec2::new(layout.card.width, height.ceil()));
         panel.rect = rect;
         let tops = panel.tops.clone();
-        let (open, hover, counts) = (panel.open, panel.hover, panel.counts);
+        let (open, hover, counts, ready) = (panel.open, panel.hover, panel.counts, panel.ready);
         let undo = panel.undo.as_ref().map(|gone| gone.name.clone());
         let fields = self.glance_fields.clone();
         let history = self.cpu_history.clone();
@@ -135,6 +149,7 @@ impl State {
                     counts,
                     accent,
                     undo: undo.as_deref(),
+                    ready,
                 };
                 let mut image = glance::paint(&layout, &paint);
                 worker::frost(&frosting, &mut image, rect.origin, solid);
@@ -149,6 +164,27 @@ impl State {
     }
 
     pub(super) fn hover_glance(&mut self) {
+        let on_dot = self.stats_spot().is_some_and(|spot| spot.contains(self.pointer));
+        let busy = self.lock.is_some() || self.popover.is_some() || self.control.is_some() || self.notes_panel.is_some() || self.gauge_panel.is_some();
+        if self.glance_panel.is_none() {
+            if on_dot && !busy {
+                self.open_glance(false);
+            }
+            return;
+        }
+        if let (Some(panel), Some(spot)) = (self.glance_panel.as_ref(), self.stats_spot())
+            && !panel.pinned
+        {
+            let left = spot.origin.x.min(panel.rect.origin.x);
+            let right = spot.max().x.max(panel.rect.max().x);
+            let near = Rect::new(Vec2::new(left, spot.origin.y), Vec2::new(right - left, panel.rect.max().y - spot.origin.y));
+            if !near.contains(self.pointer) {
+                self.glance_panel = None;
+                self.sampler.watch(false);
+                self.kick_now();
+                return;
+            }
+        }
         let Some(font) = self.card_font.clone() else {
             return;
         };

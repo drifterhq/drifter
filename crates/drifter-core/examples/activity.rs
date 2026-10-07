@@ -186,6 +186,7 @@ fn main() {
             counts: (7, 4),
             accent: [10, 122, 255],
             undo: open.map(|_| "Spotify"),
+            ready: true,
         };
         save(&glance::paint(&layout, &paint), &out.join(name));
     }

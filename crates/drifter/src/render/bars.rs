@@ -1025,9 +1025,6 @@ impl State {
         if self.popover.is_some() || self.glance_panel.is_some() {
             return None;
         }
-        if let Some(spot) = self.stats_spot().filter(|spot| spot.contains(self.pointer)) {
-            return Some((HoverCard::System, spot));
-        }
         self.battery_rect()
             .filter(|spot| self.show_battery && spot.contains(self.pointer))
             .map(|spot| (HoverCard::Battery, spot))
@@ -1053,11 +1050,8 @@ impl State {
         self.card_stale = false;
         self.card_busy = true;
         let card = drifter_core::glance::Card::themed(&self.palette);
-        let fields = self.glance_fields.clone();
-        let history = self.cpu_history.clone();
         let charge = self.battery_seen;
         let x = match which {
-            HoverCard::System => spot.origin.x - 8.0,
             HoverCard::Battery => spot.max().x - card.width + 8.0,
         };
         let x = x.clamp(8.0, (self.screen.x - card.width - 8.0).max(8.0));
@@ -1068,7 +1062,6 @@ impl State {
             "hover card",
             move || {
                 let mut image = match which {
-                    HoverCard::System => drifter_core::glance::paint_card(&card, &font, &bold, &fields, &history),
                     HoverCard::Battery => {
                         let rows = drifter_core::stats::read_battery_rows();
                         let (charging, percent) = charge.unwrap_or((false, 0));

@@ -91,7 +91,6 @@ const KEY_RIGHT: u32 = 114;
 const KEY_DOWN: u32 = 116;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum HoverCard {
-    System,
     Battery,
 }
 
