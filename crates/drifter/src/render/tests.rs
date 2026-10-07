@@ -516,12 +516,12 @@ fn the_sun_casts_shadows_away_from_itself() {
         let image = run.shot(name);
         let state = &run.screen.state;
         let frame = state.on_screen(state.chrome.layout(content).frame);
-        let y = frame.center().y.round() as u32;
+        let y = (frame.max().y - 8.0).round() as u32;
         let dark = |x: f64| {
             let [r, g, b, _] = pixel(&image, x.round() as u32, y);
             765 - (u32::from(r) + u32::from(g) + u32::from(b))
         };
-        sides.push((dark(frame.origin.x - 12.0), dark(frame.max().x + 12.0)));
+        sides.push((dark(frame.origin.x - 30.0), dark(frame.max().x + 30.0)));
     }
     drifter_core::sun::hold(None);
     stop.store(true, Ordering::Relaxed);

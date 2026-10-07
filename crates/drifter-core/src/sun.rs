@@ -9,7 +9,6 @@ const DAY_IN: f64 = 60.0;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Sun {
     pub cast: Vec2,
-    pub spread: f64,
     pub strength: f64,
     pub glint: [f64; 3],
     pub rim: f64,
@@ -55,7 +54,6 @@ pub fn sun(hour: f64) -> Sun {
     let sheen = 0.1 + up * (0.06 + 0.12 * low);
     Sun {
         cast,
-        spread: 1.0 + 0.5 * low * up,
         strength: 1.0 + 0.4 * up * low,
         glint,
         rim,

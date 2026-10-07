@@ -56,9 +56,16 @@ impl State {
         let inset = self.chrome.radius * zoom;
         let line = (2.0 * zoom).max(1.0);
         let alpha = fade * sun.rim as f32;
-        if let Some(glow) = self.sunlight.glow.as_ref() {
+        if let Some(glow) = self.sunlight.glow.as_ref()
+            && dressed
+        {
+            let laid = self.chrome.layout(content);
+            let bar = self.on_screen(Rect::new(
+                laid.frame.origin,
+                Vec2::new(laid.frame.size.x, laid.content.origin.y - laid.frame.origin.y),
+            ));
             let whole = Rect::new(Vec2::ZERO, Vec2::splat(f64::from(SHEEN_SIZE)));
-            elements.push(Skin::Texture(faded(glow, whole, frame, fade * sun.sheen as f32)));
+            elements.push(Skin::Texture(faded(glow, whole, bar, fade * sun.sheen as f32 * 2.0)));
         }
         if let Some(along) = self.sunlight.along.as_ref() {
             let top = Rect::new(

@@ -592,11 +592,11 @@ pub fn shadow_patch(radius: f64, blur: f64) -> Image {
 }
 
 pub fn shadow_slices(frame: Rect, corner: f64, zoom: f64, drop: f64) -> Vec<(Rect, Rect)> {
-    shadow_cast(frame, corner, zoom, Vec2::new(0.0, drop), 1.0)
+    shadow_cast(frame, corner, zoom, Vec2::new(0.0, drop))
 }
 
-pub fn shadow_cast(frame: Rect, corner: f64, zoom: f64, cast: Vec2, spread: f64) -> Vec<(Rect, Rect)> {
-    let c = corner * zoom * spread;
+pub fn shadow_cast(frame: Rect, corner: f64, zoom: f64, cast: Vec2) -> Vec<(Rect, Rect)> {
+    let c = corner * zoom;
     let reach = c - (corner - SHADOW_BLUR).max(0.0) * zoom;
     let outer = Rect::new(
         frame.origin - Vec2::splat(reach) + Vec2::new(cast.x * zoom, cast.y * zoom),

@@ -410,7 +410,7 @@ impl State {
         };
         let frame = self.on_screen(edge);
         for (source, target) in
-            drifter_core::window::shadow_cast(frame, *corner, self.camera.zoom, sun.cast, sun.spread)
+            drifter_core::window::shadow_cast(frame, *corner, self.camera.zoom, sun.cast)
         {
             elements.push(Skin::Texture(faded(buffer, source, target, strength)));
         }
