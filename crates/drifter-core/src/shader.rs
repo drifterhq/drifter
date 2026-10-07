@@ -290,8 +290,9 @@ fn aurora((px, py): (f64, f64), (rx, ry): (f64, f64), t: f64, sky: &Sky) -> V3 {
     let sp = (p.0 * 180.0, p.1 * 180.0);
     let s = star_hash(sp.0.floor(), sp.1.floor());
     let (dx, dy) = (fract(sp.0) - 0.5, fract(sp.1) - 0.5);
+    let size = 0.45 * (0.3 + 0.7 * fract(s * 977.0));
     let star = if s >= 0.995 { 1.0 } else { 0.0 }
-        * (1.0 - smoothstep(0.0, 0.45, (dx * dx + dy * dy).sqrt()))
+        * (1.0 - smoothstep(0.0, size, (dx * dx + dy * dy).sqrt()))
         * (0.6 + 0.4 * (t * 1.5 + s * 60.0).sin());
     let lift = star * (1.0 - sky.light) * smoothstep(0.15, 0.6, v);
     col = add(col, [lift; 3]);
@@ -611,5 +612,20 @@ mod tests {
             assert!(lit > 500, "the sky has stars");
             assert!(same * 20 < lit, "stars repeat every {period} cells: {same} of {lit}");
         }
+    }
+
+    #[test]
+    fn aurora_stars_come_in_many_sizes_up_to_the_old_one() {
+        let sizes: Vec<f64> = (0..4000)
+            .filter_map(|i| {
+                let s = super::star_hash(f64::from(i % 200), f64::from(i / 200));
+                (s >= 0.995).then(|| 0.45 * (0.3 + 0.7 * super::fract(s * 977.0)))
+            })
+            .collect();
+        assert!(sizes.len() > 5);
+        let most = sizes.iter().copied().fold(0.0, f64::max);
+        let least = sizes.iter().copied().fold(1.0, f64::min);
+        assert!(most <= 0.45 && most > 0.35, "{most}");
+        assert!(least < 0.25, "{least}");
     }
 }

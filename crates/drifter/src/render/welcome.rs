@@ -7,6 +7,7 @@ const SLIDE_STILL: Duration = Duration::from_millis(140);
 const INTRO: Duration = Duration::from_millis(1400);
 const CLOSING: Duration = Duration::from_millis(260);
 const NUDGE: f64 = 28.0;
+const LOGO_PACE: f64 = 1.2;
 const DIM: f32 = 0.12;
 const KEY_ESCAPE: u32 = 9;
 const KEY_RETURN: u32 = 36;
@@ -515,7 +516,7 @@ impl State {
         }
         let hello = open.view.card == Card::Hello && open.closing.is_none() && open.art.is_some();
         let logo_rect = look.logo_rect();
-        let clock = now.duration_since(open.opened).as_secs_f64() + 20.0;
+        let clock = (now.duration_since(open.opened).as_secs_f64() + 20.0) * LOGO_PACE;
         if hello && let Some(buffer) = self.welcome_logo(clock) {
             let target = Rect::new(here.origin + logo_rect.origin, logo_rect.size);
             elements.push(Skin::Texture(element(&buffer, target, (fade * t) as f32)));
