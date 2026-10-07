@@ -24,7 +24,7 @@ impl State {
         self.search = None;
         self.control = None;
         self.notes_panel = None;
-        let mut all = drifter_core::search::apps(&drifter_core::desktop::installed());
+        let mut all = drifter_core::search::apps(&self.installed_apps());
         all.sort_by_key(|found| found.title.to_lowercase());
         let look = drifter_core::launchpad::Look::themed(&self.palette);
         let rect = look.rect(self.screen);
@@ -87,7 +87,7 @@ impl State {
             return;
         };
         let image = look.paint(&pad.base, &pad.query, &apps, pad.page, font, big);
-        let art = upload(&mut self.renderer, Some(&image), "apps").ok().flatten();
+        let art = self.upload_again(Some(&image), "apps").ok().flatten();
         if let Some(pad) = self.launchpad.as_mut() {
             pad.art = art;
         }

@@ -2513,6 +2513,11 @@ impl Look {
         Vec2::new(self.column(size).0, 22.0 - scroll)
     }
 
+    pub fn preview_size(&self) -> (u32, u32) {
+        let tall = self.picture - 24.0;
+        ((tall * 16.0 / 9.0).round() as u32, tall.round() as u32)
+    }
+
     pub fn picture_rect(&self, size: Vec2, scroll: f64) -> Rect {
         let (x, width) = self.column(size);
         Rect::new(Vec2::new(x, 72.0 - scroll), Vec2::new(width, self.picture))
@@ -2834,12 +2839,18 @@ impl Look {
             .iter()
             .zip(self.place(size, section, &groups, scroll))
         {
-            if let (Some(header), Some(at)) = (group.header, placed.header) {
+            if let (Some(header), Some(at)) = (group.header, placed.header)
+                && at.y < size.y
+                && at.y > -40.0
+            {
                 let text = fonts.body.paint(header, self.dim);
                 canvas.stamp(&text, at, 1.0);
             }
             canvas.round_rect(placed.card, self.radius, self.card, 1.0);
             for (index, (row, rect)) in group.rows.iter().zip(&placed.rows).enumerate() {
+                if rect.max().y < 0.0 || rect.origin.y > size.y {
+                    continue;
+                }
                 if index > 0 {
                     let line = Rect::new(
                         Vec2::new(rect.origin.x + 14.0, rect.origin.y),
@@ -2865,7 +2876,10 @@ impl Look {
                     }
                 }
             }
-            if let (Some(footer), Some(rect)) = (&group.footer, placed.footer) {
+            if let (Some(footer), Some(rect)) = (&group.footer, placed.footer)
+                && rect.origin.y < size.y
+                && rect.max().y > -40.0
+            {
                 let text = fonts
                     .small
                     .paint(&fit(fonts.small, footer, rect.size.x), self.dim);
@@ -3279,12 +3293,11 @@ impl Look {
         );
         match wallpaper {
             Some(art) => {
-                let piece = cover(
-                    art,
-                    shown.size.x.round() as u32,
-                    shown.size.y.round() as u32,
-                );
-                canvas.stamp(&piece, shown.origin, 1.0);
+                let (wide, tall) = (shown.size.x.round() as u32, shown.size.y.round() as u32);
+                match (art.width, art.height) == (wide, tall) {
+                    true => canvas.stamp(art, shown.origin, 1.0),
+                    false => canvas.stamp(&cover(art, wide, tall), shown.origin, 1.0),
+                }
             }
             None => canvas.round_rect(shown, 6.0, [22, 24, 31], 1.0),
         }

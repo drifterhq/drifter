@@ -19,9 +19,16 @@ impl State {
         }
         let name = match window.app.as_str() {
             SETTINGS_APP => "Settings".to_string(),
-            app => crate::apps::find(app)
-                .and_then(|entry| entry.name)
-                .unwrap_or_else(|| app.to_string()),
+            app => self
+                .app_names
+                .borrow_mut()
+                .entry(app.to_string())
+                .or_insert_with(|| {
+                    crate::apps::find(app)
+                        .and_then(|entry| entry.name)
+                        .unwrap_or_else(|| app.to_string())
+                })
+                .clone(),
         };
         Some((window.app.clone(), name))
     }

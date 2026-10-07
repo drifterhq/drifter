@@ -17,18 +17,32 @@ impl State {
         }
         self.popover = None;
         self.gauge_panel = None;
-        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
-        let mut all = drifter_core::search::apps(&drifter_core::desktop::installed());
-        all.extend(drifter_core::search::settings());
-        all.extend(drifter_core::search::files(&home));
         self.search = Some(Search {
             query: String::new(),
-            all,
+            all: drifter_core::search::settings(),
             results: Vec::new(),
             selected: 0,
             art: None,
         });
         self.paint_search();
+        let apps = self.installed_apps();
+        self.background("search-index", move || {
+            let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+            let mut found = drifter_core::search::apps(&apps);
+            found.extend(drifter_core::search::files(&home));
+            move |state: &mut State| {
+                let Some(open) = state.search.as_mut() else {
+                    return;
+                };
+                found.extend(std::mem::take(&mut open.all));
+                open.all = found;
+                if !open.query.is_empty() {
+                    open.results = drifter_core::search::rank(&open.query, &open.all);
+                    open.selected = open.selected.min(open.results.len().saturating_sub(1));
+                    state.paint_search();
+                }
+            }
+        });
     }
 
     fn search_look(&self) -> drifter_core::search::Look {
@@ -73,7 +87,7 @@ impl State {
                 self.search_icons.entry(name).or_insert_with(|| icon.clone());
             }
         }
-        let art = upload(&mut self.renderer, Some(&image), "search")
+        let art = self.upload_again(Some(&image), "search")
             .ok()
             .flatten()
             .map(|buffer| (buffer, rect));

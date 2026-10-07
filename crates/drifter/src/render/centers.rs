@@ -15,36 +15,27 @@ impl State {
     }
 
     fn control_status(&self) -> Status {
-        let read = |program: &str, args: &[&str]| {
-            std::process::Command::new(program)
-                .args(args)
-                .stderr(std::process::Stdio::null())
-                .output()
-                .ok()
-                .filter(|out| out.status.success())
-                .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
-        };
-        let wifi = read("nmcli", &["-t", "radio", "wifi"]).map(|radio| {
-            let on = radio.trim() == "enabled";
-            let name = read("nmcli", &["-t", "-f", "ACTIVE,SSID", "device", "wifi", "list", "--rescan", "no"])
-                .and_then(|list| {
-                    list.lines()
-                        .map(drifter_core::net::terse)
-                        .find(|fields| fields.first().is_some_and(|active| active == "yes"))
-                        .and_then(|fields| fields.get(1).cloned())
-                })
-                .unwrap_or_default();
-            (on, name)
-        });
-        let bluetooth = read("bluetoothctl", &["show"]).and_then(|text| drifter_core::net::powered(&text));
         Status {
-            wifi,
-            bluetooth,
+            wifi: self.control_status.wifi.clone(),
+            bluetooth: self.control_status.bluetooth,
             quiet: self.notify.quiet,
             dark: self.palette == drifter_core::theme::DARK,
             light: self.light,
             volume: self.volume,
         }
+    }
+
+    fn refresh_radios(&self) {
+        self.background("control-status", || {
+            let (wifi, bluetooth) = radios();
+            move |state: &mut State| {
+                state.control_status.wifi = wifi;
+                state.control_status.bluetooth = bluetooth;
+                if state.control.is_some() {
+                    state.paint_control();
+                }
+            }
+        });
     }
 
     fn control_look(&self) -> drifter_core::control::Look {
@@ -63,6 +54,7 @@ impl State {
         self.close_panels();
         self.control_status = self.control_status();
         self.paint_control();
+        self.refresh_radios();
     }
 
     pub(super) fn paint_control(&mut self) {
@@ -82,7 +74,7 @@ impl State {
             (None, None) => return,
         };
         self.frosted(&mut image, rect.origin, look.back_alpha);
-        let Ok(Some(art)) = upload(&mut self.renderer, Some(&image), "control center") else {
+        let Ok(Some(art)) = self.upload_again(Some(&image), "control center") else {
             return;
         };
         let held = self.control.as_ref().and_then(|open| open.held);
@@ -291,9 +283,35 @@ impl State {
         let mut image = look.paint(today, &notes, now, font, title);
         let rect = look.rect(under, self.screen, rows, notes.len());
         self.frosted(&mut image, rect.origin, look.back_alpha);
-        if let Ok(Some(art)) = upload(&mut self.renderer, Some(&image), "notification center") {
+        if let Ok(Some(art)) = self.upload_again(Some(&image), "notification center") {
             self.notes_panel = Some((art, rect, rows));
         }
         self.kick_now();
     }
+}
+
+fn radios() -> (Option<(bool, String)>, Option<bool>) {
+    let read = |program: &str, args: &[&str]| {
+        std::process::Command::new(program)
+            .args(args)
+            .stderr(std::process::Stdio::null())
+            .output()
+            .ok()
+            .filter(|out| out.status.success())
+            .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+    };
+    let wifi = read("nmcli", &["-t", "radio", "wifi"]).map(|radio| {
+        let on = radio.trim() == "enabled";
+        let name = read("nmcli", &["-t", "-f", "ACTIVE,SSID", "device", "wifi", "list", "--rescan", "no"])
+            .and_then(|list| {
+                list.lines()
+                    .map(drifter_core::net::terse)
+                    .find(|fields| fields.first().is_some_and(|active| active == "yes"))
+                    .and_then(|fields| fields.get(1).cloned())
+            })
+            .unwrap_or_default();
+        (on, name)
+    });
+    let bluetooth = read("bluetoothctl", &["show"]).and_then(|text| drifter_core::net::powered(&text));
+    (wifi, bluetooth)
 }

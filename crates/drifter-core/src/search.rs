@@ -7,7 +7,7 @@ use crate::text::Font;
 
 pub const MOST: usize = 8;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Kind {
     App,
     Setting,
@@ -137,12 +137,14 @@ fn score(found: &Found, query: &str) -> Option<u32> {
 }
 
 pub fn rank(query: &str, all: &[Found]) -> Vec<Found> {
-    let mut hits = rank_all(query, all);
-    hits.truncate(MOST);
-    hits
+    ranked(query, all, MOST)
 }
 
 pub fn rank_all(query: &str, all: &[Found]) -> Vec<Found> {
+    ranked(query, all, usize::MAX)
+}
+
+fn ranked(query: &str, all: &[Found], most: usize) -> Vec<Found> {
     let query = query.trim().to_lowercase();
     if query.is_empty() {
         return Vec::new();
@@ -156,9 +158,13 @@ pub fn rank_all(query: &str, all: &[Found]) -> Vec<Found> {
             .then(a.1.title.len().cmp(&b.1.title.len()))
             .then(a.1.title.cmp(&b.1.title))
     });
+    let mut seen = std::collections::HashSet::new();
     let mut out: Vec<Found> = Vec::new();
     for (_, found) in hits {
-        if out.iter().any(|held| held.kind == found.kind && held.title == found.title && held.kind != Kind::File) {
+        if out.len() >= most {
+            break;
+        }
+        if found.kind != Kind::File && !seen.insert((found.kind, found.title.as_str())) {
             continue;
         }
         out.push(found.clone());

@@ -170,17 +170,18 @@ struct Head {
 }
 
 struct Backdrop {
-    pyramid: drifter_core::tiles::Pyramid,
+    pyramid: std::sync::Arc<drifter_core::tiles::Pyramid>,
     resident: std::collections::HashMap<(usize, u32, u32), (TextureBuffer<Tex>, Instant)>,
-    frost: drifter_core::frost::Frost,
+    frost: std::sync::Arc<drifter_core::frost::Frost>,
     live: Option<wallpaper::Live>,
     shader: bool,
 }
 
 impl Backdrop {
     fn new(pyramid: drifter_core::tiles::Pyramid, live: Option<wallpaper::Live>, shader: bool) -> Backdrop {
+        let pyramid = std::sync::Arc::new(pyramid);
         let smallest = &pyramid.levels[pyramid.levels.len() - 1];
-        let frost = drifter_core::frost::Frost::build(smallest);
+        let frost = std::sync::Arc::new(drifter_core::frost::Frost::build(smallest));
         Backdrop {
             pyramid,
             resident: std::collections::HashMap::new(),
@@ -208,6 +209,8 @@ impl Backdrop {
         drifter_core::wallpaper::place(mode, paper, screen, world, camera).onto(paper, self.pyramid.size())
     }
 }
+
+type Chore = Box<dyn FnOnce(&mut State) + Send>;
 
 const TILE_KEEP: Duration = Duration::from_secs(5);
 
@@ -498,6 +501,11 @@ pub struct State {
     drops: Vec<TextureBuffer<Tex>>,
     frost_at: Option<Instant>,
     frost_drift: Option<([i64; 3], Instant)>,
+    frost_busy: bool,
+    reused: std::collections::HashMap<&'static str, Tex>,
+    installed: Option<(std::sync::Arc<Vec<drifter_core::desktop::App>>, Instant)>,
+    app_names: std::cell::RefCell<std::collections::HashMap<String, String>>,
+    resizing: Option<u64>,
     palette: drifter_core::theme::Palette,
     popover: Option<Popover>,
     desk_menu: Option<deskmenu::DeskMenu>,
@@ -538,6 +546,7 @@ pub struct State {
         Option<drifter_core::tiles::Pyramid>,
     )>,
     shot_tx: smithay::reexports::calloop::channel::Sender<Result<PathBuf, String>>,
+    chores: smithay::reexports::calloop::channel::Sender<Chore>,
     config_path: PathBuf,
     zone: Option<Zone>,
     plain: Option<TextureBuffer<Tex>>,
@@ -1057,6 +1066,7 @@ impl State {
             }
         }
 
+        self.send_resize();
         if drew {
             self.confirm_client_lock();
             self.tell_clients();
@@ -1153,6 +1163,15 @@ impl State {
         Ok(true)
     }
 
+    pub(super) fn send_resize(&mut self) {
+        let Some(id) = self.resizing.take() else {
+            return;
+        };
+        if let Some(window) = self.windows.iter().find(|window| window.id == id) {
+            window.toplevel.send_pending_configure();
+        }
+    }
+
     fn tell_clients(&mut self) {
         let now = self.started.elapsed().as_millis() as u32;
         for window in &self.windows {
@@ -1204,6 +1223,20 @@ impl State {
 
     pub fn kick_now(&mut self) {
         self.kick();
+    }
+
+    fn background<F>(&self, name: &str, work: impl FnOnce() -> F + Send + 'static)
+    where
+        F: FnOnce(&mut State) + Send + 'static,
+    {
+        let chores = self.chores.clone();
+        let spawned = std::thread::Builder::new().name(name.to_string()).spawn(move || {
+            let done = work();
+            let _ = chores.send(Box::new(done));
+        });
+        if let Err(error) = spawned {
+            log!("drifter: cannot start {name}: {error}");
+        }
     }
 
     fn kick(&mut self) {
@@ -1450,6 +1483,59 @@ fn upload(
         )
         .map(Some)
         .map_err(|e| format!("cannot upload {what}: {e}")),
+    }
+}
+
+const APPS_FRESH: Duration = Duration::from_secs(10);
+
+impl State {
+    fn installed_apps(&mut self) -> std::sync::Arc<Vec<drifter_core::desktop::App>> {
+        let (apps, at) = self
+            .installed
+            .get_or_insert_with(|| (std::sync::Arc::new(drifter_core::desktop::installed()), Instant::now()))
+            .clone();
+        if at.elapsed() > APPS_FRESH {
+            self.installed = Some((apps.clone(), Instant::now()));
+            self.refresh_apps();
+        }
+        apps
+    }
+
+    fn refresh_apps(&self) {
+        self.background("apps", || {
+            let apps = std::sync::Arc::new(drifter_core::desktop::installed());
+            move |state: &mut State| state.installed = Some((apps, Instant::now()))
+        });
+    }
+
+    fn upload_again(&mut self, image: Option<&Image>, what: &'static str) -> Result<Option<TextureBuffer<Tex>>, String> {
+        let Some(image) = image else {
+            return Ok(None);
+        };
+        let size = (image.width as i32, image.height as i32);
+        let kept = self.reused.get(what).filter(|tex| {
+            let had = smithay::backend::renderer::Texture::size(*tex);
+            (had.w, had.h) == size
+        });
+        if let Some(tex) = kept.cloned() {
+            let region = smithay::utils::Rectangle::from_size(size.into());
+            match smithay::backend::renderer::ImportMem::update_memory(&mut self.renderer, &tex, &image.rgba, region) {
+                Ok(()) => {
+                    return Ok(Some(TextureBuffer::from_texture(&self.renderer, tex, 1, Transform::Normal, None)));
+                }
+                Err(error) => log!("drifter: cannot update {what}: {error}"),
+            }
+        }
+        let tex = smithay::backend::renderer::ImportMem::import_memory(
+            &mut self.renderer,
+            &image.rgba,
+            DrmFourcc::Abgr8888,
+            size.into(),
+            false,
+        )
+        .map_err(|e| format!("cannot upload {what}: {e}"))?;
+        self.reused.insert(what, tex.clone());
+        Ok(Some(TextureBuffer::from_texture(&self.renderer, tex, 1, Transform::Normal, None)))
     }
 }
 

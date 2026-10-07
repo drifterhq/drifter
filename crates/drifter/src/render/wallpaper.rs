@@ -369,42 +369,53 @@ impl State {
         {
             return;
         }
+        if self.frost_busy {
+            return;
+        }
+        let Some(frost) = self.wallpaper.as_ref().map(|paper| paper.frost.clone()) else {
+            return;
+        };
         self.frost_key = Some(key);
         self.frost_at = Some(Instant::now());
-        let veil = self.palette.veil;
-        let mut built = Vec::new();
-        for edge in Edge::ALL {
-            let shape = self.shapes[edge.index()];
-            let mut rest = Drawer::new(edge);
-            rest.open = true;
-            rest.advance(Duration::from_secs(1), Duration::from_millis(1));
-            let origin = rest.rect(self.screen, &shape).origin;
-            let mut image = drifter_core::drawer::paint_flat(
-                edge,
-                self.screen.x.max(1.0) as u32,
-                &shape,
-                self.palette.bar,
-                veil,
-            );
-            self.frosted(&mut image, origin, f64::from(veil) / 255.0);
-            drifter_core::drawer::rim(
-                &mut image,
-                edge,
-                &shape,
-                self.palette.rim,
-                f64::from(self.palette.rim_alpha) / 255.0,
-            );
-            match upload(&mut self.renderer, Some(&image), "frosted drawer") {
-                Ok(Some(buffer)) => built.push(buffer),
-                _ => return,
+        self.frost_busy = true;
+        let (shapes, screen, palette, at) = (self.shapes, self.screen, self.palette, self.at);
+        let picture = self.wallpaper.as_ref().map(|paper| paper.pyramid.size()).unwrap_or(screen);
+        self.background("frost", move || {
+            let veil = palette.veil;
+            let images = Edge::ALL.map(|edge| {
+                let shape = shapes[edge.index()];
+                let mut rest = Drawer::new(edge);
+                rest.open = true;
+                rest.advance(Duration::from_secs(1), Duration::from_millis(1));
+                let origin = rest.rect(screen, &shape).origin;
+                let mut image =
+                    drifter_core::drawer::paint_flat(edge, screen.x.max(1.0) as u32, &shape, palette.bar, veil);
+                drifter_core::frost::underlay(&mut image, f64::from(veil) / 255.0, |point| {
+                    frost.behind(&laid, picture, origin + point)
+                });
+                drifter_core::drawer::rim(&mut image, edge, &shape, palette.rim, f64::from(palette.rim_alpha) / 255.0);
+                image
+            });
+            move |state: &mut State| {
+                state.frost_busy = false;
+                let mut built = Vec::new();
+                for image in &images {
+                    match upload(&mut state.renderer, Some(image), "frosted drawer") {
+                        Ok(Some(buffer)) => built.push(buffer),
+                        _ => return,
+                    }
+                }
+                if let Ok(panels) = <[TextureBuffer<Tex>; 2]>::try_from(built) {
+                    if let Some(head) = state.heads.get_mut(at) {
+                        head.panels = panels.clone();
+                    }
+                    if state.at == at {
+                        state.panels = panels;
+                    }
+                }
+                state.kick_now();
             }
-        }
-        if let Ok(panels) = <[TextureBuffer<Tex>; 2]>::try_from(built) {
-            if let Some(head) = self.heads.get_mut(self.at) {
-                head.panels = panels.clone();
-            }
-            self.panels = panels;
-        }
+        });
     }
 
     pub(super) fn settle_fade(&mut self) {

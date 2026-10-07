@@ -141,6 +141,7 @@ pub struct Settings {
     scroll: f64,
     at: Vec2,
     holding: Option<Id>,
+    dragged: Option<(Id, Value)>,
     moving: Option<Moving>,
     sheet: Option<Sheet>,
     apps: Vec<App>,
@@ -218,7 +219,7 @@ pub fn run() -> Result<(), String> {
                     settings.thumbs.insert(path, image);
                 }
                 if settings.section == Section::Wallpaper && settings.sheet.is_none() {
-                    settings.draw();
+                    settings.stale = true;
                 }
             }
         })
@@ -269,7 +270,7 @@ pub fn run() -> Result<(), String> {
                 (settings.model.zone, settings.model.ntp) = time.clone();
                 (settings.saved.zone, settings.saved.ntp) = time;
                 if settings.section == Section::Time && settings.sheet.is_none() {
-                    settings.draw();
+                    settings.stale = true;
                 }
             }
         })
@@ -328,6 +329,7 @@ pub fn run() -> Result<(), String> {
         scroll: 0.0,
         at: Vec2::ZERO,
         holding: None,
+        dragged: None,
         moving: None,
         sheet: None,
         apps,
@@ -807,7 +809,7 @@ impl Settings {
             if let Some(pick) = pick {
                 self.take(pick);
             }
-            self.draw();
+            self.stale = true;
             return;
         }
         let hit = self
@@ -824,6 +826,7 @@ impl Settings {
                 self.model.set(id, value);
                 if let Value::Number(_) = value {
                     self.holding = Some(id);
+                    self.dragged = None;
                 }
                 self.save();
             }
@@ -882,7 +885,7 @@ impl Settings {
             }
             None => return,
         }
-        self.draw();
+        self.stale = true;
     }
 
     fn open_picker(&mut self, purpose: For) {
@@ -1193,7 +1196,7 @@ impl Settings {
         }
         self.fetch(Section::Users);
         if self.section == Section::Users {
-            self.draw();
+            self.stale = true;
         }
     }
 
@@ -1548,7 +1551,11 @@ impl Settings {
             .wallpaper
             .as_ref()
             .and_then(|path| drifter_core::image::load(path).ok())
-            .map(small);
+            .map(small)
+            .map(|art| {
+                let (wide, tall) = self.look.preview_size();
+                drifter_core::settings::cover(&art, wide, tall)
+            });
     }
 
     pub fn heads_changed(&mut self) {
@@ -1568,7 +1575,7 @@ impl Settings {
                 }
             }
             if self.section == drifter_core::settings::Section::Displays && self.sheet.is_none() {
-                self.draw();
+                self.stale = true;
             }
             return;
         }
@@ -1590,7 +1597,7 @@ impl Settings {
         self.model.see_monitors(&found);
         self.saved.see_monitors(&found);
         if self.section == drifter_core::settings::Section::Displays && self.sheet.is_none() {
-            self.draw();
+            self.stale = true;
         }
     }
 
@@ -1602,14 +1609,14 @@ impl Settings {
         let before = self.model.monitors.clone();
         self.model.move_monitor(moving.at, wanted);
         if self.model.monitors != before {
-            self.draw();
+            self.stale = true;
         }
     }
 
     fn drop_monitor(&mut self) {
         if self.moving.take().is_some() {
             self.save();
-            self.draw();
+            self.stale = true;
         }
     }
 
@@ -1630,6 +1637,10 @@ impl Settings {
             self.at.x,
         );
         if let Some(value) = value {
+            if self.dragged == Some((id, value)) {
+                return;
+            }
+            self.dragged = Some((id, value));
             let before = self.model.clone();
             self.model.set(id, value);
             if self.model != before {
@@ -1680,7 +1691,7 @@ impl Settings {
         };
         if event.keysym == Keysym::Escape && mods == Mods::default() {
             self.sheet = None;
-            self.draw();
+            self.stale = true;
             return;
         }
         let combo = Combo {
@@ -1699,7 +1710,7 @@ impl Settings {
                 }
             }
         }
-        self.draw();
+        self.stale = true;
     }
 
     fn go_to(&mut self, section: Section) {
@@ -1721,7 +1732,7 @@ impl Settings {
                 if let Some(first) = self.model.shown().first().copied() {
                     self.go_to(first);
                 }
-                self.draw();
+                self.stale = true;
                 return;
             }
             _ => match event.utf8.as_deref() {
@@ -1742,7 +1753,7 @@ impl Settings {
         {
             self.go_to(first);
         }
-        self.draw();
+        self.stale = true;
     }
 
     fn reload(&mut self) {
@@ -1844,7 +1855,7 @@ impl Settings {
                 }
             }
         }
-        self.draw();
+        self.stale = true;
     }
 
     fn nudge(&mut self, event: &KeyEvent) -> bool {

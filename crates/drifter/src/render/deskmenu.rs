@@ -17,9 +17,12 @@ pub(super) struct DeskMenu {
     pub menu: Cascade,
     pub picks: Vec<Pick>,
     pub arts: Vec<(TextureBuffer<Tex>, Rect)>,
+    pub keys: Vec<LevelKey>,
     pub opened: Vec<Instant>,
     pub pending: Option<(usize, usize, Instant)>,
 }
+
+type LevelKey = (usize, usize, Option<usize>, u64, [i64; 4]);
 
 pub(super) struct Ripple {
     pub fresh: std::sync::Arc<std::sync::Mutex<Option<drifter_core::Image>>>,
@@ -60,7 +63,7 @@ impl State {
             picks.push(what);
             (picks.len() - 1) as u32
         };
-        let installed = drifter_core::desktop::installed();
+        let installed = self.installed_apps();
         let mut groups = Vec::new();
         for (name, members) in drifter_core::desktop::grouped(&installed) {
             let mut apps = Vec::new();
@@ -97,6 +100,7 @@ impl State {
             menu: Cascade::new(entries, at + Vec2::new(4.0, 4.0)),
             picks,
             arts: Vec::new(),
+            keys: Vec::new(),
             opened: vec![Instant::now()],
             pending: None,
         });
@@ -111,11 +115,12 @@ impl State {
             return;
         };
         let area = drifter_core::ripple::region(at);
-        let patch = drifter_core::ripple::capture(&paper.pyramid, &laid, area);
+        let pyramid = paper.pyramid.clone();
         let since = Instant::now();
         let fresh = std::sync::Arc::new(std::sync::Mutex::new(None));
         let out = std::sync::Arc::downgrade(&fresh);
         let spawned = std::thread::Builder::new().name("ripple".into()).spawn(move || {
+            let patch = drifter_core::ripple::capture(&pyramid, &laid, area);
             let mut water = drifter_core::ripple::Water::new();
             loop {
                 let t = since.elapsed().as_secs_f64() / drifter_core::ripple::SECONDS;
@@ -154,7 +159,7 @@ impl State {
         let Some(image) = ripple.fresh.lock().ok().and_then(|mut slot| slot.take()) else {
             return;
         };
-        let art = upload(&mut self.renderer, Some(&image), "ripple").ok().flatten();
+        let art = self.upload_again(Some(&image), "ripple").ok().flatten();
         if let Some(ripple) = self.ripple.as_mut()
             && art.is_some()
         {
@@ -171,20 +176,43 @@ impl State {
             return;
         };
         let rects = open.menu.panels(&look, font, self.screen);
-        let mut images = Vec::new();
+        let mut levels = Vec::new();
         for (level, rect) in rects.iter().enumerate() {
             let items = open.menu.items(level);
-            let image = look.paint(items, rect.size, open.menu.hover[level], open.menu.scroll[level], font);
-            images.push((image, *rect));
+            let key: LevelKey = (
+                items.as_ptr() as usize,
+                items.len(),
+                open.menu.hover[level],
+                open.menu.scroll[level].to_bits(),
+                [rect.origin.x, rect.origin.y, rect.size.x, rect.size.y].map(|v| v.round() as i64),
+            );
+            let kept = (open.keys.get(level) == Some(&key))
+                .then(|| open.arts.get(level).cloned())
+                .flatten();
+            let image = match kept {
+                Some(_) => None,
+                None => Some(look.paint(items, rect.size, open.menu.hover[level], open.menu.scroll[level], font)),
+            };
+            levels.push((key, kept, image, *rect));
         }
         let mut arts = Vec::new();
-        for (mut image, rect) in images {
-            self.frosted(&mut image, rect.origin, look.back_alpha);
-            if let Ok(Some(art)) = upload(&mut self.renderer, Some(&image), "desktop menu") {
-                arts.push((art, rect));
+        let mut keys = Vec::new();
+        for (key, kept, image, rect) in levels {
+            let art = match (kept, image) {
+                (Some(kept), _) => Some(kept),
+                (None, Some(mut image)) => {
+                    self.frosted(&mut image, rect.origin, look.back_alpha);
+                    upload(&mut self.renderer, Some(&image), "desktop menu").ok().flatten().map(|art| (art, rect))
+                }
+                (None, None) => None,
+            };
+            if let Some(art) = art {
+                arts.push(art);
+                keys.push(key);
             }
         }
         if let Some(open) = self.desk_menu.as_mut() {
+            open.keys = keys;
             let levels = open.menu.levels();
             open.opened.truncate(levels);
             while open.opened.len() < levels {

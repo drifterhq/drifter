@@ -342,14 +342,24 @@ impl State {
     }
 
     fn shooter_options(&mut self, bar: Rect) {
-        let listing = std::process::Command::new("pactl")
-            .args(["list", "sources"])
-            .env("LC_ALL", "C")
-            .stderr(std::process::Stdio::null())
-            .output()
-            .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
-            .unwrap_or_default();
-        let sources = grab::sources(&listing);
+        self.background("sound-sources", move || {
+            let listing = std::process::Command::new("pactl")
+                .args(["list", "sources"])
+                .env("LC_ALL", "C")
+                .stderr(std::process::Stdio::null())
+                .output()
+                .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+                .unwrap_or_default();
+            move |state: &mut State| {
+                if state.shooter.is_some() {
+                    state.shooter_sources(bar, &listing);
+                }
+            }
+        });
+    }
+
+    fn shooter_sources(&mut self, bar: Rect, listing: &str) {
+        let sources = grab::sources(listing);
         let mark = |on: bool, label: &str| match on {
             true => format!("• {label}"),
             false => format!("   {label}"),

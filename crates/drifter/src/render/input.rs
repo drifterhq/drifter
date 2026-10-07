@@ -501,7 +501,7 @@ impl State {
                     window.toplevel.with_pending_state(|state| {
                         state.size = Some((wanted.size.x as i32, wanted.size.y as i32).into());
                     });
-                    window.toplevel.send_pending_configure();
+                    self.resizing = Some(id);
                 }
             }
         }
@@ -525,6 +525,7 @@ impl State {
             }
             self.zone = None;
             self.grab = Grab::None;
+            self.send_resize();
             self.held = None;
             if let Some(at) = self.eaten.iter().position(|eaten| *eaten == code) {
                 self.eaten.swap_remove(at);

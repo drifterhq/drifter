@@ -73,7 +73,7 @@ impl State {
             })
             .unwrap_or_default();
         let image = open.layout.paint(at, &title, &letters, self.font.as_ref());
-        let art = match upload(&mut self.renderer, Some(&image), "switcher") {
+        let art = match self.upload_again(Some(&image), "switcher") {
             Ok(art) => art,
             Err(error) => {
                 log!("drifter: {error}");

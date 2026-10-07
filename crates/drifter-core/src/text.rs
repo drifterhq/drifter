@@ -26,9 +26,12 @@ pub fn font_path(chosen: Option<PathBuf>) -> Option<PathBuf> {
         .find(|path| path.is_file())
 }
 
+type Glyph = std::sync::Arc<(fontdue::Metrics, Vec<u8>)>;
+
 pub struct Font {
     inner: fontdue::Font,
     px: f32,
+    glyphs: std::sync::Mutex<std::collections::HashMap<char, Glyph>>,
 }
 
 impl Font {
@@ -39,6 +42,7 @@ impl Font {
         Ok(Font {
             inner,
             px: px as f32,
+            glyphs: std::sync::Mutex::new(std::collections::HashMap::new()),
         })
     }
 
@@ -71,16 +75,24 @@ impl Font {
         Vec2::new(self.width_of(text), self.line_height())
     }
 
+    fn glyph(&self, glyph: char) -> Glyph {
+        let mut glyphs = self.glyphs.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        glyphs
+            .entry(glyph)
+            .or_insert_with(|| std::sync::Arc::new(self.inner.rasterize(glyph, self.px)))
+            .clone()
+    }
+
     fn digit_cell(&self) -> f64 {
         ('0'..='9')
-            .map(|digit| f64::from(self.inner.metrics(digit, self.px).advance_width))
+            .map(|digit| f64::from(self.glyph(digit).0.advance_width))
             .fold(0.0, f64::max)
     }
 
     fn advance(&self, glyph: char, cell: Option<f64>) -> f64 {
         match cell {
             Some(cell) if glyph.is_ascii_digit() => cell,
-            _ => f64::from(self.inner.metrics(glyph, self.px).advance_width),
+            _ => f64::from(self.glyph(glyph).0.advance_width),
         }
     }
 
@@ -132,7 +144,8 @@ impl Font {
         let mut pen = 0.0f64;
 
         for glyph in text.chars() {
-            let (metrics, coverage) = self.inner.rasterize(glyph, self.px);
+            let shape = self.glyph(glyph);
+            let (metrics, coverage) = (&shape.0, &shape.1);
             let room = self.advance(glyph, cell);
             let centering = (room - f64::from(metrics.advance_width)) / 2.0;
             let left = pen + centering + f64::from(metrics.xmin);

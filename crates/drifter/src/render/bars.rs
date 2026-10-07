@@ -220,7 +220,7 @@ impl State {
         );
         let rect = look.rect(at, size, self.screen);
         self.frosted(&mut image, rect.origin, f64::from(look.back_alpha) / 255.0);
-        match upload(&mut self.renderer, Some(&image), "hover text") {
+        match self.upload_again(Some(&image), "hover text") {
             Ok(Some(art)) => {
                 self.tip = Some((art, rect));
                 self.tip_of = Some(text.to_string());
@@ -566,7 +566,7 @@ impl State {
         if let Some(spot) = spot {
             self.frosted(&mut image, spot.origin, look.back_alpha);
         }
-        let art = match upload(&mut self.renderer, Some(&image), "sound panel") {
+        let art = match self.upload_again(Some(&image), "sound panel") {
             Ok(Some(art)) => art,
             Ok(None) => return,
             Err(error) => {
@@ -799,7 +799,7 @@ impl State {
             .map(|font| font.paint_even_digits(&reading, tray.ink))
             .expect("the font was there a moment ago");
         let rect = tray.clock_rect(band, image.size());
-        match upload(&mut self.renderer, Some(&image), "clock") {
+        match self.upload_again(Some(&image), "clock") {
             Ok(Some(buffer)) => self.clock = Some((reading, buffer, rect)),
             Ok(None) => {}
             Err(error) => log!("drifter: {error}"),
@@ -833,7 +833,7 @@ impl State {
             .map(|font| drifter_core::stats::paint(font, &fields, self.tray.ink))
             .expect("the font was there a moment ago");
         let size = image.size();
-        match upload(&mut self.renderer, Some(&image), "system info") {
+        match self.upload_again(Some(&image), "system info") {
             Ok(Some(buffer)) => self.stats = Some((buffer, size)),
             Ok(None) => {}
             Err(error) => log!("drifter: {error}"),

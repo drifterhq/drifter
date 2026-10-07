@@ -318,6 +318,7 @@ pub fn open(
         PathBuf,
         Option<drifter_core::tiles::Pyramid>,
     )>();
+    let (chores, chores_rx) = smithay::reexports::calloop::channel::channel::<Chore>();
     let (shot_tx, shot_rx) =
         smithay::reexports::calloop::channel::channel::<Result<PathBuf, String>>();
     let (verify_tx, verify_rx) =
@@ -492,6 +493,11 @@ pub fn open(
         drops,
         frost_at: None,
         frost_drift: None,
+        frost_busy: false,
+        reused: std::collections::HashMap::new(),
+        installed: None,
+        app_names: std::cell::RefCell::new(std::collections::HashMap::new()),
+        resizing: None,
         tip: None,
         tip_of: None,
         snap: Snap::default(),
@@ -508,6 +514,7 @@ pub fn open(
         paper: Paper::from(config),
         paper_tx,
         shot_tx,
+        chores,
         config_path: match live {
             true => Config::config_path(),
             false => PathBuf::new(),
@@ -563,6 +570,7 @@ pub fn open(
     };
 
     let mut state = state;
+    state.refresh_apps();
     state.set_shortcuts(&config.keys, config.input.modifier);
     state.set_places(&config.place, config.input.modifier);
     match live {
@@ -765,6 +773,14 @@ pub fn open(
             }
         })
         .map_err(|e| format!("cannot watch screenshots: {e}"))?;
+
+    handle
+        .insert_source(chores_rx, |event, _, state: &mut State| {
+            if let ChannelEvent::Msg(chore) = event {
+                chore(state);
+            }
+        })
+        .map_err(|e| format!("cannot watch background work: {e}"))?;
 
     handle
         .insert_source(paper_rx, |event, _, state: &mut State| {
