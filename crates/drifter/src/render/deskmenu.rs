@@ -35,6 +35,8 @@ pub(super) struct Ripple {
 pub(super) struct Alert {
     pub action: Action,
     pub ticked: bool,
+    pub since: Instant,
+    pub shown: u64,
     pub art: Option<TextureBuffer<Tex>>,
     pub rect: Rect,
     pub lane: worker::Lane,
@@ -479,14 +481,41 @@ impl State {
 
     pub(super) fn ask_alert(&mut self, action: Action) {
         let look = self.alert_look();
+        let since = Instant::now();
         self.alert = Some(Alert {
             action,
             ticked: drifter_core::reopen::wanted(),
+            since,
+            shown: drifter_core::power::COUNTDOWN,
             art: None,
             rect: look.rect(self.screen),
             lane: worker::Lane::default(),
         });
         self.paint_alert();
+        let _ = self.handle.insert_source(
+            Timer::from_duration(Duration::from_millis(250)),
+            move |_, _, state: &mut State| match state.tick_alert(since) {
+                true => TimeoutAction::ToDuration(Duration::from_millis(250)),
+                false => TimeoutAction::Drop,
+            },
+        );
+    }
+
+    fn tick_alert(&mut self, since: Instant) -> bool {
+        let Some(open) = self.alert.as_mut().filter(|open| open.since == since) else {
+            return false;
+        };
+        let left = drifter_core::power::COUNTDOWN.saturating_sub(since.elapsed().as_secs());
+        if left == 0 {
+            self.confirm_alert();
+            return false;
+        }
+        if left != open.shown {
+            open.shown = left;
+            self.paint_alert();
+            self.kick_now();
+        }
+        true
     }
 
     fn paint_alert(&mut self) {
@@ -497,11 +526,12 @@ impl State {
         let Some(open) = self.alert.as_ref() else {
             return;
         };
-        let (title, message, verb) = match open.action {
-            Action::Logout => ("Log out now?", "Your apps will close.", "Log Out"),
-            Action::Reboot => ("Restart now?", "Your apps will close.", "Restart"),
-            _ => ("Shut down now?", "Your apps will close.", "Shut Down"),
+        let (title, verb) = match open.action {
+            Action::Logout => ("Log out now?", "Log Out"),
+            Action::Reboot => ("Restart now?", "Restart"),
+            _ => ("Shut down now?", "Shut Down"),
         };
+        let message = open.action.countdown(open.shown);
         let ticked = open.ticked;
         let rect = open.rect;
         let look = self.alert_look();
@@ -511,7 +541,7 @@ impl State {
             |state| state.alert.as_mut().map(|open| &mut open.lane),
             |_| {},
             move || {
-                let mut image = look.paint(title, message, verb, ticked, &font, &bold);
+                let mut image = look.paint(title, &message, verb, ticked, &font, &bold);
                 worker::frost(&frosting, &mut image, rect.origin, look.back_alpha);
                 Some(image)
             },

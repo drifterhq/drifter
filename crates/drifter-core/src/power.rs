@@ -50,6 +50,22 @@ impl Action {
     }
 }
 
+pub const COUNTDOWN: u64 = 60;
+
+impl Action {
+    pub fn countdown(self, left: u64) -> String {
+        let doing = match self {
+            Action::Logout => "Logging out",
+            Action::Reboot => "Restarting",
+            _ => "Shutting down",
+        };
+        match left {
+            1 => format!("{doing} in 1 second."),
+            left => format!("{doing} in {left} seconds."),
+        }
+    }
+}
+
 pub fn items() -> Vec<Item> {
     Action::ALL
         .iter()
@@ -83,6 +99,13 @@ mod tests {
         assert_eq!(Action::from_id(0), None);
         assert_eq!(Action::from_id(-1), None);
         assert_eq!(Action::from_id(FIRST_ID + 5), None);
+    }
+
+    #[test]
+    fn the_countdown_says_what_happens_and_when() {
+        assert_eq!(Action::Reboot.countdown(60), "Restarting in 60 seconds.");
+        assert_eq!(Action::Shutdown.countdown(2), "Shutting down in 2 seconds.");
+        assert_eq!(Action::Logout.countdown(1), "Logging out in 1 second.");
     }
 
     #[test]
