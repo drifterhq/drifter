@@ -33,6 +33,7 @@ float n(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
  return mix(mix(h(i),h(i+vec2(1.,0.)),f.x),mix(h(i+vec2(0.,1.)),h(i+1.),f.x),f.y);}
 float fbm(vec2 p){float v=0.,a=.5;mat2 m=mat2(1.6,1.2,-1.2,1.6);
  for(int i=0;i<5;i++){v+=a*n(p);p=m*p;a*=.5;}return v;}
+float hs(vec2 p){vec3 q=fract(p.xyx*.1031);q+=dot(q,q.yzx+33.33);return fract((q.x+q.y)*q.z);}
 ";
 
 pub const FOOT: &str = "
@@ -246,6 +247,13 @@ fn hash(x: f64, y: f64) -> f64 {
     fract(px * py)
 }
 
+fn star_hash(x: f64, y: f64) -> f64 {
+    let mut q = [fract(x * 0.1031), fract(y * 0.1031), fract(x * 0.1031)];
+    let d = q[0] * (q[1] + 33.33) + q[1] * (q[2] + 33.33) + q[2] * (q[0] + 33.33);
+    q = q.map(|v| v + d);
+    fract((q[0] + q[1]) * q[2])
+}
+
 fn noise(x: f64, y: f64) -> f64 {
     let (ix, iy) = (x.floor(), y.floor());
     let (fx, fy) = (x - ix, y - iy);
@@ -280,7 +288,7 @@ fn aurora((px, py): (f64, f64), (rx, ry): (f64, f64), t: f64, sky: &Sky) -> V3 {
     let p = (u * rx / ry, v);
     let mut col = mix3(sky.bottom, sky.top, smoothstep(0.0, 1.0, v));
     let sp = (p.0 * 180.0, p.1 * 180.0);
-    let s = hash(sp.0.floor(), sp.1.floor());
+    let s = star_hash(sp.0.floor(), sp.1.floor());
     let (dx, dy) = (fract(sp.0) - 0.5, fract(sp.1) - 0.5);
     let star = if s >= 0.995 { 1.0 } else { 0.0 }
         * (1.0 - smoothstep(0.0, 0.45, (dx * dx + dy * dy).sqrt()))
@@ -377,7 +385,7 @@ fn nebula((px, py): (f64, f64), (rx, ry): (f64, f64), time: f64, sky: &Sky) -> V
     col = add(col, scale(sky.b, smoothstep(0.3, 0.75, d * w.0 * 1.6) * core * 0.8));
     col = add(col, scale(sky.c, d.powi(3) * 0.7));
     let sp = (px / ry * 260.0, py / ry * 260.0);
-    let s = hash(sp.0.floor(), sp.1.floor());
+    let s = star_hash(sp.0.floor(), sp.1.floor());
     let (dx, dy) = (fract(sp.0) - 0.5, fract(sp.1) - 0.5);
     let star = if s >= 0.993 { 1.0 } else { 0.0 }
         * (1.0 - smoothstep(0.0, 0.45, (dx * dx + dy * dy).sqrt()))
@@ -581,5 +589,27 @@ mod tests {
         assert!(half(Path::new("/a/Ink.shader")));
         assert!(!half(Path::new("/a/topo.shader")));
         assert!(!half(Path::new("/a/aurora.shader")));
+    }
+
+    #[test]
+    fn stars_do_not_repeat_across_the_sky() {
+        let star = |x: f64, y: f64| super::star_hash(x, y) >= 0.993;
+        for period in [25.0, 50.0, 100.0] {
+            let mut lit = 0;
+            let mut same = 0;
+            for y in 0..400 {
+                for x in 0..400 {
+                    let (x, y) = (f64::from(x), f64::from(y));
+                    if star(x, y) {
+                        lit += 1;
+                        if star(x + period, y) {
+                            same += 1;
+                        }
+                    }
+                }
+            }
+            assert!(lit > 500, "the sky has stars");
+            assert!(same * 20 < lit, "stars repeat every {period} cells: {same} of {lit}");
+        }
     }
 }
