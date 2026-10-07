@@ -149,6 +149,14 @@ impl Drawer {
         Rect::new(Vec2::new(0.0, y), size)
     }
 
+    pub fn open_band(&self, screen: Vec2, panel: &Panel) -> Rect {
+        Drawer {
+            progress: 1.0,
+            ..*self
+        }
+        .band(screen, panel)
+    }
+
     pub fn band(&self, screen: Vec2, panel: &Panel) -> Rect {
         let rect = self.rect(screen, panel);
         let straight = rect.origin.y + panel.inner_row(self.edge);

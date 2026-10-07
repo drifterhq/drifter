@@ -828,6 +828,74 @@ impl State {
         }
     }
 
+    pub(super) fn top_rest_band(&self) -> Rect {
+        let drawer = self.drawers[Edge::Top.index()];
+        drawer.open_band(self.screen, &self.shapes[Edge::Top.index()])
+    }
+
+    pub(super) fn wind_the_battery(&mut self) {
+        if !self.show_battery {
+            self.battery_glow = None;
+            if self.battery_art.take().is_some() {
+                self.tray.battery = 0.0;
+                self.battery_seen = None;
+                self.clock = None;
+            }
+            return;
+        }
+        if !self.drawers[Edge::Top.index()].visible() || self.battery_busy {
+            return;
+        }
+        if self.battery_at.is_some_and(|at| at.elapsed() < BATTERY_EVERY) {
+            return;
+        }
+        self.battery_at = Some(Instant::now());
+        self.battery_busy = true;
+        let font = self.lock_small.clone();
+        let look = drifter_core::lock::Look {
+            ink: self.tray.ink,
+            ..drifter_core::lock::Look::themed(&self.palette)
+        };
+        let seen = self.battery_seen;
+        self.on_worker(
+            "battery",
+            move || {
+                let reading = crate::stats::battery().map(|(label, percent)| (label == "CHG", percent));
+                let image = match reading == seen {
+                    true => None,
+                    false => reading.map(|reading| {
+                        (
+                            drifter_core::lock::paint_battery(&look, font.as_deref(), reading),
+                            reading.0.then(|| drifter_core::lock::paint_charge(&look, font.as_deref(), reading)),
+                        )
+                    }),
+                };
+                (reading, image)
+            },
+            |state, (reading, image)| {
+                state.battery_busy = false;
+                if reading == state.battery_seen {
+                    return;
+                }
+                state.battery_seen = reading;
+                state.battery_glow = None;
+                state.battery_art = image.and_then(|(image, glow)| {
+                    let size = drifter_core::paint::logical(&image);
+                    state.battery_glow = glow.and_then(|glow| upload(&mut state.renderer, Some(&glow), "battery glow").ok().flatten());
+                    upload(&mut state.renderer, Some(&image), "battery").ok().flatten().map(|art| (art, size))
+                });
+                state.tray.battery = state.battery_art.as_ref().map_or(0.0, |(_, size)| size.x);
+                state.clock = None;
+                state.kick_now();
+            },
+        );
+    }
+
+    pub(super) fn battery_rect(&self) -> Option<Rect> {
+        let (_, size) = self.battery_art.as_ref()?;
+        Some(self.tray.battery_rect(self.tray_band()?, *size))
+    }
+
     pub(super) fn wind_the_stats(&mut self) {
         if !self.drawers[Edge::Top.index()].visible() || self.font.is_none() {
             return;

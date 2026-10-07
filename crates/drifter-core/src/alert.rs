@@ -23,6 +23,7 @@ pub struct Look {
     pub dim: [u8; 3],
     pub button: [u8; 3],
     pub accent: [u8; 3],
+    pub off: [u8; 3],
     pub tick: bool,
 }
 
@@ -38,14 +39,15 @@ impl Look {
             dim: p.dim,
             button: p.raised,
             accent,
+            off: p.off,
             tick: false,
         }
     }
 
     pub fn with_tick(self) -> Look {
         Look {
-            width: 320.0,
-            height: self.height + 32.0,
+            width: 400.0,
+            height: self.height + 36.0,
             tick: true,
             ..self
         }
@@ -53,7 +55,7 @@ impl Look {
 
     pub fn tick_row(&self) -> Option<Rect> {
         self.tick
-            .then(|| Rect::new(Vec2::new(16.0, 92.0), Vec2::new(self.width - 32.0, 26.0)))
+            .then(|| Rect::new(Vec2::new(20.0, 92.0), Vec2::new(self.width - 40.0, 30.0)))
     }
 
     pub fn rect(&self, screen: Vec2) -> Rect {
@@ -131,25 +133,27 @@ impl Look {
 
     fn paint_tick(&self, canvas: &mut Canvas, row: Rect, ticked: bool, font: &Font) {
         let label = font.paint(REOPEN, self.ink);
-        let side = 16.0;
-        let wide = side + 8.0 + crate::paint::logical(&label).x;
-        let left = (row.origin.x + (row.size.x - wide) / 2.0).round();
-        let mid = row.center().y;
-        let mark = Rect::new(Vec2::new(left, (mid - side / 2.0).round()), Vec2::splat(side));
-        match ticked {
-            true => {
-                canvas.round_rect(mark, 4.0, self.accent, 1.0);
-                let o = mark.origin;
-                canvas.line(o + Vec2::new(4.0, 8.5), o + Vec2::new(7.0, 11.5), 2.0, [255, 255, 255], 1.0);
-                canvas.line(o + Vec2::new(7.0, 11.5), o + Vec2::new(12.0, 5.0), 2.0, [255, 255, 255], 1.0);
-            }
-            false => canvas.ring(mark, 4.0, 1.5, self.dim, 1.0),
-        }
-        canvas.stamp(
-            &label,
-            Vec2::new(left + side + 8.0, mid - crate::paint::logical(&label).y / 2.0).round(),
-            1.0,
-        );
+        let size = crate::paint::logical(&label);
+        canvas.stamp(&label, Vec2::new(row.origin.x, row.center().y - size.y / 2.0).round(), 1.0);
+        let pill = self.toggle_rect(row);
+        let color = match ticked {
+            true => self.accent,
+            false => self.off,
+        };
+        canvas.round_rect(pill, pill.size.y, color, 1.0);
+        let knob = pill.size.y / 2.0 - 2.0;
+        let x = match ticked {
+            true => pill.max().x - 2.0 - knob,
+            false => pill.origin.x + 2.0 + knob,
+        };
+        let center = Vec2::new(x, pill.center().y);
+        canvas.circle(center + Vec2::new(0.0, 1.0), knob + 0.5, [0, 0, 0], 0.25);
+        canvas.circle(center, knob, [255, 255, 255], 1.0);
+    }
+
+    pub fn toggle_rect(&self, row: Rect) -> Rect {
+        let size = Vec2::new(38.0, 22.0);
+        Rect::new(Vec2::new(row.max().x - size.x, row.center().y - size.y / 2.0), size)
     }
 }
 
@@ -184,6 +188,9 @@ mod tests {
         assert!(row.max().y < cancel.origin.y);
         assert_eq!(look.hit(confirm.center()), Some(Press::Confirm));
         let font = crate::text::Font::find(None, 13.0).unwrap();
+        let label = crate::paint::logical(&font.paint(REOPEN, look.ink));
+        assert!(row.origin.x + label.x + 12.0 < look.toggle_rect(row).origin.x, "the words end before the toggle");
+        assert!(look.toggle_rect(row).max().x <= look.width - 20.0);
         for ticked in [false, true] {
             crate::paint::same_at_two("alert tick", || {
                 look.paint("Restart now?", "Your apps will close.", "Restart", ticked, &font, &font)

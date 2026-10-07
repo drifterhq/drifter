@@ -21,7 +21,12 @@ impl State {
             elements.push(Skin::Texture(element(art, card, 1.0)));
         }
         if let Some((art, size)) = lock.corner.as_ref() {
-            elements.push(Skin::Texture(element(art, look.corner_rect(self.screen, *size), 1.0)));
+            let spot = self.tray.status_rect(self.top_rest_band(), *size);
+            if let Some(glow) = lock.corner_glow.as_ref() {
+                let ebb = drifter_core::lock::ebb(self.ebb_from.elapsed().as_secs_f64());
+                elements.push(Skin::Texture(element(glow, spot, ebb)));
+            }
+            elements.push(Skin::Texture(element(art, spot, 1.0)));
         }
         let top = lock
             .top
@@ -82,6 +87,8 @@ impl State {
             caret: None,
             typed: Instant::now(),
             corner_lane: worker::Lane::default(),
+            corner_glow: None,
+            glow_lane: worker::Lane::default(),
             clock: None,
             clock_lane: worker::Lane::default(),
             shade: None,
@@ -363,19 +370,43 @@ impl State {
             let date = self.lock_name.clone();
             let corner_font = small.clone();
             let screen = self.screen;
-            let corner_look = worker::contrast(&frosting, look, look.corner_rect(screen, Vec2::new(160.0, 28.0)));
+            let tray = self.tray;
+            let show = self.show_battery;
+            let corner_look = worker::contrast(&frosting, look, tray.status_rect(self.top_rest_band(), Vec2::new(160.0, 28.0)));
             let date_look = worker::contrast(&frosting, look, look.top_rect(screen, Vec2::new(screen.x * 0.25, 40.0)));
             self.paint_in_lane_sized(
                 "lock corner",
                 |state| state.lock.as_mut().map(|lock| &mut lock.corner_lane),
                 State::paint_lock,
                 move || {
-                    let battery = crate::stats::battery().map(|(label, percent)| (label == "CHG", percent));
-                    Some(drifter_core::lock::paint_corner(&corner_look, corner_font.as_deref(), battery))
+                    let battery = crate::stats::battery()
+                        .map(|(label, percent)| (label == "CHG", percent))
+                        .filter(|_| show);
+                    Some(drifter_core::lock::paint_corner(&corner_look, corner_font.as_deref(), battery, &tray))
                 },
                 |state, art, size| {
                     if let Some(lock) = state.lock.as_mut() {
                         lock.corner = Some((art, size));
+                    }
+                },
+            );
+            if let Some(lock) = self.lock.as_mut() {
+                lock.corner_glow = None;
+            }
+            let glow_font = small.clone();
+            self.paint_in_lane(
+                "lock corner glow",
+                |state| state.lock.as_mut().map(|lock| &mut lock.glow_lane),
+                |_| {},
+                move || {
+                    let battery = crate::stats::battery()
+                        .map(|(label, percent)| (label == "CHG", percent))
+                        .filter(|(charging, _)| show && *charging)?;
+                    Some(drifter_core::lock::paint_corner_charge(&corner_look, glow_font.as_deref(), Some(battery), &tray))
+                },
+                |state, art| {
+                    if let Some(lock) = state.lock.as_mut() {
+                        lock.corner_glow = Some(art);
                     }
                 },
             );
@@ -668,7 +699,8 @@ impl State {
         let Some(size) = self.lock.as_ref().and_then(|lock| lock.corner.as_ref()).map(|(_, size)| *size) else {
             return;
         };
-        let power = look.power_rect(self.screen, size);
+        let _ = (look, size);
+        let power = self.tray.power_rect(self.top_rest_band());
         if power.contains(self.pointer) {
             use drifter_core::menu::Item;
             use drifter_core::power::Action;

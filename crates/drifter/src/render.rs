@@ -87,6 +87,8 @@ const KEY_UP: u32 = 111;
 const KEY_LEFT: u32 = 113;
 const KEY_RIGHT: u32 = 114;
 const KEY_DOWN: u32 = 116;
+const BATTERY_EVERY: Duration = Duration::from_secs(20);
+const EBB_TICK: Duration = Duration::from_millis(50);
 const LOCK_PATIENCE: Duration = Duration::from_secs(30);
 const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
@@ -366,6 +368,8 @@ struct Lock {
     caret: Option<(TextureBuffer<Tex>, [u8; 3])>,
     typed: Instant,
     corner_lane: worker::Lane,
+    corner_glow: Option<TextureBuffer<Tex>>,
+    glow_lane: worker::Lane,
     clock: Option<(TextureBuffer<Tex>, Vec2)>,
     clock_lane: worker::Lane,
     shade: Option<TextureBuffer<Tex>>,
@@ -507,6 +511,13 @@ pub struct State {
     welcome: Option<welcome::Welcome>,
     dock_logo: docklogo::DockLogo,
     lock_logo: docklogo::DockLogo,
+    battery_art: Option<(TextureBuffer<Tex>, Vec2)>,
+    battery_seen: Option<(bool, u8)>,
+    battery_at: Option<Instant>,
+    battery_busy: bool,
+    show_battery: bool,
+    battery_glow: Option<TextureBuffer<Tex>>,
+    ebb_from: Instant,
     welcome_wanted: bool,
     login_lock: bool,
     search_font: Option<std::sync::Arc<Font>>,
@@ -670,9 +681,11 @@ impl State {
             return None;
         }
         if self.lock.is_some() {
-            return Some(match self.lock_logo.pace > 0.0 {
-                true => TICK,
-                false => drifter_core::lock::BLINK / 2,
+            let glowing = self.lock.as_ref().is_some_and(|lock| lock.corner_glow.is_some());
+            return Some(match (self.lock_logo.pace > 0.0, glowing) {
+                (true, _) => TICK,
+                (false, true) => EBB_TICK,
+                (false, false) => drifter_core::lock::BLINK / 2,
             });
         }
         if let Some((_, _, until)) = self.hud.as_ref() {
@@ -694,6 +707,9 @@ impl State {
         }
         if drifter_core::corner::heat(self.pointer, drifter_core::corner::REACH) > 0.0 {
             return Some(TICK);
+        }
+        if self.battery_glow.is_some() && self.drawers[Edge::Top.index()].visible() {
+            return Some(EBB_TICK);
         }
         if self.drawers[Edge::Top.index()].visible() && self.font.is_some() {
             return Some(SECOND_TICK);
@@ -847,6 +863,13 @@ impl State {
             elements.push(Skin::Texture(element(buffer, rect, 1.0)));
         }
         if let (Some(rect), Some(buffer)) = (self.sun_rect(), self.sun.as_ref()) {
+            elements.push(Skin::Texture(element(buffer, rect, 1.0)));
+        }
+        if let (Some(rect), Some((buffer, _))) = (self.battery_rect(), self.battery_art.as_ref()) {
+            if let Some(glow) = self.battery_glow.as_ref() {
+                let ebb = drifter_core::lock::ebb(self.ebb_from.elapsed().as_secs_f64());
+                elements.push(Skin::Texture(element(glow, rect, ebb)));
+            }
             elements.push(Skin::Texture(element(buffer, rect, 1.0)));
         }
         if let (Some(rect), Some(buffer)) = (self.control_rect(), self.control_icon.as_ref()) {
@@ -1154,6 +1177,7 @@ impl State {
         self.wind_the_clock();
         self.wind_the_app_label();
         self.wind_the_stats();
+        self.wind_the_battery();
         self.wind_the_volume();
         self.wind_the_light();
         self.wind_the_control();

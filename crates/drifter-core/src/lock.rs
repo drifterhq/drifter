@@ -192,18 +192,6 @@ impl Look {
         )
     }
 
-    pub fn corner_rect(&self, screen: Vec2, size: Vec2) -> Rect {
-        Rect::new(Vec2::new(screen.x - size.x - 18.0, 14.0).round(), size)
-    }
-
-    pub fn power_rect(&self, screen: Vec2, size: Vec2) -> Rect {
-        let corner = self.corner_rect(screen, size);
-        Rect::new(
-            Vec2::new(corner.max().x - size.y, corner.origin.y),
-            Vec2::splat(size.y),
-        )
-    }
-
     pub fn logo_shadow_rect(&self, screen: Vec2) -> Rect {
         let logo = self.logo_rect(screen);
         Rect::new(logo.origin - Vec2::splat(SHADE), logo.size + Vec2::splat(SHADE * 2.0))
@@ -391,55 +379,88 @@ pub fn paint_logo_shadow(look: &Look) -> Image {
     canvas.image
 }
 
-pub fn paint_corner(look: &Look, font: Option<&Font>, battery: Option<(bool, u8)>) -> Image {
-    let power = crate::tray::paint_power(22, look.ink);
-    let words = match (font, battery) {
-        (Some(font), Some((_, percent))) => Some(font.paint(&format!("{percent}%"), look.ink)),
-        _ => None,
-    };
+pub const EBB: f64 = 3.0;
+
+pub fn ebb(seconds: f64) -> f32 {
+    (0.5 - 0.5 * (seconds * std::f64::consts::TAU / EBB).cos()) as f32
+}
+
+pub fn paint_battery(look: &Look, font: Option<&Font>, battery: (bool, u8)) -> Image {
+    battery_layer(look, font, battery, false)
+}
+
+pub fn paint_charge(look: &Look, font: Option<&Font>, battery: (bool, u8)) -> Image {
+    battery_layer(look, font, battery, true)
+}
+
+fn battery_layer(look: &Look, font: Option<&Font>, (charging, percent): (bool, u8), glow: bool) -> Image {
+    let words = font.map(|font| font.paint(&format!("{percent}%"), look.ink));
     let cell = Vec2::new(27.0, 13.0);
     let gap = 8.0;
-    let mut width = CORNER;
-    if battery.is_some() {
-        width += cell.x + 3.0 + gap * 2.0;
-    }
-    if let Some(words) = &words {
-        width += crate::paint::logical(words).x + gap;
-    }
+    let text = words.as_ref().map(crate::paint::logical);
+    let width = text.map_or(0.0, |size| size.x + gap) + cell.x + 3.0;
     let mut canvas = crate::paint::Canvas::new(width.ceil() as u32, CORNER as u32);
     let mut x = 0.0;
-    if let Some(words) = &words {
-        let size = crate::paint::logical(words);
-        canvas.stamp(words, Vec2::new(x, (CORNER - size.y) / 2.0).round(), 1.0);
+    if let (Some(words), Some(size)) = (&words, text) {
+        if !glow {
+            canvas.stamp(words, Vec2::new(x, (CORNER - size.y) / 2.0).round(), 1.0);
+        }
         x += size.x + gap;
     }
-    if let Some((charging, percent)) = battery {
-        let body = Rect::new(Vec2::new(x, (CORNER - cell.y) / 2.0), cell);
+    let body = Rect::new(Vec2::new(x, (CORNER - cell.y) / 2.0), cell);
+    if !glow {
         canvas.ring(body, 3.5, 1.2, look.ink, 0.9);
-        let inner = Rect::new(body.origin + Vec2::splat(2.5), body.size - Vec2::splat(5.0));
-        let full = inner.size.x * f64::from(percent.min(100)) / 100.0;
-        let color = match (charging, percent) {
-            (false, 0..=10) => look.alert,
-            _ => look.ink,
-        };
-        if full >= 1.0 {
-            canvas.round_rect(Rect::new(inner.origin, Vec2::new(full, inner.size.y)), 1.5, color, 1.0);
-        }
+    }
+    let inner = Rect::new(body.origin + Vec2::splat(2.5), body.size - Vec2::splat(5.0));
+    let full = inner.size.x * f64::from(percent.min(100)) / 100.0;
+    let color = match (charging, percent) {
+        (false, 0..=10) => look.alert,
+        _ => look.ink,
+    };
+    let strength = match (charging, glow) {
+        (true, false) => 0.5,
+        _ => 1.0,
+    };
+    if full >= 1.0 {
+        canvas.round_rect(Rect::new(inner.origin, Vec2::new(full, inner.size.y)), 1.5, color, strength);
+    }
+    if !glow {
         canvas.round_rect(
             Rect::new(Vec2::new(body.max().x + 1.0, body.center().y - 2.5), Vec2::new(2.0, 5.0)),
             1.0,
             look.ink,
             0.6,
         );
-        if charging {
-            let c = body.center();
-            canvas.triangle([c + Vec2::new(1.5, -6.0), c + Vec2::new(-3.5, 1.0), c + Vec2::new(0.5, 1.0)], look.back, 1.0);
-            canvas.triangle([c + Vec2::new(-1.5, 6.0), c + Vec2::new(3.5, -1.0), c + Vec2::new(-0.5, -1.0)], look.back, 1.0);
-        }
-        x = body.max().x + 3.0 + gap * 2.0;
     }
-    let side = crate::paint::logical(&power);
-    canvas.stamp(&power, Vec2::new(x + (CORNER - side.x) / 2.0, (CORNER - side.y) / 2.0).round(), 1.0);
+    if charging {
+        let c = body.center();
+        canvas.triangle([c + Vec2::new(1.5, -6.0), c + Vec2::new(-3.5, 1.0), c + Vec2::new(0.5, 1.0)], look.back, 1.0);
+        canvas.triangle([c + Vec2::new(-1.5, 6.0), c + Vec2::new(3.5, -1.0), c + Vec2::new(-0.5, -1.0)], look.back, 1.0);
+    }
+    canvas.image
+}
+
+pub fn paint_corner(look: &Look, font: Option<&Font>, battery: Option<(bool, u8)>, tray: &crate::tray::Tray) -> Image {
+    corner_layer(look, font, battery, tray, false)
+}
+
+pub fn paint_corner_charge(look: &Look, font: Option<&Font>, battery: Option<(bool, u8)>, tray: &crate::tray::Tray) -> Image {
+    corner_layer(look, font, battery, tray, true)
+}
+
+fn corner_layer(look: &Look, font: Option<&Font>, battery: Option<(bool, u8)>, tray: &crate::tray::Tray, glow: bool) -> Image {
+    let power = crate::tray::paint_power(tray.button as u32, look.ink);
+    let part = battery.map(|battery| battery_layer(look, font, battery, glow));
+    let lead = part.as_ref().map_or(0.0, |part| crate::paint::logical(part).x + tray.button_gap);
+    let width = lead + tray.button;
+    let mut canvas = crate::paint::Canvas::new(width.ceil() as u32, CORNER as u32);
+    if let Some(part) = &part {
+        canvas.stamp(part, Vec2::ZERO, 1.0);
+    }
+    if !glow {
+        let side = crate::paint::logical(&power);
+        canvas.stamp(&power, Vec2::new(lead, (CORNER - side.y) / 2.0).round(), 1.0);
+    }
     canvas.image
 }
 
@@ -595,18 +616,43 @@ mod tests {
     }
 
     #[test]
-    fn the_corner_shows_battery_and_power_at_the_top_right() {
+    fn the_corner_puts_battery_and_power_where_the_top_bar_does() {
         let look = Look::default();
         let font = Font::find(None, 17.0).ok();
-        let with = paint_corner(&look, font.as_ref(), Some((true, 87)));
-        let without = paint_corner(&look, font.as_ref(), None);
-        assert!(with.width > without.width);
-        let screen = Vec2::new(1600.0, 1000.0);
-        let size = crate::paint::logical(&with);
-        let power = look.power_rect(screen, size);
-        assert_eq!(power.max(), look.corner_rect(screen, size).max());
-        assert!(power.max().x < screen.x && power.origin.y > 0.0);
-        crate::paint::same_at_two("lock corner", || paint_corner(&look, font.as_ref(), Some((false, 5))));
+        let tray = crate::tray::Tray::default();
+        let band = Rect::new(Vec2::ZERO, Vec2::new(1600.0, 32.0));
+        let battery = paint_battery(&look, font.as_ref(), (true, 87));
+        let corner = paint_corner(&look, font.as_ref(), Some((true, 87)), &tray);
+        let size = crate::paint::logical(&corner);
+        let spot = tray.status_rect(band, size);
+        assert_eq!(spot.max().x, tray.power_rect(band).max().x);
+        assert_eq!(spot.origin.x, tray.battery_rect(band, crate::paint::logical(&battery)).origin.x);
+        assert!(paint_corner(&look, font.as_ref(), None, &tray).width < corner.width);
+        crate::paint::same_at_two("lock corner", || paint_corner(&look, font.as_ref(), Some((false, 5)), &tray));
+    }
+
+    #[test]
+    fn a_charging_battery_ebbs_on_a_slow_glow_layer_of_the_same_size() {
+        let look = Look::default();
+        let font = Font::find(None, 17.0).ok();
+        let base = paint_battery(&look, font.as_ref(), (true, 60));
+        let glow = paint_charge(&look, font.as_ref(), (true, 60));
+        assert_eq!((base.width, base.height), (glow.width, glow.height));
+        assert!(glow.rgba.chunks(4).filter(|px| px[3] > 0).count() < base.rgba.chunks(4).filter(|px| px[3] > 0).count());
+        assert_eq!(ebb(0.0), 0.0);
+        assert!((ebb(EBB / 2.0) - 1.0).abs() < 1e-6);
+        assert!(ebb(EBB / 4.0) > 0.4 && ebb(EBB / 4.0) < 0.6);
+    }
+
+    #[test]
+    fn the_control_button_steps_left_of_the_battery() {
+        let band = Rect::new(Vec2::ZERO, Vec2::new(1600.0, 32.0));
+        let mut tray = crate::tray::Tray::default();
+        let bare = tray.control_rect(band);
+        tray.battery = 60.0;
+        let moved = tray.control_rect(band);
+        assert_eq!(bare.origin.x - moved.origin.x, 60.0 + tray.button_gap);
+        assert!(moved.max().x <= tray.battery_rect(band, Vec2::new(60.0, 28.0)).origin.x);
     }
 
     #[test]

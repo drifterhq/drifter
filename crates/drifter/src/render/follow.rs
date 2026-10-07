@@ -303,6 +303,9 @@ impl State {
         self.tip_of = None;
         self.tip_want = None;
         self.tray.ink = palette.ink;
+        self.battery_seen = None;
+        self.battery_at = None;
+        self.show_battery = config.tray.battery;
         self.clock = None;
         self.stats = None;
         self.app_label = None;
@@ -428,6 +431,7 @@ impl State {
         let laid = (config.workspace.width, config.workspace.height) != self.screens_wide
             || config.monitor != self.monitors;
         self.screens_wide = (config.workspace.width, config.workspace.height);
+        self.show_battery = config.tray.battery;
         let reduce = config.access.reduce_motion;
         self.dock_logo.pace = drifter_core::welcome::logo_pace(
             drifter_core::welcome::Motion::of(reduce, config.workspace.wallpaper_motion),

@@ -252,11 +252,15 @@ stats = true
 # What the system info shows, left to right. Each one is a percentage.
 # "cpu"   all cores together
 # "ram"   memory in use
-# "battery"  charge left, CHG while charging. Hidden with no battery
 # a disk  by mount point, like "/" or "/home",
 #         or by device, like "sda3" or "nvme0n1p2".
 #         Its label is the device name, like SDA3.
-metrics = ["cpu", "ram", "/", "battery"]
+metrics = ["cpu", "ram", "/"]
+
+# The battery icon and its charge, left of the power button. It glows
+# slowly while it charges. A computer with no battery never shows it.
+# false hides it. Settings > Top Bar turns it on or off.
+battery = true
 
 [assets]
 # PNG with transparency. The top left pixel is the point that clicks.

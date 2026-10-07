@@ -357,12 +357,12 @@ impl Model {
             ));
         }
 
-        let (mut cpu, mut ram, mut battery, mut kept) = (false, false, false, Vec::new());
+        let (mut cpu, mut ram, mut kept) = (false, false, Vec::new());
         for text in &config.tray.metrics {
             match Metric::parse(text) {
                 Ok(Metric::Cpu) => cpu = true,
                 Ok(Metric::Ram) => ram = true,
-                Ok(Metric::Battery) => battery = true,
+                Ok(Metric::Battery) => kept.push(text.clone()),
                 Ok(Metric::Disk(name)) => {
                     let found = stats::find_disk(mounts, &name, &kernel).and_then(|mount| {
                         disks.iter_mut().find(|(_, device)| *device == mount.device)
@@ -407,7 +407,7 @@ impl Model {
             stats: config.tray.stats,
             cpu,
             ram,
-            battery,
+            battery: config.tray.battery,
             disks: disks.into_iter().map(|(disk, _)| disk).collect(),
             kept,
             side: config.window.buttons,
@@ -808,9 +808,6 @@ impl Model {
                 .filter(|disk| disk.on)
                 .map(|disk| disk.point.clone()),
         );
-        if self.battery {
-            out.push("battery".to_string());
-        }
         out.extend(self.kept.iter().cloned());
         out
     }
@@ -1030,9 +1027,6 @@ impl Model {
                     Row::new(Id::Ram, "Memory", Control::Switch(self.ram))
                         .detail("Memory in use")
                         .enabled(self.stats),
-                    Row::new(Id::Battery, "Battery", Control::Switch(self.battery))
-                        .detail("Charge left. CHG while it charges. Hidden with no battery")
-                        .enabled(self.stats),
                 ];
                 for (index, disk) in self.disks.iter().enumerate() {
                     info.push(
@@ -1067,8 +1061,10 @@ impl Model {
                                     zero: None,
                                 },
                             ),
+                            Row::new(Id::Battery, "Battery", Control::Switch(self.battery))
+                                .detail("Charge and charging, left of the power button"),
                         ],
-                        footer: None,
+                        footer: Some("A computer with no battery never shows it.".into()),
                         thumbs: None,
                     },
                     Group {
@@ -1882,6 +1878,9 @@ impl Model {
                 "stats",
                 toml_edit::Value::from(self.stats),
             );
+        }
+        if self.battery != before.battery {
+            put(&mut doc, "tray", "battery", toml_edit::Value::from(self.battery));
         }
         if self.metrics() != before.metrics() {
             let list: toml_edit::Array = self.metrics().iter().map(String::as_str).collect();
@@ -3785,7 +3784,7 @@ mod tests {
         assert!(model.stats && model.cpu && model.ram && model.battery);
         assert!(model.disks[0].on);
         assert!(!model.disks[1].on);
-        assert_eq!(model.metrics(), ["cpu", "ram", "/", "battery"]);
+        assert_eq!(model.metrics(), ["cpu", "ram", "/"]);
     }
 
     #[test]
@@ -3878,7 +3877,7 @@ mod tests {
         let out = after.write(&before, text).unwrap();
         let back = Config::parse(&out).unwrap();
         assert!(!back.tray.stats);
-        assert_eq!(back.tray.metrics, ["cpu", "/", "/home", "battery"]);
+        assert_eq!(back.tray.metrics, ["cpu", "/", "/home"]);
         back.validate().unwrap();
     }
 
