@@ -498,7 +498,7 @@ pub fn open(
         show_battery: config.tray.battery,
         glance: drifter_core::glance::Style::parse(&config.tray.style).unwrap_or(drifter_core::glance::Style::Calm),
         glance_fields: Vec::new(),
-        cpu_history: Vec::new(),
+        cpu_history: vec![0; drifter_core::glance::HISTORY],
         stats_busy: false,
         glance_card: None,
         card_busy: false,

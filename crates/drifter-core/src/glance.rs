@@ -225,14 +225,21 @@ pub fn paint_card(card: &Card, font: &Font, bold: &Font, fields: &[(String, u8)]
             )
         };
         let floor = area.max().y;
-        for at in 1..history.len() {
-            let (a, b) = (point(at - 1, history[at - 1]), point(at, history[at]));
-            let color = heat(share(history[at - 1].max(history[at])));
-            for step in 0..4 {
-                let x = a.x + (b.x - a.x) * (f64::from(step) + 0.5) / 4.0;
-                let y = a.y + (b.y - a.y) * (f64::from(step) + 0.5) / 4.0;
-                canvas.line(Vec2::new(x, y + 1.0), Vec2::new(x, floor), (b.x - a.x) / 4.0 + 0.4, color, 0.12);
-            }
+        let last = (history.len() - 1) as f64;
+        let columns = area.size.x.floor() as usize;
+        for column in 0..=columns {
+            let x = area.origin.x + column as f64;
+            let along = (column as f64 / area.size.x.max(1.0)) * last;
+            let (low, high) = (along.floor() as usize, (along.ceil() as usize).min(history.len() - 1));
+            let mix = along - low as f64;
+            let value = f64::from(history[low]) * (1.0 - mix) + f64::from(history[high]) * mix;
+            let top = area.max().y - 2.0 - value / 100.0 * (area.size.y - 6.0);
+            canvas.round_rect(
+                Rect::new(Vec2::new(x, top + 1.0), Vec2::new(1.0, (floor - top - 1.0).max(0.0))),
+                0.0,
+                heat(value / 100.0),
+                0.12,
+            );
         }
         for at in 1..history.len() {
             let color = heat(share(history[at - 1].max(history[at])));
