@@ -297,7 +297,7 @@ fn aurora((px, py): (f64, f64), (rx, ry): (f64, f64), t: f64, sky: &Sky) -> V3 {
     let size = 0.45 * (0.3 + 0.7 * fract(s * 977.0));
     let star = if s >= 0.995 { 1.0 } else { 0.0 }
         * (1.0 - smoothstep(0.0, size, (dx * dx + dy * dy).sqrt()))
-        * (0.6 + 0.4 * (t * 1.5 + s * 60.0).sin());
+        * (0.6 + 0.4 * (t * (0.8 + 1.4 * fract(s * 3137.0)) + fract(s * 7919.0) * std::f64::consts::TAU).sin());
     let lift = star * (1.0 - sky.light) * smoothstep(0.15, 0.6, v);
     col = add(col, [lift; 3]);
     let mut glow = [0.0; 3];
@@ -394,7 +394,7 @@ fn nebula((px, py): (f64, f64), (rx, ry): (f64, f64), time: f64, sky: &Sky) -> V
     let (dx, dy) = (fract(sp.0) - 0.5, fract(sp.1) - 0.5);
     let star = if s >= 0.993 { 1.0 } else { 0.0 }
         * (1.0 - smoothstep(0.0, 0.45 * (0.3 + 0.7 * fract(s * 977.0)), (dx * dx + dy * dy).sqrt()))
-        * (0.6 + 0.4 * (time * 1.2 + s * 50.0).sin());
+        * (0.6 + 0.4 * (time * (0.6 + 1.2 * fract(s * 3137.0)) + fract(s * 7919.0) * std::f64::consts::TAU).sin());
     add(col, [star * (1.0 - sky.light * 0.85); 3])
 }
 

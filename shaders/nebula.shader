@@ -9,7 +9,7 @@ vec3 wall(vec2 P){
  col+=B*smoothstep(.3,.75,d*w.x*1.6)*core*.8;
  col+=C*pow(d,3.)*.7;
  vec2 sp=P/R.y*260.; float s=hs(floor(sp));
- float star=step(.993,s)*(1.-smoothstep(0.,.45*(.3+.7*fract(s*977.)),length(fract(sp)-.5)))*(.6+.4*sin(T*1.2+s*50.));
+ float star=step(.993,s)*(1.-smoothstep(0.,.45*(.3+.7*fract(s*977.)),length(fract(sp)-.5)))*(.6+.4*sin(T*(.6+1.2*fract(s*3137.))+fract(s*7919.)*6.2832));
  col+=star*(1.-L*.85);
  return col;
 }

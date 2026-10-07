@@ -64,7 +64,7 @@ pub fn sun(hour: f64) -> Sun {
     }
 }
 
-static LAPSE: Mutex<Option<(Instant, f64)>> = Mutex::new(None);
+static LAPSE: Mutex<Option<(Instant, f64, f64)>> = Mutex::new(None);
 
 pub fn toggle_lapse(hour: f64) -> bool {
     let Ok(mut lapse) = LAPSE.lock() else {
@@ -72,16 +72,20 @@ pub fn toggle_lapse(hour: f64) -> bool {
     };
     *lapse = match lapse.is_some() {
         true => None,
-        false => Some((Instant::now(), hour)),
+        false => Some((Instant::now(), hour, 24.0 / DAY_IN)),
     };
     lapse.is_some()
 }
 
+pub fn hold(hour: Option<f64>) {
+    if let Ok(mut lapse) = LAPSE.lock() {
+        *lapse = hour.map(|hour| (Instant::now(), hour, 0.0));
+    }
+}
+
 pub fn lapsed(hour: f64) -> f64 {
     match LAPSE.lock().ok().and_then(|lapse| *lapse) {
-        Some((since, from)) => {
-            (from + since.elapsed().as_secs_f64() * 24.0 / DAY_IN).rem_euclid(24.0)
-        }
+        Some((since, from, speed)) => (from + since.elapsed().as_secs_f64() * speed).rem_euclid(24.0),
         None => hour,
     }
 }

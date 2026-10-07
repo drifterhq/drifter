@@ -2,7 +2,7 @@ vec3 wall(vec2 P){
  vec2 uv=P/R; float asp=R.x/R.y; vec2 p=vec2(uv.x*asp,uv.y);
  vec3 col=mix(S1,S0,smoothstep(0.,1.,uv.y));
  vec2 sp=p*180.; float s=hs(floor(sp));
- float star=step(.995,s)*(1.-smoothstep(0.,.45*(.3+.7*fract(s*977.)),length(fract(sp)-.5)))*(.6+.4*sin(T*1.5+s*60.));
+ float star=step(.995,s)*(1.-smoothstep(0.,.45*(.3+.7*fract(s*977.)),length(fract(sp)-.5)))*(.6+.4*sin(T*(.8+1.4*fract(s*3137.))+fract(s*7919.)*6.2832));
  col+=star*(1.-L)*smoothstep(.15,.6,uv.y);
  vec3 ac=vec3(0.);
  for(int i=0;i<3;i++){float fi=float(i);
