@@ -565,7 +565,7 @@ impl Chrome {
     }
 }
 
-pub const SHADOW_BLUR: f64 = 30.0;
+pub const SHADOW_BLUR: f64 = 44.0;
 
 pub fn shadow_patch(radius: f64, blur: f64) -> Image {
     let corner = (blur + radius).ceil();
