@@ -1500,10 +1500,13 @@ pub fn short_name(name: &str) -> String {
         " Email",
         " Text Editor",
     ] {
-        if let Some(head) = name.strip_suffix(tail)
-            && !head.trim().is_empty()
+        let cut = name.len().saturating_sub(tail.len());
+        if name.len() > tail.len()
+            && name.is_char_boundary(cut)
+            && name[cut..].eq_ignore_ascii_case(tail)
+            && !name[..cut].trim().is_empty()
         {
-            return head.trim().to_string();
+            return name[..cut].trim().to_string();
         }
     }
     name.to_string()
@@ -1688,6 +1691,7 @@ mod tests {
         assert!(pop.origin.x >= PAD && pop.max().x <= SIZE.x - PAD);
         assert_eq!(short_name("Thunar File Manager"), "Thunar");
         assert_eq!(short_name("Text Editor"), "Text Editor");
+        assert_eq!(short_name("VLC media player"), "VLC");
     }
 
     #[test]
