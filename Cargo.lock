@@ -448,7 +448,6 @@ dependencies = [
  "fontdue",
  "jpeg-decoder",
  "jpeg-encoder",
- "miniz_oxide 0.8.9",
  "png",
  "resvg",
  "serde",

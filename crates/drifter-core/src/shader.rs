@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::image::Image;
 
@@ -60,6 +60,43 @@ pub fn stem(path: &Path) -> String {
 
 pub fn half(path: &Path) -> bool {
     HALF.contains(&stem(path).as_str())
+}
+
+pub fn folders(data_home: &Path) -> Vec<PathBuf> {
+    vec![
+        data_home.join("drifter/shaders"),
+        PathBuf::from("/usr/local/share/drifter/shaders"),
+        PathBuf::from("/usr/share/drifter/shaders"),
+    ]
+}
+
+pub fn find(name: &str, folders: &[PathBuf]) -> Option<PathBuf> {
+    folders
+        .iter()
+        .map(|folder| folder.join(name))
+        .find(|path| path.is_file())
+}
+
+pub fn installed(folders: &[PathBuf]) -> Vec<PathBuf> {
+    let mut found: Vec<PathBuf> = Vec::new();
+    for folder in folders {
+        let Ok(entries) = std::fs::read_dir(folder) else {
+            continue;
+        };
+        let mut here: Vec<PathBuf> = entries
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| is_shader(path) && path.is_file())
+            .filter(|path| {
+                !found
+                    .iter()
+                    .any(|seen| seen.file_name() == path.file_name())
+            })
+            .collect();
+        here.sort();
+        found.extend(here);
+    }
+    found
 }
 
 pub fn hour_now() -> f64 {
@@ -467,8 +504,28 @@ mod tests {
     }
 
     #[test]
+    fn shaders_are_found_by_name_and_listed_once() {
+        let root = std::env::temp_dir().join(format!("drifter-shader-dirs-{}", std::process::id()));
+        let (mine, shared) = (root.join("mine"), root.join("shared"));
+        std::fs::create_dir_all(&mine).unwrap();
+        std::fs::create_dir_all(&shared).unwrap();
+        std::fs::write(mine.join("ink.shader"), b"a").unwrap();
+        std::fs::write(shared.join("ink.shader"), b"b").unwrap();
+        std::fs::write(shared.join("silk.shader"), b"c").unwrap();
+        std::fs::write(shared.join("note.txt"), b"d").unwrap();
+        let folders = vec![mine.clone(), shared.clone()];
+        assert_eq!(find("ink.shader", &folders), Some(mine.join("ink.shader")));
+        assert_eq!(find("silk.shader", &folders), Some(shared.join("silk.shader")));
+        assert_eq!(find("gone.shader", &folders), None);
+        assert_eq!(
+            installed(&folders),
+            vec![mine.join("ink.shader"), shared.join("silk.shader")]
+        );
+    }
+
+    #[test]
     fn every_shipped_shader_has_a_still_twin() {
-        let shelf = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../livepapers");
+        let shelf = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../shaders");
         let mut names: Vec<String> = std::fs::read_dir(&shelf)
             .unwrap()
             .flatten()
@@ -486,7 +543,7 @@ mod tests {
 
     #[test]
     fn every_shipped_shader_reads_as_one_program() {
-        let shelf = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../livepapers");
+        let shelf = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../shaders");
         for entry in std::fs::read_dir(&shelf).unwrap().flatten() {
             let path = entry.path();
             if !is_shader(&path) {

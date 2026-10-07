@@ -56,7 +56,7 @@ assets = [
     ["../../conf/xdpw.conf", "etc/xdg/xdg-desktop-portal-wlr/drifter", "644"],
     ["../../conf/default.toml", "usr/share/drifter/conf/", "644"],
     ["../../img/cursor.png", "usr/share/drifter/img/", "644"],
-    ["../../livepapers/*", "usr/share/drifter/livepapers/", "644"],
+    ["../../shaders/*", "usr/share/drifter/shaders/", "644"],
     ["../../img/dock/*", "usr/share/drifter/img/dock/", "644"],
     ["../../img/window/*", "usr/share/drifter/img/window/", "644"],
     ["../../img/users/*", "usr/share/drifter/img/users/", "644"],

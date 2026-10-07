@@ -123,7 +123,7 @@ impl Live {
 
 impl State {
     pub(super) fn watch_wallpaper(&mut self) {
-        let hour = drifter_core::livepaper::hour_now();
+        let hour = drifter_core::night::hour_now();
         if let (Some(shown), Some(was)) = (self.paper.shown.clone(), self.paper.hour)
             && was != hour
         {
@@ -217,8 +217,8 @@ impl State {
             self.fading = old.map(|old| (old, Instant::now()));
             self.frost_key = None;
         }
-        self.paper.hour = drifter_core::livepaper::is_livepaper(&path)
-            .then(drifter_core::livepaper::hour_now);
+        self.paper.hour = drifter_core::shader::is_shader(&path)
+            .then(drifter_core::night::hour_now);
         self.paper.shown = Some(path);
         self.kick_now();
     }

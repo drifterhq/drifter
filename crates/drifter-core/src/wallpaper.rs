@@ -131,7 +131,7 @@ pub fn is_picture(path: &std::path::Path) -> bool {
             .extension()
             .and_then(|ext| ext.to_str())
             .map(|ext| ext.to_lowercase())
-            .is_some_and(|ext| matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "svg" | "livepaper" | "shader"))
+            .is_some_and(|ext| matches!(ext.as_str(), "png" | "jpg" | "jpeg" | "svg" | "shader"))
 }
 
 pub fn next_picture(

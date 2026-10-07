@@ -268,7 +268,7 @@ pub struct Model {
     pub rotation: WallpaperOrder,
     pub drift: u32,
     pub pictures: Vec<PathBuf>,
-    pub livepapers: Vec<PathBuf>,
+    pub shaders: Vec<PathBuf>,
     pub names: HashMap<String, String>,
     pub monitors: Vec<Monitor>,
     pub picked: usize,
@@ -444,7 +444,7 @@ impl Model {
                 .wallpaper_folder()
                 .map(|folder| crate::wallpaper::pictures(&clean(folder)))
                 .unwrap_or_default(),
-            livepapers: crate::livepaper::installed(&config.livepaper_folders())
+            shaders: crate::shader::installed(&config.shader_folders())
                 .into_iter()
                 .map(clean)
                 .collect(),
@@ -1469,7 +1469,7 @@ impl Model {
         groups.insert(
             1,
             Group {
-                header: Some("Livepapers"),
+                header: Some("Shaders"),
                 rows: vec![Row::new(
                     Id::Drift,
                     "Motion",
@@ -1482,16 +1482,16 @@ impl Model {
                     },
                 )],
                 footer: Some(
-                    match self.livepapers.is_empty() {
-                        true => "No livepapers yet. Put .shader or .livepaper files in ~/.local/share/drifter/livepapers.",
-                        false => "A livepaper changes with the time of day. Click one to use it. Motion sets how fast a .shader livepaper drifts.",
+                    match self.shaders.is_empty() {
+                        true => "No shaders yet. Put .shader files in ~/.local/share/drifter/shaders.",
+                        false => "A shader wallpaper follows the time of day. Click one to use it. Motion sets how fast it drifts.",
                     }
                     .into(),
                 ),
-                thumbs: (!self.livepapers.is_empty()).then(|| Thumbs {
-                    shelf: Shelf::Livepapers,
-                    paths: self.livepapers.clone(),
-                    chosen: chosen_in(&self.livepapers),
+                thumbs: (!self.shaders.is_empty()).then(|| Thumbs {
+                    shelf: Shelf::Shaders,
+                    paths: self.shaders.clone(),
+                    chosen: chosen_in(&self.shaders),
                 }),
             },
         );
@@ -1708,7 +1708,7 @@ impl Model {
 
     pub fn choose_picture(&mut self, shelf: Shelf, at: usize) {
         let list = match shelf {
-            Shelf::Livepapers => &self.livepapers,
+            Shelf::Shaders => &self.shaders,
             Shelf::Pictures => &self.pictures,
         };
         if let Some(path) = list.get(at) {
@@ -1738,7 +1738,7 @@ impl Model {
         if self.wallpaper != before.wallpaper
             && let Some(path) = &self.wallpaper
         {
-            let shared = self.livepapers.contains(path);
+            let shared = self.shaders.contains(path);
             let written = match (shared, path.file_name()) {
                 (true, Some(name)) => name.to_string_lossy().into_owned(),
                 _ => path.to_string_lossy().into_owned(),
@@ -2350,7 +2350,7 @@ pub struct Thumbs {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Shelf {
-    Livepapers,
+    Shaders,
     Pictures,
 }
 
@@ -4325,23 +4325,23 @@ mod tests {
     }
 
     #[test]
-    fn a_livepaper_is_clicked_and_saved_by_name() {
+    fn a_shader_is_clicked_and_saved_by_name() {
         let shelf = std::env::temp_dir().join(format!("drifter-shelf-{}", std::process::id()));
         std::fs::create_dir_all(&shelf).unwrap();
         let before = model(&Config::default());
         let mut after = before.clone();
-        after.livepapers = vec![shelf.join("bloom.livepaper"), shelf.join("tiles.livepaper")];
+        after.shaders = vec![shelf.join("ink.shader"), shelf.join("silk.shader")];
         let look = Look::default();
         let groups = after.groups(Section::Wallpaper);
-        assert_eq!(groups[1].header, Some("Livepapers"));
+        assert_eq!(groups[1].header, Some("Shaders"));
         let placed = look.place(SIZE, Section::Wallpaper, &groups, 0.0);
         let tiles = placed[1].thumbs[1].center();
         let hit = look.hit(SIZE, Section::Wallpaper, &after, 0.0, tiles);
-        assert_eq!(hit, Some(Hit::Picture(Shelf::Livepapers, 1)));
-        after.choose_picture(Shelf::Livepapers, 1);
+        assert_eq!(hit, Some(Hit::Picture(Shelf::Shaders, 1)));
+        after.choose_picture(Shelf::Shaders, 1);
         assert_eq!(after.groups(Section::Wallpaper)[1].thumbs.as_ref().unwrap().chosen, Some(1));
         let back = Config::parse(&after.write(&before, "").unwrap()).unwrap();
-        assert_eq!(back.workspace.wallpaper.as_deref(), Some(std::path::Path::new("tiles.livepaper")));
+        assert_eq!(back.workspace.wallpaper.as_deref(), Some(std::path::Path::new("silk.shader")));
     }
 
     #[test]

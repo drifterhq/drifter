@@ -10,10 +10,9 @@ height = 9
 # A .shader file is a live wallpaper drawn by the graphics card. Its colors
 # follow the time of day. Drifter ships aurora, mesh, ink, silk, nebula,
 # topo, caustics and film.
-# A .livepaper file holds 24 pictures, one for each hour of the day.
-# Give a .shader or .livepaper just by its name to find it in
-# ~/.local/share/drifter/livepapers, then in ../livepapers, then in
-# /usr/share/drifter/livepapers. If it is in none of them, Drifter shows
+# Give a .shader just by its name to find it in
+# ~/.local/share/drifter/shaders, then in ../shaders, then in
+# /usr/share/drifter/shaders. If it is in none of them, Drifter shows
 # aurora.shader instead.
 # PNG, JPEG and SVG pictures work too. Drifter reads the format from the
 # first bytes of the file. If the file is missing, Drifter logs it and runs

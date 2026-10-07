@@ -718,7 +718,7 @@ impl Settings {
         if self.section != Section::Wallpaper {
             return;
         }
-        let shown = [self.model.livepapers.clone(), self.model.pictures.clone()].concat();
+        let shown = [self.model.shaders.clone(), self.model.pictures.clone()].concat();
         for path in shown {
             if self.asked.insert(path.clone()) {
                 let _ = self.loads.send(path);

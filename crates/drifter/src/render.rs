@@ -254,8 +254,8 @@ impl Paper {
             next: None,
             hour: config
                 .wallpaper_path()
-                .filter(|path| drifter_core::livepaper::is_livepaper(path))
-                .map(|_| drifter_core::livepaper::hour_now()),
+                .filter(|path| drifter_core::shader::is_shader(path))
+                .map(|_| drifter_core::night::hour_now()),
             drift: f64::from(config.workspace.wallpaper_motion) / 100.0,
             clock: (0.0, Instant::now()),
         }

@@ -1138,17 +1138,17 @@ pub fn defaults_for(path: &Path, shared: &Path, exists: impl Fn(&Path) -> bool) 
 
 pub fn resolve_picture(
     asked: &Path,
-    livepapers: &[PathBuf],
+    shaders: &[PathBuf],
     beside: impl Fn(&Path) -> PathBuf,
 ) -> PathBuf {
-    let named = crate::livepaper::is_livepaper(asked) && asked.components().count() == 1;
-    if named && let Some(found) = crate::livepaper::find(&asked.to_string_lossy(), livepapers) {
+    let named = crate::shader::is_shader(asked) && asked.components().count() == 1;
+    if named && let Some(found) = crate::shader::find(&asked.to_string_lossy(), shaders) {
         return found;
     }
     let near = beside(asked);
     match near.exists() {
         true => near,
-        false => crate::livepaper::find(FALLBACK_WALLPAPER, livepapers).unwrap_or(near),
+        false => crate::shader::find(FALLBACK_WALLPAPER, shaders).unwrap_or(near),
     }
 }
 
@@ -1275,14 +1275,14 @@ impl Config {
 
     pub fn wallpaper_path(&self) -> Option<PathBuf> {
         let asked = self.workspace.wallpaper.as_deref()?;
-        Some(resolve_picture(asked, &self.livepaper_folders(), |path| {
+        Some(resolve_picture(asked, &self.shader_folders(), |path| {
             self.beside(path)
         }))
     }
 
-    pub fn livepaper_folders(&self) -> Vec<PathBuf> {
-        let mut folders = crate::livepaper::folders(&Self::data_dir());
-        folders.insert(1, self.beside(Path::new("../livepapers")));
+    pub fn shader_folders(&self) -> Vec<PathBuf> {
+        let mut folders = crate::shader::folders(&Self::data_dir());
+        folders.insert(1, self.beside(Path::new("../shaders")));
         folders
     }
 
@@ -1902,21 +1902,17 @@ mod tests {
     }
 
     #[test]
-    fn a_livepaper_name_is_looked_up_and_falls_back_to_aurora() {
+    fn a_shader_name_is_looked_up_and_falls_back_to_aurora() {
         let root = std::env::temp_dir().join(format!("drifter-resolve-{}", std::process::id()));
-        let shelf = root.join("livepapers");
+        let shelf = root.join("shaders");
         std::fs::create_dir_all(&shelf).unwrap();
-        std::fs::write(shelf.join("bloom.livepaper"), b"z").unwrap();
+        std::fs::write(shelf.join("silk.shader"), b"z").unwrap();
         std::fs::write(shelf.join(FALLBACK_WALLPAPER), b"vec3 wall(vec2 P){return vec3(0.);}").unwrap();
         let beside = |path: &Path| root.join("conf").join(path);
         let folders = vec![shelf.clone()];
         assert_eq!(
-            resolve_picture(Path::new("bloom.livepaper"), &folders, beside),
-            shelf.join("bloom.livepaper")
-        );
-        assert_eq!(
-            resolve_picture(Path::new("gone.livepaper"), &folders, beside),
-            shelf.join(FALLBACK_WALLPAPER)
+            resolve_picture(Path::new("silk.shader"), &folders, beside),
+            shelf.join("silk.shader")
         );
         assert_eq!(
             resolve_picture(Path::new("ink.shader"), &folders, beside),
