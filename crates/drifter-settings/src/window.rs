@@ -999,7 +999,8 @@ impl Settings {
         sided: &dyn Fn(&Self, f64, f64) -> drifter_core::Image,
     ) -> bool {
         let view = self.view();
-        let tall = view.y;
+        let head = self.look.search_rect().max().y + 8.0;
+        let tall = view.y - head;
         if tall <= 0.0 {
             return false;
         }
@@ -1018,8 +1019,8 @@ impl Settings {
             return false;
         };
         let region = drifter_core::Rect::new(
-            drifter_core::Vec2::ZERO,
-            drifter_core::Vec2::new(self.look.sidebar.min(view.x), view.y),
+            drifter_core::Vec2::new(0.0, head),
+            drifter_core::Vec2::new(self.look.sidebar.min(view.x), tall),
         );
         splice(base, top, next, view, region, side - page as f64 * tall)
     }
