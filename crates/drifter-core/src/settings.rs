@@ -235,6 +235,7 @@ pub struct Monitor {
     pub flip: bool,
     pub vrr: bool,
     pub mirror: Option<String>,
+    pub profile: Option<String>,
 }
 
 impl Monitor {
@@ -334,6 +335,7 @@ pub struct Model {
     pub wifi: Option<crate::net::Wifi>,
     pub blue: Option<crate::net::Blue>,
     pub net_note: Option<String>,
+    pub display_note: Option<String>,
     pub users: Option<crate::users::Users>,
     pub user_note: Option<String>,
     pub faces: Vec<PathBuf>,
@@ -515,6 +517,7 @@ impl Model {
             wifi: None,
             blue: None,
             net_note: None,
+            display_note: None,
             users: None,
             user_note: None,
             faces: crate::users::stock(&config.faces_dir()),
@@ -585,6 +588,7 @@ impl Model {
                     flip: own.is_some_and(|each| each.flip),
                     vrr: own.is_some_and(|each| each.vrr),
                     mirror: own.and_then(|each| each.mirror.clone()),
+                    profile: own.and_then(|each| each.profile.clone()),
                     modes: kept.map(|each| each.modes.clone()).unwrap_or_default(),
                     current: kept.and_then(|each| each.current),
                     name: head.name,
@@ -695,6 +699,7 @@ impl Model {
                 flip: monitor.flip,
                 vrr: monitor.vrr,
                 mirror: monitor.mirror.clone(),
+                profile: monitor.profile.clone(),
             })
             .collect();
         for kept in &self.monitor_config {
@@ -717,6 +722,12 @@ impl Model {
         }
         let rects = self.monitor_rects();
         self.monitors[at].place = screens::snap(&rects, at, wanted.round());
+    }
+
+    pub fn choose_profile(&mut self, file: PathBuf) {
+        if let Some(monitor) = self.monitors.get_mut(self.picked) {
+            monitor.profile = Some(file.display().to_string());
+        }
     }
 
     fn step_mirror(&mut self, up: bool) {
@@ -785,6 +796,20 @@ impl Model {
             };
             rows.push(stepped(Id::Refresh, crate::lang::t("Refresh rate"), rates > 1, rate));
         }
+        let (marks, shown) = match monitor.profile.as_deref() {
+            Some(path) => (
+                vec![Mark::Text(crate::lang::t("Choose")), Mark::Text(crate::lang::t("Reset"))],
+                std::path::Path::new(path)
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| path.to_string()),
+            ),
+            None => (
+                vec![Mark::Text(crate::lang::t("Choose"))],
+                crate::lang::t("None. Colors are shown as sRGB").to_string(),
+            ),
+        };
+        rows.push(Row::new(Id::ColorProfile, crate::lang::t("Color profile"), Control::Buttons(marks)).detail(&shown));
         rows.push(
             Row::new(Id::Vrr, crate::lang::t("Adaptive sync"), Control::Switch(monitor.vrr))
                 .detail(crate::lang::t("Smoother games and video on FreeSync and G-Sync monitors")),
@@ -866,6 +891,7 @@ impl Model {
             .chain(self.mode_rows(monitor))
             .collect(),
             footer: Some(match self.monitors.len() {
+                _ if self.display_note.is_some() => self.display_note.clone().unwrap_or_default(),
                 1 => crate::lang::t("Plug in another monitor to arrange them side by side.").into(),
                 _ => {
                     crate::lang::t("Click a monitor to choose it. Drag it to move it. Edges snap together.").into()
@@ -1830,6 +1856,12 @@ impl Model {
             (Id::Resolution, at) => self.step_mode(true, at == 1),
             (Id::Refresh, at) => self.step_mode(false, at == 1),
             (Id::Mirror, at) => self.step_mirror(at == 1),
+            (Id::ColorProfile, 0) => return Some(Ask::Files(For::ColorProfile)),
+            (Id::ColorProfile, _) => {
+                if let Some(monitor) = self.monitors.get_mut(self.picked) {
+                    monitor.profile = None;
+                }
+            }
             (Id::MyName | Id::MyPicture | Id::MyPassword | Id::User(_) | Id::AddUser, index) => {
                 return self.press_user(id, index);
             }
@@ -2268,6 +2300,9 @@ fn put_monitors(doc: &mut toml_edit::DocumentMut, monitors: &[MonitorConfig]) {
         if let Some(source) = monitor.mirrors() {
             table.insert("mirror", toml_edit::value(source));
         }
+        if let Some(profile) = monitor.profile.as_deref().filter(|path| !path.trim().is_empty()) {
+            table.insert("profile", toml_edit::value(profile));
+        }
         list.push(table);
     }
     doc.remove("monitor");
@@ -2507,6 +2542,7 @@ pub enum Id {
     MonitorOn,
     Vrr,
     Mirror,
+    ColorProfile,
     Brightness,
     Picture,
     Variant,

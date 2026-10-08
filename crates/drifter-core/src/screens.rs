@@ -29,6 +29,8 @@ pub struct MonitorConfig {
     pub vrr: bool,
     #[serde(default)]
     pub mirror: Option<String>,
+    #[serde(default)]
+    pub profile: Option<String>,
 }
 
 fn one() -> f64 {
@@ -52,6 +54,7 @@ impl MonitorConfig {
             flip: false,
             vrr: false,
             mirror: None,
+            profile: None,
         }
     }
 
@@ -343,6 +346,7 @@ mod tests {
             flip: false,
             vrr: false,
             mirror: None,
+            profile: None,
         }
     }
 

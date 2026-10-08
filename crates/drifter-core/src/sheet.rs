@@ -35,6 +35,7 @@ pub enum For {
     WifiEnterprise(usize),
     BluePin,
     BlueConfirm,
+    ColorProfile,
     NetInfo(usize),
     MyName,
     MyPassword,
@@ -80,6 +81,7 @@ pub enum Kind {
     Pictures,
     Fonts,
     Configs,
+    Profiles,
 }
 
 impl For {
@@ -90,6 +92,7 @@ impl For {
             }
             For::Font => Kind::Fonts,
             For::Import => Kind::Configs,
+            For::ColorProfile => Kind::Profiles,
             _ => Kind::Pictures,
         }
     }
@@ -275,6 +278,9 @@ pub fn entries(folder: &Path, kind: Kind) -> Vec<Entry> {
                     Kind::Pictures => crate::wallpaper::is_picture(&path),
                     Kind::Fonts => is_font(&path),
                     Kind::Configs => path.extension().is_some_and(|ext| ext == "toml"),
+                    Kind::Profiles => path
+                        .extension()
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("icc") || ext.eq_ignore_ascii_case("icm")),
                 };
             wanted.then_some(Entry { name, path, folder })
         })
@@ -753,6 +759,7 @@ impl Sheet {
             For::Wifi(_) | For::WifiEnterprise(_) => crate::lang::t("Join a network"),
             For::WifiHidden => crate::lang::t("Join a hidden network"),
             For::BluePin | For::BlueConfirm => crate::lang::t("Pair a device"),
+            For::ColorProfile => crate::lang::t("Choose a color profile"),
             For::NetInfo(_) => crate::lang::t("Network details"),
             For::MyName => crate::lang::t("Change your full name"),
             For::MyPassword => crate::lang::t("Change your password"),

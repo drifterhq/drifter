@@ -1909,6 +1909,10 @@ impl Settings {
                 .or_else(|| Some(PathBuf::from("/usr/share/fonts")).filter(|f| f.is_dir()))
                 .unwrap_or_else(home),
             For::WindowArt => near(self.model.assets[2].as_ref()).unwrap_or_else(home),
+            For::ColorProfile => [home().join(".local/share/icc"), PathBuf::from("/usr/share/color/icc")]
+                .into_iter()
+                .find(|folder| folder.is_dir())
+                .unwrap_or_else(home),
             For::DockArt => near(self.model.assets[3].as_ref()).unwrap_or_else(home),
             _ => home(),
         };
@@ -2034,6 +2038,18 @@ impl Settings {
             Pick::File(file) if purpose == For::Import => {
                 self.sheet = None;
                 self.import(&file);
+            }
+            Pick::File(file) if purpose == For::ColorProfile => {
+                self.sheet = None;
+                match drifter_core::color::load(&file) {
+                    Ok(_) => {
+                        self.model.display_note = None;
+                        self.model.choose_profile(file);
+                        self.unsaved = true;
+                    }
+                    Err(error) => self.model.display_note = Some(error),
+                }
+                self.stale = true;
             }
             Pick::Folder(folder) => {
                 match purpose {

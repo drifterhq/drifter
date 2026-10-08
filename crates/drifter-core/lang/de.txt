@@ -363,6 +363,18 @@ You're all caught up
 Clear
 = Leeren
 
+this is not an ICC color profile
+= das ist kein ICC-Farbprofil
+
+only RGB display profiles can be used
+= nur RGB-Bildschirmprofile können verwendet werden
+
+the profile is cut short
+= das Profil ist unvollständig
+
+the profile has no tone curves Drifter can use
+= das Profil hat keine Tonkurven, die Drifter nutzen kann
+
 Do Not Disturb
 = Nicht stören
 
@@ -666,6 +678,18 @@ Resolution
 Refresh rate
 = Bildwiederholrate
 
+Choose
+= Wählen
+
+Reset
+= Zurücksetzen
+
+None. Colors are shown as sRGB
+= Keins. Farben werden als sRGB gezeigt
+
+Color profile
+= Farbprofil
+
 Adaptive sync
 = Adaptive Synchronisierung
 
@@ -866,12 +890,6 @@ Skip the password when Drifter starts
 
 This counts when Drifter starts from a text console. A login screen such as GDM or SDDM asks for the password itself.
 = Das gilt, wenn Drifter von einer Textkonsole startet. Ein Anmeldebildschirm wie GDM oder SDDM fragt selbst nach dem Passwort.
-
-Choose
-= Wählen
-
-Reset
-= Zurücksetzen
 
 The dock, the trash and other apps open these. Reset goes back to the system's choice.
 = Das Dock, der Papierkorb und andere Apps öffnen diese. Zurücksetzen nimmt wieder die Wahl des Systems.
@@ -1682,6 +1700,9 @@ Join a network
 
 Pair a device
 = Gerät koppeln
+
+Choose a color profile
+= Farbprofil wählen
 
 Network details
 = Netzwerkdetails
