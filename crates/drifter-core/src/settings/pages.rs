@@ -757,8 +757,10 @@ impl Model {
                         .detail("Text in apps is a quarter bigger"),
                     Row::new(Id::HighContrast, "High contrast", Control::Switch(access.high_contrast))
                         .detail("Apps use stronger edges and colors"),
+                    Row::new(Id::ScreenReader, "Screen reader", Control::Switch(access.screen_reader))
+                        .detail("Orca reads apps aloud. Super+Alt+S turns it on or off"),
                 ],
-                footer: None,
+                footer: Some("The screen reader needs Orca. Install it with: sudo apt install orca".into()),
                 thumbs: None,
             },
             Group {
@@ -1017,6 +1019,7 @@ impl Model {
             (Id::HighContrast, Value::Switch(on)) => self.access.high_contrast = on,
             (Id::ReduceMotion, Value::Switch(on)) => self.access.reduce_motion = on,
             (Id::StickyKeys, Value::Switch(on)) => self.access.sticky_keys = on,
+            (Id::ScreenReader, Value::Switch(on)) => self.access.screen_reader = on,
             (Id::ShotFormat, Value::Choice(n)) => {
                 self.shots.format = match n {
                     0 => ShotFormat::Png,
@@ -1367,6 +1370,7 @@ impl Model {
             ("high_contrast", access.high_contrast, was.high_contrast),
             ("reduce_motion", access.reduce_motion, was.reduce_motion),
             ("sticky_keys", access.sticky_keys, was.sticky_keys),
+            ("screen_reader", access.screen_reader, was.screen_reader),
         ] {
             if now != then {
                 put(doc, "access", key, flag(now));

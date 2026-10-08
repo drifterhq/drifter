@@ -273,6 +273,7 @@ enum Shortcut {
     Media(crate::media::Key),
     Vt(i32),
     Swallow,
+    Heard(u32),
 }
 
 struct Paper {
@@ -655,6 +656,9 @@ pub struct State {
     place_saves: Vec<(usize, drifter_core::shortcut::Combo)>,
     note_folders: std::collections::HashMap<u32, PathBuf>,
     access: drifter_core::Access,
+    a11y: Option<crate::a11y::Monitor>,
+    reading: bool,
+    a11y_locks: Option<(bool, bool)>,
     sticky: drifter_core::sticky::Sticky,
     shots: drifter_core::Shots,
     screen: Vec2,

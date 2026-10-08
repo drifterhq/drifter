@@ -958,6 +958,8 @@ pub struct Keys {
     pub shot_part: String,
     #[serde(default = "key_shot_bar")]
     pub shot_bar: String,
+    #[serde(default = "key_screen_reader")]
+    pub screen_reader: String,
 }
 
 fn key_shot_screen() -> String {
@@ -970,6 +972,10 @@ fn key_shot_part() -> String {
 
 fn key_shot_bar() -> String {
     Action::ShotBar.default_combo().into()
+}
+
+fn key_screen_reader() -> String {
+    Action::ScreenReader.default_combo().into()
 }
 
 fn key_search() -> String {
@@ -1013,6 +1019,7 @@ impl Default for Keys {
             shot_screen: String::new(),
             shot_part: String::new(),
             shot_bar: String::new(),
+            screen_reader: String::new(),
         };
         for action in Action::ALL {
             *keys.get_mut(action) = action.default_combo().to_string();
@@ -1038,6 +1045,7 @@ impl Keys {
             Action::ShotScreen => &self.shot_screen,
             Action::ShotPart => &self.shot_part,
             Action::ShotBar => &self.shot_bar,
+            Action::ScreenReader => &self.screen_reader,
         }
     }
 
@@ -1057,6 +1065,7 @@ impl Keys {
             Action::ShotScreen => &mut self.shot_screen,
             Action::ShotPart => &mut self.shot_part,
             Action::ShotBar => &mut self.shot_bar,
+            Action::ScreenReader => &mut self.screen_reader,
         }
     }
 
@@ -1152,6 +1161,8 @@ pub struct Access {
     pub reduce_motion: bool,
     #[serde(default)]
     pub sticky_keys: bool,
+    #[serde(default)]
+    pub screen_reader: bool,
 }
 
 pub const LARGE_TEXT: f64 = 1.25;

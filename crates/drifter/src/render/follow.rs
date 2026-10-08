@@ -204,7 +204,44 @@ impl State {
                 crate::apps::open_role(Role::Browser, &self.apps_chosen, &self.socket)
             }
             Action::Settings => self.open_settings(),
+            Action::ScreenReader => {
+                let on = !self.access.screen_reader;
+                self.access.screen_reader = on;
+                self.follow_reader();
+                self.save_key(|text| drifter_core::settings::write_flag(text, "access", "screen_reader", on));
+            }
         }
+    }
+
+    pub(super) fn follow_reader(&mut self) {
+        let on = self.access.screen_reader;
+        if on == self.reading {
+            return;
+        }
+        self.reading = on;
+        gsettings(vec![(
+            "org.gnome.desktop.a11y.applications",
+            "screen-reader-enabled",
+            on.to_string(),
+        )]);
+        if !on {
+            if let Some(monitor) = self.a11y.as_ref() {
+                monitor.forget();
+            }
+            crate::a11y::stop_orca();
+            return;
+        }
+        if self.a11y.is_none() {
+            match crate::a11y::Monitor::start() {
+                Ok(monitor) => self.a11y = Some(monitor),
+                Err(error) => {
+                    log!("drifter: {error}");
+                    self.reading = false;
+                    return;
+                }
+            }
+        }
+        crate::apps::launch(&["orca".to_string(), "--replace".to_string()], &self.socket);
     }
 
     pub(super) fn follow_looks(&mut self, config: &Config) {
@@ -540,6 +577,9 @@ impl State {
             tell_access(Some(&self.access), &config.access);
         }
         self.access = config.access;
+        if self.drm.is_some() {
+            self.follow_reader();
+        }
         self.shots = config.screenshots.clone();
         for edge in Edge::ALL {
             if !pinned[edge.index()] && self.tunables.bar_hides[edge.index()] {

@@ -613,6 +613,9 @@ pub fn open(
         place_saves: Vec::new(),
         note_folders: std::collections::HashMap::new(),
         access: config.access,
+        a11y: None,
+        reading: false,
+        a11y_locks: None,
         sticky: drifter_core::sticky::Sticky::default(),
         shots: config.screenshots.clone(),
         screen,
@@ -879,6 +882,7 @@ pub fn open(
     if live {
         crate::apps::start_x11(&socket_name);
         crate::portal::announce(&socket_name);
+        state.follow_reader();
     }
     let poll = state_poll_fd(&mut state);
     handle

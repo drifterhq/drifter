@@ -748,6 +748,7 @@ impl State {
             true => KeyState::Pressed,
             false => KeyState::Released,
         };
+        let before = keyboard.modifier_state();
         let shortcut = keyboard.input::<Shortcut, _>(
             self,
             smithay::input::keyboard::Keycode::new(code),
@@ -756,6 +757,24 @@ impl State {
             time,
             |state, held, keysym| {
                 use drifter_core::shortcut::{Action, Mods, keysym_word};
+                if let Some(monitor) = state.a11y.as_ref() {
+                    let sym = keysym.modified_sym();
+                    let mods = held.serialized;
+                    let heard = crate::a11y::Key {
+                        released: !pressed,
+                        state: mods.depressed | mods.latched | mods.locked,
+                        keysym: sym.raw(),
+                        unichar: sym.key_char().map_or(0, u32::from),
+                        keycode: code as u16,
+                    };
+                    if monitor.key(heard) {
+                        match pressed {
+                            true => state.swallowed.push(code),
+                            false => state.swallowed.retain(|held| *held != code),
+                        }
+                        return FilterResult::Intercept(Shortcut::Heard(sym.raw()));
+                    }
+                }
                 if let Some(vt) = drifter_core::shortcut::vt_number(keysym.modified_sym().raw())
                     && pressed
                 {
@@ -844,6 +863,7 @@ impl State {
                     media.press(key);
                 }
             }
+            Some(Shortcut::Heard(sym)) => self.keep_locks(sym, pressed, before, code, time),
             Some(Shortcut::Swallow) | None => {}
         }
         let held = keyboard.modifier_state();
@@ -852,6 +872,46 @@ impl State {
             (wanted.alt && held.alt) || (wanted.ctrl && held.ctrl) || (wanted.logo && held.logo);
         if self.switch.is_some() && !still {
             self.switch_commit();
+        }
+    }
+
+    fn keep_locks(
+        &mut self,
+        sym: u32,
+        pressed: bool,
+        before: smithay::input::keyboard::ModifiersState,
+        code: u32,
+        time: u32,
+    ) {
+        use smithay::input::keyboard::FilterResult;
+        use smithay::utils::SERIAL_COUNTER;
+        const CAPS_LOCK: u32 = 0xffe5;
+        const NUM_LOCK: u32 = 0xff7f;
+
+        if sym != CAPS_LOCK && sym != NUM_LOCK {
+            return;
+        }
+        if pressed {
+            self.a11y_locks = Some((before.caps_lock, before.num_lock));
+            return;
+        }
+        let Some(locks) = self.a11y_locks.take() else {
+            return;
+        };
+        let keyboard = self.wayland.keyboard.clone();
+        let now = keyboard.modifier_state();
+        if (now.caps_lock, now.num_lock) == locks {
+            return;
+        }
+        for state in [KeyState::Pressed, KeyState::Released] {
+            keyboard.input::<(), _>(
+                self,
+                smithay::input::keyboard::Keycode::new(code),
+                state,
+                SERIAL_COUNTER.next_serial(),
+                time,
+                |_, _, _| FilterResult::Intercept(()),
+            );
         }
     }
 

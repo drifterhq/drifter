@@ -16,10 +16,11 @@ pub enum Action {
     ShotScreen,
     ShotPart,
     ShotBar,
+    ScreenReader,
 }
 
 impl Action {
-    pub const ALL: [Action; 14] = [
+    pub const ALL: [Action; 15] = [
         Action::Switch,
         Action::Close,
         Action::Screenshot,
@@ -34,6 +35,7 @@ impl Action {
         Action::ShotScreen,
         Action::ShotPart,
         Action::ShotBar,
+        Action::ScreenReader,
     ];
 
     pub fn key(self) -> &'static str {
@@ -52,6 +54,7 @@ impl Action {
             Action::ShotScreen => "shot_screen",
             Action::ShotPart => "shot_part",
             Action::ShotBar => "shot_bar",
+            Action::ScreenReader => "screen_reader",
         }
     }
 
@@ -71,6 +74,7 @@ impl Action {
             Action::ShotScreen => "Screenshot of the screen",
             Action::ShotPart => "Screenshot of a part or a window",
             Action::ShotBar => "Screenshot and recording bar",
+            Action::ScreenReader => "Turn the screen reader on or off",
         }
     }
 
@@ -90,6 +94,7 @@ impl Action {
             Action::ShotScreen => "shift+super+3",
             Action::ShotPart => "shift+super+4",
             Action::ShotBar => "shift+super+5",
+            Action::ScreenReader => "alt+super+s",
         }
     }
 }
