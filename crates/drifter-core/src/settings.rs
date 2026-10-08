@@ -23,8 +23,11 @@ pub const WORLD_MOST: u32 = 10;
 pub const UNITS: [u64; 3] = [1, 60, 3600];
 pub const BRIGHTNESS_LEAST: f64 = 5.0;
 
+mod keys;
 mod pages;
 mod people;
+
+pub use keys::{Move, Press, Spot};
 
 pub use people::{BIG_FACE, ROW_FACE, UserAsk};
 
@@ -4011,7 +4014,7 @@ mod tests {
         }
     }
 
-    fn model(config: &Config) -> Model {
+    pub(super) fn model(config: &Config) -> Model {
         Model::read(config, &stats::mounts(MOUNTINFO), kernel)
     }
 

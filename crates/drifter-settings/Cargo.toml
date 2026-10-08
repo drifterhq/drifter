@@ -15,3 +15,5 @@ wayland-egl = "0.32"
 khronos-egl = { version = "6", features = ["static"] }
 glow = "0.16"
 zbus = { version = "5.19.0", features = ["blocking-api"] }
+accesskit = "0.25"
+accesskit_unix = "0.24"

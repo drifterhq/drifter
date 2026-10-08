@@ -4,7 +4,7 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 use drifter_core::desktop::App;
-use drifter_core::settings::{Art, Ask, Fonts, Hit, Id, Look, Model, Section, Value};
+use drifter_core::settings::{Art, Ask, Fonts, Hit, Id, Look, Model, Move, Press, Section, Spot, Value};
 use drifter_core::settings::UserAsk;
 use drifter_core::sheet::{Choice, Field, For, Pick, Sheet};
 use drifter_core::shortcut::{self, Combo, Mods};
@@ -150,6 +150,8 @@ pub struct Settings {
     scroll: f64,
     at: Vec2,
     holding: Option<Id>,
+    spot: Option<Spot>,
+    access: crate::access::Access,
     dragged: Option<(Id, Value)>,
     moving: Option<Moving>,
     sheet: Option<Sheet>,
@@ -258,6 +260,15 @@ pub fn run() -> Result<(), String> {
             }
         })
         .map_err(|e| format!("cannot watch the network changes: {e}"))?;
+    let (heard, heard_back) = loop_channel::<crate::access::Heard>();
+    events
+        .handle()
+        .insert_source(heard_back, |event, _, settings: &mut Settings| {
+            if let ChannelEvent::Msg(heard) = event {
+                settings.heard(heard);
+            }
+        })
+        .map_err(|e| format!("cannot watch the screen reader: {e}"))?;
     let (asks, asks_back) = loop_channel::<crate::agent::Asked>();
     events
         .handle()
@@ -362,6 +373,8 @@ pub fn run() -> Result<(), String> {
         scroll: 0.0,
         at: Vec2::ZERO,
         holding: None,
+        spot: None,
+        access: crate::access::Access::start(heard),
         dragged: None,
         moving: None,
         sheet: None,
@@ -953,13 +966,145 @@ impl Settings {
                     }
                 };
                 self.painted = Some((key, self.scroll, side));
-                self.show(&image);
+                self.show_ringed(&image);
                 self.last = Some((key, image));
                 return;
             }
         };
         self.painted = Some((key, self.scroll, self.look.side_scroll));
         self.show(&image);
+    }
+
+    fn show_ringed(&mut self, image: &drifter_core::Image) {
+        let ring = self
+            .spot
+            .and_then(|spot| self.look.spot_rect(self.view(), self.section, &self.model, self.scroll, spot));
+        let Some(ring) = ring else {
+            self.show(image);
+            return;
+        };
+        let mut canvas = drifter_core::paint::Canvas { image: image.clone() };
+        let outer = drifter_core::Rect::new(ring.origin - Vec2::splat(3.0), ring.size + Vec2::splat(6.0));
+        canvas.ring(outer, 9.0, 2.5, self.look.accent, 0.95);
+        self.show(&canvas.image);
+    }
+
+    fn focus_key(&mut self, event: &KeyEvent) -> bool {
+        let press = match event.keysym {
+            Keysym::Tab if self.mods.shift => Press::Back,
+            Keysym::ISO_Left_Tab => Press::Back,
+            Keysym::Tab => Press::Next,
+            _ if self.spot.is_none() => return false,
+            Keysym::Up => Press::Up,
+            Keysym::Down => Press::Down,
+            Keysym::Left => Press::Left,
+            Keysym::Right => Press::Right,
+            Keysym::space | Keysym::Return | Keysym::KP_Enter => Press::Go,
+            Keysym::Escape => {
+                self.spot = None;
+                self.stale = true;
+                return true;
+            }
+            _ => return false,
+        };
+        let spot = self.spot.or(match press {
+            Press::Next | Press::Back => None,
+            _ => Some(Spot::Sidebar),
+        });
+        match self.model.key_move(self.section, spot, press) {
+            Move::Stay => {
+                self.spot = spot.or(Some(Spot::Sidebar));
+            }
+            Move::Focus(next) => {
+                self.spot = Some(next);
+                self.reveal(next);
+            }
+            Move::Section(section) => {
+                self.go_to(section);
+                self.spot = Some(Spot::Sidebar);
+                self.reveal(Spot::Sidebar);
+            }
+            Move::Act(hit) => {
+                self.spot = spot;
+                self.act(Some(hit));
+            }
+        }
+        self.stale = true;
+        true
+    }
+
+    fn reveal(&mut self, spot: Spot) {
+        let view = self.view();
+        let Some(rect) = self.look.spot_rect(view, self.section, &self.model, self.scroll, spot) else {
+            return;
+        };
+        match spot {
+            Spot::Sidebar => {
+                let low = self.look.search_rect().max().y + 8.0;
+                if rect.origin.y < low {
+                    self.look.side_scroll = (self.look.side_scroll - (low - rect.origin.y)).max(0.0);
+                } else if rect.max().y > view.y - 8.0 {
+                    self.look.side_scroll += rect.max().y - (view.y - 8.0);
+                }
+            }
+            Spot::Row(..) => {
+                if rect.origin.y < 64.0 {
+                    self.scroll = (self.scroll - (64.0 - rect.origin.y)).max(0.0);
+                } else if rect.max().y > view.y - 16.0 {
+                    self.scroll += rect.max().y - (view.y - 16.0);
+                }
+                self.clamp_scroll();
+            }
+        }
+    }
+
+    fn speak(&mut self) {
+        let view = crate::access::View {
+            model: &self.model,
+            look: &self.look,
+            section: self.section,
+            spot: self.spot,
+            scroll: self.scroll,
+            size: self.view(),
+        };
+        self.access.update(&view);
+    }
+
+    fn heard(&mut self, heard: crate::access::Heard) {
+        use crate::access::{Heard, Order};
+        let request = match heard {
+            Heard::Wake => {
+                self.speak();
+                return;
+            }
+            Heard::Act(request) => request,
+        };
+        let Some(order) = self.access.aim(&request) else {
+            return;
+        };
+        match order {
+            Order::Section(section) => {
+                if section != self.section {
+                    self.go_to(section);
+                }
+                self.spot = Some(Spot::Sidebar);
+            }
+            Order::Focus(spot) => {
+                self.spot = Some(spot);
+                self.reveal(spot);
+            }
+            Order::Act(spot, hit) => {
+                self.spot = Some(spot);
+                self.act(Some(hit));
+            }
+            Order::Nudge(spot, id, step) => {
+                self.spot = Some(spot);
+                if let Some(value) = self.model.nudge(self.section, id, step) {
+                    self.act(Some(Hit::Change(id, value)));
+                }
+            }
+        }
+        self.stale = true;
     }
 
     fn show(&mut self, image: &drifter_core::Image) {
@@ -995,6 +1140,7 @@ impl Settings {
         self.shown = Some(std::time::Instant::now());
         self.window.commit();
         self.draw_logo();
+        self.speak();
     }
 
     fn fingerprint(&self) -> u64 {
@@ -1102,6 +1248,13 @@ impl Settings {
         let hit = self
             .look
             .hit(self.view(), self.section, &self.model, self.scroll, self.at);
+        if self.spot.take().is_some() {
+            self.stale = true;
+        }
+        self.act(hit);
+    }
+
+    fn act(&mut self, hit: Option<Hit>) {
         self.model.focus = match hit {
             Some(Hit::Change(id, Value::Number(_))) => Some(id),
             _ => None,
@@ -2381,7 +2534,7 @@ impl Settings {
             return;
         }
         let Some(sheet) = self.sheet.as_mut() else {
-            if !self.nudge(event) {
+            if !self.focus_key(event) && !self.nudge(event) {
                 self.search_key(event);
             }
             return;
@@ -2756,6 +2909,7 @@ impl KeyboardHandler for Settings {
         _: &[u32],
         _: &[Keysym],
     ) {
+        self.access.focused(true);
     }
 
     fn leave(
@@ -2766,6 +2920,7 @@ impl KeyboardHandler for Settings {
         _: &wl_surface::WlSurface,
         _: u32,
     ) {
+        self.access.focused(false);
     }
 
     fn press_key(

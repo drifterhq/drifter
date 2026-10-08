@@ -2094,6 +2094,9 @@ Good evening
 {}, {}. Let's make it yours.
 = {}, {}. Machen wir es zu deinem.
 
+Color {}
+= Farbe {}
+
 Settings closed
 = Einstellungen wurden geschlossen
 
