@@ -3,6 +3,7 @@ pub struct Net {
     pub ssid: String,
     pub signal: u8,
     pub secure: bool,
+    pub enterprise: bool,
     pub active: bool,
     pub known: bool,
 }
@@ -66,6 +67,7 @@ pub fn wifi_nets(list: &str, known: &[String]) -> Vec<Net> {
             ssid: ssid.clone(),
             signal: signal.trim().parse().unwrap_or(0),
             secure: !security.trim().is_empty() && security.trim() != "--",
+            enterprise: security.contains("802.1X"),
             active: in_use.trim() == "*",
             known: known.iter().any(|each| each == ssid),
         };
@@ -404,6 +406,13 @@ mod tests {
     }
 
     #[test]
+    fn a_work_network_is_marked_enterprise() {
+        let nets = wifi_nets(" :eduroam:60:WPA2 802.1X\n :Home:50:WPA2\n", &[]);
+        assert!(nets[0].enterprise && nets[0].secure);
+        assert!(!nets[1].enterprise);
+    }
+
+    #[test]
     fn only_wifi_connections_count_as_known() {
         let shown = "Home:802-11-wireless\nWired connection 1:802-3-ethernet\nCafe\\:Guest:802-11-wireless\n";
         assert_eq!(wifi_known(shown), ["Home", "Cafe:Guest"]);
@@ -453,6 +462,7 @@ mod tests {
             ssid: "Home".into(),
             signal: 70,
             secure: true,
+            enterprise: false,
             active: true,
             known: true,
         };

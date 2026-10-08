@@ -640,6 +640,10 @@ impl Model {
                             detail
                         }
                     };
+                    let detail = match net.enterprise && !net.active {
+                        true => format!("{detail}. Work or school sign-in"),
+                        false => detail,
+                    };
                     let marks = match (net.active, net.known) {
                         (true, _) => vec![Mark::Text("Leave")],
                         (false, true) => vec![Mark::Text("Join"), Mark::Text("Forget")],
@@ -660,6 +664,15 @@ impl Model {
                     .to_string(),
                 ),
                 rows,
+                thumbs: None,
+            });
+            groups.push(Group {
+                header: None,
+                rows: vec![
+                    Row::new(Id::WifiHidden, "Join a hidden network", Control::Buttons(vec![Mark::Plus]))
+                        .detail("A network that does not show its name"),
+                ],
+                footer: None,
                 thumbs: None,
             });
         }
@@ -1108,6 +1121,7 @@ impl Model {
                     (false, _) => NetAsk::Forget(at),
                 }));
             }
+            (Id::WifiHidden, _) => return Some(Ask::Net(NetAsk::Hidden)),
             (Id::BlueSearch, _) => {
                 let blue = self.blue.as_ref()?;
                 return (!blue.searching).then_some(Ask::Net(NetAsk::Search));

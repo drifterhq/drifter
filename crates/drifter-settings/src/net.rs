@@ -6,11 +6,13 @@ use drifter_core::net::{self, Blue, Wifi};
 pub enum Job {
     WifiPower(bool),
     Join { ssid: String, password: Option<String>, known: bool },
+    JoinHidden { ssid: String, password: Option<String> },
+    JoinEnterprise { ssid: String, user: String, password: String, domain: Option<String> },
     Leave(String),
     Forget(String),
     BluePower(bool),
     Search,
-    Pair(String),
+    Pair { mac: String, name: String },
     Connect(String),
     Disconnect(String),
     Remove(String),
@@ -173,7 +175,7 @@ fn run_one(program: &str, args: &[&str], typed: Option<&str>) -> Result<String, 
     }
 }
 
-pub fn run(job: Job) -> Result<(), String> {
+pub fn run(job: Job, asks: crate::agent::LoopAsks) -> Result<(), String> {
     let switch = |on: bool| if on { "on" } else { "off" };
     match job {
         Job::WifiPower(on) => run_one("nmcli", &["radio", "wifi", switch(on)], None).map(drop),
@@ -191,6 +193,38 @@ pub fn run(job: Job) -> Result<(), String> {
             .map(drop),
             None => run_one("nmcli", &["device", "wifi", "connect", &ssid], None).map(drop),
         },
+        Job::JoinHidden { ssid, password } => {
+            let _ = run_one("nmcli", &["device", "wifi", "rescan", "ssid", &ssid], None);
+            std::thread::sleep(std::time::Duration::from_secs(4));
+            join_hidden(&ssid, password)
+        }
+        Job::JoinEnterprise {
+            ssid,
+            user,
+            password,
+            domain,
+        } => {
+            let _ = run_one("nmcli", &["connection", "delete", "id", &ssid], None);
+            let mut args = vec![
+                "connection", "add", "type", "wifi", "con-name", &ssid, "ssid", &ssid,
+                "connection.autoconnect", "no", "wifi-sec.key-mgmt", "wpa-eap", "802-1x.eap", "peap",
+                "802-1x.phase2-auth", "mschapv2", "802-1x.identity", &user, "802-1x.password-flags", "0",
+            ];
+            if let Some(domain) = domain.as_deref() {
+                args.extend(["802-1x.system-ca-certs", "yes", "802-1x.domain-suffix-match", domain]);
+            }
+            run_one("nmcli", &args, None)?;
+            let typed = format!("set 802-1x.password {password}\nsave\nquit");
+            let joined = run_one("nmcli", &["connection", "edit", "id", &ssid], Some(&typed))
+                .and_then(|_| run_one("nmcli", &["connection", "up", "id", &ssid], None));
+            match joined {
+                Ok(_) => run_one("nmcli", &["connection", "modify", "id", &ssid, "connection.autoconnect", "yes"], None).map(drop),
+                Err(error) => {
+                    let _ = run_one("nmcli", &["connection", "delete", "id", &ssid], None);
+                    Err(error)
+                }
+            }
+        }
         Job::Leave(ssid) => run_one("nmcli", &["connection", "down", "id", &ssid], None).map(drop),
         Job::Forget(ssid) => {
             run_one("nmcli", &["connection", "delete", "id", &ssid], None).map(drop)
@@ -199,12 +233,8 @@ pub fn run(job: Job) -> Result<(), String> {
         Job::Search => {
             run_one("bluetoothctl", &["--timeout", "10", "scan", "on"], None).map(drop)
         }
-        Job::Pair(mac) => {
-            let tried = run_one(
-                "bluetoothctl",
-                &["--agent", "NoInputNoOutput", "--timeout", "20", "pair", &mac],
-                None,
-            );
+        Job::Pair { mac, name } => {
+            let tried = crate::agent::pair(&mac, &name, asks);
             let paired = read("bluetoothctl", &["info", &mac])
                 .is_some_and(|info| info.lines().any(|line| line.trim() == "Paired: yes"));
             if !paired {
@@ -222,5 +252,17 @@ pub fn run(job: Job) -> Result<(), String> {
         }
         Job::Disconnect(mac) => run_one("bluetoothctl", &["disconnect", &mac], None).map(drop),
         Job::Remove(mac) => run_one("bluetoothctl", &["remove", &mac], None).map(drop),
+    }
+}
+
+fn join_hidden(ssid: &str, password: Option<String>) -> Result<(), String> {
+    match password {
+        Some(password) => run_one(
+            "nmcli",
+            &["--ask", "device", "wifi", "connect", ssid, "hidden", "yes"],
+            Some(&password),
+        )
+        .map(drop),
+        None => run_one("nmcli", &["device", "wifi", "connect", ssid, "hidden", "yes"], None).map(drop),
     }
 }

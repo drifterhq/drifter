@@ -114,6 +114,8 @@ pub struct Settings {
     mods: Modifiers,
     chores: LoopSender<Option<String>>,
     net_done: LoopSender<(bool, Result<(), String>)>,
+    asks: crate::agent::LoopAsks,
+    agent_reply: Option<std::sync::mpsc::Sender<Option<String>>>,
     fresh: LoopSender<Fresh>,
     hands: Sender<Hand>,
     fetching: bool,
@@ -255,6 +257,15 @@ pub fn run() -> Result<(), String> {
             }
         })
         .map_err(|e| format!("cannot watch the network changes: {e}"))?;
+    let (asks, asks_back) = loop_channel::<crate::agent::Asked>();
+    events
+        .handle()
+        .insert_source(asks_back, |event, _, settings: &mut Settings| {
+            if let ChannelEvent::Msg(asked) = event {
+                settings.agent_asks(asked);
+            }
+        })
+        .map_err(|e| format!("cannot watch Bluetooth pairing: {e}"))?;
     let (fresh, fresh_back) = loop_channel::<Fresh>();
     events
         .handle()
@@ -312,6 +323,8 @@ pub fn run() -> Result<(), String> {
         mods: Modifiers::default(),
         chores,
         net_done,
+        asks,
+        agent_reply: None,
         fresh,
         hands: hands(),
         fetching: false,
@@ -1184,6 +1197,7 @@ impl Settings {
     }
 
     fn watch(&mut self) {
+        self.settle_agent();
         self.take_ask(true);
         if self.sheet.is_some() || self.holding.is_some() {
             return;
@@ -1571,6 +1585,56 @@ impl Settings {
             }
             return;
         }
+        if matches!(purpose, For::BluePin | For::BlueConfirm) {
+            self.sheet = None;
+            if let Some(reply) = self.agent_reply.take() {
+                let _ = reply.send(Some(match purpose {
+                    For::BlueConfirm => "yes".to_string(),
+                    _ => text(0),
+                }));
+            }
+            return;
+        }
+        if let For::WifiHidden = purpose {
+            let ssid = text(0).trim().to_string();
+            if ssid.is_empty() {
+                if let Some(sheet) = self.sheet.as_mut() {
+                    sheet.work(Some("Type the network name."), false);
+                }
+                return;
+            }
+            self.sheet = None;
+            let password = Some(text(1)).filter(|password| !password.is_empty());
+            let note = format!("Joining {ssid}…");
+            self.net_job(crate::net::Job::JoinHidden { ssid, password }, note);
+            return;
+        }
+        if let For::WifiEnterprise(at) = purpose {
+            let Some(net) = self.model.wifi.as_ref().and_then(|wifi| wifi.nets.get(at).cloned()) else {
+                self.sheet = None;
+                return;
+            };
+            let (user, password) = (text(0).trim().to_string(), text(1));
+            if user.is_empty() || password.is_empty() {
+                if let Some(sheet) = self.sheet.as_mut() {
+                    sheet.work(Some("Type your username and password."), false);
+                }
+                return;
+            }
+            self.sheet = None;
+            let domain = Some(text(2).trim().to_string()).filter(|domain| !domain.is_empty());
+            let note = format!("Joining {}…", net.ssid);
+            self.net_job(
+                crate::net::Job::JoinEnterprise {
+                    ssid: net.ssid,
+                    user,
+                    password,
+                    domain,
+                },
+                note,
+            );
+            return;
+        }
         if let For::PlaceName(at) = purpose {
             match self.model.rename_place(at, &text(0)) {
                 Ok(()) => {
@@ -1661,14 +1725,63 @@ impl Settings {
         }
         self.model.net_note = Some(note);
         let done = self.net_done.clone();
+        let asks = self.asks.clone();
         let spawned = std::thread::Builder::new()
             .name("settings-net".to_string())
             .spawn(move || {
-                let _ = done.send((search, crate::net::run(job)));
+                let _ = done.send((search, crate::net::run(job, asks)));
             });
         if let Err(error) = spawned {
             self.searching = false;
             self.model.net_note = Some(format!("Cannot start: {error}"));
+        }
+    }
+
+    fn agent_asks(&mut self, asked: crate::agent::Asked) {
+        use crate::agent::Question;
+
+        if let Some(old) = self.agent_reply.take() {
+            let _ = old.send(None);
+        }
+        let sheet = match asked.question {
+            Question::Show(words) => {
+                self.model.net_note = Some(words);
+                if self.sheet.is_none() {
+                    self.stale = true;
+                }
+                return;
+            }
+            Question::Pin(name) => Sheet::form(
+                For::BluePin,
+                &format!("Type the PIN for {name}"),
+                vec![Field::plain("PIN code, often 0000 or 1234", "")],
+                "Pair",
+            ),
+            Question::Passkey(name) => Sheet::form(
+                For::BluePin,
+                &format!("Type the passkey {name} shows"),
+                vec![Field::plain("Passkey", "")],
+                "Pair",
+            ),
+            Question::Confirm(name, key) => Sheet::form(
+                For::BlueConfirm,
+                &format!("Does {name} show {key:06}?"),
+                Vec::new(),
+                "Yes, Pair",
+            ),
+        };
+        self.agent_reply = asked.reply;
+        self.sheet = Some(sheet);
+        self.stale = true;
+    }
+
+    fn settle_agent(&mut self) {
+        let asking = self
+            .sheet
+            .as_ref()
+            .is_some_and(|sheet| matches!(sheet.purpose(), For::BluePin | For::BlueConfirm));
+        if !asking && let Some(reply) = self.agent_reply.take() {
+            let _ = reply.send(None);
         }
     }
 
@@ -1683,6 +1796,19 @@ impl Settings {
                 let Some(net) = net(at) else {
                     return;
                 };
+                if net.enterprise && !net.known {
+                    self.sheet = Some(Sheet::form(
+                        For::WifiEnterprise(at),
+                        &format!("Join {}", net.ssid),
+                        vec![
+                            Field::plain("Username", ""),
+                            Field::secret("Password"),
+                            Field::plain("Server domain, if your school or work gave one", ""),
+                        ],
+                        "Join",
+                    ));
+                    return;
+                }
                 if net.secure && !net.known {
                     self.sheet = Some(Sheet::secret(For::Wifi(at), &format!("Join {}", net.ssid)));
                     return;
@@ -1709,13 +1835,30 @@ impl Settings {
                     self.net_job(Job::Forget(net.ssid), note);
                 }
             }
+            NetAsk::Hidden => {
+                self.sheet = Some(Sheet::form(
+                    For::WifiHidden,
+                    "Join a hidden network",
+                    vec![
+                        Field::plain("Network name", ""),
+                        Field::secret("Password, or leave it empty for an open network"),
+                    ],
+                    "Join",
+                ));
+            }
             NetAsk::Search => self.net_job(Job::Search, "Searching for ten seconds…".to_string()),
             NetAsk::Pair(at) | NetAsk::Connect(at) | NetAsk::Disconnect(at) | NetAsk::Remove(at) => {
                 let Some(gadget) = gadget(at) else {
                     return;
                 };
                 let (job, verb) = match ask {
-                    NetAsk::Pair(_) => (Job::Pair(gadget.mac), "Pairing with"),
+                    NetAsk::Pair(_) => (
+                        Job::Pair {
+                            mac: gadget.mac,
+                            name: gadget.name.clone(),
+                        },
+                        "Pairing with",
+                    ),
                     NetAsk::Connect(_) => (Job::Connect(gadget.mac), "Connecting to"),
                     NetAsk::Disconnect(_) => (Job::Disconnect(gadget.mac), "Disconnecting"),
                     _ => (Job::Remove(gadget.mac), "Removing"),

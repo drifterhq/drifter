@@ -342,6 +342,7 @@ pub struct Model {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NetAsk {
     Join(usize),
+    Hidden,
     Leave(usize),
     Forget(usize),
     Search,
@@ -2493,6 +2494,7 @@ pub enum Id {
     Place(usize),
     WifiOn,
     Net(usize),
+    WifiHidden,
     BlueOn,
     BlueSearch,
     Gadget(usize),
@@ -4437,6 +4439,7 @@ mod tests {
             ssid: ssid.into(),
             signal: 80,
             secure: true,
+            enterprise: false,
             active,
             known,
         };
@@ -4450,7 +4453,9 @@ mod tests {
         assert_eq!(model.press(Id::Net(1), 1), Some(Ask::Net(NetAsk::Forget(1))));
         assert_eq!(model.press(Id::Net(2), 0), Some(Ask::Net(NetAsk::Join(2))));
         let rows: Vec<Row> = model.groups(Section::Network).into_iter().flat_map(|g| g.rows).collect();
-        assert_eq!(rows.len(), 4);
+        assert_eq!(rows.len(), 5);
+        assert_eq!(rows[4].id, Id::WifiHidden);
+        assert_eq!(model.press(Id::WifiHidden, 0), Some(Ask::Net(NetAsk::Hidden)));
         let look = Look::default();
         let groups = model.groups(Section::Network);
         let row = look.place(SIZE, Section::Network, &groups, 0.0)[1].rows[1];

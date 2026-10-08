@@ -6,6 +6,8 @@ macro_rules! log {
 }
 
 #[cfg(target_os = "linux")]
+mod agent;
+#[cfg(target_os = "linux")]
 mod heads;
 #[cfg(target_os = "linux")]
 mod logo;
