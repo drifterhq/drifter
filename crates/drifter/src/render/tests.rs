@@ -1816,6 +1816,9 @@ fn the_lock_screen_shows_the_wallpaper_under_a_veil_in_either_theme() {
         pump(&mut run.screen, |state| {
             state.lock.as_ref().is_some_and(|lock| lock.art.is_some() && lock.top.is_some() && lock.veil.is_some())
         });
+        if let Some(lock) = run.screen.state.lock.as_mut() {
+            lock.since = Instant::now() - super::LOCK_FADE;
+        }
         let shot = run.shot(&format!("locked-{name}"));
         let corner = pixel(&shot, 10, SIZE.1 - 10);
         assert!(!is_background(corner), "the wallpaper shows under the {name} lock");
