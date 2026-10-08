@@ -440,10 +440,7 @@ fn themed(model: &Model, side_scroll: f64) -> Look {
     Look {
         accent: accent(model),
         side_scroll,
-        ..Look::themed(&drifter_core::theme::of(drifter_core::theme::now(
-            model.appearance.style,
-            &model.night,
-        )))
+        ..Look::themed(&drifter_core::theme::of(drifter_core::theme::now(model.appearance.style)))
     }
 }
 

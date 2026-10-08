@@ -104,6 +104,7 @@ const BTN_RIGHT: u32 = 0x111;
 const BTN_MIDDLE: u32 = 0x112;
 const CLOSE_PATIENCE: Duration = Duration::from_secs(2);
 const PAPER_FADE: Duration = Duration::from_millis(1500);
+const STYLE_FADE: Duration = Duration::from_millis(2000);
 const LIVE_EVERY: Duration = Duration::from_millis(250);
 const LIVE_STILL: Duration = Duration::from_secs(10);
 const PANEL_ALPHA: u8 = 235;
@@ -641,6 +642,9 @@ pub struct State {
     copied: std::collections::HashSet<smithay::reexports::wayland_server::backend::ClientId>,
     cursor_count: usize,
     shot_wanted: bool,
+    restyle_due: Option<Box<Config>>,
+    style_shots: Vec<(usize, TextureBuffer<Tex>)>,
+    style_fade: Option<Instant>,
     shot_crop: Option<Rect>,
     shot_tool: drifter_core::grab::Tool,
     shot_inks: Option<([u8; 3], shoot::Inks)>,
@@ -680,6 +684,7 @@ impl State {
             || self.windows.iter().any(|window| window.motion.is_some())
             || !self.bounces.is_empty()
             || self.fading.is_some()
+            || self.style_fade.is_some()
             || self.lock_fading()
             || self.windows.iter().any(|window| window.closed_at.is_some())
             || self.dock_drag.is_some()
@@ -1199,6 +1204,7 @@ impl State {
         self.wind_titles();
         self.paint_lock();
         self.check_client_lock();
+        self.settle_style_fade();
 
         let mut drew = false;
         for index in 0..self.heads.len() {
@@ -1217,6 +1223,7 @@ impl State {
             }
         }
 
+        self.restyle(now);
         self.send_resize();
         if drew {
             self.confirm_client_lock();
@@ -1252,8 +1259,9 @@ impl State {
         self.settle_fade();
 
         let scale = self.heads[at].scale;
-        let shown: Vec<Shown> = self
-            .elements()
+        let mut pieces = self.elements();
+        self.style_fade_elements(&mut pieces);
+        let shown: Vec<Shown> = pieces
             .into_iter()
             .map(|piece| RescaleRenderElement::from_element(piece, (0, 0).into(), scale))
             .collect();
@@ -1280,6 +1288,7 @@ impl State {
             })?;
 
         self.serve_copies(&shown, !empty);
+        self.shoot_old_style(&shown);
         self.sync_wlr_toplevels();
         if self.shot_wanted && at == self.hand {
             self.shot_wanted = false;

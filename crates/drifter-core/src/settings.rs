@@ -1324,7 +1324,6 @@ impl Model {
 
     fn night_groups(&self) -> Vec<Group> {
         let night = &self.night;
-        let timed = night.on || self.appearance.style == Some(crate::config::Style::Auto);
         let hour = |id, label: &str, value: u32| {
             Row::new(
                 id,
@@ -1337,7 +1336,7 @@ impl Model {
                     zero: None,
                 },
             )
-            .enabled(timed)
+            .enabled(night.on)
         };
         vec![Group {
             header: Some("Night light"),
@@ -1361,7 +1360,7 @@ impl Model {
                 hour(Id::NightEnd, "Ends at", night.end),
             ],
             footer: Some(
-                "Night runs from the start hour to the end hour, through midnight. The Auto look turns dark for the same hours.".into(),
+                "Night runs from the start hour to the end hour, through midnight.".into(),
             ),
             thumbs: None,
         }]

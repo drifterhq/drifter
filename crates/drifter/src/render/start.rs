@@ -181,7 +181,7 @@ pub fn open(
     };
     crate::apps::set_env("DRIFTER_RENDERER", Some(gl.clone()));
     drifter_core::icon::set_theme(config.appearance.icons.clone());
-    let style = drifter_core::theme::now(config.appearance.style, &config.night);
+    let style = drifter_core::theme::now(config.appearance.style);
     tell_gnome(None, &config.appearance, Some(style));
     tell_buttons(config.window.gtk_layout());
     dress_gtk4();
@@ -585,6 +585,9 @@ pub fn open(
         copied: std::collections::HashSet::new(),
         cursor_count: 0,
         shot_wanted: false,
+        restyle_due: None,
+        style_shots: Vec::new(),
+        style_fade: None,
         shot_crop: None,
         shot_tool: drifter_core::grab::Tool::new(
             drifter_core::grab::Take::Still,

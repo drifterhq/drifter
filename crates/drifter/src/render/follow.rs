@@ -211,7 +211,7 @@ impl State {
         let look = config.appearance.clone();
         let paths = asset_paths(config);
         let was = std::mem::replace(&mut self.appearance, look.clone());
-        let style = drifter_core::theme::now(look.style, &config.night);
+        let style = drifter_core::theme::now(look.style);
         let restyled = style != self.style;
         self.style = style;
         if was != look || restyled {
@@ -421,16 +421,83 @@ impl State {
     }
 
     pub(super) fn watch_style(&mut self) {
-        if drifter_core::theme::now(self.appearance.style, &self.night) == self.style {
+        if self.restyle_due.is_some() || drifter_core::theme::now(self.appearance.style) == self.style {
             return;
         }
         match Config::load_from(&self.config_path) {
-            Ok(config) => {
+            Ok(config) if config.access.reduce_motion || self.renderer.is_pixman() => {
                 self.follow_looks(&config);
+                self.kick_now();
+            }
+            Ok(config) => {
+                self.restyle_due = Some(Box::new(config));
+                self.style_shots.clear();
+                self.style_fade = None;
                 self.kick_now();
             }
             Err(error) => log!("drifter: the look waits, the config did not load: {error}"),
         }
+    }
+
+    pub(super) fn shoot_old_style(&mut self, shown: &[Shown]) {
+        if self.restyle_due.is_none() {
+            return;
+        }
+        let bytes = match self.capture(shown, false) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                log!("drifter: the look changes without a fade: {error}");
+                return;
+            }
+        };
+        let whole = self.physical();
+        let mut rgba = Vec::with_capacity(bytes.len());
+        for pixel in bytes.as_chunks::<4>().0 {
+            rgba.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 255]);
+        }
+        let image = Image {
+            width: whole.x as u32,
+            height: whole.y as u32,
+            rgba,
+        };
+        match upload_flat(&mut self.renderer, Some(&image), "the old look") {
+            Ok(Some(shot)) => self.style_shots.push((self.at, shot)),
+            Ok(None) => {}
+            Err(error) => log!("drifter: {error}"),
+        }
+    }
+
+    pub(super) fn restyle(&mut self, now: Instant) {
+        let Some(config) = self.restyle_due.take() else {
+            return;
+        };
+        self.follow_looks(&config);
+        if !self.style_shots.is_empty() {
+            self.style_fade = Some(now);
+        }
+    }
+
+    pub(super) fn settle_style_fade(&mut self) {
+        if self.style_fade.is_some_and(|since| since.elapsed() >= STYLE_FADE) {
+            self.style_fade = None;
+        }
+        if self.style_fade.is_none() && self.restyle_due.is_none() {
+            self.style_shots.clear();
+        }
+    }
+
+    pub(super) fn style_fade_elements(&self, elements: &mut Vec<Skin>) {
+        let Some(since) = self.style_fade else {
+            return;
+        };
+        let Some((_, shot)) = self.style_shots.iter().find(|(head, _)| *head == self.at) else {
+            return;
+        };
+        let t = (since.elapsed().as_secs_f64() / STYLE_FADE.as_secs_f64()).min(1.0);
+        let alpha = 1.0 - t * t * (3.0 - 2.0 * t);
+        let at = self.cursor_count.min(elements.len());
+        let whole = Rect::new(Vec2::ZERO, self.screen);
+        elements.insert(at, Skin::Texture(element(shot, whole, alpha as f32)));
     }
 
     pub(super) fn apply(&mut self, config: &Config) {

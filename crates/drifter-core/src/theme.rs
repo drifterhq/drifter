@@ -1,4 +1,6 @@
-use crate::config::{Night, Style};
+use crate::config::Style;
+
+const DUSK_LIGHT: f64 = 0.3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Palette {
@@ -70,10 +72,10 @@ pub const LIGHT: Palette = Palette {
     drop: 56,
 };
 
-pub fn resolve(style: Option<Style>, night: &Night, hour: u32) -> Style {
+pub fn resolve(style: Option<Style>, hour: f64) -> Style {
     match style {
         Some(Style::Light) => Style::Light,
-        Some(Style::Auto) => match crate::night::is_night(night.start, night.end, hour) {
+        Some(Style::Auto) => match crate::shader::sky(hour).light < DUSK_LIGHT {
             true => Style::Dark,
             false => Style::Light,
         },
@@ -81,8 +83,8 @@ pub fn resolve(style: Option<Style>, night: &Night, hour: u32) -> Style {
     }
 }
 
-pub fn now(style: Option<Style>, night: &Night) -> Style {
-    resolve(style, night, crate::night::hour_now())
+pub fn now(style: Option<Style>) -> Style {
+    resolve(style, crate::shader::hour_now())
 }
 
 pub fn of(style: Style) -> Palette {
@@ -208,26 +210,22 @@ mod tests {
     }
 
     #[test]
-    fn auto_is_dark_through_the_night_hours_and_light_in_the_day() {
-        let night = Night::default();
+    fn auto_turns_with_the_wallpaper_sky() {
         let auto = Some(Style::Auto);
-        assert_eq!(resolve(auto, &night, 21), Style::Dark);
-        assert_eq!(resolve(auto, &night, 2), Style::Dark);
-        assert_eq!(resolve(auto, &night, 7), Style::Light);
-        assert_eq!(resolve(auto, &night, 12), Style::Light);
-        assert_eq!(resolve(auto, &night, 20), Style::Light);
-        let day = Night { start: 9, end: 17, ..Night::default() };
-        assert_eq!(resolve(auto, &day, 10), Style::Dark);
-        assert_eq!(resolve(auto, &day, 18), Style::Light);
+        for hour in [0.0, 3.0, 6.0, 19.75, 21.0, 23.5] {
+            assert_eq!(resolve(auto, hour), Style::Dark, "{hour}");
+        }
+        for hour in [6.5, 9.0, 12.0, 17.0, 19.25] {
+            assert_eq!(resolve(auto, hour), Style::Light, "{hour}");
+        }
     }
 
     #[test]
     fn a_fixed_style_ignores_the_hour_and_none_is_dark() {
-        let night = Night::default();
-        for hour in 0..24 {
-            assert_eq!(resolve(Some(Style::Light), &night, hour), Style::Light);
-            assert_eq!(resolve(Some(Style::Dark), &night, hour), Style::Dark);
-            assert_eq!(resolve(None, &night, hour), Style::Dark);
+        for hour in (0..48).map(|half| f64::from(half) / 2.0) {
+            assert_eq!(resolve(Some(Style::Light), hour), Style::Light);
+            assert_eq!(resolve(Some(Style::Dark), hour), Style::Dark);
+            assert_eq!(resolve(None, hour), Style::Dark);
         }
     }
 

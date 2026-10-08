@@ -88,7 +88,7 @@ pub fn show_path() -> std::path::PathBuf {
 }
 
 fn themed(config: &Config) -> Look {
-    let palette = drifter_core::theme::of(drifter_core::theme::now(config.appearance.style, &config.night));
+    let palette = drifter_core::theme::of(drifter_core::theme::now(config.appearance.style));
     let accent = config.appearance.accent.map(|accent| accent.color()).unwrap_or([64, 128, 238]);
     Look::themed(&palette, accent)
 }

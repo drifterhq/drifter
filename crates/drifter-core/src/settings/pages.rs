@@ -345,7 +345,7 @@ impl Model {
                     ),
                 ],
                 footer: Some(
-                    "Auto is dark from the night light start hour to its end hour, under Displays. GTK, libadwaita and Qt apps switch with Drifter.".into(),
+                    "Auto turns dark at dusk and light at dawn, with the wallpaper sky. GTK, libadwaita and Qt apps switch with Drifter.".into(),
                 ),
                 thumbs: None,
             },
