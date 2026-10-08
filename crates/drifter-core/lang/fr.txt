@@ -1,7 +1,34 @@
 # Drifter in Français. Each English line is followed by its translation on a line that starts with "= ".
 
+{}, CPU {}, memory {}
+= {}, CPU {}, mémoire {}
+
+Doing
+= Activité en cours
+
+Memory
+= Mémoire
+
+Processes
+= Processus
+
+Resume
+= Reprendre
+
+Pause
+= Pause
+
+Quit
+= Quitter
+
+Force quit
+= Forcer à quitter
+
 Activity
 = Activité
+
+Paused
+= En pause
 
 Paused {}.
 = {} en pause.
@@ -14,9 +41,6 @@ Asked {} to quit.
 
 Force quit {}.
 = {} a été forcé à quitter.
-
-Paused
-= En pause
 
 Opened {} again.
 = {} rouvert.
@@ -189,12 +213,6 @@ No apps are open.
 Reading…
 = Lecture…
 
-Resume
-= Reprendre
-
-Quit
-= Quitter
-
 Details
 = Détails
 
@@ -255,9 +273,6 @@ Search
 CPU · {} cores
 = CPU · {} cœurs
 
-Memory
-= Mémoire
-
 Charging
 = En charge
 
@@ -293,12 +308,6 @@ Pick an app to see it here.
 
 CPU · last minute
 = CPU · dernière minute
-
-Doing
-= Activité en cours
-
-Processes
-= Processus
 
 Program
 = Programme
@@ -2091,14 +2100,32 @@ Good evening
 {}, {}. Let's make it yours.
 = {}, {}. Faisons-en le vôtre.
 
+Increase
+= Augmenter
+
+Decrease
+= Diminuer
+
+Move up
+= Monter
+
+Move down
+= Descendre
+
 Color {}
 = Couleur {}
 
 Folder {}
 = Dossier {}
 
+Up one folder
+= Dossier parent
+
 Press the new shortcut. Now: {}
 = Appuyez sur le nouveau raccourci. Actuel : {}
+
+OK
+= OK
 
 Settings closed
 = Réglages fermé

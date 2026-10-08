@@ -11,3 +11,5 @@ drifter-core.workspace = true
 libc = "0.2.189"
 smithay-client-toolkit = { version = "0.19", default-features = false, features = ["calloop", "xkbcommon"] }
 wayland-client = "0.31"
+accesskit = "0.25"
+accesskit_unix = "0.24"

@@ -533,6 +533,8 @@ dependencies = [
 name = "drifter-activity"
 version = "0.1.0"
 dependencies = [
+ "accesskit",
+ "accesskit_unix",
  "drifter-core",
  "libc",
  "smithay-client-toolkit",

@@ -67,6 +67,7 @@ struct Activity {
     at: Vec2,
     over_list: bool,
     holding: Option<(Instant, String)>,
+    access: crate::access::Access,
     scrubbing: bool,
     gone: Option<Gone>,
     toast_at: Option<Instant>,
@@ -122,6 +123,15 @@ pub fn run() -> Result<(), String> {
     WaylandSource::new(connection, queue)
         .insert(events.handle())
         .map_err(|e| format!("cannot watch wayland: {e}"))?;
+    let (heard, heard_rx) = loop_channel::<crate::access::Heard>();
+    events
+        .handle()
+        .insert_source(heard_rx, |event, _, app: &mut Activity| {
+            if let ChannelEvent::Msg(heard) = event {
+                app.heard(heard);
+            }
+        })
+        .map_err(|e| format!("cannot watch the screen reader: {e}"))?;
     let (fresh_tx, fresh_rx) = loop_channel::<Fresh>();
     events
         .handle()
@@ -179,6 +189,7 @@ pub fn run() -> Result<(), String> {
         at: Vec2::ZERO,
         over_list: false,
         holding: None,
+        access: crate::access::Access::start(heard),
         scrubbing: false,
         gone: None,
         toast_at: None,
@@ -434,6 +445,7 @@ impl Activity {
         surface.frame(&self.qh, surface.clone());
         self.shown = Some(Instant::now());
         self.window.commit();
+        self.access.update(&self.model);
     }
 
     fn chosen(&self) -> Option<Group> {
@@ -512,6 +524,33 @@ impl Activity {
         let Some(hit) = hit else {
             return;
         };
+        self.act(hit);
+    }
+
+    fn heard(&mut self, heard: crate::access::Heard) {
+        use crate::access::{Heard, Order};
+        let request = match heard {
+            Heard::Wake => {
+                self.access.update(&self.model);
+                return;
+            }
+            Heard::Act(request) => request,
+        };
+        match self.access.aim(&request) {
+            Some(Order::Hit(hit)) => self.act(hit),
+            Some(Order::Force) => self.force_now(),
+            None => {}
+        }
+        self.stale = true;
+    }
+
+    fn force_now(&mut self) {
+        if let Some(group) = self.chosen() {
+            self.stop(&group, Signal::Force);
+        }
+    }
+
+    fn act(&mut self, hit: Hit) {
         match hit {
             Hit::View(view) => {
                 if self.model.view != view {
@@ -647,7 +686,33 @@ impl Activity {
 
     fn key(&mut self, event: &KeyEvent) {
         self.scrolled_only = false;
+        let step_view = |now: View, way: isize| -> View {
+            let at = View::ALL.iter().position(|each| *each == now).unwrap_or(0) as isize;
+            View::ALL[(at + way).rem_euclid(View::ALL.len() as isize) as usize]
+        };
         match event.keysym {
+            Keysym::Tab | Keysym::ISO_Left_Tab => {
+                let way = if self.mods.shift || event.keysym == Keysym::ISO_Left_Tab { -1 } else { 1 };
+                let view = step_view(self.model.view, way);
+                self.act(Hit::View(view));
+                self.stale = true;
+                return;
+            }
+            Keysym::Delete if self.mods.shift => {
+                self.force_now();
+                self.stale = true;
+                return;
+            }
+            Keysym::Delete => {
+                self.act(Hit::Quit);
+                self.stale = true;
+                return;
+            }
+            Keysym::p | Keysym::P if self.mods.ctrl => {
+                self.act(Hit::Pause);
+                self.stale = true;
+                return;
+            }
             Keysym::Up => return self.move_selection(-1),
             Keysym::Down => return self.move_selection(1),
             Keysym::Return | Keysym::KP_Enter => {
@@ -781,9 +846,13 @@ impl SeatHandler for Activity {
 }
 
 impl KeyboardHandler for Activity {
-    fn enter(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: &wl_surface::WlSurface, _: u32, _: &[u32], _: &[Keysym]) {}
+    fn enter(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: &wl_surface::WlSurface, _: u32, _: &[u32], _: &[Keysym]) {
+        self.access.focused(true);
+    }
 
-    fn leave(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: &wl_surface::WlSurface, _: u32) {}
+    fn leave(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: &wl_surface::WlSurface, _: u32) {
+        self.access.focused(false);
+    }
 
     fn press_key(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, event: KeyEvent) {
         self.key(&event);

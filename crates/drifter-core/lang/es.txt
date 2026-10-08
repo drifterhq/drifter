@@ -1,7 +1,34 @@
 # Drifter in Español. Each English line is followed by its translation on a line that starts with "= ".
 
+{}, CPU {}, memory {}
+= {}, CPU {}, memoria {}
+
+Doing
+= Haciendo
+
+Memory
+= Memoria
+
+Processes
+= Procesos
+
+Resume
+= Reanudar
+
+Pause
+= Pausar
+
+Quit
+= Salir
+
+Force quit
+= Forzar cierre
+
 Activity
 = Actividad
+
+Paused
+= En pausa
 
 Paused {}.
 = {} en pausa.
@@ -14,9 +41,6 @@ Asked {} to quit.
 
 Force quit {}.
 = Se forzó el cierre de {}.
-
-Paused
-= En pausa
 
 Opened {} again.
 = {} se abrió de nuevo.
@@ -192,12 +216,6 @@ No apps are open.
 Reading…
 = Leyendo…
 
-Resume
-= Reanudar
-
-Quit
-= Salir
-
 Details
 = Detalles
 
@@ -258,9 +276,6 @@ Search
 CPU · {} cores
 = CPU · {} núcleos
 
-Memory
-= Memoria
-
 Charging
 = Cargando
 
@@ -296,12 +311,6 @@ Pick an app to see it here.
 
 CPU · last minute
 = CPU · último minuto
-
-Doing
-= Haciendo
-
-Processes
-= Procesos
 
 Program
 = Programa
@@ -2094,14 +2103,32 @@ Good evening
 {}, {}. Let's make it yours.
 = {}, {}. Hagámoslo tuyo.
 
+Increase
+= Aumentar
+
+Decrease
+= Disminuir
+
+Move up
+= Subir
+
+Move down
+= Bajar
+
 Color {}
 = Color {}
 
 Folder {}
 = Carpeta {}
 
+Up one folder
+= Subir una carpeta
+
 Press the new shortcut. Now: {}
 = Pulsa el nuevo atajo. Ahora: {}
+
+OK
+= Aceptar
 
 Settings closed
 = Ajustes se cerró

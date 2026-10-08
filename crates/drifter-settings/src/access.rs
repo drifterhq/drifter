@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 
 use accesskit::{Action, ActionData, ActionRequest, Node, NodeId, Role, Toggled, TreeId, TreeInfo, TreeUpdate};
-use drifter_core::lang::t;
 use drifter_core::settings::{Control, Hit, Id, Look, Mark, Model, Section, Spot, Value};
 use drifter_core::sheet::{Pick, Sheet};
 use drifter_core::{Rect, Vec2};
@@ -69,10 +68,10 @@ fn bounds(rect: Rect) -> accesskit::Rect {
 fn mark_name(mark: Mark) -> String {
     match mark {
         Mark::Text(text) => text.to_string(),
-        Mark::Plus => t("Increase").to_string(),
-        Mark::Minus => t("Decrease").to_string(),
-        Mark::Up => t("Move up").to_string(),
-        Mark::Down => t("Move down").to_string(),
+        Mark::Plus => drifter_core::lang::t("Increase").to_string(),
+        Mark::Minus => drifter_core::lang::t("Decrease").to_string(),
+        Mark::Up => drifter_core::lang::t("Move up").to_string(),
+        Mark::Down => drifter_core::lang::t("Move down").to_string(),
     }
 }
 
@@ -110,7 +109,7 @@ fn build(view: &View) -> (TreeUpdate, HashMap<NodeId, Aim>) {
     }
     let side = node_id("sidebar");
     let mut list = Node::new(Role::TabList);
-    list.set_label(t("Settings"));
+    list.set_label(drifter_core::lang::t("Settings"));
     list.set_children(tabs);
     nodes.push((side, list));
 
@@ -191,8 +190,8 @@ fn build(view: &View) -> (TreeUpdate, HashMap<NodeId, Aim>) {
                         let kid = node_id(&format!("{key} button {slot}"));
                         let mut button = Node::new(Role::Button);
                         let name = match (mark, marks.contains(&Mark::Plus), marks.contains(&Mark::Minus)) {
-                            (Mark::Minus, false, _) => t("Remove").to_string(),
-                            (Mark::Plus, _, false) => t("Add").to_string(),
+                            (Mark::Minus, false, _) => drifter_core::lang::t("Remove").to_string(),
+                            (Mark::Plus, _, false) => drifter_core::lang::t("Add").to_string(),
                             _ => mark_name(*mark),
                         };
                         button.set_label(format!("{}, {}", name, row.label));
@@ -279,7 +278,7 @@ fn build(view: &View) -> (TreeUpdate, HashMap<NodeId, Aim>) {
         focus = inside;
     }
     let mut root = Node::new(Role::Window);
-    root.set_label(t("Settings"));
+    root.set_label(drifter_core::lang::t("Settings"));
     root.set_children(top);
     nodes.push((ROOT, root));
 
@@ -378,7 +377,7 @@ fn sheet_nodes(sheet: &Sheet, nodes: &mut Vec<(NodeId, Node)>, aims: &mut HashMa
         Sheet::Choices { items, text, .. } => {
             let id = node_id("dialog search");
             let mut node = Node::new(Role::SearchInput);
-            node.set_label(t("Type to search"));
+            node.set_label(drifter_core::lang::t("Type to search"));
             node.set_value(text.clone());
             nodes.push((id, node));
             kids.push(id);
@@ -402,7 +401,7 @@ fn sheet_nodes(sheet: &Sheet, nodes: &mut Vec<(NodeId, Node)>, aims: &mut HashMa
                 })
                 .collect();
             if let Some(up) = folder.parent() {
-                found.insert(0, (t("Up one folder").to_string(), Pick::Into(up.to_path_buf())));
+                found.insert(0, (drifter_core::lang::t("Up one folder").to_string(), Pick::Into(up.to_path_buf())));
             }
             kids.push(list(nodes, aims, found));
         }
@@ -453,7 +452,7 @@ fn sheet_nodes(sheet: &Sheet, nodes: &mut Vec<(NodeId, Node)>, aims: &mut HashMa
 fn go_label(sheet: &Sheet) -> &'static str {
     match sheet {
         Sheet::Form { go, .. } => go,
-        _ => t("OK"),
+        _ => drifter_core::lang::t("OK"),
     }
 }
 
