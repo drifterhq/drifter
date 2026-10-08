@@ -22,8 +22,8 @@ The 2026-10-05 and 2026-10-07 work ran on the VM, with fake radios, and partly o
 
 ## Gaps found 2026-10-07
 
-- Tearing-control takes the hint, but smithay 0.7 has no async page flip, so a game that asks for tearing still waits for vsync. It gets direct scanout in any format.
-- Orca reads apps, but not Drifter's own parts: the top bar, the dock, menus, Settings and Activity draw themselves and have no AT-SPI tree yet.
+- Tearing-control takes the hint, but smithay 0.7 and its main branch have no async page flip, so a game that asks for tearing still waits for vsync. It needs a small patch in smithay's atomic page flip, kept in a fork.
+- Orca reads Settings, Activity, Search, the window switcher, the lock screen and notifications. The top bar, the dock, right-click menus and Control Center have no keyboard way in yet, so Orca cannot reach them.
 - An ICC profile built from lookup tables (A2B) only loads its calibration curves. Matrix and curve profiles get the full GPU color mapping.
 
 ## Reach
