@@ -103,7 +103,6 @@ impl State {
 
     pub(super) fn close_panels(&mut self) {
         self.popover = None;
-        self.gauge_panel = None;
         self.control = None;
         self.notes_panel = None;
         self.glance_panel = None;
@@ -182,11 +181,6 @@ impl State {
                 self.slide_control(which, (now + step).clamp(0.0, 1.0));
             }
             return;
-        }
-        if let Some(gauge) = self.gauge_panel.as_ref().map(|panel| panel.gauge)
-            && let Some((now, _)) = self.gauge_level(gauge)
-        {
-            self.set_gauge(gauge, (now + step).clamp(0.0, 1.0));
         }
     }
 

@@ -509,9 +509,6 @@ impl State {
         if self.drag_control() {
             return;
         }
-        if self.drag_gauge_panel() {
-            return;
-        }
         if self.drag_overview() {
             return;
         }
@@ -562,7 +559,6 @@ impl State {
             self.release_dock();
             self.release_control();
             self.release_shooter();
-            self.release_gauge_panel();
             self.release_overview();
             if let (Grab::Move { id, .. }, Some(zone)) = (&self.grab, self.zone)
                 && let Some(index) = self.place_of(*id)
@@ -667,9 +663,6 @@ impl State {
             return true;
         }
         if self.press_centers(code) {
-            return true;
-        }
-        if self.press_gauge_panel(code) {
             return true;
         }
         let had_menu = self.popover.is_some();
@@ -930,7 +923,7 @@ impl State {
             return;
         }
         if self.lock.is_none()
-            && (self.control.is_some() || self.gauge_panel.is_some())
+            && self.control.is_some()
             && let InputEvent::Keyboard { event } = &event
             && matches!(event.key_code().raw(), KEY_UP | KEY_LEFT | KEY_RIGHT | KEY_DOWN)
         {
@@ -1073,9 +1066,6 @@ impl State {
                     return;
                 }
                 if self.scroll_launchpad(steps) {
-                    return;
-                }
-                if self.scroll_gauges(steps) {
                     return;
                 }
                 self.tell_axis(&event);

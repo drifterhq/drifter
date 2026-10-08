@@ -303,7 +303,6 @@ impl State {
         self.palette = palette;
         self.look = Look::themed(&palette);
         self.popover = None;
-        self.gauge_panel = None;
         self.tip = None;
         self.tip_of = None;
         self.tip_want = None;
@@ -356,14 +355,6 @@ impl State {
         self.frost_key = None;
         self.drops = paint_drops(&mut self.renderer, self.screen.x, &self.shapes, &palette);
         self.take_icons(self.tray_raw.clone());
-        if let Some((level, muted)) = self.volume {
-            self.speaker = None;
-            self.take_volume(level, muted);
-        }
-        if let Some(level) = self.light {
-            self.sun = None;
-            self.take_light(level);
-        }
         self.relayout(true);
         self.welcome_restyle();
         self.kick_now();

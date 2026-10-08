@@ -146,7 +146,6 @@ impl State {
 
         self.dismiss_popups();
         self.popover = None;
-        self.gauge_panel = None;
         self.switch = None;
         self.tip = None;
         self.tip_of = None;

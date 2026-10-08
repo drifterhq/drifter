@@ -53,7 +53,6 @@ pub mod theme;
 pub mod tiles;
 pub mod tray;
 pub mod users;
-pub mod volume;
 pub mod wallpaper;
 pub mod welcome;
 pub mod window;

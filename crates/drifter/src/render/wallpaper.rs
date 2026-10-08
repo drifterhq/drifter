@@ -399,16 +399,6 @@ impl State {
         Some((laid, paper.pyramid.size()))
     }
 
-    pub(super) fn frosted(&self, image: &mut drifter_core::Image, origin: Vec2, solid: f64) {
-        let (Some(paper), Some((laid, size))) = (self.wallpaper.as_ref(), self.laid_paper()) else {
-            return;
-        };
-        let dense = drifter_core::paint::density();
-        drifter_core::frost::underlay(image, solid, |point| {
-            paper.frost.behind(&laid, size, origin + point / dense)
-        });
-    }
-
     pub(super) fn veil(&self, plain: f64) -> f64 {
         match self.wallpaper.is_some() {
             true => f64::from(self.palette.veil) / 255.0,

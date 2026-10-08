@@ -349,14 +349,6 @@ enum Grab {
     },
 }
 
-struct GaugePanel {
-    gauge: drifter_core::hud::Gauge,
-    rect: Rect,
-    art: TextureBuffer<Tex>,
-    shown: (i64, bool),
-    held: bool,
-}
-
 pub struct ClientLock {
     locker: Option<smithay::wayland::session_lock::SessionLocker>,
     lock: wayland_protocols::ext::session_lock::v1::server::ext_session_lock_v1::ExtSessionLockV1,
@@ -525,7 +517,6 @@ pub struct State {
     control_icon: Option<TextureBuffer<Tex>>,
     control_status: drifter_core::control::Status,
     control_stale: bool,
-    gauge_stale: bool,
     notes_panel: Option<(TextureBuffer<Tex>, Rect, usize)>,
     glance_panel: Option<activity::GlancePanel>,
     activity_launched: Option<Instant>,
@@ -583,11 +574,8 @@ pub struct State {
     client_lock: Option<ClientLock>,
     volume: Option<(f64, bool)>,
     volume_read: Option<Instant>,
-    speaker: Option<(TextureBuffer<Tex>, (usize, bool))>,
     light: Option<f64>,
     light_read: Option<Instant>,
-    sun: Option<TextureBuffer<Tex>>,
-    gauge_panel: Option<GaugePanel>,
     lock_big: Option<std::sync::Arc<Font>>,
     lock_small: Option<std::sync::Arc<Font>>,
     lock_name: Option<std::sync::Arc<Font>>,
@@ -894,9 +882,6 @@ impl State {
         {
             elements.push(Skin::Texture(element(art, panel.rect, 1.0)));
         }
-        if let Some(panel) = self.gauge_panel.as_ref().filter(|_| live) {
-            elements.push(Skin::Texture(element(&panel.art, panel.rect, 1.0)));
-        }
         if let Some((art, rect)) = self.glance_card.as_ref().filter(|_| live) {
             elements.push(Skin::Texture(element(art, *rect, 1.0)));
             self.modal_shadow(*rect, &mut elements);
@@ -917,12 +902,6 @@ impl State {
         }
         if let (Some(_), Some((_, buffer, rect))) = (self.tray_band(), self.clock.as_ref()) {
             elements.push(Skin::Texture(element(buffer, *rect, 1.0)));
-        }
-        if let (Some(rect), Some((buffer, _))) = (self.speaker_rect(), self.speaker.as_ref()) {
-            elements.push(Skin::Texture(element(buffer, rect, 1.0)));
-        }
-        if let (Some(rect), Some(buffer)) = (self.sun_rect(), self.sun.as_ref()) {
-            elements.push(Skin::Texture(element(buffer, rect, 1.0)));
         }
         if let (Some(rect), Some((buffer, _))) = (self.battery_rect(), self.battery_art.as_ref()) {
             if let Some(glow) = self.battery_glow.as_ref() {
@@ -1251,7 +1230,6 @@ impl State {
         self.wind_the_volume();
         self.wind_the_light();
         self.wind_the_control();
-        self.wind_the_gauge();
         self.wind_the_ripple();
         self.wind_the_thumb();
         self.wind_the_desk_menu();
@@ -1521,13 +1499,6 @@ impl State {
             return Some(Edge::Bottom);
         }
         if self.control.is_some() || self.notes_panel.is_some() || self.glance_panel.is_some() {
-            return Some(Edge::Top);
-        }
-        if self
-            .gauge_panel
-            .as_ref()
-            .is_some_and(|panel| panel.rect.contains(self.pointer))
-        {
             return Some(Edge::Top);
         }
         for edge in Edge::ALL {

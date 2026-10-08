@@ -12,9 +12,6 @@ Work that is not yet done, after the 2026-10-01 daily-driver list. Done items le
 
 The 2026-10-05 night-two work ran only on the VM, with fake radios.
 
-- Wi-Fi page on a real card: join with a password, leave, forget, the switch.
-- Bluetooth page with a real device: search, pair, connect, remove.
-- Refresh rate and resolution on eDP-1, and wlr-randr and kanshi there.
 - A real USB stick: it opens and the note opens the folder.
 - Sticky keys, reduce motion and large text in daily use.
 

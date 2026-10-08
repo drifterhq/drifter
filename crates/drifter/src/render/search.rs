@@ -17,7 +17,6 @@ impl State {
             return;
         }
         self.popover = None;
-        self.gauge_panel = None;
         self.search = Some(Search {
             query: String::new(),
             all: drifter_core::search::settings(),

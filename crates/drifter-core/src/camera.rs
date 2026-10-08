@@ -8,6 +8,7 @@ pub struct Camera {
 
 impl Camera {
     pub const WORK_ZOOM: f64 = 1.0;
+    pub const OVERVIEW_ZOOM: f64 = 0.7;
 
     pub fn new(center: Vec2, zoom: f64) -> Self {
         Camera { center, zoom }
@@ -55,7 +56,7 @@ impl Camera {
 
         let span = (high - low) + Vec2::splat(margin * 2.0);
         let least = Camera::fit_zoom(viewport, world);
-        let zoom = Camera::fit_zoom(viewport, span).clamp(least, Camera::WORK_ZOOM);
+        let zoom = Camera::fit_zoom(viewport, span).clamp(least, Camera::OVERVIEW_ZOOM.max(least));
 
         let mut camera = Camera::new((low + high) / 2.0, zoom);
         camera.clamp_to_world(world, viewport);
@@ -200,16 +201,17 @@ mod tests {
     }
 
     #[test]
-    fn showing_one_small_window_never_zooms_past_the_work_zoom() {
+    fn showing_one_small_window_still_zooms_out() {
         let window = Rect::new(Vec2::new(2800.0, 1600.0), Vec2::new(200.0, 150.0));
         let camera = Camera::showing(&[window], VIEWPORT, 40.0, WORLD);
-        assert_eq!(camera.zoom, Camera::WORK_ZOOM);
+        assert_eq!(camera.zoom, Camera::OVERVIEW_ZOOM);
+        assert!(camera.zoom < Camera::WORK_ZOOM);
     }
 
     #[test]
     fn showing_centers_on_the_windows_not_on_the_world() {
-        let one = Rect::new(Vec2::new(400.0, 300.0), Vec2::new(600.0, 400.0));
-        let two = Rect::new(Vec2::new(1200.0, 900.0), Vec2::new(600.0, 400.0));
+        let one = Rect::new(Vec2::new(2400.0, 2300.0), Vec2::new(600.0, 400.0));
+        let two = Rect::new(Vec2::new(3200.0, 2900.0), Vec2::new(600.0, 400.0));
         let camera = Camera::showing(&[one, two], VIEWPORT, 0.0, WORLD);
         let middle = (one.origin + two.max()) / 2.0;
         assert_eq!(camera.center, middle);

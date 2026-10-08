@@ -41,7 +41,6 @@ enum Job {
     Read,
     Set(f64),
     Light(f64),
-    Mute,
 }
 
 pub struct Heard {
@@ -68,10 +67,6 @@ impl Media {
 
     pub fn set_brightness(&self, level: f64) {
         let _ = self.jobs.send(Job::Light(level.clamp(0.0, 1.0)));
-    }
-
-    pub fn toggle_mute(&self) {
-        let _ = self.jobs.send(Job::Mute);
     }
 }
 
@@ -110,10 +105,6 @@ fn serve(jobs: Receiver<Job>, readings: LoopSender<Heard>) {
             Job::Light(_) if matches!(waiting.front(), Some(Job::Light(_))) => continue,
             Job::Light(level) => {
                 send(&readings, light_at(level), false);
-                continue;
-            }
-            Job::Mute => {
-                send(&readings, volume(SINK, &["set-mute"], "toggle"), false);
                 continue;
             }
             Job::Read => {

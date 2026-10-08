@@ -53,7 +53,6 @@ impl State {
             drawer.open &= !hides[drawer.edge.index()];
         }
         self.popover = None;
-        self.gauge_panel = None;
         self.tip = None;
         self.tip_of = None;
         self.tip_want = None;
