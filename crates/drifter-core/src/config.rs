@@ -1196,7 +1196,7 @@ pub struct Shots {
 impl Shots {
     pub fn folder_in(&self, home: &Path) -> PathBuf {
         match self.folder.as_deref().map(str::trim) {
-            Some("") | None => home.join("Pictures/Screenshots"),
+            Some("") | None => crate::folders::user_dir(home, "PICTURES", "Pictures").join("Screenshots"),
             Some(folder) => match folder.strip_prefix("~/") {
                 Some(rest) => home.join(rest),
                 None if folder == "~" => home.to_path_buf(),

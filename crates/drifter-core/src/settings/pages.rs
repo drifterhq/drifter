@@ -790,7 +790,7 @@ impl Model {
     fn shot_group(&self) -> Group {
         let folder = match self.shots.folder.as_deref() {
             Some(folder) if !folder.trim().is_empty() => folder.to_string(),
-            _ => "Pictures/Screenshots in your home folder".to_string(),
+            _ => "Screenshots in your Pictures folder".to_string(),
         };
         let marks = match self.shots.folder.is_some() {
             true => vec![Mark::Text("Choose"), Mark::Text("Reset")],

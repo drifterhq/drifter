@@ -53,10 +53,9 @@ pub fn settings() -> Vec<Found> {
 }
 
 pub fn files(home: &Path) -> Vec<Found> {
-    let roots = ["Desktop", "Documents", "Downloads", "Pictures", "Music", "Videos"];
     let mut found = Vec::new();
-    for root in roots {
-        walk(&home.join(root), 3, &mut found);
+    for root in crate::folders::searched(home) {
+        walk(&root, 3, &mut found);
     }
     found
         .into_iter()
