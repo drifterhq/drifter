@@ -429,6 +429,7 @@ dependencies = [
  "async-channel",
  "calloop 0.14.4",
  "drifter-core",
+ "drm-ffi",
  "libc",
  "smithay",
  "smithay-client-toolkit",
