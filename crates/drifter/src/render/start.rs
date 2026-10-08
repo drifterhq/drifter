@@ -9,15 +9,21 @@ pub(super) fn wire(
     seat_events: LibSeatSessionNotifier,
 ) -> Result<(), String> {
     handle
-        .insert_source(drm_events, |event, _, state: &mut State| match event {
+        .insert_source(drm_events, |event, meta, state: &mut State| match event {
             DrmEvent::VBlank(crtc) => {
-                let Some(head) = state.heads.iter_mut().find(|head| head.crtc == crtc) else {
+                let Some(at) = state.heads.iter().position(|head| head.crtc == crtc) else {
                     return;
                 };
+                let head = &mut state.heads[at];
                 head.awaiting = false;
                 if let Err(error) = head.compositor.frame_submitted() {
                     log!("drifter: frame submit on {} failed: {error}", head.name);
                 }
+                let seen = meta.as_ref().and_then(|meta| match meta.time {
+                    smithay::backend::drm::DrmEventTime::Monotonic(time) => Some((time, u64::from(meta.sequence))),
+                    smithay::backend::drm::DrmEventTime::Realtime(_) => None,
+                });
+                state.presented(at, seen);
                 if let Err(error) = state.draw() {
                     state.stop(error);
                 }
@@ -133,6 +139,7 @@ pub fn open(
     let mut drm_events = None;
     let mut gbm = None;
     let mut render_node = None;
+    let mut sync_fd = None;
     let mut wired = None;
     let vt = seat.as_ref().map(|seat| seat.session.clone());
     if let Some(seat) = seat {
@@ -146,6 +153,7 @@ pub fn open(
             .map_err(|e| format!("cannot open {}: {e}", seat.card.display()))?;
 
         let drm_fd = DrmDeviceFd::new(DeviceFd::from(fd));
+        sync_fd = Some(drm_fd.clone());
         render_node = smithay::backend::drm::DrmNode::from_file(drm_fd.clone())
             .ok()
             .map(|node| {
@@ -254,6 +262,9 @@ pub fn open(
             None => dmabuf.create_global::<State>(&handle, formats),
         };
         wayland.extras.dmabuf_global = Some(global);
+        if let Some(fd) = sync_fd.filter(smithay::wayland::drm_syncobj::supports_syncobj_eventfd) {
+            wayland.extras.syncobj = Some(smithay::wayland::drm_syncobj::DrmSyncobjState::new::<State>(&handle, fd));
+        }
     }
     let output = smithay::output::Output::new(
         "none".to_string(),
@@ -398,7 +409,6 @@ pub fn open(
         named_cursors: std::collections::HashMap::new(),
         layer_focus: None,
         skin,
-        started: Instant::now(),
         socket: String::new(),
         drm,
         gbm,

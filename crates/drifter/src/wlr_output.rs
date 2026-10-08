@@ -217,6 +217,10 @@ fn update(sent: &mut Sent, now: &Seen) -> bool {
 }
 
 impl GlobalDispatch<ZwlrOutputManagerV1, ()> for State {
+    fn can_view(client: Client, _data: &()) -> bool {
+        crate::protocols::trusted(&client)
+    }
+
     fn bind(
         state: &mut Self,
         _handle: &DisplayHandle,

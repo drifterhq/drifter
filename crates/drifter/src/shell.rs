@@ -66,11 +66,13 @@ pub struct Window {
     pub going: bool,
     pub closed_at: Option<std::time::Instant>,
     pub listed: Option<smithay::wayland::foreign_toplevel_list::ForeignToplevelHandle>,
+    pub modal: bool,
 }
 
 #[derive(Default)]
 pub struct Greeting {
     pub compositor_state: CompositorClientState,
+    pub security: Option<smithay::wayland::security_context::SecurityContext>,
 }
 
 impl ClientData for Greeting {
@@ -89,6 +91,10 @@ impl CompositorHandler for State {
 
     fn client_compositor_state<'a>(&self, client: &'a Client) -> &'a CompositorClientState {
         &client.get_data::<Greeting>().unwrap().compositor_state
+    }
+
+    fn new_surface(&mut self, surface: &WlSurface) {
+        self.wait_for_buffers(surface);
     }
 
     fn commit(&mut self, surface: &WlSurface) {
@@ -233,6 +239,7 @@ impl XdgShellHandler for State {
             going: false,
             closed_at: None,
             listed: None,
+            modal: false,
         });
     }
 
@@ -525,4 +532,11 @@ pub fn send_frame(surface: &WlSurface, time: u32) {
 
 pub fn client_data() -> Arc<Greeting> {
     Arc::new(Greeting::default())
+}
+
+pub fn sandboxed_data(context: smithay::wayland::security_context::SecurityContext) -> Arc<Greeting> {
+    Arc::new(Greeting {
+        compositor_state: CompositorClientState::default(),
+        security: Some(context),
+    })
 }

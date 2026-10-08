@@ -10,6 +10,7 @@ mod bars;
 mod camera;
 mod capture;
 mod centers;
+mod clients;
 mod deskmenu;
 mod dock;
 mod docklogo;
@@ -183,6 +184,7 @@ struct Head {
     frames: u32,
     last: Instant,
     warmth: Option<u32>,
+    feedback: Option<smithay::desktop::utils::OutputPresentationFeedback>,
 }
 
 struct Backdrop {
@@ -461,7 +463,6 @@ pub struct State {
     named_cursors: std::collections::HashMap<&'static str, Option<ThemeCursor>>,
     layer_focus: Option<smithay::reexports::wayland_server::protocol::wl_surface::WlSurface>,
     skin: std::collections::HashMap<String, (TextureBuffer<Tex>, Vec2)>,
-    started: Instant,
     socket: String,
     drm: Option<DrmDevice>,
     gbm: Option<GbmDevice<DrmDeviceFd>>,
@@ -1244,6 +1245,7 @@ impl State {
             .map(|piece| RescaleRenderElement::from_element(piece, (0, 0).into(), scale))
             .collect();
         let clear = self.clear;
+        let tearing = self.wants_tearing();
         let frames = self.heads[at].frames;
         let State {
             heads, renderer, ..
@@ -1251,7 +1253,7 @@ impl State {
         let head = &mut heads[at];
         let empty = head
             .compositor
-            .render_frame(renderer, &shown, clear)
+            .render_frame(renderer, &shown, clear, tearing)
             .map_err(|e| {
                 if frames == 0 {
                     format!(
@@ -1286,13 +1288,16 @@ impl State {
         })?;
         head.frames += 1;
         head.awaiting = true;
+        self.gather_feedback(at);
+        let head = &mut self.heads[at];
         if head.compositor.is_offscreen() {
             let name = head.name.clone();
             let _ = self.handle.insert_source(
                 Timer::from_duration(Duration::from_millis(16)),
                 move |_, _, state: &mut State| {
-                    if let Some(head) = state.heads.iter_mut().find(|head| head.name == name) {
-                        head.awaiting = false;
+                    if let Some(at) = state.heads.iter().position(|head| head.name == name) {
+                        state.heads[at].awaiting = false;
+                        state.presented(at, None);
                     }
                     if let Err(error) = state.draw() {
                         state.stop(error);
@@ -1314,37 +1319,9 @@ impl State {
     }
 
     fn tell_clients(&mut self) {
-        let now = self.started.elapsed().as_millis() as u32;
-        for window in &self.windows {
-            let root = window.toplevel.wl_surface();
-            crate::shell::send_frame(root, now);
-            for (popup, _) in smithay::desktop::PopupManager::popups_for_surface(root) {
-                crate::shell::send_frame(popup.wl_surface(), now);
-            }
-        }
-        let layers: Vec<_> = self
-            .heads
-            .iter()
-            .flat_map(|head| {
-                smithay::desktop::layer_map_for_output(&head.output)
-                    .layers()
-                    .map(|layer| layer.wl_surface().clone())
-                    .collect::<Vec<_>>()
-            })
-            .collect();
-        for root in layers {
+        let now = self.clock_ms();
+        for root in self.client_roots() {
             crate::shell::send_frame(&root, now);
-            for (popup, _) in smithay::desktop::PopupManager::popups_for_surface(&root) {
-                crate::shell::send_frame(popup.wl_surface(), now);
-            }
-        }
-        if let smithay::input::pointer::CursorImageStatus::Surface(surface) = &self.cursor_status {
-            crate::shell::send_frame(surface, now);
-        }
-        if let Some(held) = self.client_lock.as_ref() {
-            for (surface, _) in &held.surfaces {
-                crate::shell::send_frame(surface.wl_surface(), now);
-            }
         }
         if let Some(display) = self.display.as_mut() {
             let _ = display.flush_clients();

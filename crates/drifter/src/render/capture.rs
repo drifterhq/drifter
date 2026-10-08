@@ -48,6 +48,7 @@ impl State {
             panels,
             awaiting: false,
             warmth: None,
+            feedback: None,
             frames: 0,
             last: Instant::now(),
         });

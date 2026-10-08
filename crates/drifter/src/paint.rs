@@ -84,9 +84,14 @@ impl Scanout {
         renderer: &mut Painter,
         elements: &[E],
         clear: Color32F,
+        eager: bool,
     ) -> Result<bool, String> {
+        let flags = match eager {
+            true => FrameFlags::DEFAULT | FrameFlags::ALLOW_PRIMARY_PLANE_SCANOUT_ANY,
+            false => FrameFlags::DEFAULT,
+        };
         each!(self, compositor => compositor
-        .render_frame(renderer, elements, clear, FrameFlags::DEFAULT)
+        .render_frame(renderer, elements, clear, flags)
         .map(|result| result.is_empty)
         .map_err(|e| e.to_string()),
         screen => {

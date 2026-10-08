@@ -125,7 +125,7 @@ impl State {
                 let _ = PopupManager::dismiss_popup(root, &popup);
             }
         }
-        let time = self.started.elapsed().as_millis() as u32;
+        let time = self.clock_ms();
         let pointer = self.wayland.pointer.clone();
         if pointer.is_grabbed() {
             pointer.unset_grab(self, SERIAL_COUNTER.next_serial(), time);
@@ -536,6 +536,19 @@ impl State {
             return;
         }
 
+        if let Some(index) = self.windows.iter().position(|window| window.toplevel.wl_surface() == surface)
+            && self.center_on_parent(index)
+        {
+            self.windows[index].placed = true;
+            return;
+        }
+        let Some(window) = self
+            .windows
+            .iter_mut()
+            .find(|window| window.toplevel.wl_surface() == surface)
+        else {
+            return;
+        };
         let seen = view.origin;
         let middle = seen + (view.size - size) / 2.0;
         let top = middle.y.max(seen.y + chrome.title + chrome.edge);
@@ -713,6 +726,7 @@ impl State {
     pub(super) fn focus_window(&mut self, index: usize) -> usize {
         use smithay::utils::SERIAL_COUNTER;
 
+        let index = self.modal_of(index).unwrap_or(index);
         let index = self.raise(index);
         self.layer_focus = None;
         if let Some((_, screen)) = self.windows[index].full {

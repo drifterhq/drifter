@@ -180,7 +180,7 @@ impl State {
             &MotionEvent {
                 location: smithay::utils::Point::from((world.x, world.y)),
                 serial: SERIAL_COUNTER.next_serial(),
-                time: self.started.elapsed().as_millis() as u32,
+                time: self.clock_ms(),
             },
         );
         pointer.frame(self);

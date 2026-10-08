@@ -735,7 +735,8 @@ impl State {
     }
 
     pub(super) fn clock_ms(&self) -> u32 {
-        self.started.elapsed().as_millis() as u32
+        let now = smithay::utils::Clock::<smithay::utils::Monotonic>::new().now();
+        Duration::from(now).as_millis() as u32
     }
 
     pub(super) fn feed_key(&mut self, code: u32, pressed: bool, time: u32) {

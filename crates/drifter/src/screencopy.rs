@@ -36,6 +36,10 @@ pub fn global(display: &DisplayHandle) -> GlobalId {
 }
 
 impl GlobalDispatch<ZwlrScreencopyManagerV1, ()> for State {
+    fn can_view(client: Client, _data: &()) -> bool {
+        crate::protocols::trusted(&client)
+    }
+
     fn bind(
         _state: &mut Self,
         _handle: &DisplayHandle,

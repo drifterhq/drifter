@@ -155,6 +155,10 @@ impl Toplevels {
 }
 
 impl GlobalDispatch<ZwlrForeignToplevelManagerV1, ()> for State {
+    fn can_view(client: Client, _data: &()) -> bool {
+        crate::protocols::trusted(&client)
+    }
+
     fn bind(
         state: &mut Self,
         _handle: &DisplayHandle,

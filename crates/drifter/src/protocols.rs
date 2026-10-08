@@ -50,6 +50,16 @@ use smithay::wayland::shell::xdg::PopupSurface;
 use smithay::wayland::tablet_manager::TabletSeatHandler;
 use smithay::wayland::text_input::TextInputManagerState;
 use smithay::wayland::viewporter::ViewporterState;
+use smithay::wayland::drm_syncobj::{DrmSyncobjHandler, DrmSyncobjState};
+use smithay::wayland::presentation::PresentationState;
+use smithay::wayland::security_context::{
+    SecurityContext, SecurityContextHandler, SecurityContextListenerSource, SecurityContextState,
+};
+use smithay::wayland::shell::xdg::ToplevelSurface;
+use smithay::wayland::shell::xdg::dialog::{XdgDialogHandler, XdgDialogState};
+use smithay::wayland::single_pixel_buffer::SinglePixelBufferState;
+use smithay::wayland::xdg_foreign::{XdgForeignHandler, XdgForeignState};
+use smithay::reexports::wayland_server::Client;
 use smithay::wayland::xdg_activation::{
     XdgActivationHandler, XdgActivationState, XdgActivationToken, XdgActivationTokenData,
 };
@@ -59,7 +69,9 @@ use smithay::{
     delegate_primary_selection, delegate_relative_pointer, delegate_text_input_manager,
     delegate_viewporter, delegate_xdg_activation, delegate_foreign_toplevel_list,
     delegate_idle_notify, delegate_keyboard_shortcuts_inhibit, delegate_session_lock,
-    delegate_virtual_keyboard_manager,
+    delegate_virtual_keyboard_manager, delegate_drm_syncobj, delegate_presentation,
+    delegate_security_context, delegate_single_pixel_buffer, delegate_xdg_dialog,
+    delegate_xdg_foreign,
 };
 
 use crate::render::State;
@@ -93,6 +105,19 @@ pub struct Extras {
     _wlr_toplevel_global: smithay::reexports::wayland_server::backend::GlobalId,
     pub wlr_outputs: crate::wlr_output::Outputs,
     _wlr_output_global: smithay::reexports::wayland_server::backend::GlobalId,
+    pub syncobj: Option<DrmSyncobjState>,
+    _presentation: PresentationState,
+    foreign: XdgForeignState,
+    _dialog: XdgDialogState,
+    _security: SecurityContextState,
+    _single_pixel: SinglePixelBufferState,
+    _tearing: smithay::reexports::wayland_server::backend::GlobalId,
+}
+
+pub fn trusted(client: &Client) -> bool {
+    client
+        .get_data::<crate::shell::Greeting>()
+        .is_none_or(|greeting| greeting.security.is_none())
 }
 
 pub fn start(
@@ -101,15 +126,15 @@ pub fn start(
 ) -> Extras {
     Extras {
         idle: IdleNotifierState::new(handle, events),
-        toplevels: ForeignToplevelListState::new::<State>(handle),
+        toplevels: ForeignToplevelListState::new_with_filter::<State>(handle, trusted),
         shortcuts: KeyboardShortcutsInhibitState::new::<State>(handle),
-        session_lock: SessionLockManagerState::new::<State, _>(handle, |_| true),
-        _virtual_keyboard: VirtualKeyboardManagerState::new::<State, _>(handle, |_| true),
+        session_lock: SessionLockManagerState::new::<State, _>(handle, trusted),
+        _virtual_keyboard: VirtualKeyboardManagerState::new::<State, _>(handle, trusted),
         dmabuf: DmabufState::new(),
         dmabuf_global: None,
         primary: PrimarySelectionState::new::<State>(handle),
         activation: XdgActivationState::new::<State>(handle),
-        layers: WlrLayerShellState::new::<State>(handle),
+        layers: WlrLayerShellState::new_with_filter::<State, _>(handle, trusted),
         inhibitors: Vec::new(),
         _outputs: OutputManagerState::new_with_xdg_output::<State>(handle),
         _viewporter: ViewporterState::new::<State>(handle),
@@ -118,7 +143,7 @@ pub fn start(
         _constraints: PointerConstraintsState::new::<State>(handle),
         _idle: IdleInhibitManagerState::new::<State>(handle),
         _text: TextInputManagerState::new::<State>(handle),
-        _ime: InputMethodManagerState::new::<State, _>(handle, |_| true),
+        _ime: InputMethodManagerState::new::<State, _>(handle, trusted),
         _cursor_shape: CursorShapeManagerState::new::<State>(handle),
         kde_decoration: KdeDecorationState::new::<State>(handle, KdeDefault::Server),
         _screencopy: crate::screencopy::global(handle),
@@ -126,6 +151,13 @@ pub fn start(
         _wlr_toplevel_global: crate::wlr_toplevel::global(handle),
         wlr_outputs: crate::wlr_output::Outputs::default(),
         _wlr_output_global: crate::wlr_output::global(handle),
+        syncobj: None,
+        _presentation: PresentationState::new::<State>(handle, libc::CLOCK_MONOTONIC as u32),
+        foreign: XdgForeignState::new::<State>(handle),
+        _dialog: XdgDialogState::new::<State>(handle),
+        _security: SecurityContextState::new::<State, _>(handle, trusted),
+        _single_pixel: SinglePixelBufferState::new::<State>(handle),
+        _tearing: crate::tearing::global(handle),
     }
 }
 
@@ -414,3 +446,33 @@ delegate_foreign_toplevel_list!(State);
 delegate_keyboard_shortcuts_inhibit!(State);
 delegate_virtual_keyboard_manager!(State);
 delegate_session_lock!(State);
+delegate_drm_syncobj!(State);
+delegate_presentation!(State);
+delegate_xdg_foreign!(State);
+delegate_xdg_dialog!(State);
+delegate_security_context!(State);
+delegate_single_pixel_buffer!(State);
+
+impl DrmSyncobjHandler for State {
+    fn drm_syncobj_state(&mut self) -> Option<&mut DrmSyncobjState> {
+        self.wayland.extras.syncobj.as_mut()
+    }
+}
+
+impl XdgForeignHandler for State {
+    fn xdg_foreign_state(&mut self) -> &mut XdgForeignState {
+        &mut self.wayland.extras.foreign
+    }
+}
+
+impl XdgDialogHandler for State {
+    fn modal_changed(&mut self, toplevel: ToplevelSurface, is_modal: bool) {
+        self.set_modal(&toplevel, is_modal);
+    }
+}
+
+impl SecurityContextHandler for State {
+    fn context_created(&mut self, source: SecurityContextListenerSource, context: SecurityContext) {
+        self.listen_sandboxed(source, context);
+    }
+}
