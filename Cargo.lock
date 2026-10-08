@@ -514,6 +514,8 @@ checksum = "75b325c5dbd37f80359721ad39aca5a29fb04c89279657cffdda8736d0c0b9d2"
 name = "drifter"
 version = "0.1.0"
 dependencies = [
+ "accesskit",
+ "accesskit_unix",
  "async-channel",
  "calloop 0.14.4",
  "drifter-core",

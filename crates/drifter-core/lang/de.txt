@@ -2520,6 +2520,9 @@ Copy
 Show in Folder
 = Im Ordner zeigen
 
+Window
+= Fenster
+
 Built-in screen
 = Eingebauter Bildschirm
 

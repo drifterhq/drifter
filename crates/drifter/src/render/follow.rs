@@ -231,6 +231,7 @@ impl State {
             crate::a11y::stop_orca();
             return;
         }
+        self.start_speech();
         if self.a11y.is_none() {
             match crate::a11y::Monitor::start() {
                 Ok(monitor) => self.a11y = Some(monitor),

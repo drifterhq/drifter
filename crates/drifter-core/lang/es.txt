@@ -2520,6 +2520,9 @@ Copy
 Show in Folder
 = Mostrar en la carpeta
 
+Window
+= Ventana
+
 Built-in screen
 = Pantalla integrada
 

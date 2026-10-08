@@ -18,6 +18,7 @@ mod follow;
 mod heads;
 mod launchpad;
 mod shoot;
+mod speech;
 mod input;
 mod lock;
 mod overlays;
@@ -657,6 +658,7 @@ pub struct State {
     note_folders: std::collections::HashMap<u32, PathBuf>,
     access: drifter_core::Access,
     a11y: Option<crate::a11y::Monitor>,
+    speech: Option<speech::Speech>,
     reading: bool,
     a11y_locks: Option<(bool, bool)>,
     sticky: drifter_core::sticky::Sticky,
@@ -1214,6 +1216,7 @@ impl State {
         self.restyle(now);
         self.send_resize();
         if drew {
+            self.speak();
             self.confirm_client_lock();
             self.tell_clients();
         } else {

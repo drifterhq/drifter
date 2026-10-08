@@ -2517,6 +2517,9 @@ Copy
 Show in Folder
 = Afficher dans le dossier
 
+Window
+= Fenêtre
+
 Built-in screen
 = Écran intégré
 

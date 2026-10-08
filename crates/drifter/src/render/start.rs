@@ -614,6 +614,7 @@ pub fn open(
         note_folders: std::collections::HashMap::new(),
         access: config.access,
         a11y: None,
+        speech: None,
         reading: false,
         a11y_locks: None,
         sticky: drifter_core::sticky::Sticky::default(),
