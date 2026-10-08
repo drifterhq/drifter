@@ -1881,7 +1881,7 @@ impl Settings {
     }
 
     fn open_files(&mut self, purpose: For) {
-        let pictures = drifter_core::folders::user_dir(&home(), "PICTURES", drifter_core::lang::t("Pictures"));
+        let pictures = drifter_core::folders::user_dir(&home(), "PICTURES", "Pictures");
         let pictures = if pictures.is_dir() { pictures } else { home() };
         let near = |path: Option<&PathBuf>| {
             path.and_then(|path| path.parent())
@@ -1957,7 +1957,7 @@ impl Settings {
                 self.open_faces(For::NewFace, chosen);
             }
             Pick::Browse => {
-                let pictures = drifter_core::folders::user_dir(&home(), "PICTURES", drifter_core::lang::t("Pictures"));
+                let pictures = drifter_core::folders::user_dir(&home(), "PICTURES", "Pictures");
                 let start = if pictures.is_dir() { pictures } else { home() };
                 self.sheet = Some(Sheet::files(purpose, start));
             }
