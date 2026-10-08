@@ -208,30 +208,30 @@ pub fn memory(info: &str) -> Option<String> {
 pub fn about(renderer: Option<&str>, config: &Path) -> Vec<(String, String)> {
     let read = |path: &str| std::fs::read_to_string(path).ok();
     let mut rows = vec![(
-        "Drifter".to_string(),
-        format!("Version {}", env!("CARGO_PKG_VERSION")),
+        crate::lang::t("Drifter").to_string(),
+        crate::lang::tf("Version {}", &[&(env!("CARGO_PKG_VERSION"))]),
     )];
     let mut add = |key: &str, value: Option<String>| {
         if let Some(value) = value.filter(|value| !value.trim().is_empty()) {
             rows.push((key.to_string(), value.trim().to_string()));
         }
     };
-    add("Computer", read("/proc/sys/kernel/hostname"));
+    add(crate::lang::t("Computer"), read("/proc/sys/kernel/hostname"));
     add(
-        "System",
+        crate::lang::t("System"),
         read("/etc/os-release").and_then(|text| os_name(&text)),
     );
-    add("Kernel", read("/proc/sys/kernel/osrelease"));
+    add(crate::lang::t("Kernel"), read("/proc/sys/kernel/osrelease"));
     add(
-        "Processor",
+        crate::lang::t("Processor"),
         read("/proc/cpuinfo").and_then(|text| cpu_name(&text)),
     );
     add(
-        "Memory",
+        crate::lang::t("Memory"),
         read("/proc/meminfo").and_then(|text| memory(&text)),
     );
-    add("Graphics", renderer.map(str::to_string));
-    add("Config file", Some(config.display().to_string()));
+    add(crate::lang::t("Graphics"), renderer.map(str::to_string));
+    add(crate::lang::t("Config file"), Some(config.display().to_string()));
     rows
 }
 

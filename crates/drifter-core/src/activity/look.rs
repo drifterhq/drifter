@@ -34,17 +34,17 @@ impl View {
 
     pub fn name(self) -> &'static str {
         match self {
-            View::Apps => "Apps",
-            View::Background => "Background",
-            View::Everything => "Everything",
-            View::Hour => "Last hour",
+            View::Apps => crate::lang::t("Apps"),
+            View::Background => crate::lang::t("Background"),
+            View::Everything => crate::lang::t("Everything"),
+            View::Hour => crate::lang::t("Last hour"),
         }
     }
 
     fn group(self) -> &'static str {
         match self {
-            View::Hour => "Look back",
-            _ => "Running",
+            View::Hour => crate::lang::t("Look back"),
+            _ => crate::lang::t("Running"),
         }
     }
 
@@ -368,7 +368,7 @@ impl Look {
         let toast = model.toast.as_ref()?;
         let main = self.main(size, model.view);
         let words = fonts.body.width_of(&toast.words);
-        let button = if toast.reopen { fonts.body.width_of("Reopen") + 24.0 } else { 0.0 };
+        let button = if toast.reopen { fonts.body.width_of(crate::lang::t("Reopen")) + 24.0 } else { 0.0 };
         let width = words + 32.0 + button;
         let rect = Rect::new(Vec2::new(main.center().x - width / 2.0, size.y - PAD - 44.0), Vec2::new(width, 36.0));
         let reopen = toast.reopen.then(|| Rect::new(Vec2::new(rect.max().x - button - 6.0, rect.origin.y + 5.0), Vec2::new(button, 26.0)));
@@ -508,7 +508,7 @@ impl Look {
             canvas.stamp(&words, Vec2::new(rect.origin.x + 16.0, rect.center().y - logical(&words).y / 2.0).round(), 1.0);
             if let Some(button) = reopen {
                 canvas.round_rect(button, 7.0, self.accent, 1.0);
-                let label = fonts.body.paint_weight("Reopen", [255, 255, 255], 600.0);
+                let label = fonts.body.paint_weight(crate::lang::t("Reopen"), [255, 255, 255], 600.0);
                 canvas.stamp(&label, (button.center() - logical(&label) / 2.0).round(), 1.0);
             }
         }
@@ -519,12 +519,12 @@ impl Look {
         let side = Rect::new(Vec2::ZERO, Vec2::new(self.sidebar, size.y));
         canvas.round_rect(side, 0.0, self.side, 1.0);
         canvas.round_rect(Rect::new(Vec2::new(self.sidebar - 1.0, 0.0), Vec2::new(1.0, size.y)), 0.0, self.rule, 1.0);
-        let heading = fonts.small.paint("Activity", self.dim);
+        let heading = fonts.small.paint(crate::lang::t("Activity"), self.dim);
         canvas.stamp(&heading, Vec2::new(22.0, 18.0), 1.0);
         let field = self.search_rect();
         canvas.round_rect(field, 7.0, self.back, 1.0);
         let (words, ink) = match model.query.is_empty() {
-            true => ("Search".to_string(), self.dim),
+            true => (crate::lang::t("Search").to_string(), self.dim),
             false => (format!("{}|", model.query), self.ink),
         };
         let text = fonts.body.paint(&crate::glance::fit(fonts.body, &words, field.size.x - 20.0), ink);
@@ -572,7 +572,7 @@ impl Look {
 
     fn paint_tiles(&self, canvas: &mut Canvas, size: Vec2, model: &Model, fonts: &Fonts) {
         let tiles = self.tiles(size, model.view);
-        let cores = format!("CPU · {} cores", model.cores);
+        let cores = crate::lang::tf("CPU · {} cores", &[&(model.cores)]);
         let below = self.tile_frame(canvas, tiles[0], fonts, &cores, &percent_words(model.cpu), "");
         let spark = Rect::new(Vec2::new(tiles[0].origin.x + 12.0, below + 2.0), Vec2::new(tiles[0].size.x - 24.0, tiles[0].max().y - below - 10.0));
         if model.machine.len() > 1 {
@@ -581,7 +581,7 @@ impl Look {
 
         let used = model.memory.used_kb();
         let gb = |kb: u64| kb as f64 / 1024.0 / 1024.0;
-        let below = self.tile_frame(canvas, tiles[1], fonts, "Memory", &format!("{:.1} GB", gb(used)), "");
+        let below = self.tile_frame(canvas, tiles[1], fonts, crate::lang::t("Memory"), &format!("{:.1} GB", gb(used)), "");
         let track = Rect::new(Vec2::new(tiles[1].origin.x + 12.0, below + 6.0), Vec2::new(tiles[1].size.x - 24.0, 4.0));
         meter(canvas, track, model.memory.share(), self.ink, crate::activity::tone(self.ink, model.memory.share() * 100.0));
         let swap = model.memory.swap_used_kb();
@@ -600,21 +600,21 @@ impl Look {
                     Some(watts) => (format!("{watts:.1}"), "W"),
                     None => (format!("{}%", power.percent), ""),
                 };
-                let head = if power.charging { "Charging" } else { "Power draw" };
+                let head = if power.charging { crate::lang::t("Charging") } else { crate::lang::t("Power draw") };
                 let below = self.tile_frame(canvas, tiles[2], fonts, head, &big, unit);
                 let words = match (power.charging, power.left_hours) {
-                    (true, _) => format!("Battery {}%", power.percent),
+                    (true, _) => crate::lang::tf("Battery {}%", &[&(power.percent)]),
                     (false, Some(hours)) => format!("{} left", hours_words(hours)),
-                    (false, None) => format!("Battery {}%", power.percent),
+                    (false, None) => crate::lang::tf("Battery {}%", &[&(power.percent)]),
                 };
                 let note = fonts.small.paint(&crate::glance::fit(fonts.small, &words, tiles[2].size.x - 24.0), self.dim);
                 canvas.stamp(&note, Vec2::new(tiles[2].origin.x + 12.0, below + 8.0).round(), 1.0);
             }
             None => {
                 let running = model.groups.iter().map(|group| group.members.len()).sum::<usize>();
-                let below = self.tile_frame(canvas, tiles[2], fonts, "Running", &running.to_string(), "processes");
+                let below = self.tile_frame(canvas, tiles[2], fonts, crate::lang::t("Running"), &running.to_string(), "processes");
                 let apps = model.count(View::Apps);
-                let note = fonts.small.paint(&format!("{apps} apps · on wall power"), self.dim);
+                let note = fonts.small.paint(&crate::lang::tf("{} apps · on wall power", &[&(apps)]), self.dim);
                 canvas.stamp(&note, Vec2::new(tiles[2].origin.x + 12.0, below + 8.0).round(), 1.0);
             }
         }
@@ -629,7 +629,7 @@ impl Look {
                 canvas.stamp(&note, Vec2::new(track.origin.x, track.max().y + 6.0).round(), 1.0);
             }
             None => {
-                self.tile_frame(canvas, tiles[3], fonts, "Disk", "—", "");
+                self.tile_frame(canvas, tiles[3], fonts, crate::lang::t("Disk"), "—", "");
             }
         }
     }
@@ -638,7 +638,7 @@ impl Look {
         let table = self.table_rect(size, model.view);
         canvas.round_rect(table, self.radius, self.card, 1.0);
         let columns = self.columns(table);
-        let names = [(Column::Name, "Name"), (Column::Impact, "Impact"), (Column::Cpu, "CPU"), (Column::Memory, "Memory")];
+        let names = [(Column::Name, crate::lang::t("Name")), (Column::Impact, crate::lang::t("Impact")), (Column::Cpu, "CPU"), (Column::Memory, crate::lang::t("Memory"))];
         for ((column, x, _, right), (_, word)) in columns.iter().zip(names) {
             let on = model.sort == *column;
             let painted = match on {
@@ -648,7 +648,7 @@ impl Look {
             let left = if *right { x - logical(&painted).x } else { *x };
             canvas.stamp(&painted, Vec2::new(left, table.origin.y + HEAD_H / 2.0 - logical(&painted).y / 2.0).round(), 1.0);
         }
-        let last = fonts.small.paint("Last minute", self.dim);
+        let last = fonts.small.paint(crate::lang::t("Last minute"), self.dim);
         canvas.stamp(&last, Vec2::new(table.max().x - 12.0 - logical(&last).x, table.origin.y + HEAD_H / 2.0 - logical(&last).y / 2.0).round(), 1.0);
         canvas.round_rect(Rect::new(Vec2::new(table.origin.x, table.origin.y + HEAD_H - 1.0), Vec2::new(table.size.x, 1.0)), 0.0, self.rule, 1.0);
 
@@ -682,8 +682,8 @@ impl Look {
         let rows = rows;
         if shown.is_empty() {
             let words = match model.query.is_empty() {
-                true => "Nothing runs here right now.".to_string(),
-                false => format!("Nothing matches “{}”.", model.query.trim()),
+                true => crate::lang::t("Nothing runs here right now.").to_string(),
+                false => crate::lang::tf("Nothing matches “{}”.", &[&(model.query.trim())]),
             };
             let note = fonts.body.paint(&words, self.dim);
             layer.stamp(&note, Vec2::new(body.size.x / 2.0 - logical(&note).x / 2.0, 40.0).round(), 1.0);
@@ -818,7 +818,7 @@ impl Look {
         let x = panel.origin.x + pad;
         let width = panel.size.x - pad * 2.0;
         let Some(group) = model.chosen() else {
-            let words = fonts.body.paint("Pick an app to see it here.", self.dim);
+            let words = fonts.body.paint(crate::lang::t("Pick an app to see it here."), self.dim);
             canvas.stamp(&words, Vec2::new(panel.center().x - logical(&words).x / 2.0, size.y / 2.0 - 10.0).round(), 1.0);
             return;
         };
@@ -835,19 +835,19 @@ impl Look {
             canvas.round_rect(Rect::new(Vec2::new(x, y + 47.0), Vec2::new(width, 1.0)), 0.0, self.ink, 0.1);
             let most = line.iter().copied().fold(20.0, f64::max) * 1.1;
             paint_spark(canvas, area, line, most, true);
-            let label = fonts.small.paint("CPU · last minute", self.dim);
+            let label = fonts.small.paint(crate::lang::t("CPU · last minute"), self.dim);
             canvas.stamp(&label, Vec2::new(x, y + 52.0).round(), 0.8);
             y += 76.0;
         }
         let program = group.argv.first().map(|first| first.rsplit('/').next().unwrap_or(first).to_string()).unwrap_or_default();
         let mut pairs: Vec<(&str, String)> = vec![
-            ("Doing", group.detail.clone()),
-            ("CPU", if group.paused { "Paused".to_string() } else { percent_words(group.cpu) }),
-            ("Memory", memory_words(group.mem_kb)),
-            ("Processes", group.members.len().to_string()),
+            (crate::lang::t("Doing"), group.detail.clone()),
+            ("CPU", if group.paused { crate::lang::t("Paused").to_string() } else { percent_words(group.cpu) }),
+            (crate::lang::t("Memory"), memory_words(group.mem_kb)),
+            (crate::lang::t("Processes"), group.members.len().to_string()),
         ];
         if !program.is_empty() {
-            pairs.push(("Program", program));
+            pairs.push((crate::lang::t("Program"), program));
         }
         for (label, value) in pairs {
             let left = fonts.small.paint(label, self.dim);
@@ -858,11 +858,11 @@ impl Look {
         }
         y += 8.0;
         let note = match group.kind {
-            Kind::Drifter => "Drifter draws your screen. It cannot pause or quit itself.",
-            Kind::System => "This runs for the whole computer. Only an administrator can stop it.",
-            _ if group.paused => "Paused. Its windows stay open and its work stays in memory. It uses no CPU until you resume it.",
-            Kind::Background => "This runs in the background for your session. Pause stops it for now. Quit asks it to close.",
-            Kind::App => "Pause keeps the work open and stops the CPU. Quit asks the app to save and close.",
+            Kind::Drifter => crate::lang::t("Drifter draws your screen. It cannot pause or quit itself."),
+            Kind::System => crate::lang::t("This runs for the whole computer. Only an administrator can stop it."),
+            _ if group.paused => crate::lang::t("Paused. Its windows stay open and its work stays in memory. It uses no CPU until you resume it."),
+            Kind::Background => crate::lang::t("This runs in the background for your session. Pause stops it for now. Quit asks it to close."),
+            Kind::App => crate::lang::t("Pause keeps the work open and stops the CPU. Quit asks the app to save and close."),
         };
         let (pause, quit, force) = self.action_rects(size);
         let limit = if group.can_stop() { pause.origin.y - 10.0 } else { size.y - 16.0 };
@@ -876,7 +876,7 @@ impl Look {
         }
         y += 10.0;
         if group.members.len() > 1 && y + 60.0 < limit {
-            let head = fonts.small.paint_weight("Busiest processes", self.dim, 600.0);
+            let head = fonts.small.paint_weight(crate::lang::t("Busiest processes"), self.dim, 600.0);
             canvas.stamp(&head, Vec2::new(x, y).round(), 0.9);
             y += 22.0;
             let mut busiest: Vec<&super::Member> = group.members.iter().collect();
@@ -900,8 +900,8 @@ impl Look {
             let label = fonts.body.paint_weight(word, self.ink, 550.0);
             canvas.stamp(&label, (rect.center() - logical(&label) / 2.0).round(), 1.0);
         };
-        button(canvas, pause, if group.paused { "Resume" } else { "Pause" });
-        button(canvas, quit, "Quit");
+        button(canvas, pause, if group.paused { crate::lang::t("Resume") } else { "Pause" });
+        button(canvas, quit, crate::lang::t("Quit"));
         self.paint_hold(canvas, force, model.hold, fonts);
     }
 
@@ -912,7 +912,7 @@ impl Look {
             let filled = Rect::new(rect.origin, Vec2::new(rect.size.x * hold.clamp(0.0, 1.0), rect.size.y));
             canvas.round_rect(filled, 7.0, self.alert, 0.32);
         }
-        let word = if hold > 0.0 { "Keep holding…" } else { "Hold to force quit" };
+        let word = if hold > 0.0 { crate::lang::t("Keep holding…") } else { crate::lang::t("Hold to force quit") };
         let label = fonts.body.paint_weight(word, self.alert, 550.0);
         canvas.stamp(&label, (rect.center() - logical(&label) / 2.0).round(), 1.0);
     }
@@ -926,16 +926,16 @@ impl Look {
 
     fn paint_hour(&self, canvas: &mut Canvas, size: Vec2, model: &Model, fonts: &Fonts, icons: &HashMap<String, Image>) {
         let main = self.main(size, View::Hour);
-        let title = fonts.title.paint("Last hour", self.ink);
+        let title = fonts.title.paint(crate::lang::t("Last hour"), self.ink);
         canvas.stamp(&title, Vec2::new(main.origin.x + PAD, PAD).round(), 1.0);
-        let note = fonts.small.paint("Drifter takes a reading every 30 seconds. It stays on this computer.", self.dim);
+        let note = fonts.small.paint(crate::lang::t("Drifter takes a reading every 30 seconds. It stays on this computer."), self.dim);
         canvas.stamp(&note, Vec2::new(main.origin.x + PAD, PAD + logical(&title).y + 4.0).round(), 1.0);
         for (measure, rect) in self.segment_rects(size) {
             let on = model.measure == measure;
             canvas.round_rect(rect, 7.0, if on { self.accent } else { self.card }, 1.0);
             let word = match measure {
                 Measure::Cpu => "CPU",
-                Measure::Memory => "Memory",
+                Measure::Memory => crate::lang::t("Memory"),
             };
             let label = match on {
                 true => fonts.body.paint_weight(word, [255, 255, 255], 600.0),
@@ -958,8 +958,8 @@ impl Look {
         for minutes in [60u64, 45, 30, 15, 0] {
             let x = self.time_x(area, model.now, model.now.saturating_sub(minutes * 60));
             let words = match minutes {
-                0 => "Now".to_string(),
-                m => format!("{m} min ago"),
+                0 => crate::lang::t("Now").to_string(),
+                m => crate::lang::tf("{} min ago", &[&(m)]),
             };
             let label = fonts.small.paint(&words, self.dim);
             let left = match minutes {
@@ -971,9 +971,9 @@ impl Look {
         }
         let read = Rect::new(Vec2::new(card.max().x - 250.0, card.origin.y + 20.0), Vec2::new(232.0, card.size.y - 40.0));
         if model.hour.len() < 2 {
-            let words = fonts.body.paint("The chart fills in as time passes.", self.dim);
+            let words = fonts.body.paint(crate::lang::t("The chart fills in as time passes."), self.dim);
             canvas.stamp(&words, Vec2::new(area.center().x - logical(&words).x / 2.0, area.center().y - 10.0).round(), 1.0);
-            let more = fonts.small.paint("Come back in a few minutes.", self.dim);
+            let more = fonts.small.paint(crate::lang::t("Come back in a few minutes."), self.dim);
             canvas.stamp(&more, Vec2::new(area.center().x - logical(&more).x / 2.0, area.center().y + 10.0).round(), 1.0);
             return;
         }
@@ -1064,7 +1064,7 @@ impl Look {
         y += logical(&big).y + 2.0;
         let measure = match model.measure {
             Measure::Cpu => format!("CPU {}", percent_words(reading.cpu)),
-            Measure::Memory => format!("Memory {}%", reading.mem.round() as u64),
+            Measure::Memory => crate::lang::tf("Memory {}%", &[&(reading.mem.round() as u64)]),
         };
         let sub = fonts.small.paint(&format!("{} · {}", super::hour::ago(model.now.saturating_sub(reading.at)), measure), self.dim);
         canvas.stamp(&sub, Vec2::new(read.origin.x, y).round(), 1.0);
@@ -1072,7 +1072,7 @@ impl Look {
         let near = model.moments.iter().filter(|moment| moment.at.abs_diff(cursor) <= 3).min_by_key(|moment| moment.at.abs_diff(cursor));
         let (head, words) = match near {
             Some(moment) => (moment.head.clone(), moment.words.clone()),
-            None => ("Quiet".to_string(), "Nothing stood out at this moment.".to_string()),
+            None => (crate::lang::t("Quiet").to_string(), crate::lang::t("Nothing stood out at this moment.").to_string()),
         };
         let lines = wrap(fonts.small, &words, read.size.x - 24.0);
         let box_h = 34.0 + lines.len() as f64 * 16.0;
@@ -1137,7 +1137,7 @@ impl Look {
         let swatch = Rect::new(Vec2::new(x, key_y + 2.0), Vec2::splat(10.0));
         if x <= read.origin.x - 120.0 {
             canvas.round_rect(swatch, 3.0, self.dim, 0.45);
-            let label = fonts.small.paint("Everything else", self.dim);
+            let label = fonts.small.paint(crate::lang::t("Everything else"), self.dim);
             canvas.stamp(&label, Vec2::new(x + 15.0, key_y + 7.0 - logical(&label).y / 2.0).round(), 1.0);
         }
     }

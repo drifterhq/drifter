@@ -19,7 +19,7 @@ impl State {
             smithay::output::PhysicalProperties {
                 size: (0, 0).into(),
                 subpixel: smithay::output::Subpixel::Unknown,
-                make: "Drifter".to_string(),
+                make: drifter_core::lang::t("Drifter").to_string(),
                 model: name.clone(),
             },
         );
@@ -190,7 +190,7 @@ impl State {
             return crate::screencopy::write_dmabuf(dmabuf, self.physical(), &bytes);
         }
         self.copy_with_gpu(dmabuf, &bytes)
-            .map_err(|error| format!("{refused}; the GPU copy failed too: {error}"))
+            .map_err(|error| drifter_core::lang::tf("{}; the GPU copy failed too: {}", &[&(refused), &(error)]))
     }
 
     fn copy_with_gpu(
@@ -356,15 +356,15 @@ impl State {
         let (summary, body) = match event {
             crate::disks::Event::Mounted { name, folder } => {
                 self.note_folders.insert(id, PathBuf::from(&folder));
-                (format!("{name} is ready"), format!("Click to open {folder}"))
+                (format!("{name} is ready"), drifter_core::lang::tf("Click to open {}", &[&(folder)]))
             }
             crate::disks::Event::Failed { name, error } => {
-                (format!("{name} did not open"), error)
+                (drifter_core::lang::tf("{} did not open", &[&(name)]), error)
             }
         };
         self.show_note(drifter_core::notify::Note {
             id,
-            app: "Drifter".to_string(),
+            app: drifter_core::lang::t("Drifter").to_string(),
             summary,
             body,
             actions: Vec::new(),
@@ -388,13 +388,13 @@ impl State {
                 if let Some(folder) = path.parent() {
                     self.note_folders.insert(id, folder.to_path_buf());
                 }
-                ("Screenshot saved".to_string(), path.display().to_string())
+                (drifter_core::lang::t("Screenshot saved").to_string(), path.display().to_string())
             }
-            Err(error) => ("No screenshot".to_string(), error),
+            Err(error) => (drifter_core::lang::t("No screenshot").to_string(), error),
         };
         self.show_note(drifter_core::notify::Note {
             id,
-            app: "Drifter".to_string(),
+            app: drifter_core::lang::t("Drifter").to_string(),
             summary,
             body,
             actions: Vec::new(),

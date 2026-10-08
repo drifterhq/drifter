@@ -28,8 +28,8 @@ impl User {
 
     pub fn kind(&self) -> &'static str {
         match self.admin {
-            true => "Admin",
-            false => "Standard",
+            true => crate::lang::t("Admin"),
+            false => crate::lang::t("Standard"),
         }
     }
 }
@@ -153,25 +153,23 @@ pub fn value(words: &[String]) -> Option<&str> {
 pub fn check_full(full: &str) -> Result<String, String> {
     let full = full.trim();
     if full.is_empty() {
-        return Err("Type a full name.".to_string());
+        return Err(crate::lang::t("Type a full name.").to_string());
     }
     if full.contains([':', ',', '\n', '\r', '=']) {
-        return Err("A full name cannot have a colon, a comma or an equals sign.".to_string());
+        return Err(crate::lang::t("A full name cannot have a colon, a comma or an equals sign.").to_string());
     }
     if full.chars().count() > 64 {
-        return Err("A full name can be 64 letters at most.".to_string());
+        return Err(crate::lang::t("A full name can be 64 letters at most.").to_string());
     }
     Ok(full.to_string())
 }
 
 pub fn check_login(login: &str, taken: &[String]) -> Result<(), String> {
     if login.is_empty() {
-        return Err("Type an account name.".to_string());
+        return Err(crate::lang::t("Type an account name.").to_string());
     }
     if login.len() > LONGEST_LOGIN {
-        return Err(format!(
-            "An account name can be {LONGEST_LOGIN} letters at most."
-        ));
+        return Err(crate::lang::tf("An account name can be {} letters at most.", &[&(LONGEST_LOGIN)]));
     }
     let mut chars = login.chars();
     let first_ok = chars.next().is_some_and(|c| c.is_ascii_lowercase());
@@ -183,7 +181,7 @@ pub fn check_login(login: &str, taken: &[String]) -> Result<(), String> {
         );
     }
     if taken.iter().any(|name| name == login) {
-        return Err(format!("The account name {login} is already taken."));
+        return Err(crate::lang::tf("The account name {} is already taken.", &[&(login)]));
     }
     Ok(())
 }
@@ -201,10 +199,10 @@ pub fn login_from(full: &str) -> String {
 
 pub fn check_new_password(new: &str, repeat: &str) -> Result<(), String> {
     if new.is_empty() {
-        return Err("Type a new password.".to_string());
+        return Err(crate::lang::t("Type a new password.").to_string());
     }
     if new != repeat {
-        return Err("The two new passwords are not the same.".to_string());
+        return Err(crate::lang::t("The two new passwords are not the same.").to_string());
     }
     Ok(())
 }
@@ -225,7 +223,7 @@ pub fn passwd_said(worked: bool, said: &str) -> Result<(), String> {
         return Ok(());
     }
     if !said.contains("New password:") {
-        return Err("The current password is wrong.".to_string());
+        return Err(crate::lang::t("The current password is wrong.").to_string());
     }
     let mut text = said.to_string();
     for prompt in PROMPTS {
@@ -238,16 +236,16 @@ pub fn passwd_said(worked: bool, said: &str) -> Result<(), String> {
         .find(|line| !PASSWD_NOISE.iter().any(|noise| line.starts_with(noise)));
     Err(match reason {
         Some(line) => match line.strip_prefix("BAD PASSWORD:") {
-            Some(why) => format!("The new password is not allowed: {}.", why.trim().trim_end_matches('.')),
+            Some(why) => crate::lang::tf("The new password is not allowed: {}.", &[&(why.trim().trim_end_matches('.'))]),
             None if line.contains("longer password") => {
-                "The new password is too short. Choose a longer one.".to_string()
+                crate::lang::t("The new password is too short. Choose a longer one.").to_string()
             }
             None if line.contains("do not match") => {
-                "The two new passwords are not the same.".to_string()
+                crate::lang::t("The two new passwords are not the same.").to_string()
             }
             None => line.to_string(),
         },
-        None => "The password was not changed.".to_string(),
+        None => crate::lang::t("The password was not changed.").to_string(),
     })
 }
 

@@ -164,7 +164,7 @@ pub fn check(user: &str, cookie: &str, password: Zeroizing<Vec<u8>>) -> Outcome 
     }
     let mut said = false;
     let mut last_error = None;
-    let mut outcome = Outcome::Refused("Wrong password. Try again.".into());
+    let mut outcome = Outcome::Refused(drifter_core::lang::t("Wrong password. Try again.").into());
     for line in BufReader::new(output).lines() {
         let Ok(line) = line else {
             break;

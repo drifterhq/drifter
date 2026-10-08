@@ -275,7 +275,7 @@ impl State {
             && self.tray.on_power(band, self.pointer)
         {
             let rect = self.tray.power_rect(band);
-            self.show_tip("Power", rect, true);
+            self.show_tip(drifter_core::lang::t("Power"), rect, true);
             return;
         }
 
@@ -343,7 +343,7 @@ impl State {
                 else {
                     return true;
                 };
-                let items = vec![Item::line(0, "Show"), Item::line(1, "Exit")];
+                let items = vec![Item::line(0, drifter_core::lang::t("Show")), Item::line(1, drifter_core::lang::t("Exit"))];
                 let at = self.pointer;
                 let id = self.windows[place].id;
                 self.open_popover(items, at, Target::Window(id));
@@ -811,10 +811,10 @@ impl State {
                         let rows = drifter_core::stats::read_battery_rows();
                         let (charging, percent) = charge.unwrap_or((false, 0));
                         let note = match (charging, percent) {
-                            (_, 100..) => "Full",
-                            (true, _) => "Charging",
-                            (false, 0..=10) => "Low",
-                            _ => "On battery",
+                            (_, 100..) => drifter_core::lang::t("Full"),
+                            (true, _) => drifter_core::lang::t("Charging"),
+                            (false, 0..=10) => drifter_core::lang::t("Low"),
+                            _ => drifter_core::lang::t("On battery"),
                         };
                         let color = match (charging, percent) {
                             (_, 100..) => drifter_core::lock::FULL,
@@ -823,14 +823,14 @@ impl State {
                         };
                         let rows: Vec<(String, String)> = rows.into_iter().skip(1).collect();
                         let rows = match rows.is_empty() {
-                            true => vec![("Charge".to_string(), format!("{percent}%"))],
+                            true => vec![(drifter_core::lang::t("Charge").to_string(), format!("{percent}%"))],
                             false => rows,
                         };
                         drifter_core::glance::paint_rows(
                             &card,
                             &font,
                             &bold,
-                            &format!("Battery {percent}%"),
+                            &drifter_core::lang::tf("Battery {}%", &[&(percent)]),
                             note,
                             Some((f64::from(percent) / 100.0, color)),
                             &rows,

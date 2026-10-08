@@ -40,10 +40,10 @@ fn busctl(args: &[&str]) -> Result<Vec<Vec<String>>, String> {
 fn refused(said: &str) -> String {
     let line = said.lines().map(str::trim).find(|line| !line.is_empty()).unwrap_or("");
     if line.to_lowercase().contains("not authorized") || line.contains("Authentication") {
-        return "Not done. The admin password was not given.".to_string();
+        return drifter_core::lang::t("Not done. The admin password was not given.").to_string();
     }
     match line.trim_start_matches("Call failed: ") {
-        "" => "It did not work.".to_string(),
+        "" => drifter_core::lang::t("It did not work.").to_string(),
         rest => rest.to_string(),
     }
 }
@@ -54,7 +54,7 @@ fn find(login: &str) -> Result<String, String> {
         .first()
         .and_then(|words| users::value(words))
         .map(str::to_string)
-        .ok_or_else(|| format!("AccountsService does not know {login}."))
+        .ok_or_else(|| drifter_core::lang::tf("AccountsService does not know {}.", &[&(login)]))
 }
 
 fn call(path: &str, method: &str, args: &[&str]) -> Result<(), String> {
@@ -79,14 +79,14 @@ fn my_uid() -> Option<u32> {
 }
 
 fn my_login() -> Result<String, String> {
-    let uid = my_uid().ok_or("Cannot tell who you are.")?;
+    let uid = my_uid().ok_or(drifter_core::lang::t("Cannot tell who you are."))?;
     let passwd = std::fs::read_to_string("/etc/passwd").map_err(|error| error.to_string())?;
     passwd
         .lines()
         .map(|line| line.split(':').collect::<Vec<_>>())
         .find(|fields| fields.get(2).and_then(|id| id.parse::<u32>().ok()) == Some(uid))
         .and_then(|fields| fields.first().map(|login| login.to_string()))
-        .ok_or_else(|| "Cannot find your account.".to_string())
+        .ok_or_else(|| drifter_core::lang::t("Cannot find your account.").to_string())
 }
 
 pub fn read() -> Users {
@@ -168,7 +168,7 @@ fn hashed(password: &str) -> Result<String, String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .map_err(|_| "Adding a user needs openssl. Install it, then try again.".to_string())?;
+        .map_err(|_| drifter_core::lang::t("Adding a user needs openssl. Install it, then try again.").to_string())?;
     if let Some(mut stdin) = child.stdin.take() {
         let _ = writeln!(stdin, "{password}");
     }
@@ -185,7 +185,7 @@ fn hashed(password: &str) -> Result<String, String> {
 fn need_service() -> Result<(), String> {
     match service() {
         true => Ok(()),
-        false => Err("Install accountsservice to change this.".to_string()),
+        false => Err(drifter_core::lang::t("Install accountsservice to change this.").to_string()),
     }
 }
 
@@ -194,7 +194,7 @@ pub fn run(job: Job) -> Result<String, String> {
         Job::Rename(full) => {
             need_service()?;
             call(&find(&my_login()?)?, "SetRealName", &["s", &full])?;
-            Ok(format!("Your full name is now {full}."))
+            Ok(drifter_core::lang::tf("Your full name is now {}.", &[&(full)]))
         }
         Job::Face(picture) => {
             let made = prepared(&picture, "face.png")?;
@@ -205,11 +205,11 @@ pub fn run(job: Job) -> Result<String, String> {
             if service() {
                 call(&find(&my_login()?)?, "SetIconFile", &["s", &made.to_string_lossy()])?;
             }
-            Ok("Your picture is changed.".to_string())
+            Ok(drifter_core::lang::t("Your picture is changed.").to_string())
         }
         Job::Password { old, new } => {
             passwd(&old, &new)?;
-            Ok("Your password is changed.".to_string())
+            Ok(drifter_core::lang::t("Your password is changed.").to_string())
         }
         Job::Add {
             full,
@@ -228,7 +228,7 @@ pub fn run(job: Job) -> Result<String, String> {
                 .map(str::to_string)
                 .map_or_else(|| find(&login), Ok)?;
             call(&path, "SetPassword", &["ss", &hash, ""])
-                .map_err(|error| format!("{full} was added, but the password was not set: {error}"))?;
+                .map_err(|error| drifter_core::lang::tf("{} was added, but the password was not set: {}", &[&(full), &(error)]))?;
             if let Some(picture) = picture {
                 let set = prepared(&picture, &format!("face-{login}.png"))
                     .and_then(|made| call(&path, "SetIconFile", &["s", &made.to_string_lossy()]));
@@ -236,15 +236,15 @@ pub fn run(job: Job) -> Result<String, String> {
                     log!("drifter-settings: {login} has no picture: {error}");
                 }
             }
-            Ok(format!("{full} can now log in as {login}."))
+            Ok(drifter_core::lang::tf("{} can now log in as {}.", &[&(full), &(login)]))
         }
         Job::Admin { login, admin } => {
             need_service()?;
             let kind = if admin { "1" } else { "0" };
             call(&find(&login)?, "SetAccountType", &["i", kind])?;
             Ok(match admin {
-                true => format!("{login} is now an admin."),
-                false => format!("{login} is now a standard user."),
+                true => drifter_core::lang::tf("{} is now an admin.", &[&(login)]),
+                false => drifter_core::lang::tf("{} is now a standard user.", &[&(login)]),
             })
         }
         Job::Remove { uid, files } => {
@@ -252,8 +252,8 @@ pub fn run(job: Job) -> Result<String, String> {
             let wipe = if files { "true" } else { "false" };
             busctl(&["call", SERVICE, ROOT, SERVICE, "DeleteUser", "xb", &uid.to_string(), wipe])?;
             Ok(match files {
-                true => "The user and their home folder are removed.".to_string(),
-                false => "The user is removed. Their home folder is kept.".to_string(),
+                true => drifter_core::lang::t("The user and their home folder are removed.").to_string(),
+                false => drifter_core::lang::t("The user is removed. Their home folder is kept.").to_string(),
             })
         }
     }

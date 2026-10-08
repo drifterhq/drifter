@@ -166,7 +166,7 @@ fn reopen_words(name: &str) -> String {
         true => name.chars().take(15).collect::<String>() + "…",
         false => name.to_string(),
     };
-    format!("Reopen {short}")
+    crate::lang::tf("Reopen {}", &[&(short)])
 }
 
 pub fn paint(layout: &Layout, what: &Paint) -> Image {
@@ -175,10 +175,10 @@ pub fn paint(layout: &Layout, what: &Paint) -> Image {
     let mut canvas = Canvas::new(size.x as u32, size.y.ceil() as u32);
     canvas.round_rect(Rect::new(Vec2::ZERO, size), 14.0, card.back, card.back_alpha);
     crate::glance::paint_system(&mut canvas, card, what.font, what.bold, what.fields, what.history);
-    let head = what.font.paint_weight("Using the most", card.dim, 600.0);
+    let head = what.font.paint_weight(crate::lang::t("Using the most"), card.dim, 600.0);
     canvas.stamp(&head, Vec2::new(PAD, layout.system() + HEAD - 6.0 - logical(&head).y).round(), 1.0);
     if what.tops.is_empty() {
-        let note = what.font.paint(if what.ready { "No apps are open." } else { "Reading…" }, card.dim);
+        let note = what.font.paint(if what.ready { crate::lang::t("No apps are open.") } else { crate::lang::t("Reading…") }, card.dim);
         canvas.stamp(&note, Vec2::new(PAD, layout.system() + HEAD + ROW / 2.0 - logical(&note).y / 2.0).round(), 1.0);
     }
     for (at, top) in what.tops.iter().enumerate() {
@@ -204,7 +204,7 @@ pub fn paint(layout: &Layout, what: &Paint) -> Image {
             super::look::flatpak_badge(&mut canvas, spot, card.back, fade);
         }
         let cpu_words = match top.paused {
-            true => "Paused".to_string(),
+            true => crate::lang::t("Paused").to_string(),
             false => percent_words(top.cpu),
         };
         let cpu_ink = match top.paused {
@@ -226,7 +226,7 @@ pub fn paint(layout: &Layout, what: &Paint) -> Image {
         canvas.stamp(&cpu, Vec2::new(right - logical(&cpu).x, mid - pair / 2.0).round(), 1.0);
         canvas.stamp(&mem, Vec2::new(right - logical(&mem).x, mid - pair / 2.0 + logical(&cpu).y).round(), 1.0);
         if what.open == Some(at) {
-            let words = [if top.paused { "Resume" } else { "Pause" }, "Quit", "Details"];
+            let words = [if top.paused { crate::lang::t("Resume") } else { "Pause" }, crate::lang::t("Quit"), crate::lang::t("Details")];
             for (slot, rect) in layout.act_rects(at, what.open).iter().enumerate() {
                 let enabled = slot == 2 || top.can_stop;
                 canvas.round_rect(*rect, 7.0, card.ink, if enabled { 0.12 } else { 0.05 });

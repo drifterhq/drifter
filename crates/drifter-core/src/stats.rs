@@ -210,7 +210,7 @@ pub fn battery_rows(read: impl Fn(&str) -> Option<String>) -> Vec<(String, Strin
         _ => "on battery",
     };
     let mut rows = vec![(
-        "Charge".to_string(),
+        crate::lang::t("Charge").to_string(),
         format!("{}%, {state}", percent.round()),
     )];
     if let (Some(rate), Some(now), Some(full)) = (rate, now, full) {
@@ -222,8 +222,8 @@ pub fn battery_rows(read: impl Fn(&str) -> Option<String>) -> Vec<(String, Strin
         if let Some(hours) = hours.filter(|hours| *hours < 48.0) {
             let minutes = (hours * 60.0).round() as u64;
             let label = match status.trim() {
-                "Charging" => "Full in",
-                _ => "Time left",
+                "Charging" => crate::lang::t("Full in"),
+                _ => crate::lang::t("Time left"),
             };
             rows.push((
                 label.to_string(),
@@ -235,10 +235,10 @@ pub fn battery_rows(read: impl Fn(&str) -> Option<String>) -> Vec<(String, Strin
         && design > 0.0
     {
         let health = (full / design * 100.0).round().min(100.0);
-        rows.push(("Health".to_string(), format!("{health}% of new")));
+        rows.push((crate::lang::t("Health").to_string(), format!("{health}% of new")));
     }
     if let Some(cycles) = number("cycle_count").filter(|cycles| *cycles > 0.0) {
-        rows.push(("Charge cycles".to_string(), format!("{cycles}")));
+        rows.push((crate::lang::t("Charge cycles").to_string(), format!("{cycles}")));
     }
     rows
 }

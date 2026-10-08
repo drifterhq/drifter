@@ -190,15 +190,65 @@ pub fn stamp<Tz: TimeZone>(when: &DateTime<Tz>, format: &str) -> Result<String, 
 where
     Tz::Offset: std::fmt::Display,
 {
-    let items = StrftimeItems::new(format)
+    let format = named(when, format);
+    let items = StrftimeItems::new(&format)
         .parse()
         .map_err(|_| format!("tray format {format:?} is not a time format"))?;
     Ok(when.format_with_items(items.iter()).to_string())
 }
 
+const DAYS: [&str; 7] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const DAYS_SHORT: [&str; 7] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const MONTHS: [&str; 12] = [
+    "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November",
+    "December",
+];
+const MONTHS_SHORT: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+fn named<Tz: TimeZone>(when: &DateTime<Tz>, format: &str) -> String {
+    use chrono::Datelike;
+    let day = when.weekday().num_days_from_monday() as usize;
+    let month = when.month0() as usize;
+    let short_month = match MONTHS_SHORT[month] {
+        "May" => match crate::lang::t("May (short)") {
+            "May (short)" => "May",
+            said => said,
+        },
+        short => crate::lang::t(short),
+    };
+    let escape = |text: &str| text.trim_end().replace('%', "%%");
+    let mut out = String::with_capacity(format.len() + 16);
+    let mut chars = format.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '%' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('A') => out.push_str(&escape(crate::lang::t(DAYS[day]))),
+            Some('a') => out.push_str(&escape(crate::lang::t(DAYS_SHORT[day]))),
+            Some('B') => out.push_str(&escape(crate::lang::t(MONTHS[month]))),
+            Some('b') => out.push_str(&escape(short_month)),
+            Some(other) => {
+                out.push('%');
+                out.push(other);
+            }
+            None => out.push('%'),
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn day_and_month_names_pass_through_in_english() {
+        let when = chrono::NaiveDate::from_ymd_opt(2026, 10, 7).unwrap().and_hms_opt(9, 5, 0).unwrap().and_utc();
+        assert_eq!(stamp(&when, "%A, %B %-d %a %b %H:%M").unwrap(), "Wednesday, October 7 Wed Oct 09:05");
+        assert_eq!(named(&when, "100%% %b"), "100%% Oct");
+    }
 
     #[test]
     fn the_speaker_sits_left_of_the_clock_or_the_power_button() {

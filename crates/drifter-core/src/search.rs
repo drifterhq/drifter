@@ -30,7 +30,7 @@ pub fn apps(installed: &[crate::desktop::App]) -> Vec<Found> {
         .map(|app| Found {
             kind: Kind::App,
             title: app.name.clone(),
-            detail: "Application".to_string(),
+            detail: crate::lang::t("Application").to_string(),
             key: app.id.clone(),
             extra: format!("{} {}", app.id, app.words),
             icon: app.icon.clone(),
@@ -44,7 +44,7 @@ pub fn settings() -> Vec<Found> {
         .map(|section| Found {
             kind: Kind::Setting,
             title: section.name().to_string(),
-            detail: "Settings".to_string(),
+            detail: crate::lang::t("Settings").to_string(),
             key: section.name().to_string(),
             extra: section.words().to_string(),
             icon: None,
@@ -253,7 +253,7 @@ impl Look {
             canvas.circle(glass + Vec2::new(6.5 + t, 6.5 + t), 1.6, self.dim, 1.0);
         }
         let (text, ink) = match query.is_empty() {
-            true => ("Search apps, settings and files", self.dim),
+            true => (crate::lang::t("Search apps, settings and files"), self.dim),
             false => (query, self.ink),
         };
         let words = big.paint(text, ink);

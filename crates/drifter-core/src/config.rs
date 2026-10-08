@@ -852,6 +852,8 @@ pub struct Appearance {
     pub cursor_theme: Option<String>,
     #[serde(default = "cursor_size")]
     pub cursor_size: u32,
+    #[serde(default)]
+    pub language: Option<String>,
 }
 
 fn cursor_size() -> u32 {
@@ -866,6 +868,7 @@ impl Default for Appearance {
             icons: None,
             cursor_theme: None,
             cursor_size: cursor_size(),
+            language: None,
         }
     }
 }

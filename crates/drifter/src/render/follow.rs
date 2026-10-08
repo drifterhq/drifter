@@ -255,6 +255,10 @@ impl State {
             tell_gnome(Some(&was), &look, restyled.then_some(style));
             cursor_env(&look);
         }
+        if was.language != look.language {
+            drifter_core::lang::use_config(look.language.as_deref());
+            self.recolor(config, self.palette);
+        }
         let layout = config.window.gtk_layout();
         if layout != self.gtk_layout {
             self.gtk_layout = layout.clone();

@@ -50,8 +50,8 @@ fn number(n: f64, range: (u32, u32)) -> u32 {
 
 fn choose_and_reset(set: bool) -> Control {
     Control::Buttons(match set {
-        true => vec![Mark::Text("Choose"), Mark::Text("Reset")],
-        false => vec![Mark::Text("Choose")],
+        true => vec![Mark::Text(crate::lang::t("Choose")), Mark::Text(crate::lang::t("Reset"))],
+        false => vec![Mark::Text(crate::lang::t("Choose"))],
     })
 }
 
@@ -77,74 +77,74 @@ impl Model {
         let motion = &self.motion;
         vec![
             Group {
-                header: Some("Hot corner"),
+                header: Some(crate::lang::t("Hot corner")),
                 rows: vec![
                     Row::new(
                         Id::HotCorner,
-                        "Hot corner",
+                        crate::lang::t("Hot corner"),
                         Control::Switch(motion.hot_corner),
                     )
-                    .detail("Rest the pointer in the top left corner to zoom out"),
+                    .detail(crate::lang::t("Rest the pointer in the top left corner to zoom out")),
                     slider(
                         Id::CornerSize,
-                        "Size",
+                        crate::lang::t("Size"),
                         CORNER_SIZE,
                         motion.corner_size,
                         " px",
                     )
                     .enabled(motion.hot_corner),
-                    slider(Id::CornerWait, "Wait", WAIT_MS, motion.corner_wait, " ms")
-                        .detail("How long the pointer rests before it fires")
+                    slider(Id::CornerWait, crate::lang::t("Wait"), WAIT_MS, motion.corner_wait, " ms")
+                        .detail(crate::lang::t("How long the pointer rests before it fires"))
                         .enabled(motion.hot_corner),
                 ],
                 footer: None,
                 thumbs: None,
             },
             Group {
-                header: Some("Moving around"),
+                header: Some(crate::lang::t("Moving around")),
                 rows: vec![
                     slider(
                         Id::PanSpeed,
-                        "Edge pan speed",
+                        crate::lang::t("Edge pan speed"),
                         PAN_SPEED,
                         motion.pan_speed,
                         "%",
                     )
-                    .detail("How far the world moves when you push an edge"),
-                    slider(Id::Flight, "Camera flight", SLIDE_MS, motion.flight, " ms")
-                        .detail("How long the camera takes to fly to a window"),
+                    .detail(crate::lang::t("How far the world moves when you push an edge")),
+                    slider(Id::Flight, crate::lang::t("Camera flight"), SLIDE_MS, motion.flight, " ms")
+                        .detail(crate::lang::t("How long the camera takes to fly to a window")),
                 ],
                 footer: None,
                 thumbs: None,
             },
             Group {
-                header: Some("Bars"),
+                header: Some(crate::lang::t("Bars")),
                 rows: vec![
                     Row::new(
                         Id::HideTop,
-                        "Auto hide top bar",
+                        crate::lang::t("Auto hide top bar"),
                         Control::Switch(motion.hide_top),
                     )
-                    .detail("Off keeps the top bar on screen, and maximized windows leave room for it"),
+                    .detail(crate::lang::t("Off keeps the top bar on screen, and maximized windows leave room for it")),
                     Row::new(
                         Id::HideBottom,
-                        "Auto hide bottom bar",
+                        crate::lang::t("Auto hide bottom bar"),
                         Control::Switch(motion.hide_bottom),
                     )
-                    .detail("Off keeps the dock on screen, and maximized windows leave room for it"),
-                    slider(Id::BarOpen, "Open after", WAIT_MS, motion.bar_open, " ms")
-                        .detail("How long the pointer rests at the edge"),
+                    .detail(crate::lang::t("Off keeps the dock on screen, and maximized windows leave room for it")),
+                    slider(Id::BarOpen, crate::lang::t("Open after"), WAIT_MS, motion.bar_open, " ms")
+                        .detail(crate::lang::t("How long the pointer rests at the edge")),
                     slider(
                         Id::BarClose,
-                        "Close after",
+                        crate::lang::t("Close after"),
                         WAIT_MS,
                         motion.bar_close,
                         " ms",
                     )
-                    .detail("How long after the pointer leaves"),
+                    .detail(crate::lang::t("How long after the pointer leaves")),
                     slider(
                         Id::BarSlide,
-                        "Slide time",
+                        crate::lang::t("Slide time"),
                         SLIDE_MS,
                         motion.bar_slide,
                         " ms",
@@ -160,7 +160,7 @@ impl Model {
         let keys = &self.keyboard;
         let layout = keyboard::name_of(&self.layouts, &keys.layout);
         let variant = match keys.variant.as_str() {
-            "" => "Plain".to_string(),
+            "" => crate::lang::t("Plain").to_string(),
             code => self
                 .variants
                 .iter()
@@ -171,39 +171,39 @@ impl Model {
         let mut rows = vec![
             Row::new(
                 Id::Layout,
-                "Layout",
-                Control::Buttons(vec![Mark::Text("Choose")]),
+                crate::lang::t("Layout"),
+                Control::Buttons(vec![Mark::Text(crate::lang::t("Choose"))]),
             )
             .detail(&layout),
             Row::new(
                 Id::Variant,
-                "Variant",
-                Control::Buttons(vec![Mark::Text("Choose")]),
+                crate::lang::t("Variant"),
+                Control::Buttons(vec![Mark::Text(crate::lang::t("Choose"))]),
             )
             .detail(&variant),
             Row::new(
                 Id::Caps,
-                "Caps Lock acts as",
+                crate::lang::t("Caps Lock acts as"),
                 Control::Segments {
-                    options: keyboard::CAPS.iter().map(|(_, name)| *name).collect(),
+                    options: keyboard::CAPS.iter().map(|(_, name)| crate::lang::t(name)).collect(),
                     chosen: keyboard::caps(&keys.options),
                 },
             ),
             Row::new(
                 Id::Compose,
-                "Compose key",
+                crate::lang::t("Compose key"),
                 Control::Segments {
-                    options: keyboard::COMPOSE.iter().map(|(_, name)| *name).collect(),
+                    options: keyboard::COMPOSE.iter().map(|(_, name)| crate::lang::t(name)).collect(),
                     chosen: keyboard::compose(&keys.options),
                 },
             )
-            .detail("Hold it, then type two keys for é, ñ or ©"),
+            .detail(crate::lang::t("Hold it, then type two keys for é, ñ or ©")),
         ];
         let others = keyboard::others(&keys.options);
         if !others.is_empty() {
             rows.push(Row::new(
                 Id::Options,
-                "Other xkb options",
+                crate::lang::t("Other xkb options"),
                 Control::Note(others),
             ));
         }
@@ -212,27 +212,27 @@ impl Model {
         rows.push(
             slider(
                 Id::RepeatDelay,
-                "Repeat after",
+                crate::lang::t("Repeat after"),
                 (delay_least, delay_most),
                 keys.repeat_delay,
                 " ms",
             )
-            .detail("How long a key is held before it repeats"),
+            .detail(crate::lang::t("How long a key is held before it repeats")),
         );
         rows.push(
             slider(
                 Id::RepeatRate,
-                "Repeat speed",
+                crate::lang::t("Repeat speed"),
                 (rate_least, rate_most),
                 keys.repeat_rate,
                 "",
             )
-            .detail("Repeats a second while a key is held"),
+            .detail(crate::lang::t("Repeats a second while a key is held")),
         );
         Group {
             header: None,
             rows,
-            footer: Some("Other xkb options can be added to the config file.".into()),
+            footer: Some(crate::lang::t("Other xkb options can be added to the config file.").into()),
             thumbs: None,
         }
     }
@@ -244,9 +244,9 @@ impl Model {
                 header: None,
                 rows: vec![Row::new(
                     Id::Modifier,
-                    "Hold to move the camera",
+                    crate::lang::t("Hold to move the camera"),
                     Control::Segments {
-                        options: vec!["Super", "Alt", "Ctrl"],
+                        options: vec!["Super", "Alt", crate::lang::t("Ctrl")],
                         chosen: match self.modifier {
                             Modifier::Super => 0,
                             Modifier::Alt => 1,
@@ -255,37 +255,37 @@ impl Model {
                     },
                 )],
                 footer: Some(
-                    "Hold it to zoom with the scroll wheel, and to pan by pushing an edge.".into(),
+                    crate::lang::t("Hold it to zoom with the scroll wheel, and to pan by pushing an edge.").into(),
                 ),
                 thumbs: None,
             },
             Group {
-                header: Some("Mouse"),
+                header: Some(crate::lang::t("Mouse")),
                 rows: vec![
                     slider(
                         Id::MouseSpeed,
-                        "Pointer speed",
+                        crate::lang::t("Pointer speed"),
                         (0, FASTEST),
                         mouse.speed,
                         "",
                     ),
-                    Row::new(Id::MouseAccel, "Acceleration", Control::Switch(mouse.accel))
-                        .detail("A fast move takes the pointer farther"),
+                    Row::new(Id::MouseAccel, crate::lang::t("Acceleration"), Control::Switch(mouse.accel))
+                        .detail(crate::lang::t("A fast move takes the pointer farther")),
                     Row::new(
                         Id::MouseNatural,
-                        "Natural scrolling",
+                        crate::lang::t("Natural scrolling"),
                         Control::Switch(mouse.natural),
                     )
-                    .detail("The page follows the wheel"),
+                    .detail(crate::lang::t("The page follows the wheel")),
                     Row::new(
                         Id::LeftHanded,
-                        "Primary button",
+                        crate::lang::t("Primary button"),
                         Control::Segments {
                             options: vec!["Left", "Right"],
                             chosen: usize::from(mouse.left_handed),
                         },
                     )
-                    .detail("Right swaps the buttons, also on the touchpad"),
+                    .detail(crate::lang::t("Right swaps the buttons, also on the touchpad")),
                 ],
                 footer: None,
                 thumbs: None,
@@ -296,13 +296,13 @@ impl Model {
     pub fn rename_place(&mut self, at: usize, name: &str) -> Result<(), String> {
         let name = name.trim();
         if name.is_empty() {
-            return Err("Type a name for this place.".to_string());
+            return Err(crate::lang::t("Type a name for this place.").to_string());
         }
         if self.places.iter().enumerate().any(|(other, place)| other != at && place.name == name) {
-            return Err(format!("Another place is already called {name}."));
+            return Err(crate::lang::tf("Another place is already called {}.", &[&(name)]));
         }
         let Some(place) = self.places.get_mut(at) else {
-            return Err("That place is gone.".to_string());
+            return Err(crate::lang::t("That place is gone.").to_string());
         };
         let (old, new) = (place_button(&place.name), place_button(name));
         place.name = name.to_string();
@@ -319,13 +319,13 @@ impl Model {
         let named = |name: &Option<String>, none: &str| name.clone().unwrap_or(none.to_string());
         vec![
             Group {
-                header: Some("Style"),
+                header: Some(crate::lang::t("Style")),
                 rows: vec![
                     Row::new(
                         Id::Style,
-                        "Light or dark",
+                        crate::lang::t("Light or dark"),
                         Control::Segments {
-                            options: vec!["Light", "Dark", "Auto"],
+                            options: vec![crate::lang::t("Light"), crate::lang::t("Dark"), crate::lang::t("Auto")],
                             chosen: match look.style {
                                 Some(Style::Light) => 0,
                                 None | Some(Style::Dark) => 1,
@@ -335,7 +335,7 @@ impl Model {
                     ),
                     Row::new(
                         Id::AccentColor,
-                        "Accent color",
+                        crate::lang::t("Accent color"),
                         Control::Swatches {
                             colors: Accent::ALL.iter().map(|accent| accent.color()).collect(),
                             chosen: look
@@ -345,28 +345,28 @@ impl Model {
                     ),
                 ],
                 footer: Some(
-                    "Auto turns dark at dusk and light at dawn, with the wallpaper sky. GTK, libadwaita and Qt apps switch with Drifter.".into(),
+                    crate::lang::t("Auto turns dark at dusk and light at dawn, with the wallpaper sky. GTK, libadwaita and Qt apps switch with Drifter.").into(),
                 ),
                 thumbs: None,
             },
             Group {
-                header: Some("Icons and pointer"),
+                header: Some(crate::lang::t("Icons and pointer")),
                 rows: vec![
                     Row::new(
                         Id::IconTheme,
-                        "Icon theme",
+                        crate::lang::t("Icon theme"),
                         choose_and_reset(look.icons.is_some()),
                     )
-                    .detail(&named(&look.icons, "The system choice")),
+                    .detail(&named(&look.icons, crate::lang::t("The system choice"))),
                     Row::new(
                         Id::CursorTheme,
-                        "Cursor theme",
+                        crate::lang::t("Cursor theme"),
                         choose_and_reset(look.cursor_theme.is_some()),
                     )
-                    .detail(&named(&look.cursor_theme, "The system choice")),
+                    .detail(&named(&look.cursor_theme, crate::lang::t("The system choice"))),
                     Row::new(
                         Id::CursorSize,
-                        "Cursor size",
+                        crate::lang::t("Cursor size"),
                         Control::Segments {
                             options: vec!["24", "32", "48", "64"],
                             chosen: CURSOR_SIZES
@@ -376,7 +376,7 @@ impl Model {
                         },
                     ),
                 ],
-                footer: Some("The pointer changes at once. Apps opened after a change use it too. Window edges show resize arrows from the cursor theme.".into()),
+                footer: Some(crate::lang::t("The pointer changes at once. Apps opened after a change use it too. Window edges show resize arrows from the cursor theme.").into()),
                 thumbs: None,
             },
         ]
@@ -387,23 +387,23 @@ impl Model {
         let mut groups = vec![Group {
             header: None,
             rows: vec![
-                Row::new(Id::Quiet, "Do not disturb", Control::Switch(notify.quiet))
-                    .detail("Only urgent notes show. The rest go to the history"),
+                Row::new(Id::Quiet, crate::lang::t("Do not disturb"), Control::Switch(notify.quiet))
+                    .detail(crate::lang::t("Only urgent notes show. The rest go to the history")),
                 Row::new(
                     Id::NoteSeconds,
-                    "Show each note for",
+                    crate::lang::t("Show each note for"),
                     Control::Slider {
                         least: 0.0,
                         most: NOTE_MOST,
                         value: f64::from(notify.seconds),
                         unit: " s",
-                        zero: Some("Until clicked"),
+                        zero: Some(crate::lang::t("Until clicked")),
                     },
                 )
-                .detail("Apps can ask for their own time"),
+                .detail(crate::lang::t("Apps can ask for their own time")),
                 Row::new(
                     Id::History,
-                    "Keep a history",
+                    crate::lang::t("Keep a history"),
                     Control::Switch(notify.history),
                 ),
             ],
@@ -436,16 +436,16 @@ impl Model {
                 rows.push(
                     Row::new(
                         Id::Forget,
-                        "Clear the history",
-                        Control::Buttons(vec![Mark::Text("Clear")]),
+                        crate::lang::t("Clear the history"),
+                        Control::Buttons(vec![Mark::Text(crate::lang::t("Clear"))]),
                     )
                     .faint(),
                 );
             }
             groups.push(Group {
-                header: Some("Recent"),
+                header: Some(crate::lang::t("Recent")),
                 rows,
-                footer: empty.then(|| "No notes yet.".to_string()),
+                footer: empty.then(|| crate::lang::t("No notes yet.").to_string()),
                 thumbs: None,
             });
         }
@@ -458,14 +458,14 @@ impl Model {
             return vec![Group {
                 header: None,
                 rows: Vec::new(),
-                footer: Some("Sound needs PipeWire and its wpctl tool.".into()),
+                footer: Some(crate::lang::t("Sound needs PipeWire and its wpctl tool.").into()),
                 thumbs: None,
             }];
         }
         let name = |device: Option<&crate::system::Device>| {
             device
                 .map(|device| device.name.clone())
-                .unwrap_or_else(|| "None found".to_string())
+                .unwrap_or_else(|| crate::lang::t("None found").to_string())
         };
         let level = |id, label: &str, value: f64, on: bool| {
             Row::new(
@@ -485,34 +485,34 @@ impl Model {
         let has_input = sound.input().is_some();
         vec![
             Group {
-                header: Some("Output"),
+                header: Some(crate::lang::t("Output")),
                 rows: vec![
                     Row::new(
                         Id::Output,
-                        "Play sound on",
-                        Control::Buttons(vec![Mark::Text("Choose")]),
+                        crate::lang::t("Play sound on"),
+                        Control::Buttons(vec![Mark::Text(crate::lang::t("Choose"))]),
                     )
                     .detail(&name(sound.output())),
-                    level(Id::Volume, "Volume", sound.volume, has_output),
-                    Row::new(Id::Mute, "Mute", Control::Switch(sound.muted)).enabled(has_output),
+                    level(Id::Volume, crate::lang::t("Volume"), sound.volume, has_output),
+                    Row::new(Id::Mute, crate::lang::t("Mute"), Control::Switch(sound.muted)).enabled(has_output),
                 ],
                 footer: None,
                 thumbs: None,
             },
             Group {
-                header: Some("Input"),
+                header: Some(crate::lang::t("Input")),
                 rows: vec![
                     Row::new(
                         Id::Input,
-                        "Listen with",
-                        Control::Buttons(vec![Mark::Text("Choose")]),
+                        crate::lang::t("Listen with"),
+                        Control::Buttons(vec![Mark::Text(crate::lang::t("Choose"))]),
                     )
                     .detail(&name(sound.input())),
-                    level(Id::Mic, "Input level", sound.mic, has_input),
-                    Row::new(Id::MicMute, "Mute", Control::Switch(sound.mic_muted))
+                    level(Id::Mic, crate::lang::t("Input level"), sound.mic, has_input),
+                    Row::new(Id::MicMute, crate::lang::t("Mute"), Control::Switch(sound.mic_muted))
                         .enabled(has_input),
                 ],
-                footer: Some("The volume keys work everywhere.".into()),
+                footer: Some(crate::lang::t("The volume keys work everywhere.").into()),
                 thumbs: None,
             },
         ]
@@ -525,13 +525,13 @@ impl Model {
             .map(|(at, action)| {
                 let shown = match Combo::parse(self.keys.get(*action)) {
                     Ok(Some(combo)) => combo.shown(self.modifier),
-                    Ok(None) => "None".to_string(),
-                    Err(_) => format!("{} (not understood)", self.keys.get(*action)),
+                    Ok(None) => crate::lang::t("None").to_string(),
+                    Err(_) => crate::lang::tf("{} (not understood)", &[&(self.keys.get(*action))]),
                 };
                 let changed = self.keys.get(*action) != action.default_combo();
                 let marks = match changed {
-                    true => vec![Mark::Text("Change"), Mark::Text("Reset")],
-                    false => vec![Mark::Text("Change")],
+                    true => vec![Mark::Text(crate::lang::t("Change")), Mark::Text(crate::lang::t("Reset"))],
+                    false => vec![Mark::Text(crate::lang::t("Change"))],
                 };
                 Row::new(Id::Shortcut(at), action.label(), Control::Buttons(marks)).detail(&shown)
             })
@@ -541,7 +541,7 @@ impl Model {
                 header: None,
                 rows,
                 footer: Some(
-                    "Hold Shift with the window switch to go back. Media keys always work.".into(),
+                    crate::lang::t("Hold Shift with the window switch to go back. Media keys always work.").into(),
                 ),
                 thumbs: None,
             },
@@ -560,24 +560,24 @@ impl Model {
                     .as_deref()
                     .and_then(|key| Combo::parse(key).ok().flatten())
                     .map(|combo| combo.shown(self.modifier))
-                    .unwrap_or_else(|| "No key".to_string());
-                let detail = format!("{key}, zoom {}%", (place.zoom * 100.0).round());
+                    .unwrap_or_else(|| crate::lang::t("No key").to_string());
+                let detail = crate::lang::tf("{}, zoom {}%", &[&key, &(place.zoom * 100.0).round()]);
                 let docked = self.dock.contains(&place_button(&place.name));
                 let marks = match docked {
-                    true => vec![Mark::Text("Rename"), Mark::Text("Undock"), Mark::Minus],
-                    false => vec![Mark::Text("Rename"), Mark::Text("Dock"), Mark::Minus],
+                    true => vec![Mark::Text(crate::lang::t("Rename")), Mark::Text(crate::lang::t("Undock")), Mark::Minus],
+                    false => vec![Mark::Text(crate::lang::t("Rename")), Mark::Text(crate::lang::t("Dock")), Mark::Minus],
                 };
                 Row::new(Id::Place(at), &place.name, Control::Buttons(marks)).detail(&detail)
             })
             .collect();
         Group {
-            header: Some("Places"),
+            header: Some(crate::lang::t("Places")),
             rows,
             footer: Some({
                 let key = self.modifier.name();
                 match self.modifier {
-                    crate::config::Modifier::Ctrl => format!("{key} + Shift + 1 to 9 saves this view. {key} + 1 to 9 flies back."),
-                    _ => format!("{key} + Ctrl + 1 to 9 saves this view. {key} + 1 to 9 flies back."),
+                    crate::config::Modifier::Ctrl => crate::lang::tf("{} + Shift + 1 to 9 saves this view. {} + 1 to 9 flies back.", &[&(key), &(key)]),
+                    _ => crate::lang::tf("{} + Ctrl + 1 to 9 saves this view. {} + 1 to 9 flies back.", &[&(key), &(key)]),
                 }
             }),
             thumbs: None,
@@ -622,11 +622,11 @@ impl Model {
                 .enumerate()
                 .map(|(at, net)| {
                     let detail = match net.active {
-                        true => "Connected".to_string(),
+                        true => crate::lang::t("Connected").to_string(),
                         false => {
                             let mut words = Vec::new();
                             if net.known {
-                                words.push("Saved".to_string());
+                                words.push(crate::lang::t("Saved").to_string());
                             }
                             words.push(match net.secure {
                                 true => "secured".to_string(),
@@ -641,13 +641,13 @@ impl Model {
                         }
                     };
                     let detail = match net.enterprise && !net.active {
-                        true => format!("{detail}. Work or school sign-in"),
+                        true => crate::lang::tf("{}. Work or school sign-in", &[&(detail)]),
                         false => detail,
                     };
                     let marks = match (net.active, net.known) {
-                        (true, _) => vec![Mark::Text("Leave")],
-                        (false, true) => vec![Mark::Text("Join"), Mark::Text("Forget")],
-                        (false, false) => vec![Mark::Text("Join")],
+                        (true, _) => vec![Mark::Text(crate::lang::t("Leave"))],
+                        (false, true) => vec![Mark::Text(crate::lang::t("Join")), Mark::Text(crate::lang::t("Forget"))],
+                        (false, false) => vec![Mark::Text(crate::lang::t("Join"))],
                     };
                     Row::new(Id::Net(at), &net.ssid, Control::Buttons(marks))
                         .detail(&detail)
@@ -655,11 +655,11 @@ impl Model {
                 })
                 .collect();
             groups.push(Group {
-                header: Some("Networks"),
+                header: Some(crate::lang::t("Networks")),
                 footer: Some(
                     match rows.is_empty() {
-                        true => "No networks in range.",
-                        false => "Click a network name to see its details.",
+                        true => crate::lang::t("No networks in range."),
+                        false => crate::lang::t("Click a network name to see its details."),
                     }
                     .to_string(),
                 ),
@@ -669,8 +669,8 @@ impl Model {
             groups.push(Group {
                 header: None,
                 rows: vec![
-                    Row::new(Id::WifiHidden, "Join a hidden network", Control::Buttons(vec![Mark::Plus]))
-                        .detail("A network that does not show its name"),
+                    Row::new(Id::WifiHidden, crate::lang::t("Join a hidden network"), Control::Buttons(vec![Mark::Plus]))
+                        .detail(crate::lang::t("A network that does not show its name")),
                 ],
                 footer: None,
                 thumbs: None,
@@ -684,13 +684,13 @@ impl Model {
             return vec![Group {
                 header: None,
                 rows: Vec::new(),
-                footer: Some("No Bluetooth adapter found.".into()),
+                footer: Some(crate::lang::t("No Bluetooth adapter found.").into()),
                 thumbs: None,
             }];
         };
         let mut groups = vec![Group {
             header: None,
-            rows: vec![Row::new(Id::BlueOn, "Bluetooth", Control::Switch(blue.on))],
+            rows: vec![Row::new(Id::BlueOn, crate::lang::t("Bluetooth"), Control::Switch(blue.on))],
             footer: self.net_note.clone(),
             thumbs: None,
         }];
@@ -699,9 +699,9 @@ impl Model {
         }
         let row = |at: usize, gadget: &crate::net::Gadget| {
             let (marks, detail) = match (gadget.paired, gadget.connected) {
-                (true, true) => (vec![Mark::Text("Disconnect")], "Connected"),
-                (true, false) => (vec![Mark::Text("Connect"), Mark::Text("Remove")], "Not connected"),
-                (false, _) => (vec![Mark::Text("Pair")], "Not paired"),
+                (true, true) => (vec![Mark::Text(crate::lang::t("Disconnect"))], crate::lang::t("Connected")),
+                (true, false) => (vec![Mark::Text(crate::lang::t("Connect")), Mark::Text(crate::lang::t("Remove"))], crate::lang::t("Not connected")),
+                (false, _) => (vec![Mark::Text(crate::lang::t("Pair"))], crate::lang::t("Not paired")),
             };
             Row::new(Id::Gadget(at), &gadget.name, Control::Buttons(marks)).detail(detail)
         };
@@ -714,21 +714,21 @@ impl Model {
             .collect();
         if !mine.is_empty() {
             groups.push(Group {
-                header: Some("My devices"),
+                header: Some(crate::lang::t("My devices")),
                 rows: mine,
                 footer: None,
                 thumbs: None,
             });
         }
         let search = match blue.searching {
-            true => Row::new(Id::BlueSearch, "Searching", Control::Buttons(Vec::new()))
-                .detail("Put the device in pairing mode"),
+            true => Row::new(Id::BlueSearch, crate::lang::t("Searching"), Control::Buttons(Vec::new()))
+                .detail(crate::lang::t("Put the device in pairing mode")),
             false => Row::new(
                 Id::BlueSearch,
-                "Find devices",
-                Control::Buttons(vec![Mark::Text("Search")]),
+                crate::lang::t("Find devices"),
+                Control::Buttons(vec![Mark::Text(crate::lang::t("Search"))]),
             )
-            .detail("Looks for ten seconds"),
+            .detail(crate::lang::t("Looks for ten seconds")),
         };
         let mut nearby = vec![search];
         nearby.extend(
@@ -739,7 +739,7 @@ impl Model {
                 .map(|(at, gadget)| row(at, gadget)),
         );
         groups.push(Group {
-            header: Some("Nearby"),
+            header: Some(crate::lang::t("Nearby")),
             rows: nearby,
             footer: None,
             thumbs: None,
@@ -751,35 +751,35 @@ impl Model {
         let access = &self.access;
         vec![
             Group {
-                header: Some("Seeing"),
+                header: Some(crate::lang::t("Seeing")),
                 rows: vec![
-                    Row::new(Id::LargeText, "Large text", Control::Switch(access.large_text))
-                        .detail("Text in apps is a quarter bigger"),
-                    Row::new(Id::HighContrast, "High contrast", Control::Switch(access.high_contrast))
-                        .detail("Apps use stronger edges and colors"),
-                    Row::new(Id::ScreenReader, "Screen reader", Control::Switch(access.screen_reader))
-                        .detail("Orca reads apps aloud. Super+Alt+S turns it on or off"),
+                    Row::new(Id::LargeText, crate::lang::t("Large text"), Control::Switch(access.large_text))
+                        .detail(crate::lang::t("Text in apps is a quarter bigger")),
+                    Row::new(Id::HighContrast, crate::lang::t("High contrast"), Control::Switch(access.high_contrast))
+                        .detail(crate::lang::t("Apps use stronger edges and colors")),
+                    Row::new(Id::ScreenReader, crate::lang::t("Screen reader"), Control::Switch(access.screen_reader))
+                        .detail(crate::lang::t("Orca reads apps aloud. Super+Alt+S turns it on or off")),
                 ],
-                footer: Some("The screen reader needs Orca. Install it with: sudo apt install orca".into()),
+                footer: Some(crate::lang::t("The screen reader needs Orca. Install it with: sudo apt install orca").into()),
                 thumbs: None,
             },
             Group {
-                header: Some("Moving"),
+                header: Some(crate::lang::t("Moving")),
                 rows: vec![
-                    Row::new(Id::ReduceMotion, "Reduce motion", Control::Switch(access.reduce_motion))
-                        .detail("The camera, bars and windows jump instead of sliding"),
+                    Row::new(Id::ReduceMotion, crate::lang::t("Reduce motion"), Control::Switch(access.reduce_motion))
+                        .detail(crate::lang::t("The camera, bars and windows jump instead of sliding")),
                 ],
                 footer: None,
                 thumbs: None,
             },
             Group {
-                header: Some("Typing"),
+                header: Some(crate::lang::t("Typing")),
                 rows: vec![
-                    Row::new(Id::StickyKeys, "Sticky keys", Control::Switch(access.sticky_keys))
-                        .detail("Tap Shift, Ctrl, Alt or Super, then a key"),
+                    Row::new(Id::StickyKeys, crate::lang::t("Sticky keys"), Control::Switch(access.sticky_keys))
+                        .detail(crate::lang::t("Tap Shift, Ctrl, Alt or Super, then a key")),
                 ],
                 footer: Some(
-                    "With sticky keys, tap a key like Ctrl twice to keep it held. Tap it again to let go."
+                    crate::lang::t("With sticky keys, tap a key like Ctrl twice to keep it held. Tap it again to let go.")
                         .into(),
                 ),
                 thumbs: None,
@@ -790,19 +790,19 @@ impl Model {
     fn shot_group(&self) -> Group {
         let folder = match self.shots.folder.as_deref() {
             Some(folder) if !folder.trim().is_empty() => folder.to_string(),
-            _ => "Screenshots in your Pictures folder".to_string(),
+            _ => crate::lang::t("Screenshots in your Pictures folder").to_string(),
         };
         let marks = match self.shots.folder.is_some() {
-            true => vec![Mark::Text("Choose"), Mark::Text("Reset")],
-            false => vec![Mark::Text("Choose")],
+            true => vec![Mark::Text(crate::lang::t("Choose")), Mark::Text(crate::lang::t("Reset"))],
+            false => vec![Mark::Text(crate::lang::t("Choose"))],
         };
         Group {
-            header: Some("Screenshots"),
+            header: Some(crate::lang::t("Screenshots")),
             rows: vec![
-                Row::new(Id::ShotFolder, "Save to", Control::Buttons(marks)).detail(&folder),
+                Row::new(Id::ShotFolder, crate::lang::t("Save to"), Control::Buttons(marks)).detail(&folder),
                 Row::new(
                     Id::ShotFormat,
-                    "Format",
+                    crate::lang::t("Format"),
                     Control::Segments {
                         options: vec!["PNG", "JPEG"],
                         chosen: match self.shots.format {
@@ -811,7 +811,7 @@ impl Model {
                         },
                     },
                 )
-                .detail("PNG keeps every pixel. JPEG files are smaller"),
+                .detail(crate::lang::t("PNG keeps every pixel. JPEG files are smaller")),
             ],
             footer: None,
             thumbs: None,
@@ -828,19 +828,19 @@ impl Model {
                 .collect();
             if offered.len() > 1 {
                 groups.push(Group {
-                    header: Some("Performance"),
+                    header: Some(crate::lang::t("Performance")),
                     rows: vec![Row::new(
                         Id::Profile,
-                        "Power mode",
+                        crate::lang::t("Power mode"),
                         Control::Segments {
-                            options: offered.iter().map(|(_, label)| *label).collect(),
+                            options: offered.iter().map(|(_, label)| crate::lang::t(label)).collect(),
                             chosen: offered
                                 .iter()
                                 .position(|(name, _)| *name == profiles.now)
                                 .unwrap_or(0),
                         },
                     )
-                    .detail("Saver runs cooler and longer on battery")],
+                    .detail(crate::lang::t("Saver runs cooler and longer on battery"))],
                     footer: None,
                     thumbs: None,
                 });
@@ -848,7 +848,7 @@ impl Model {
         }
         if !self.cells.is_empty() {
             groups.push(Group {
-                header: Some("Battery"),
+                header: Some(crate::lang::t("Battery")),
                 rows: self
                     .cells
                     .iter()
@@ -874,21 +874,21 @@ impl Model {
             rows: vec![
                 Row::new(
                     Id::SleepAfter,
-                    "Sleep after",
+                    crate::lang::t("Sleep after"),
                     Control::Slider {
                         least: 0.0,
                         most: SLEEP_MOST,
                         value: power.sleep_after as f64,
                         unit: " min",
-                        zero: Some("Never"),
+                        zero: Some(crate::lang::t("Never")),
                     },
                 )
-                .detail("Minutes with no key press or pointer move"),
+                .detail(crate::lang::t("Minutes with no key press or pointer move")),
                 Row::new(
                     Id::Lid,
-                    "When the lid closes",
+                    crate::lang::t("When the lid closes"),
                     Control::Segments {
-                        options: vec!["Sleep", "Lock", "Nothing"],
+                        options: vec![crate::lang::t("Sleep"), crate::lang::t("Lock"), crate::lang::t("Nothing")],
                         chosen: match power.lid {
                             Lid::Suspend => 0,
                             Lid::Lock => 1,
@@ -896,12 +896,12 @@ impl Model {
                         },
                     },
                 )
-                .detail("With another monitor plugged in, it only locks"),
+                .detail(crate::lang::t("With another monitor plugged in, it only locks")),
                 Row::new(
                     Id::PowerButton,
-                    "Power button",
+                    crate::lang::t("Power button"),
                     Control::Segments {
-                        options: vec!["Menu", "Sleep", "Off", "Nothing"],
+                        options: vec!["Menu", crate::lang::t("Sleep"), crate::lang::t("Off"), crate::lang::t("Nothing")],
                         chosen: match power.button {
                             PowerKey::Menu => 0,
                             PowerKey::Suspend => 1,
@@ -911,14 +911,14 @@ impl Model {
                     },
                 ),
             ],
-            footer: Some("A video that is playing keeps the computer awake.".into()),
+            footer: Some(crate::lang::t("A video that is playing keeps the computer awake.").into()),
             thumbs: None,
         }]
     }
 
     pub(super) fn time_groups(&self) -> Vec<Group> {
         let zone = match self.zone.as_str() {
-            "" => "Not known".to_string(),
+            "" => crate::lang::t("Not known").to_string(),
             zone => zone.replace('_', " "),
         };
         vec![
@@ -927,28 +927,50 @@ impl Model {
                 rows: vec![
                     Row::new(
                         Id::Zone,
-                        "Time zone",
-                        Control::Buttons(vec![Mark::Text("Choose")]),
+                        crate::lang::t("Time zone"),
+                        Control::Buttons(vec![Mark::Text(crate::lang::t("Choose"))]),
                     )
                     .detail(&zone),
                     Row::new(
                         Id::AutoTime,
-                        "Set the time automatically",
+                        crate::lang::t("Set the time automatically"),
                         Control::Switch(self.ntp.unwrap_or(false)),
                     )
-                    .detail("From time servers on the internet")
+                    .detail(crate::lang::t("From time servers on the internet"))
                     .enabled(self.ntp.is_some()),
                 ],
                 footer: Some(match &self.time_error {
-                    Some(error) => format!("Not changed: {error}"),
-                    None => "The system may ask for your password.".into(),
+                    Some(error) => crate::lang::tf("Not changed: {}", &[&(error)]),
+                    None => crate::lang::t("The system may ask for your password.").into(),
                 }),
                 thumbs: None,
             },
             Group {
-                header: Some("Clock"),
+                header: Some(crate::lang::t("Clock")),
                 rows: self.clock_rows(),
-                footer: Some("The clock sits in the top bar.".into()),
+                footer: Some(crate::lang::t("The clock sits in the top bar.").into()),
+                thumbs: None,
+            },
+            Group {
+                header: Some(crate::lang::t("Language")),
+                rows: vec![Row::new(
+                    Id::Language,
+                    crate::lang::t("Language"),
+                    Control::Segments {
+                        options: std::iter::once(crate::lang::t("Auto"))
+                            .chain(crate::lang::LANGUAGES.iter().map(|(_, name)| *name))
+                            .collect(),
+                        chosen: match self.appearance.language.as_deref() {
+                            None | Some("auto") => 0,
+                            Some(code) => crate::lang::LANGUAGES
+                                .iter()
+                                .position(|(each, _)| *each == code)
+                                .map_or(0, |at| at + 1),
+                        },
+                    },
+                )
+                .detail(crate::lang::t("Auto follows the system language"))],
+                footer: Some(crate::lang::t("Apps that are open keep their language until they start again.").into()),
                 thumbs: None,
             },
         ]
@@ -956,8 +978,8 @@ impl Model {
 
     pub(super) fn about_groups(&self) -> Vec<Group> {
         let reset = match self.confirm_reset {
-            true => "Click to confirm",
-            false => "Reset",
+            true => crate::lang::t("Click to confirm"),
+            false => crate::lang::t("Reset"),
         };
         vec![
             Group {
@@ -974,26 +996,26 @@ impl Model {
                 thumbs: None,
             },
             Group {
-                header: Some("Settings file"),
+                header: Some(crate::lang::t("Settings file")),
                 rows: vec![
                     Row::new(
                         Id::Export,
-                        "Export settings",
-                        Control::Buttons(vec![Mark::Text("Export")]),
+                        crate::lang::t("Export settings"),
+                        Control::Buttons(vec![Mark::Text(crate::lang::t("Export"))]),
                     )
-                    .detail("Save a copy of your settings to a folder"),
+                    .detail(crate::lang::t("Save a copy of your settings to a folder")),
                     Row::new(
                         Id::Import,
-                        "Import settings",
-                        Control::Buttons(vec![Mark::Text("Import")]),
+                        crate::lang::t("Import settings"),
+                        Control::Buttons(vec![Mark::Text(crate::lang::t("Import"))]),
                     )
-                    .detail("Use a settings file you saved before"),
+                    .detail(crate::lang::t("Use a settings file you saved before")),
                     Row::new(
                         Id::ResetAll,
-                        "Reset all settings",
+                        crate::lang::t("Reset all settings"),
                         Control::Buttons(vec![Mark::Text(reset)]),
                     )
-                    .detail("Go back to the defaults. The old file is kept as a backup"),
+                    .detail(crate::lang::t("Go back to the defaults. The old file is kept as a backup")),
                 ],
                 footer: Some(self.file_note.clone().unwrap_or_else(|| {
                     "Import and reset keep the old file as drifter.toml.bak.".into()
@@ -1019,6 +1041,13 @@ impl Model {
             (Id::HighContrast, Value::Switch(on)) => self.access.high_contrast = on,
             (Id::ReduceMotion, Value::Switch(on)) => self.access.reduce_motion = on,
             (Id::StickyKeys, Value::Switch(on)) => self.access.sticky_keys = on,
+            (Id::Language, Value::Choice(n)) => {
+                self.appearance.language = match n {
+                    0 => None,
+                    n => crate::lang::LANGUAGES.get(n - 1).map(|(code, _)| code.to_string()),
+                };
+                crate::lang::use_config(self.appearance.language.as_deref());
+            }
             (Id::ScreenReader, Value::Switch(on)) => self.access.screen_reader = on,
             (Id::ShotFormat, Value::Choice(n)) => {
                 self.shots.format = match n {
@@ -1246,7 +1275,7 @@ impl Model {
         };
         let plain = combo.mods == crate::shortcut::Mods::default() && !combo.camera;
         if plain && !crate::shortcut::may_stand_alone(&combo.key) {
-            return Err("Add Ctrl, Alt or Super, so typing still works.".into());
+            return Err(crate::lang::t("Add Ctrl, Alt or Super, so typing still works.").into());
         }
         let wanted = combo.resolve(self.modifier);
         for other in Action::ALL {
@@ -1333,6 +1362,9 @@ impl Model {
         }
         if look.cursor_theme != was.cursor_theme {
             optional(doc, "cursor_theme", look.cursor_theme.as_deref());
+        }
+        if look.language != was.language {
+            optional(doc, "language", look.language.as_deref());
         }
         if look.cursor_size != was.cursor_size {
             put(

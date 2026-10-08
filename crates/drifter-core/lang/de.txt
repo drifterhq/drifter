@@ -1,0 +1,2623 @@
+# Drifter in Deutsch. Each English line is followed by its translation on a line that starts with "= ".
+
+Activity
+= Aktivität
+
+Paused {}.
+= {} angehalten.
+
+{} runs again.
+= {} läuft wieder.
+
+Asked {} to quit.
+= {} wurde gebeten, sich zu beenden.
+
+Force quit {}.
+= {} wurde zwangsweise beendet.
+
+Paused
+= Angehalten
+
+Opened {} again.
+= {} wurde wieder geöffnet.
+
+{} did not open: {}.
+= {} wurde nicht geöffnet: {}.
+
+Could not pause {}.
+= {} konnte nicht angehalten werden.
+
+Could not resume {}.
+= {} konnte nicht fortgesetzt werden.
+
+Could not quit {}.
+= {} konnte nicht beendet werden.
+
+Could not force quit {}.
+= {} konnte nicht zwangsweise beendet werden.
+
+Calm
+= Ruhig
+
+Busy
+= Beschäftigt
+
+Heavy
+= Stark
+
+Sound
+= Ton
+
+Network
+= Netzwerk
+
+Network icon
+= Netzwerksymbol
+
+Wi-Fi
+= WLAN
+
+Bluetooth icon
+= Bluetooth-Symbol
+
+System log
+= Systemprotokoll
+
+Login
+= Anmeldung
+
+Devices
+= Geräte
+
+Name lookup
+= Namensauflösung
+
+Clock sync
+= Uhrzeitabgleich
+
+File search index
+= Dateisuchindex
+
+App portal
+= App-Portal
+
+Screen sharing portal
+= Portal für Bildschirmfreigabe
+
+File chooser portal
+= Portal für Dateiauswahl
+
+Document portal
+= Dokumentportal
+
+Permission store
+= Berechtigungsspeicher
+
+Message bus
+= Nachrichtenbus
+
+Permissions
+= Berechtigungen
+
+Printing
+= Drucken
+
+Battery info
+= Akkuinformationen
+
+Disks
+= Laufwerke
+
+Power mode
+= Energiemodus
+
+User accounts
+= Benutzerkonten
+
+Scheduled tasks
+= Geplante Aufgaben
+
+Remote login
+= Fernzugriff
+
+Network discovery
+= Netzwerkerkennung
+
+Modems
+= Modems
+
+Color profiles
+= Farbprofile
+
+Sound priority
+= Tonpriorität
+
+Software updates
+= Softwareaktualisierungen
+
+X11 apps
+= X11-Apps
+
+Files service
+= Dateidienst
+
+Seat
+= Sitz
+
+Session manager
+= Sitzungsverwaltung
+
+Accessibility
+= Barrierefreiheit
+
+Passwords
+= Passwörter
+
+Snap packages
+= Snap-Pakete
+
+Temperature
+= Temperatur
+
+CPU balance
+= CPU-Ausgleich
+
+Firewall
+= Firewall
+
+Settings
+= Einstellungen
+
+Flatpak · {}
+= Flatpak · {}
+
+Draws your screen
+= Zeichnet deinen Bildschirm
+
+Running {}
+= {} läuft
+
+1 process
+= 1 Prozess
+
+Reopen {}
+= {} wieder öffnen
+
+Using the most
+= Größte Nutzer
+
+No apps are open.
+= Keine Apps geöffnet.
+
+Reading…
+= Wird gelesen …
+
+Resume
+= Fortsetzen
+
+Quit
+= Beenden
+
+Details
+= Details
+
+{} worked hard
+= {} hat schwer gearbeitet
+
+It used up to {}% of the CPU for {}.
+= Nutzte bis zu {} % der CPU für {}.
+
+It holds {} of memory.
+= Belegt {} Speicher.
+
+Memory got tight
+= Speicher wurde knapp
+
+{}% of memory was in use.
+= {} % des Speichers waren belegt.
+
+Memory moved to swap
+= Speicher wurde ausgelagert
+
+{} MB moved to the disk to make room.
+= {} MB wurden auf die Festplatte ausgelagert, um Platz zu schaffen.
+
+Now
+= Jetzt
+
+1 min ago
+= Vor 1 Min.
+
+{} min ago
+= Vor {} Min.
+
+Apps
+= Apps
+
+Background
+= Hintergrund
+
+Everything
+= Alles
+
+Last hour
+= Letzte Stunde
+
+Look back
+= Zurückblicken
+
+Running
+= Läuft
+
+Reopen
+= Wieder öffnen
+
+Search
+= Suchen
+
+CPU · {} cores
+= CPU · {} Kerne
+
+Memory
+= Speicher
+
+Charging
+= Wird geladen
+
+Power draw
+= Stromverbrauch
+
+Battery {}%
+= Akku {} %
+
+{} apps · on wall power
+= {} Apps · am Netzteil
+
+Disk
+= Festplatte
+
+Name
+= Name
+
+Impact
+= Last
+
+Last minute
+= Letzte Minute
+
+Nothing runs here right now.
+= Hier läuft gerade nichts.
+
+Nothing matches “{}”.
+= Nichts passt zu „{}“.
+
+Pick an app to see it here.
+= Wähle eine App, um sie hier zu sehen.
+
+CPU · last minute
+= CPU · letzte Minute
+
+Doing
+= Tut gerade
+
+Processes
+= Prozesse
+
+Program
+= Programm
+
+Drifter draws your screen. It cannot pause or quit itself.
+= Drifter zeichnet deinen Bildschirm. Es kann sich nicht selbst anhalten oder beenden.
+
+This runs for the whole computer. Only an administrator can stop it.
+= Das läuft für den ganzen Computer. Nur ein Administrator kann es stoppen.
+
+Paused. Its windows stay open and its work stays in memory. It uses no CPU until you resume it.
+= Angehalten. Die Fenster bleiben offen und die Arbeit bleibt im Speicher. Es nutzt keine CPU, bis du es fortsetzt.
+
+This runs in the background for your session. Pause stops it for now. Quit asks it to close.
+= Das läuft im Hintergrund für deine Sitzung. Anhalten stoppt es vorerst. Beenden bittet es, sich zu schließen.
+
+Pause keeps the work open and stops the CPU. Quit asks the app to save and close.
+= Anhalten hält die Arbeit offen und stoppt die CPU. Beenden bittet die App, zu speichern und sich zu schließen.
+
+Busiest processes
+= Aktivste Prozesse
+
+Keep holding…
+= Weiter gedrückt halten …
+
+Hold to force quit
+= Gedrückt halten zum Erzwingen
+
+Drifter takes a reading every 30 seconds. It stays on this computer.
+= Drifter misst alle 30 Sekunden. Die Daten bleiben auf diesem Computer.
+
+The chart fills in as time passes.
+= Das Diagramm füllt sich mit der Zeit.
+
+Come back in a few minutes.
+= Schau in ein paar Minuten wieder vorbei.
+
+Memory {}%
+= Speicher {} %
+
+Quiet
+= Ruhig
+
+Nothing stood out at this moment.
+= In diesem Moment fiel nichts auf.
+
+Everything else
+= Alles andere
+
+Cancel
+= Abbrechen
+
+Notifications
+= Mitteilungen
+
+You're all caught up
+= Du bist auf dem neuesten Stand
+
+Clear
+= Leeren
+
+Do Not Disturb
+= Nicht stören
+
+Dark Mode
+= Dunkelmodus
+
+Not available
+= Nicht verfügbar
+
+Off
+= Aus
+
+Not connected
+= Nicht verbunden
+
+On
+= Ein
+
+Display
+= Bildschirm
+
+Text
+= Text
+
+Pills
+= Pillen
+
+Rings
+= Ringe
+
+Ticks
+= Striche
+
+System
+= System
+
+Working hard
+= Arbeitet schwer
+
+All calm
+= Alles ruhig
+
+CPU · 30 s
+= CPU · 30 s
+
+Capture Entire Screen
+= Ganzen Bildschirm aufnehmen
+
+Capture Selected Window
+= Ausgewähltes Fenster aufnehmen
+
+Capture Selected Portion
+= Ausgewählten Bereich aufnehmen
+
+Record Entire Screen
+= Ganzen Bildschirm aufzeichnen
+
+Record Selected Window
+= Ausgewähltes Fenster aufzeichnen
+
+Record Selected Portion
+= Ausgewählten Bereich aufzeichnen
+
+Capture
+= Aufnehmen
+
+Record
+= Aufzeichnen
+
+Screenshot {}.{}
+= Bildschirmfoto {}.{}
+
+Screen Recording {}.mp4
+= Bildschirmaufnahme {}.mp4
+
+Sound from {}
+= Ton von {}
+
+Options
+= Optionen
+
+Volume
+= Lautstärke
+
+Microphone
+= Mikrofon
+
+Brightness
+= Helligkeit
+
+Muted
+= Stumm
+
+Plain
+= Einfach
+
+System default
+= Systemstandard
+
+Search apps
+= Apps suchen
+
+No apps match
+= Keine passende App
+
+Enter Password
+= Passwort eingeben
+
+Checking...
+= Wird geprüft ...
+
+Wrong password
+= Falsches Passwort
+
+Back
+= Zurück
+
+Status
+= Status
+
+Connected
+= Verbunden
+
+Saved, not connected
+= Gespeichert, nicht verbunden
+
+Not saved
+= Nicht gespeichert
+
+None, open network
+= Keine, offenes Netzwerk
+
+Security
+= Sicherheit
+
+Keys
+= Schlüssel
+
+Signal
+= Signal
+
+This connection
+= Diese Verbindung
+
+Speed now
+= Geschwindigkeit jetzt
+
+IP address
+= IP-Adresse
+
+Gateway
+= Gateway
+
+IPv6 address
+= IPv6-Adresse
+
+IPv6 gateway
+= IPv6-Gateway
+
+IPv6 DNS
+= IPv6-DNS
+
+Your MAC address
+= Deine MAC-Adresse
+
+Card
+= Karte
+
+Access point
+= Zugangspunkt
+
+Access points ({})
+= Zugangspunkte ({})
+
+Just now
+= Gerade eben
+
+{} days ago
+= Vor {} Tagen
+
+Lock
+= Sperren
+
+Log out
+= Abmelden
+
+Shut down
+= Ausschalten
+
+Suspend
+= Ruhezustand
+
+Restart
+= Neu starten
+
+Reboot
+= Neu starten
+
+Logging out
+= Wird abgemeldet
+
+Restarting
+= Wird neu gestartet
+
+Shutting down
+= Wird ausgeschaltet
+
+Drifter wants to install software.
+= Drifter möchte Software installieren.
+
+Drifter wants to make a change.
+= Drifter möchte etwas ändern.
+
+Drifter wants to install {}.
+= Drifter möchte {} installieren.
+
+Drifter wants to {}
+= Drifter möchte {}
+
+Password
+= Passwort
+
+Checking…
+= Wird geprüft …
+
+Allow
+= Erlauben
+
+Application
+= Programm
+
+Search apps, settings and files
+= Apps, Einstellungen und Dateien suchen
+
+Desktop
+= Schreibtisch
+
+Hardware
+= Hardware
+
+Input
+= Eingabe
+
+Users & Security
+= Benutzer & Sicherheit
+
+Displays
+= Bildschirme
+
+Wallpaper
+= Hintergrundbild
+
+Appearance
+= Erscheinungsbild
+
+Windows
+= Fenster
+
+Dock
+= Dock
+
+Top Bar
+= Obere Leiste
+
+Keyboard
+= Tastatur
+
+Mouse
+= Maus
+
+Touchpad
+= Touchpad
+
+Shortcuts
+= Tastenkürzel
+
+Power
+= Energie
+
+Lock Screen
+= Sperrbildschirm
+
+Users
+= Benutzer
+
+Date & Time
+= Datum & Uhrzeit
+
+Login Items
+= Anmeldeobjekte
+
+Default Apps
+= Standard-Apps
+
+About
+= Über
+
+Resolution
+= Auflösung
+
+Refresh rate
+= Bildwiederholrate
+
+Adaptive sync
+= Adaptive Synchronisierung
+
+Smoother games and video on FreeSync and G-Sync monitors
+= Flüssigere Spiele und Videos auf FreeSync- und G-Sync-Monitoren
+
+Shows the same picture as {}
+= Zeigt dasselbe Bild wie {}
+
+Off. This monitor has its own desktop
+= Aus. Dieser Monitor hat seinen eigenen Schreibtisch
+
+Mirror
+= Spiegeln
+
+Use this monitor
+= Diesen Monitor verwenden
+
+The last monitor in use stays on
+= Der letzte genutzte Monitor bleibt an
+
+Drifter has not shown any monitors yet.
+= Drifter hat noch keine Monitore gezeigt.
+
+{} × {} pixels, seen as {} × {}
+= {} × {} Pixel, angezeigt als {} × {}
+
+Scale
+= Skalierung
+
+{}. Larger makes text and windows bigger
+= {}. Größer macht Text und Fenster größer
+
+Rotation
+= Drehung
+
+None
+= Keine
+
+Flip left to right
+= Links und rechts spiegeln
+
+For a projector shown from behind, or a mirror rig
+= Für einen Projektor von hinten oder einen Spiegelaufbau
+
+Plug in another monitor to arrange them side by side.
+= Schließe einen weiteren Monitor an, um sie nebeneinander anzuordnen.
+
+Click a monitor to choose it. Drag it to move it. Edges snap together.
+= Klicke auf einen Monitor, um ihn zu wählen. Ziehe ihn, um ihn zu bewegen. Kanten rasten ein.
+
+{} (system default)
+= {} (Systemstandard)
+
+None found
+= Nichts gefunden
+
+Command line, own icon
+= Befehlszeile, eigenes Symbol
+
+Command line
+= Befehlszeile
+
+{}, own icon
+= {}, eigenes Symbol
+
+World size
+= Weltgröße
+
+Screens across and screens down
+= Bildschirme in der Breite und in der Höhe
+
+Hold {} and push an edge to pan, or scroll to zoom out.
+= Halte {} und drücke an einen Rand, um zu schwenken, oder scrolle zum Verkleinern.
+
+Buttons
+= Tasten
+
+Show the window title
+= Fenstertitel anzeigen
+
+Button order
+= Reihenfolge der Tasten
+
+Left to right, as they sit in the title bar.
+= Von links nach rechts, wie in der Titelleiste.
+
+Edit
+= Bearbeiten
+
+Add an app or a command
+= App oder Befehl hinzufügen
+
+This window
+= Dieses Fenster
+
+Opens the trash folder
+= Öffnet den Papierkorb-Ordner
+
+A grid of all your apps
+= Ein Raster mit allen deinen Apps
+
+Auto hide
+= Automatisch ausblenden
+
+Off keeps the dock on screen, and maximized windows leave room for it
+= Aus lässt das Dock sichtbar, und maximierte Fenster lassen ihm Platz
+
+Icon size
+= Symbolgröße
+
+Padding
+= Innenabstand
+
+Room around the icons. The dock is the icon size plus this above and below
+= Platz um die Symbole. Das Dock ist die Symbolgröße plus dies oben und unten
+
+Icon spacing
+= Symbolabstand
+
+Room between one icon and the next
+= Platz zwischen einem Symbol und dem nächsten
+
+Fit to icons
+= An Symbole anpassen
+
+Only as wide as its icons. Off spans the whole screen
+= Nur so breit wie seine Symbole. Aus nimmt die ganze Breite
+
+Dock items
+= Dock-Objekte
+
+The file manager, terminal and browser are your system defaults.
+= Dateimanager, Terminal und Browser sind deine Systemstandards.
+
+Show system info
+= Systeminfo anzeigen
+
+Style
+= Stil
+
+All cores together
+= Alle Kerne zusammen
+
+Memory in use
+= Belegter Speicher
+
+Disk mounted at {}
+= Laufwerk eingehängt unter {}
+
+Off keeps the top bar on screen, and maximized windows leave room for it
+= Aus lässt die obere Leiste sichtbar, und maximierte Fenster lassen ihr Platz
+
+Bar height
+= Leistenhöhe
+
+Text size
+= Textgröße
+
+Battery
+= Akku
+
+Charge and charging, left of the power button
+= Ladung und Ladevorgang, links vom Ein-/Aus-Knopf
+
+A computer with no battery never shows it.
+= Ein Computer ohne Akku zeigt ihn nie.
+
+System info
+= Systeminfo
+
+Point at the system info in the top bar for a card with every number.
+= Zeige auf die Systeminfo in der oberen Leiste für eine Karte mit allen Werten.
+
+Lock the screen after
+= Bildschirm sperren nach
+
+Never
+= Nie
+
+Minutes with no key press or pointer move
+= Minuten ohne Tastendruck oder Mausbewegung
+
+Turn the screen off after
+= Bildschirm ausschalten nach
+
+Any key or pointer move turns it back on
+= Jede Taste oder Mausbewegung schaltet ihn wieder ein
+
+A video that is playing keeps the screen awake.
+= Ein laufendes Video hält den Bildschirm wach.
+
+Log in automatically
+= Automatisch anmelden
+
+Skip the password when Drifter starts
+= Passwort beim Start von Drifter überspringen
+
+This counts when Drifter starts from a text console. A login screen such as GDM or SDDM asks for the password itself.
+= Das gilt, wenn Drifter von einer Textkonsole startet. Ein Anmeldebildschirm wie GDM oder SDDM fragt selbst nach dem Passwort.
+
+Choose
+= Wählen
+
+Reset
+= Zurücksetzen
+
+The dock, the trash and other apps open these. Reset goes back to the system's choice.
+= Das Dock, der Papierkorb und andere Apps öffnen diese. Zurücksetzen nimmt wieder die Wahl des Systems.
+
+Start autostart apps
+= Autostart-Apps starten
+
+Apps that ask to start with every desktop
+= Apps, die mit jedem Schreibtisch starten wollen
+
+Start when Drifter starts
+= Beim Start von Drifter starten
+
+They start in this order, and again after a crash.
+= Sie starten in dieser Reihenfolge, und nach einem Absturz erneut.
+
+Autostart
+= Autostart
+
+The built-in screen
+= Der eingebaute Bildschirm
+
+The brightness keys work everywhere.
+= Die Helligkeitstasten funktionieren überall.
+
+Night light
+= Nachtlicht
+
+Warmer colors at night
+= Wärmere Farben in der Nacht
+
+Warmth
+= Wärme
+
+Lower is warmer
+= Niedriger ist wärmer
+
+Starts at
+= Beginnt um
+
+Ends at
+= Endet um
+
+Night runs from the start hour to the end hour, through midnight.
+= Die Nacht läuft von der Start- bis zur Endstunde, über Mitternacht hinweg.
+
+Pointer speed
+= Zeigergeschwindigkeit
+
+Acceleration
+= Beschleunigung
+
+A fast finger moves the pointer farther
+= Ein schneller Finger bewegt den Zeiger weiter
+
+Natural scrolling
+= Natürliches Scrollen
+
+The page follows your fingers
+= Die Seite folgt deinen Fingern
+
+Ignore while typing
+= Beim Tippen ignorieren
+
+Taps and swipes
+= Tippen und Wischen
+
+Tap to click
+= Tippen zum Klicken
+
+One finger is left, two is right
+= Ein Finger ist links, zwei sind rechts
+
+Three finger tap
+= Tippen mit drei Fingern
+
+Overview
+= Übersicht
+
+Middle
+= Mitte
+
+Three finger swipe
+= Wischen mit drei Fingern
+
+Pans the camera
+= Schwenkt die Kamera
+
+Overview zooms out like the hot corner. Tap again to fly back in.
+= Die Übersicht zoomt heraus wie die aktive Ecke. Tippe erneut, um zurückzufliegen.
+
+Your own clock format
+= Eigenes Uhrformat
+
+Use switches
+= Schalter verwenden
+
+Show the day of the week
+= Wochentag anzeigen
+
+Show the date
+= Datum anzeigen
+
+Show seconds
+= Sekunden anzeigen
+
+Use a 24-hour clock
+= 24-Stunden-Uhr verwenden
+
+None chosen
+= Nichts gewählt
+
+Picture
+= Bild
+
+Behavior
+= Verhalten
+
+Fixed
+= Fest
+
+Pan
+= Schwenken
+
+Parallax
+= Parallaxe
+
+The picture stays put while the camera moves.
+= Das Bild bleibt stehen, während die Kamera sich bewegt.
+
+The picture covers the whole world and moves with it.
+= Das Bild deckt die ganze Welt ab und bewegt sich mit ihr.
+
+The picture moves slower than the world, for depth.
+= Das Bild bewegt sich langsamer als die Welt, für Tiefe.
+
+Folder
+= Ordner
+
+Pictures from
+= Bilder aus
+
+Change the picture every
+= Bild wechseln alle
+
+Counted in
+= Gezählt in
+
+Seconds
+= Sekunden
+
+Minutes
+= Minuten
+
+Hours
+= Stunden
+
+Order
+= Reihenfolge
+
+Random
+= Zufällig
+
+By name
+= Nach Name
+
+Shaders
+= Shader
+
+Motion
+= Bewegung
+
+Still
+= Still
+
+A shader wallpaper follows the time of day. Click one to use it. Motion sets how fast it drifts.
+= Ein Shader-Hintergrund folgt der Tageszeit. Klicke einen an, um ihn zu nutzen. Bewegung legt fest, wie schnell er treibt.
+
+Pictures
+= Bilder
+
+Click a picture to use it now.
+= Klicke ein Bild an, um es jetzt zu nutzen.
+
+Type an app or a command.
+= Gib eine App oder einen Befehl ein.
+
+That dock item is gone.
+= Dieses Dock-Objekt gibt es nicht mehr.
+
+Close
+= Schließen
+
+Minimize
+= Minimieren
+
+Maximize
+= Maximieren
+
+Nothing matches
+= Nichts passt
+
+{} × {} screens. The colored screen is what you see at zoom 1.
+= {} × {} Bildschirme. Der farbige Bildschirm ist das, was du bei Zoom 1 siehst.
+
+Window title
+= Fenstertitel
+
+Hot corner
+= Aktive Ecke
+
+Rest the pointer in the top left corner to zoom out
+= Lass den Zeiger in der oberen linken Ecke ruhen, um herauszuzoomen
+
+Size
+= Größe
+
+Wait
+= Warten
+
+How long the pointer rests before it fires
+= Wie lange der Zeiger ruht, bevor sie auslöst
+
+Moving around
+= Bewegen
+
+Edge pan speed
+= Schwenktempo am Rand
+
+How far the world moves when you push an edge
+= Wie weit sich die Welt bewegt, wenn du an einen Rand drückst
+
+Camera flight
+= Kameraflug
+
+How long the camera takes to fly to a window
+= Wie lange die Kamera zu einem Fenster fliegt
+
+Bars
+= Leisten
+
+Auto hide top bar
+= Obere Leiste automatisch ausblenden
+
+Auto hide bottom bar
+= Untere Leiste automatisch ausblenden
+
+Open after
+= Öffnen nach
+
+How long the pointer rests at the edge
+= Wie lange der Zeiger am Rand ruht
+
+Close after
+= Schließen nach
+
+How long after the pointer leaves
+= Wie lange nachdem der Zeiger geht
+
+Slide time
+= Gleitzeit
+
+Layout
+= Belegung
+
+Variant
+= Variante
+
+Caps Lock acts as
+= Feststelltaste wirkt als
+
+Compose key
+= Compose-Taste
+
+Hold it, then type two keys for é, ñ or ©
+= Halte sie und tippe zwei Tasten für é, ñ oder ©
+
+Other xkb options
+= Weitere xkb-Optionen
+
+Repeat after
+= Wiederholen nach
+
+How long a key is held before it repeats
+= Wie lange eine Taste gehalten wird, bevor sie wiederholt
+
+Repeat speed
+= Wiederholrate
+
+Repeats a second while a key is held
+= Wiederholungen pro Sekunde, solange eine Taste gehalten wird
+
+Other xkb options can be added to the config file.
+= Weitere xkb-Optionen können in die Konfigurationsdatei geschrieben werden.
+
+Hold to move the camera
+= Halten, um die Kamera zu bewegen
+
+Ctrl
+= Strg
+
+Hold it to zoom with the scroll wheel, and to pan by pushing an edge.
+= Halte sie, um mit dem Mausrad zu zoomen und durch Drücken an einen Rand zu schwenken.
+
+A fast move takes the pointer farther
+= Eine schnelle Bewegung bringt den Zeiger weiter
+
+The page follows the wheel
+= Die Seite folgt dem Rad
+
+Primary button
+= Primäre Taste
+
+Right swaps the buttons, also on the touchpad
+= Rechts tauscht die Tasten, auch auf dem Touchpad
+
+Type a name for this place.
+= Gib einen Namen für diesen Ort ein.
+
+Another place is already called {}.
+= Ein anderer Ort heißt schon {}.
+
+That place is gone.
+= Diesen Ort gibt es nicht mehr.
+
+Light or dark
+= Hell oder dunkel
+
+Light
+= Hell
+
+Dark
+= Dunkel
+
+Auto
+= Auto
+
+Accent color
+= Akzentfarbe
+
+Auto turns dark at dusk and light at dawn, with the wallpaper sky. GTK, libadwaita and Qt apps switch with Drifter.
+= Auto wird bei Dämmerung dunkel und bei Tagesanbruch hell, mit dem Himmel des Hintergrunds. GTK-, libadwaita- und Qt-Apps wechseln mit Drifter.
+
+Icons and pointer
+= Symbole und Zeiger
+
+Icon theme
+= Symbolthema
+
+The system choice
+= Die Wahl des Systems
+
+Cursor theme
+= Zeigerthema
+
+Cursor size
+= Zeigergröße
+
+The pointer changes at once. Apps opened after a change use it too. Window edges show resize arrows from the cursor theme.
+= Der Zeiger ändert sich sofort. Danach geöffnete Apps nutzen ihn auch. Fensterränder zeigen Größenpfeile aus dem Zeigerthema.
+
+Do not disturb
+= Nicht stören
+
+Only urgent notes show. The rest go to the history
+= Nur dringende Mitteilungen erscheinen. Der Rest geht in den Verlauf
+
+Show each note for
+= Jede Mitteilung zeigen für
+
+Until clicked
+= Bis zum Klick
+
+Apps can ask for their own time
+= Apps können ihre eigene Zeit wünschen
+
+Keep a history
+= Verlauf behalten
+
+Clear the history
+= Verlauf leeren
+
+Recent
+= Neueste
+
+No notes yet.
+= Noch keine Mitteilungen.
+
+Sound needs PipeWire and its wpctl tool.
+= Ton braucht PipeWire und sein Werkzeug wpctl.
+
+Output
+= Ausgabe
+
+Play sound on
+= Ton abspielen über
+
+Mute
+= Stumm
+
+Listen with
+= Hören mit
+
+Input level
+= Eingangspegel
+
+The volume keys work everywhere.
+= Die Lautstärketasten funktionieren überall.
+
+{} (not understood)
+= {} (nicht verstanden)
+
+Change
+= Ändern
+
+Hold Shift with the window switch to go back. Media keys always work.
+= Halte Umschalt beim Fensterwechsel, um zurückzugehen. Medientasten funktionieren immer.
+
+No key
+= Keine Taste
+
+{}, zoom {}%
+= {}, Zoom {} %
+
+Rename
+= Umbenennen
+
+Undock
+= Aus dem Dock
+
+Places
+= Orte
+
+{} + Shift + 1 to 9 saves this view. {} + 1 to 9 flies back.
+= {} + Umschalt + 1 bis 9 speichert diese Ansicht. {} + 1 bis 9 fliegt zurück.
+
+{} + Ctrl + 1 to 9 saves this view. {} + 1 to 9 flies back.
+= {} + Strg + 1 bis 9 speichert diese Ansicht. {} + 1 bis 9 fliegt zurück.
+
+Saved
+= Gespeichert
+
+{}. Work or school sign-in
+= {}. Anmeldung für Arbeit oder Schule
+
+Leave
+= Trennen
+
+Join
+= Verbinden
+
+Forget
+= Vergessen
+
+Networks
+= Netzwerke
+
+No networks in range.
+= Keine Netzwerke in Reichweite.
+
+Click a network name to see its details.
+= Klicke auf einen Netzwerknamen, um Details zu sehen.
+
+Join a hidden network
+= Mit verborgenem Netzwerk verbinden
+
+A network that does not show its name
+= Ein Netzwerk, das seinen Namen nicht zeigt
+
+No Bluetooth adapter found.
+= Kein Bluetooth-Adapter gefunden.
+
+Disconnect
+= Trennen
+
+Connect
+= Verbinden
+
+Remove
+= Entfernen
+
+Pair
+= Koppeln
+
+Not paired
+= Nicht gekoppelt
+
+My devices
+= Meine Geräte
+
+Searching
+= Suche läuft
+
+Put the device in pairing mode
+= Versetze das Gerät in den Kopplungsmodus
+
+Find devices
+= Geräte suchen
+
+Looks for ten seconds
+= Sucht zehn Sekunden lang
+
+Nearby
+= In der Nähe
+
+Seeing
+= Sehen
+
+Large text
+= Großer Text
+
+Text in apps is a quarter bigger
+= Text in Apps ist ein Viertel größer
+
+High contrast
+= Hoher Kontrast
+
+Apps use stronger edges and colors
+= Apps nutzen stärkere Kanten und Farben
+
+Screen reader
+= Bildschirmleser
+
+Orca reads apps aloud. Super+Alt+S turns it on or off
+= Orca liest Apps vor. Super+Alt+S schaltet ihn ein oder aus
+
+The screen reader needs Orca. Install it with: sudo apt install orca
+= Der Bildschirmleser braucht Orca. Installiere es mit: sudo apt install orca
+
+Moving
+= Bewegen
+
+Reduce motion
+= Bewegung reduzieren
+
+The camera, bars and windows jump instead of sliding
+= Kamera, Leisten und Fenster springen, statt zu gleiten
+
+Typing
+= Tippen
+
+Sticky keys
+= Einrastfunktion
+
+Tap Shift, Ctrl, Alt or Super, then a key
+= Tippe Umschalt, Strg, Alt oder Super, dann eine Taste
+
+With sticky keys, tap a key like Ctrl twice to keep it held. Tap it again to let go.
+= Mit der Einrastfunktion tippst du eine Taste wie Strg zweimal, um sie gedrückt zu halten. Tippe sie erneut, um sie zu lösen.
+
+Screenshots in your Pictures folder
+= Bildschirmfotos in deinem Bilder-Ordner
+
+Screenshots
+= Bildschirmfotos
+
+Save to
+= Speichern in
+
+Format
+= Format
+
+PNG keeps every pixel. JPEG files are smaller
+= PNG behält jedes Pixel. JPEG-Dateien sind kleiner
+
+Performance
+= Leistung
+
+Saver runs cooler and longer on battery
+= Sparen läuft kühler und länger mit Akku
+
+Sleep after
+= Ruhezustand nach
+
+When the lid closes
+= Wenn der Deckel zugeht
+
+Sleep
+= Ruhezustand
+
+Nothing
+= Nichts
+
+With another monitor plugged in, it only locks
+= Mit einem weiteren Monitor wird nur gesperrt
+
+Power button
+= Ein-/Aus-Knopf
+
+A video that is playing keeps the computer awake.
+= Ein laufendes Video hält den Computer wach.
+
+Not known
+= Unbekannt
+
+Time zone
+= Zeitzone
+
+Set the time automatically
+= Uhrzeit automatisch einstellen
+
+From time servers on the internet
+= Von Zeitservern im Internet
+
+Not changed: {}
+= Nicht geändert: {}
+
+The system may ask for your password.
+= Das System fragt eventuell nach deinem Passwort.
+
+Clock
+= Uhr
+
+The clock sits in the top bar.
+= Die Uhr sitzt in der oberen Leiste.
+
+Language
+= Sprache
+
+Auto follows the system language
+= Auto folgt der Systemsprache
+
+Apps that are open keep their language until they start again.
+= Geöffnete Apps behalten ihre Sprache, bis sie neu starten.
+
+Click to confirm
+= Zum Bestätigen klicken
+
+Settings file
+= Einstellungsdatei
+
+Export settings
+= Einstellungen exportieren
+
+Export
+= Exportieren
+
+Save a copy of your settings to a folder
+= Eine Kopie deiner Einstellungen in einem Ordner speichern
+
+Import settings
+= Einstellungen importieren
+
+Import
+= Importieren
+
+Use a settings file you saved before
+= Eine früher gespeicherte Einstellungsdatei verwenden
+
+Reset all settings
+= Alle Einstellungen zurücksetzen
+
+Go back to the defaults. The old file is kept as a backup
+= Zurück zu den Standards. Die alte Datei bleibt als Sicherung erhalten
+
+Add Ctrl, Alt or Super, so typing still works.
+= Füge Strg, Alt oder Super hinzu, damit das Tippen noch funktioniert.
+
+Reading the accounts…
+= Konten werden gelesen …
+
+Not set
+= Nicht festgelegt
+
+Your account
+= Dein Konto
+
+Full name
+= Vollständiger Name
+
+Shown when you log in
+= Wird bei der Anmeldung gezeigt
+
+Asks for your current password first
+= Fragt zuerst nach deinem aktuellen Passwort
+
+Make Standard
+= Zu Standard machen
+
+Make Admin
+= Zum Admin machen
+
+Add a user…
+= Benutzer hinzufügen …
+
+Install accountsservice to add users or change them.
+= Installiere accountsservice, um Benutzer hinzuzufügen oder zu ändern.
+
+No other users yet. Adding a user asks for an admin password.
+= Noch keine anderen Benutzer. Einen Benutzer hinzuzufügen erfordert ein Admin-Passwort.
+
+Adding, removing or changing another user asks for an admin password.
+= Andere Benutzer hinzuzufügen, zu entfernen oder zu ändern erfordert ein Admin-Passwort.
+
+Other users
+= Andere Benutzer
+
+Reading your account…
+= Dein Konto wird gelesen …
+
+Click the picture to change it.
+= Klicke auf das Bild, um es zu ändern.
+
+Add
+= Hinzufügen
+
+Choose this folder
+= Diesen Ordner wählen
+
+Save here
+= Hier speichern
+
+Use the app's icon
+= Symbol der App verwenden
+
+No shortcut
+= Kein Tastenkürzel
+
+Choose a file…
+= Datei wählen …
+
+Start at login
+= Bei Anmeldung starten
+
+Add to the dock
+= Zum Dock hinzufügen
+
+Choose a wallpaper folder
+= Ordner für Hintergrundbilder wählen
+
+Choose where screenshots go
+= Wählen, wohin Bildschirmfotos gehen
+
+Choose an icon
+= Symbol wählen
+
+Choose the file manager
+= Dateimanager wählen
+
+Choose the terminal
+= Terminal wählen
+
+Choose the web browser
+= Webbrowser wählen
+
+Choose the text editor
+= Texteditor wählen
+
+Choose the mail app
+= Mail-App wählen
+
+Choose the photo viewer
+= Fotobetrachter wählen
+
+Choose the video player
+= Videoplayer wählen
+
+Choose the music player
+= Musikplayer wählen
+
+Choose a keyboard layout
+= Tastaturbelegung wählen
+
+Choose a variant
+= Variante wählen
+
+Choose a wallpaper
+= Hintergrundbild wählen
+
+Choose a pointer picture
+= Zeigerbild wählen
+
+Choose a font
+= Schriftart wählen
+
+Choose the window art folder
+= Ordner für Fenstergrafik wählen
+
+Choose the dock art folder
+= Ordner für Dock-Grafik wählen
+
+Choose an icon theme
+= Symbolthema wählen
+
+Choose a cursor theme
+= Zeigerthema wählen
+
+Choose a speaker or headphones
+= Lautsprecher oder Kopfhörer wählen
+
+Choose a microphone
+= Mikrofon wählen
+
+Choose a time zone
+= Zeitzone wählen
+
+Press the new shortcut
+= Neues Tastenkürzel drücken
+
+Choose a settings file
+= Einstellungsdatei wählen
+
+Choose where to save the settings
+= Wählen, wo die Einstellungen gespeichert werden
+
+Join a network
+= Mit Netzwerk verbinden
+
+Pair a device
+= Gerät koppeln
+
+Network details
+= Netzwerkdetails
+
+Change your full name
+= Vollständigen Namen ändern
+
+Change your password
+= Passwort ändern
+
+Choose a picture
+= Bild wählen
+
+Add a user
+= Benutzer hinzufügen
+
+Remove a user
+= Benutzer entfernen
+
+Change a user
+= Benutzer ändern
+
+Rename this place
+= Diesen Ort umbenennen
+
+Dock item
+= Dock-Objekt
+
+Applications
+= Programme
+
+Command
+= Befehl
+
+A command line, like foot -e htop
+= Eine Befehlszeile, etwa foot -e htop
+
+It runs as written, with no shell. Press Enter to add it.
+= Sie läuft wie geschrieben, ohne Shell. Drücke die Eingabetaste, um sie hinzuzufügen.
+
+Type the network password, then press Enter.
+= Gib das Netzwerkpasswort ein und drücke die Eingabetaste.
+
+Hold Ctrl, Alt, Shift or Super and press a key.
+= Halte Strg, Alt, Umschalt oder Super und drücke eine Taste.
+
+Esc keeps the old shortcut.
+= Esc behält das alte Tastenkürzel.
+
+Click the icon to choose another.
+= Klicke auf das Symbol, um ein anderes zu wählen.
+
+Click the picture to choose another.
+= Klicke auf das Bild, um ein anderes zu wählen.
+
+Shape
+= Form
+
+Nothing here
+= Hier ist nichts
+
+No pictures here yet. Choose a file instead.
+= Hier sind noch keine Bilder. Wähle stattdessen eine Datei.
+
+Type to search
+= Zum Suchen tippen
+
+Switch windows
+= Fenster wechseln
+
+Close the window
+= Fenster schließen
+
+Take a screenshot
+= Bildschirmfoto machen
+
+Lock the screen
+= Bildschirm sperren
+
+Power menu
+= Energiemenü
+
+Open the terminal
+= Terminal öffnen
+
+Open the file manager
+= Dateimanager öffnen
+
+Open the web browser
+= Webbrowser öffnen
+
+Open Settings
+= Einstellungen öffnen
+
+Screenshot of the screen
+= Bildschirmfoto des Bildschirms
+
+Screenshot of a part or a window
+= Bildschirmfoto eines Bereichs oder Fensters
+
+Screenshot and recording bar
+= Leiste für Foto und Aufnahme
+
+Turn the screen reader on or off
+= Bildschirmleser ein- oder ausschalten
+
+Enter
+= Eingabe
+
+Esc
+= Esc
+
+Print Screen
+= Druck
+
+Backspace
+= Rücktaste
+
+Page Up
+= Bild auf
+
+Page Down
+= Bild ab
+
+Charge
+= Ladung
+
+Full in
+= Voll in
+
+Time left
+= Restzeit
+
+Health
+= Zustand
+
+Charge cycles
+= Ladezyklen
+
+Version {}
+= Version {}
+
+Computer
+= Computer
+
+Kernel
+= Kernel
+
+Processor
+= Prozessor
+
+Graphics
+= Grafik
+
+Config file
+= Konfigurationsdatei
+
+May (short)
+= Mai
+
+Admin
+= Admin
+
+Standard
+= Standard
+
+Type a full name.
+= Gib einen vollständigen Namen ein.
+
+A full name cannot have a colon, a comma or an equals sign.
+= Ein vollständiger Name darf keinen Doppelpunkt, kein Komma und kein Gleichheitszeichen enthalten.
+
+A full name can be 64 letters at most.
+= Ein vollständiger Name darf höchstens 64 Zeichen haben.
+
+Type an account name.
+= Gib einen Kontonamen ein.
+
+An account name can be {} letters at most.
+= Ein Kontoname darf höchstens {} Zeichen haben.
+
+The account name {} is already taken.
+= Der Kontoname {} ist schon vergeben.
+
+Type a new password.
+= Gib ein neues Passwort ein.
+
+The two new passwords are not the same.
+= Die beiden neuen Passwörter sind nicht gleich.
+
+The current password is wrong.
+= Das aktuelle Passwort ist falsch.
+
+The new password is not allowed: {}.
+= Das neue Passwort ist nicht erlaubt: {}.
+
+The new password is too short. Choose a longer one.
+= Das neue Passwort ist zu kurz. Wähle ein längeres.
+
+The password was not changed.
+= Das Passwort wurde nicht geändert.
+
+Begin
+= Loslegen
+
+Start
+= Start
+
+Continue
+= Weiter
+
+Nothing moves on its own, and windows and panels appear at once.
+= Nichts bewegt sich von selbst, und Fenster und Bereiche erscheinen sofort.
+
+Your livepaper drifts slowly, and windows and panels still glide.
+= Dein Livepaper treibt langsam, und Fenster und Bereiche gleiten noch.
+
+Your livepaper drifts at full speed, and every animation plays.
+= Dein Livepaper treibt mit voller Geschwindigkeit, und jede Animation läuft.
+
+Full
+= Voll
+
+Find anything
+= Alles finden
+
+Glide around
+= Herumgleiten
+
+See everything
+= Alles sehen
+
+Zoom in and out
+= Hinein- und herauszoomen
+
+Welcome to Drifter
+= Willkommen bei Drifter
+
+Pick your look
+= Wähle deinen Look
+
+Motion and text
+= Bewegung und Text
+
+How much the desktop moves
+= Wie viel sich der Schreibtisch bewegt
+
+The size your apps use
+= Die Größe, die deine Apps nutzen
+
+Regular
+= Normal
+
+Large
+= Groß
+
+Notes for Tuesday
+= Notizen für Dienstag
+
+Walk before lunch. Water the fern.
+= Vor dem Mittagessen spazieren. Den Farn gießen.
+
+Call about the bike, then rest a little.
+= Wegen des Fahrrads anrufen, dann etwas ausruhen.
+
+Choose a size
+= Größe wählen
+
+Pick the one that looks sharp and easy to read.
+= Wähle die, die scharf und gut lesbar aussieht.
+
+Suggested
+= Empfohlen
+
+More space
+= Mehr Platz
+
+Larger
+= Größer
+
+Click the search in the top bar
+= Klicke auf die Suche in der oberen Leiste
+
+Press
+= Drücke
+
+Swipe with three fingers
+= Wische mit drei Fingern
+
+Tap with three fingers
+= Tippe mit drei Fingern
+
+Hold
+= Halte
+
+and push into an edge
+= und drücke an einen Rand
+
+Rest the pointer in the top left corner
+= Lass den Zeiger in der oberen linken Ecke ruhen
+
+and turn the wheel
+= und drehe das Rad
+
+You know the moves
+= Du kennst die Gesten
+
+Four moves to know
+= Vier Gesten zum Merken
+
+Then type a few letters
+= Dann tippe ein paar Buchstaben
+
+The world slides with your fingers
+= Die Welt gleitet mit deinen Fingern
+
+Tap again to fly back
+= Tippe erneut, um zurückzufliegen
+
+Up to zoom in, down to zoom out
+= Hoch zum Hineinzoomen, runter zum Herauszoomen
+
+The pointer pulls the world along
+= Der Zeiger zieht die Welt mit
+
+Click a window to fly to it
+= Klicke auf ein Fenster, um dorthin zu fliegen
+
+Your apps
+= Deine Apps
+
+These open your links, files and media. Click one to change it.
+= Diese öffnen deine Links, Dateien und Medien. Klicke eine an, um sie zu ändern.
+
+Getting it
+= Wird geholt
+
+Get
+= Holen
+
+A dedicated app works better here.
+= Eine eigene App funktioniert hier besser.
+
+Other…
+= Andere …
+
+You're all set
+= Alles bereit
+
+Open this again any time from Programs.
+= Öffne dies jederzeit wieder über Programme.
+
+Browser
+= Browser
+
+Mail
+= Mail
+
+Files
+= Dateien
+
+Terminal
+= Terminal
+
+Editor
+= Editor
+
+Photos
+= Fotos
+
+Video
+= Video
+
+Music
+= Musik
+
+Good morning
+= Guten Morgen
+
+Good afternoon
+= Guten Tag
+
+Good evening
+= Guten Abend
+
+{}. Let's make it yours.
+= {}. Machen wir es zu deinem.
+
+{}, {}. Let's make it yours.
+= {}, {}. Machen wir es zu deinem.
+
+Settings closed
+= Einstellungen wurden geschlossen
+
+Type {} on {}, then press Enter.
+= Tippe {} auf {} und drücke die Eingabetaste.
+
+Bluetooth did not answer: {}
+= Bluetooth antwortete nicht: {}
+
+The device went away. Search again.
+= Das Gerät ist weg. Suche erneut.
+
+Cannot reach Bluetooth: {}
+= Bluetooth ist nicht erreichbar: {}
+
+Bluetooth would not take the pairing helper: {}
+= Bluetooth nahm den Kopplungshelfer nicht an: {}
+
+The code did not match. Try again.
+= Der Code passte nicht. Versuche es erneut.
+
+Pairing was stopped.
+= Das Koppeln wurde abgebrochen.
+
+It is already paired.
+= Es ist schon gekoppelt.
+
+It did not answer. Put it in pairing mode and try again.
+= Es antwortete nicht. Versetze es in den Kopplungsmodus und versuche es erneut.
+
+It did not pair: {}
+= Es wurde nicht gekoppelt: {}
+
+Not done. The admin password was not given.
+= Nicht erledigt. Das Admin-Passwort wurde nicht eingegeben.
+
+It did not work.
+= Es hat nicht funktioniert.
+
+AccountsService does not know {}.
+= AccountsService kennt {} nicht.
+
+Cannot tell who you are.
+= Es ist nicht klar, wer du bist.
+
+Cannot find your account.
+= Dein Konto wurde nicht gefunden.
+
+Adding a user needs openssl. Install it, then try again.
+= Einen Benutzer hinzuzufügen braucht openssl. Installiere es und versuche es erneut.
+
+Install accountsservice to change this.
+= Installiere accountsservice, um das zu ändern.
+
+Your full name is now {}.
+= Dein vollständiger Name ist jetzt {}.
+
+Your picture is changed.
+= Dein Bild wurde geändert.
+
+Your password is changed.
+= Dein Passwort wurde geändert.
+
+{} was added, but the password was not set: {}
+= {} wurde hinzugefügt, aber das Passwort wurde nicht gesetzt: {}
+
+{} can now log in as {}.
+= {} kann sich jetzt als {} anmelden.
+
+{} is now an admin.
+= {} ist jetzt Admin.
+
+{} is now a standard user.
+= {} ist jetzt Standardbenutzer.
+
+The user and their home folder are removed.
+= Der Benutzer und sein persönlicher Ordner wurden entfernt.
+
+The user is removed. Their home folder is kept.
+= Der Benutzer wurde entfernt. Sein persönlicher Ordner bleibt erhalten.
+
+Save
+= Speichern
+
+Current password
+= Aktuelles Passwort
+
+New password
+= Neues Passwort
+
+Repeat the new password
+= Neues Passwort wiederholen
+
+Change Password
+= Passwort ändern
+
+Account name
+= Kontoname
+
+Repeat the password
+= Passwort wiederholen
+
+Add User
+= Benutzer hinzufügen
+
+Allow this user to administer the computer
+= Diesem Benutzer erlauben, den Computer zu verwalten
+
+Making {} an admin…
+= {} wird Admin …
+
+Making {} a standard user…
+= {} wird Standardbenutzer …
+
+Remove {}?
+= {} entfernen?
+
+Delete the home folder too
+= Auch den persönlichen Ordner löschen
+
+If you keep it, {} stays on this computer.
+= Wenn du ihn behältst, bleibt {} auf diesem Computer.
+
+Target: an app id or a command
+= Ziel: eine App-ID oder ein Befehl
+
+Fill clear parts with a color
+= Durchsichtige Teile mit einer Farbe füllen
+
+Cannot start: {}
+= Kann nicht starten: {}
+
+Type the network name.
+= Gib den Netzwerknamen ein.
+
+Joining {}…
+= Verbinde mit {} …
+
+Type your username and password.
+= Gib deinen Benutzernamen und dein Passwort ein.
+
+Saving…
+= Wird gespeichert …
+
+Type your current password.
+= Gib dein aktuelles Passwort ein.
+
+Changing your password…
+= Dein Passwort wird geändert …
+
+Adding {}. Type an admin password if asked.
+= {} wird hinzugefügt. Gib ein Admin-Passwort ein, wenn danach gefragt wird.
+
+Removing {}. Type an admin password if asked.
+= {} wird entfernt. Gib ein Admin-Passwort ein, wenn danach gefragt wird.
+
+That user is gone.
+= Diesen Benutzer gibt es nicht mehr.
+
+Type the PIN for {}
+= Gib die PIN für {} ein
+
+PIN code, often 0000 or 1234
+= PIN-Code, oft 0000 oder 1234
+
+Type the passkey {} shows
+= Gib den Schlüssel ein, den {} zeigt
+
+Passkey
+= Schlüssel
+
+Does {} show {}?
+= Zeigt {} {} an?
+
+Yes, Pair
+= Ja, koppeln
+
+Join {}
+= Mit {} verbinden
+
+Username
+= Benutzername
+
+Server domain, if your school or work gave one
+= Serverdomain, falls deine Schule oder Arbeit eine angegeben hat
+
+Leaving {}…
+= Trenne von {} …
+
+Forgetting {}…
+= Vergesse {} …
+
+Network name
+= Netzwerkname
+
+Password, or leave it empty for an open network
+= Passwort, oder leer lassen für ein offenes Netzwerk
+
+Searching for ten seconds…
+= Suche zehn Sekunden lang …
+
+Pairing with
+= Koppeln mit
+
+Connecting to
+= Verbinden mit
+
+Disconnecting
+= Wird getrennt
+
+Removing
+= Wird entfernt
+
+Changing your picture…
+= Dein Bild wird geändert …
+
+Back to the defaults. The old file is {}
+= Zurück zu den Standards. Die alte Datei ist {}
+
+Cannot reset: {}
+= Kann nicht zurücksetzen: {}
+
+Cannot read the defaults in {}: {}
+= Kann die Standards in {} nicht lesen: {}
+
+Cannot read {}: {}
+= Kann {} nicht lesen: {}
+
+Not imported: {}
+= Nicht importiert: {}
+
+Imported. The old file is {}
+= Importiert. Die alte Datei ist {}
+
+Cannot import: {}
+= Kann nicht importieren: {}
+
+Saved to {}
+= Gespeichert in {}
+
+Cannot save to {}: {}
+= Kann nicht in {} speichern: {}
+
+Turning Wi-Fi on…
+= WLAN wird eingeschaltet …
+
+Turning Wi-Fi off…
+= WLAN wird ausgeschaltet …
+
+Turning Bluetooth on…
+= Bluetooth wird eingeschaltet …
+
+Turning Bluetooth off…
+= Bluetooth wird ausgeschaltet …
+
+Wrong password. Try again.
+= Falsches Passwort. Versuche es erneut.
+
+Hide {}
+= {} ausblenden
+
+Hide Others
+= Andere ausblenden
+
+Show All
+= Alle einblenden
+
+Quit {}
+= {} beenden
+
+About Drifter
+= Über Drifter
+
+Show
+= Zeigen
+
+Exit
+= Beenden
+
+Low
+= Niedrig
+
+On battery
+= Im Akkubetrieb
+
+{}; the GPU copy failed too: {}
+= {}; die GPU-Kopie schlug auch fehl: {}
+
+Click to open {}
+= Klicken, um {} zu öffnen
+
+{} did not open
+= {} wurde nicht geöffnet
+
+Screenshot saved
+= Bildschirmfoto gespeichert
+
+No screenshot
+= Kein Bildschirmfoto
+
+Change Wallpaper…
+= Hintergrundbild ändern …
+
+Settings…
+= Einstellungen …
+
+Log Out…
+= Abmelden …
+
+Restart…
+= Neu starten …
+
+Shut Down…
+= Ausschalten …
+
+Log out now?
+= Jetzt abmelden?
+
+Log Out
+= Abmelden
+
+Restart now?
+= Jetzt neu starten?
+
+Shut down now?
+= Jetzt ausschalten?
+
+Shut Down
+= Ausschalten
+
+New Window
+= Neues Fenster
+
+Remove from Dock
+= Aus dem Dock entfernen
+
+Keep in Dock
+= Im Dock behalten
+
+Open
+= Öffnen
+
+Empty Trash
+= Papierkorb leeren
+
+Turn Hiding Off
+= Ausblenden deaktivieren
+
+Turn Hiding On
+= Ausblenden aktivieren
+
+Dock Size
+= Dock-Größe
+
+Hide Settings Button
+= Einstellungstaste ausblenden
+
+Show Settings Button
+= Einstellungstaste einblenden
+
+Hide Trash
+= Papierkorb ausblenden
+
+Show Trash
+= Papierkorb einblenden
+
+Dock Settings…
+= Dock-Einstellungen …
+
+Trash
+= Papierkorb
+
+Welcome
+= Willkommen
+
+The password cannot be checked right now.
+= Das Passwort kann gerade nicht geprüft werden.
+
+Screen recording saved
+= Bildschirmaufnahme gespeichert
+
+No screen recording
+= Keine Bildschirmaufnahme
+
+Copy
+= Kopieren
+
+Show in Folder
+= Im Ordner zeigen
+
+Built-in screen
+= Eingebauter Bildschirm
+
+{}, {} by {}
+= {}, {} mal {}
+
+Getting new apps needs pkexec and apt or dnf.
+= Neue Apps holen braucht pkexec und apt oder dnf.
+
+{} did not install.
+= {} wurde nicht installiert.
+
+Monday
+= Montag
+
+Tuesday
+= Dienstag
+
+Wednesday
+= Mittwoch
+
+Thursday
+= Donnerstag
+
+Friday
+= Freitag
+
+Saturday
+= Samstag
+
+Sunday
+= Sonntag
+
+Mon
+= Mo.
+
+Tue
+= Di.
+
+Wed
+= Mi.
+
+Thu
+= Do.
+
+Fri
+= Fr.
+
+Sat
+= Sa.
+
+Sun
+= So.
+
+January
+= Januar
+
+February
+= Februar
+
+March
+= März
+
+April
+= April
+
+May
+= Mai
+
+June
+= Juni
+
+July
+= Juli
+
+August
+= August
+
+September
+= September
+
+October
+= Oktober
+
+November
+= November
+
+December
+= Dezember
+
+Jan
+= Jan.
+
+Feb
+= Feb.
+
+Mar
+= März
+
+Apr
+= Apr.
+
+Jun
+= Juni
+
+Jul
+= Juli
+
+Aug
+= Aug.
+
+Sep
+= Sep.
+
+Oct
+= Okt.
+
+Nov
+= Nov.
+
+Dec
+= Dez.
+
+Saver
+= Sparen
+
+Balanced
+= Ausgewogen
+
+File manager
+= Dateimanager
+
+Web browser
+= Webbrowser
+
+Caps Lock
+= Feststelltaste
+
+Escape
+= Escape
+
+Right Alt
+= Alt Gr
+
+Menu
+= Menü
+
+Internet
+= Internet
+
+Work
+= Arbeit
+
+Media
+= Medien
+
+A livepaper is a wallpaper that moves gently and changes color with the time of day.
+= Ein Livepaper ist ein Hintergrundbild, das sich sanft bewegt und seine Farbe mit der Tageszeit ändert.

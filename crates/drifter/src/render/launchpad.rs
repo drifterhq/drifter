@@ -156,13 +156,13 @@ impl State {
             if let Some(found) = chosen {
                 let pinned = self.pinned_app(&found.key);
                 let items = vec![
-                    Item::line(PAD_OPEN, "Open"),
+                    Item::line(PAD_OPEN, drifter_core::lang::t("Open")),
                     Item::rule(9),
                     Item::line(
                         PAD_PIN,
                         match pinned {
-                            true => "Remove from Dock",
-                            false => "Keep in Dock",
+                            true => drifter_core::lang::t("Remove from Dock"),
+                            false => drifter_core::lang::t("Keep in Dock"),
                         },
                     ),
                 ];
@@ -260,8 +260,8 @@ impl State {
 pub(super) fn welcome_found() -> Found {
     Found {
         kind: drifter_core::search::Kind::App,
-        title: "Welcome".to_string(),
-        detail: "Application".to_string(),
+        title: drifter_core::lang::t("Welcome").to_string(),
+        detail: drifter_core::lang::t("Application").to_string(),
         key: super::welcome::WELCOME_KEY.to_string(),
         extra: "welcome tour start setup hello drifter".to_string(),
         icon: None,

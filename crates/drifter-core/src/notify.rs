@@ -94,10 +94,10 @@ pub fn recall(history: &str) -> Vec<Recent> {
 pub fn ago(when: u64, now: u64) -> String {
     let gone = now.saturating_sub(when);
     match gone {
-        0..60 => "Just now".to_string(),
-        60..3600 => format!("{} min ago", gone / 60),
+        0..60 => crate::lang::t("Just now").to_string(),
+        60..3600 => crate::lang::tf("{} min ago", &[&(gone / 60)]),
         3600..86400 => format!("{} h ago", gone / 3600),
-        _ => format!("{} days ago", gone / 86400),
+        _ => crate::lang::tf("{} days ago", &[&(gone / 86400)]),
     }
 }
 

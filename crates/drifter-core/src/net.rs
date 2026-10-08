@@ -250,9 +250,9 @@ pub struct Link {
 pub fn band(mhz: u32) -> &'static str {
     match mhz {
         0 => "unknown band",
-        1..=3000 => "2.4 GHz",
-        3001..=5924 => "5 GHz",
-        _ => "6 GHz",
+        1..=3000 => crate::lang::t("2.4 GHz"),
+        3001..=5924 => crate::lang::t("5 GHz"),
+        _ => crate::lang::t("6 GHz"),
     }
 }
 
@@ -282,15 +282,15 @@ fn keys(flags: &str) -> String {
 }
 
 pub fn details(net: &Net, aps: &[Ap], dbm: &[(String, f64)], link: Option<&Link>) -> Vec<(String, String)> {
-    let mut lines = vec![("Network".to_string(), String::new())];
+    let mut lines = vec![(crate::lang::t("Network").to_string(), String::new())];
     let mut add = |key: &str, value: String| lines.push((key.to_string(), value));
-    add("Name", net.ssid.clone());
+    add(crate::lang::t("Name"), net.ssid.clone());
     add(
-        "Status",
+        crate::lang::t("Status"),
         match (net.active, net.known) {
-            (true, _) => "Connected",
-            (false, true) => "Saved, not connected",
-            (false, false) => "Not saved",
+            (true, _) => crate::lang::t("Connected"),
+            (false, true) => crate::lang::t("Saved, not connected"),
+            (false, false) => crate::lang::t("Not saved"),
         }
         .to_string(),
     );
@@ -298,32 +298,32 @@ pub fn details(net: &Net, aps: &[Ap], dbm: &[(String, f64)], link: Option<&Link>
         .first()
         .map(|ap| ap.security.trim().to_string())
         .filter(|words| !words.is_empty() && words != "--")
-        .unwrap_or_else(|| "None, open network".to_string());
-    add("Security", security);
+        .unwrap_or_else(|| crate::lang::t("None, open network").to_string());
+    add(crate::lang::t("Security"), security);
     if let Some(ap) = aps.first()
         && !ap.flags.is_empty()
     {
-        add("Keys", keys(&ap.flags));
+        add(crate::lang::t("Keys"), keys(&ap.flags));
     }
     let strongest = aps.iter().map(|ap| ap.signal).max().unwrap_or(net.signal);
-    add("Signal", format!("{strongest}%, {}", bars(strongest)));
+    add(crate::lang::t("Signal"), format!("{strongest}%, {}", bars(strongest)));
     if let Some(link) = link {
-        lines.push(("This connection".to_string(), String::new()));
+        lines.push((crate::lang::t("This connection").to_string(), String::new()));
         let mut add = |key: &str, value: String| lines.push((key.to_string(), value));
         if let Some(dbm) = link.dbm {
-            add("Signal", format!("{dbm} dBm"));
+            add(crate::lang::t("Signal"), format!("{dbm} dBm"));
         }
         if let Some(rate) = &link.bitrate {
-            add("Speed now", rate.clone());
+            add(crate::lang::t("Speed now"), rate.clone());
         }
         let named = [
-            ("IP4.ADDRESS", "IP address"),
-            ("IP4.GATEWAY", "Gateway"),
+            ("IP4.ADDRESS", crate::lang::t("IP address")),
+            ("IP4.GATEWAY", crate::lang::t("Gateway")),
             ("IP4.DNS", "DNS"),
-            ("IP6.ADDRESS", "IPv6 address"),
-            ("IP6.GATEWAY", "IPv6 gateway"),
-            ("IP6.DNS", "IPv6 DNS"),
-            ("GENERAL.HWADDR", "Your MAC address"),
+            ("IP6.ADDRESS", crate::lang::t("IPv6 address")),
+            ("IP6.GATEWAY", crate::lang::t("IPv6 gateway")),
+            ("IP6.DNS", crate::lang::t("IPv6 DNS")),
+            ("GENERAL.HWADDR", crate::lang::t("Your MAC address")),
         ];
         for (key, label) in named {
             for (_, value) in link
@@ -334,12 +334,12 @@ pub fn details(net: &Net, aps: &[Ap], dbm: &[(String, f64)], link: Option<&Link>
                 add(label, value.clone());
             }
         }
-        add("Card", link.card.clone());
+        add(crate::lang::t("Card"), link.card.clone());
     }
     if !aps.is_empty() {
         let heading = match aps.len() {
-            1 => "Access point".to_string(),
-            count => format!("Access points ({count})"),
+            1 => crate::lang::t("Access point").to_string(),
+            count => crate::lang::tf("Access points ({})", &[&(count)]),
         };
         lines.push((heading, String::new()));
         for ap in aps {

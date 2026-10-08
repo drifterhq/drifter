@@ -22,11 +22,11 @@ impl Action {
 
     pub fn label(self) -> &'static str {
         match self {
-            Action::Lock => "Lock",
-            Action::Logout => "Log out",
-            Action::Shutdown => "Shut down",
-            Action::Suspend => "Suspend",
-            Action::Reboot => "Restart",
+            Action::Lock => crate::lang::t("Lock"),
+            Action::Logout => crate::lang::t("Log out"),
+            Action::Shutdown => crate::lang::t("Shut down"),
+            Action::Suspend => crate::lang::t("Suspend"),
+            Action::Reboot => crate::lang::t("Restart"),
         }
     }
 
@@ -44,8 +44,8 @@ impl Action {
         match self {
             Action::Lock | Action::Logout => None,
             Action::Shutdown => Some("PowerOff"),
-            Action::Suspend => Some("Suspend"),
-            Action::Reboot => Some("Reboot"),
+            Action::Suspend => Some(crate::lang::t("Suspend")),
+            Action::Reboot => Some(crate::lang::t("Reboot")),
         }
     }
 }
@@ -55,9 +55,9 @@ pub const COUNTDOWN: u64 = 60;
 impl Action {
     pub fn countdown(self, left: u64) -> String {
         let doing = match self {
-            Action::Logout => "Logging out",
-            Action::Reboot => "Restarting",
-            _ => "Shutting down",
+            Action::Logout => crate::lang::t("Logging out"),
+            Action::Reboot => crate::lang::t("Restarting"),
+            _ => crate::lang::t("Shutting down"),
         };
         match left {
             1 => format!("{doing} in 1 second."),

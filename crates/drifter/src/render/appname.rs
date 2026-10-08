@@ -18,8 +18,8 @@ impl State {
             return None;
         }
         let name = match window.app.as_str() {
-            SETTINGS_APP => "Settings".to_string(),
-            drifter_core::activity::ACTIVITY_APP => "Activity".to_string(),
+            SETTINGS_APP => drifter_core::lang::t("Settings").to_string(),
+            drifter_core::activity::ACTIVITY_APP => drifter_core::lang::t("Activity").to_string(),
             app => self
                 .app_names
                 .borrow_mut()
@@ -41,7 +41,7 @@ impl State {
         let name = self
             .front_app()
             .map(|(_, name)| name)
-            .unwrap_or_else(|| "Drifter".to_string());
+            .unwrap_or_else(|| drifter_core::lang::t("Drifter").to_string());
         if self
             .app_label
             .as_ref()
@@ -82,20 +82,20 @@ impl State {
         let items = match self.front_app() {
             Some((app, name)) => {
                 let items = vec![
-                    Item::line(HIDE, &format!("Hide {name}")),
-                    Item::line(HIDE_OTHERS, "Hide Others"),
-                    Item::line(SHOW_ALL, "Show All"),
+                    Item::line(HIDE, &drifter_core::lang::tf("Hide {}", &[&(name)])),
+                    Item::line(HIDE_OTHERS, drifter_core::lang::t("Hide Others")),
+                    Item::line(SHOW_ALL, drifter_core::lang::t("Show All")),
                     Item::rule(9),
-                    Item::line(QUIT, &format!("Quit {name}")),
+                    Item::line(QUIT, &drifter_core::lang::tf("Quit {}", &[&(name)])),
                 ];
                 self.open_popover(items, at, Target::App(app));
                 return true;
             }
             None => vec![
-                Item::line(ABOUT, "About Drifter"),
-                Item::line(SETTINGS, "Settings"),
+                Item::line(ABOUT, drifter_core::lang::t("About Drifter")),
+                Item::line(SETTINGS, drifter_core::lang::t("Settings")),
                 Item::rule(9),
-                Item::line(SHOW_ALL, "Show All"),
+                Item::line(SHOW_ALL, drifter_core::lang::t("Show All")),
             ],
         };
         self.open_popover(items, at, Target::App(String::new()));

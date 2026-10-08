@@ -408,9 +408,9 @@ impl State {
         };
         let mut items = vec![drifter_core::menu::Item {
             enabled: false,
-            ..drifter_core::menu::Item::line(-10, "Sound")
+            ..drifter_core::menu::Item::line(-10, drifter_core::lang::t("Sound"))
         }];
-        items.push(drifter_core::menu::Item::line(0, &mark(self.sound_from.is_none(), "None")));
+        items.push(drifter_core::menu::Item::line(0, &mark(self.sound_from.is_none(), drifter_core::lang::t("None"))));
         for (at, source) in sources.iter().enumerate() {
             let on = self.sound_from.as_deref() == Some(source.name.as_str());
             items.push(drifter_core::menu::Item::line(at as i32 + 1, &mark(on, &source.label)));
@@ -580,13 +580,13 @@ impl State {
                 if let Some(folder) = path.parent() {
                     self.note_folders.insert(id, folder.to_path_buf());
                 }
-                ("Screen recording saved".to_string(), path.display().to_string())
+                (drifter_core::lang::t("Screen recording saved").to_string(), path.display().to_string())
             }
-            Err(error) => ("No screen recording".to_string(), error),
+            Err(error) => (drifter_core::lang::t("No screen recording").to_string(), error),
         };
         self.show_note(drifter_core::notify::Note {
             id,
-            app: "Drifter".to_string(),
+            app: drifter_core::lang::t("Drifter").to_string(),
             summary,
             body,
             actions: Vec::new(),
@@ -739,9 +739,9 @@ impl State {
                 ..drifter_core::menu::Item::line(id, label)
             };
             let items = vec![
-                item(SHOT_COPY, "Copy"),
-                item(SHOT_FOLDER, "Show in Folder"),
-                item(SHOT_OPEN, "Open"),
+                item(SHOT_COPY, drifter_core::lang::t("Copy")),
+                item(SHOT_FOLDER, drifter_core::lang::t("Show in Folder")),
+                item(SHOT_OPEN, drifter_core::lang::t("Open")),
                 drifter_core::menu::Item::rule(90),
                 item(SHOT_DELETE, "Delete"),
             ];

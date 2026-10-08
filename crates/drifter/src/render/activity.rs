@@ -251,7 +251,7 @@ impl State {
                     match drifter_core::activity::send_to(signal, &pids) {
                         Ok(()) => {
                             top.paused = signal == Signal::Pause;
-                            top.detail = if top.paused { "Paused".to_string() } else { "Running".to_string() };
+                            top.detail = if top.paused { drifter_core::lang::t("Paused").to_string() } else { drifter_core::lang::t("Running").to_string() };
                         }
                         Err(error) => log!("drifter: cannot pause {}: {error}", top.name),
                     }

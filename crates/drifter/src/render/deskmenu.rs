@@ -89,17 +89,17 @@ impl State {
             groups.push(Entry::submenu(name, apps));
         }
         vec![
-            Entry::submenu("Applications", groups),
-            Entry::action(pick(picks, Pick::Wallpaper), "Change Wallpaper…"),
+            Entry::submenu(drifter_core::lang::t("Applications"), groups),
+            Entry::action(pick(picks, Pick::Wallpaper), drifter_core::lang::t("Change Wallpaper…")),
             Entry::rule(),
-            Entry::action(pick(picks, Pick::Settings), "Settings…"),
+            Entry::action(pick(picks, Pick::Settings), drifter_core::lang::t("Settings…")),
             Entry::rule(),
-            Entry::action(pick(picks, Pick::Power(Action::Lock)), "Lock Screen"),
-            Entry::action(pick(picks, Pick::Power(Action::Logout)), "Log Out…"),
+            Entry::action(pick(picks, Pick::Power(Action::Lock)), drifter_core::lang::t("Lock Screen")),
+            Entry::action(pick(picks, Pick::Power(Action::Logout)), drifter_core::lang::t("Log Out…")),
             Entry::rule(),
-            Entry::action(pick(picks, Pick::Power(Action::Suspend)), "Sleep"),
-            Entry::action(pick(picks, Pick::Power(Action::Reboot)), "Restart…"),
-            Entry::action(pick(picks, Pick::Power(Action::Shutdown)), "Shut Down…"),
+            Entry::action(pick(picks, Pick::Power(Action::Suspend)), drifter_core::lang::t("Sleep")),
+            Entry::action(pick(picks, Pick::Power(Action::Reboot)), drifter_core::lang::t("Restart…")),
+            Entry::action(pick(picks, Pick::Power(Action::Shutdown)), drifter_core::lang::t("Shut Down…")),
         ]
     }
 
@@ -608,9 +608,9 @@ impl State {
             return;
         };
         let (title, verb) = match open.action {
-            Action::Logout => ("Log out now?", "Log Out"),
-            Action::Reboot => ("Restart now?", "Restart"),
-            _ => ("Shut down now?", "Shut Down"),
+            Action::Logout => (drifter_core::lang::t("Log out now?"), drifter_core::lang::t("Log Out")),
+            Action::Reboot => (drifter_core::lang::t("Restart now?"), drifter_core::lang::t("Restart")),
+            _ => (drifter_core::lang::t("Shut down now?"), drifter_core::lang::t("Shut Down")),
         };
         let message = open.action.countdown(open.shown);
         let ticked = open.ticked;

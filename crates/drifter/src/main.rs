@@ -242,7 +242,8 @@ fn main() -> ExitCode {
         }
     };
 
-    out!("config      {} ({})", path.display(), present(&path));
+    let language = drifter_core::lang::use_config(config.appearance.language.as_deref());
+    out!("config      {} ({}), language {language}", path.display(), present(&path));
     report(&config);
     bootstrap(&config)
 }

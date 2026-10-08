@@ -53,11 +53,11 @@ impl Style {
 
     pub fn label(self) -> &'static str {
         match self {
-            Style::Text => "Text",
-            Style::Pills => "Pills",
-            Style::Rings => "Rings",
-            Style::Calm => "Calm",
-            Style::Ticks => "Ticks",
+            Style::Text => crate::lang::t("Text"),
+            Style::Pills => crate::lang::t("Pills"),
+            Style::Rings => crate::lang::t("Rings"),
+            Style::Calm => crate::lang::t("Calm"),
+            Style::Ticks => crate::lang::t("Ticks"),
         }
     }
 }
@@ -193,9 +193,9 @@ pub fn paint_system(canvas: &mut Canvas, card: &Card, font: &Font, bold: &Font, 
     let spark = history.len() > 1;
     let size = Vec2::new(card.width, card.height(fields.len(), spark));
     let busy = fields.iter().any(|(label, value)| label == "CPU" && *value > 70);
-    let head = bold.paint_bold("System", card.ink);
+    let head = bold.paint_bold(crate::lang::t("System"), card.ink);
     canvas.stamp(&head, Vec2::new(14.0, 14.0), 1.0);
-    let note = font.paint(if busy { "Working hard" } else { "All calm" }, card.dim);
+    let note = font.paint(if busy { crate::lang::t("Working hard") } else { crate::lang::t("All calm") }, card.dim);
     canvas.stamp(&note, Vec2::new(size.x - 14.0 - crate::paint::logical(&note).x, 15.0).round(), 1.0);
     let pad = 14.0;
     let gap = 12.0;
@@ -223,7 +223,7 @@ pub fn paint_system(canvas: &mut Canvas, card: &Card, font: &Font, bold: &Font, 
     }
     if spark {
         let area = Rect::new(Vec2::new(14.0, y + 10.0), Vec2::new(size.x - 28.0, 32.0));
-        let label = font.paint("CPU · 30 s", card.dim);
+        let label = font.paint(crate::lang::t("CPU · 30 s"), card.dim);
         canvas.stamp(&label, area.origin, 0.6);
         let point = |at: usize, v: u8| {
             Vec2::new(
@@ -317,7 +317,7 @@ pub fn fit(font: &Font, text: &str, room: f64) -> String {
 
 fn pretty(label: &str) -> String {
     match label {
-        "RAM" => "Memory".to_string(),
+        "RAM" => crate::lang::t("Memory").to_string(),
         "CPU" => "CPU".to_string(),
         other => other.to_string(),
     }

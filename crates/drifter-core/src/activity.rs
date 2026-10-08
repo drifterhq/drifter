@@ -28,7 +28,7 @@ pub fn own_app() -> Option<App> {
     let program = std::env::current_exe().ok()?.with_file_name(ACTIVITY_APP);
     program.is_file().then(|| App {
         id: ACTIVITY_APP.to_string(),
-        name: "Activity".to_string(),
+        name: crate::lang::t("Activity").to_string(),
         icon: Some(art_icon()),
         exec: Some(format!("\"{}\"", program.display())),
         words: "task manager process cpu memory monitor system".to_string(),
@@ -272,10 +272,10 @@ impl Signal {
 
     pub fn failed(self, name: &str) -> String {
         match self {
-            Signal::Pause => format!("Could not pause {name}."),
-            Signal::Resume => format!("Could not resume {name}."),
-            Signal::Quit => format!("Could not quit {name}."),
-            Signal::Force => format!("Could not force quit {name}."),
+            Signal::Pause => crate::lang::tf("Could not pause {}.", &[&(name)]),
+            Signal::Resume => crate::lang::tf("Could not resume {}.", &[&(name)]),
+            Signal::Quit => crate::lang::tf("Could not quit {}.", &[&(name)]),
+            Signal::Force => crate::lang::tf("Could not force quit {}.", &[&(name)]),
         }
     }
 }
@@ -457,10 +457,10 @@ pub enum Impact {
 impl Impact {
     pub fn word(self) -> &'static str {
         match self {
-            Impact::Calm => "Calm",
-            Impact::Busy => "Busy",
-            Impact::Heavy => "Heavy",
-            Impact::Paused => "Paused",
+            Impact::Calm => crate::lang::t("Calm"),
+            Impact::Busy => crate::lang::t("Busy"),
+            Impact::Heavy => crate::lang::t("Heavy"),
+            Impact::Paused => crate::lang::t("Paused"),
         }
     }
 }
@@ -468,68 +468,68 @@ impl Impact {
 pub fn friendly(word: &str) -> Option<&'static str> {
     let word = word.to_ascii_lowercase();
     let known: &[(&str, &str)] = &[
-        ("pipewire-pulse", "Sound"),
-        ("pipewire", "Sound"),
-        ("wireplumber", "Sound"),
-        ("pulseaudio", "Sound"),
-        ("networkmanager", "Network"),
-        ("nm-applet", "Network icon"),
-        ("wpa_supplicant", "Wi-Fi"),
-        ("iwd", "Wi-Fi"),
-        ("bluetooth", "Bluetooth"),
-        ("bluetoothd", "Bluetooth"),
-        ("blueman-applet", "Bluetooth icon"),
-        ("systemd-journald", "System log"),
-        ("systemd-logind", "Login"),
-        ("systemd-udevd", "Devices"),
-        ("systemd-resolved", "Name lookup"),
-        ("systemd-timesyncd", "Clock sync"),
-        ("tracker-miner-fs-3", "File search index"),
-        ("localsearch-3", "File search index"),
-        ("xdg-desktop-portal", "App portal"),
-        ("xdg-desktop-portal-wlr", "Screen sharing portal"),
-        ("xdg-desktop-portal-gtk", "File chooser portal"),
-        ("xdg-document-portal", "Document portal"),
-        ("xdg-permission-store", "Permission store"),
-        ("dbus", "Message bus"),
-        ("dbus-daemon", "Message bus"),
-        ("dbus-broker", "Message bus"),
-        ("polkit", "Permissions"),
-        ("polkitd", "Permissions"),
-        ("cups", "Printing"),
-        ("cupsd", "Printing"),
-        ("upower", "Battery info"),
-        ("upowerd", "Battery info"),
-        ("udisks2", "Disks"),
-        ("udisksd", "Disks"),
-        ("power-profiles-daemon", "Power mode"),
-        ("accounts-daemon", "User accounts"),
-        ("cron", "Scheduled tasks"),
-        ("ssh", "Remote login"),
-        ("sshd", "Remote login"),
-        ("avahi-daemon", "Network discovery"),
-        ("modemmanager", "Modems"),
-        ("colord", "Color profiles"),
-        ("rtkit-daemon", "Sound priority"),
-        ("packagekit", "Software updates"),
-        ("packagekitd", "Software updates"),
-        ("xwayland-satellite", "X11 apps"),
-        ("xwayland", "X11 apps"),
-        ("gvfsd", "Files service"),
-        ("seatd", "Seat"),
-        ("systemd", "Session manager"),
-        ("at-spi-bus-launcher", "Accessibility"),
-        ("at-spi2-registryd", "Accessibility"),
-        ("gnome-keyring-daemon", "Passwords"),
-        ("snapd", "Snap packages"),
-        ("thermald", "Temperature"),
-        ("irqbalance", "CPU balance"),
-        ("rsyslog", "System log"),
-        ("chronyd", "Clock sync"),
-        ("firewalld", "Firewall"),
+        ("pipewire-pulse", crate::lang::t("Sound")),
+        ("pipewire", crate::lang::t("Sound")),
+        ("wireplumber", crate::lang::t("Sound")),
+        ("pulseaudio", crate::lang::t("Sound")),
+        ("networkmanager", crate::lang::t("Network")),
+        ("nm-applet", crate::lang::t("Network icon")),
+        ("wpa_supplicant", crate::lang::t("Wi-Fi")),
+        ("iwd", crate::lang::t("Wi-Fi")),
+        ("bluetooth", crate::lang::t("Bluetooth")),
+        ("bluetoothd", crate::lang::t("Bluetooth")),
+        ("blueman-applet", crate::lang::t("Bluetooth icon")),
+        ("systemd-journald", crate::lang::t("System log")),
+        ("systemd-logind", crate::lang::t("Login")),
+        ("systemd-udevd", crate::lang::t("Devices")),
+        ("systemd-resolved", crate::lang::t("Name lookup")),
+        ("systemd-timesyncd", crate::lang::t("Clock sync")),
+        ("tracker-miner-fs-3", crate::lang::t("File search index")),
+        ("localsearch-3", crate::lang::t("File search index")),
+        ("xdg-desktop-portal", crate::lang::t("App portal")),
+        ("xdg-desktop-portal-wlr", crate::lang::t("Screen sharing portal")),
+        ("xdg-desktop-portal-gtk", crate::lang::t("File chooser portal")),
+        ("xdg-document-portal", crate::lang::t("Document portal")),
+        ("xdg-permission-store", crate::lang::t("Permission store")),
+        ("dbus", crate::lang::t("Message bus")),
+        ("dbus-daemon", crate::lang::t("Message bus")),
+        ("dbus-broker", crate::lang::t("Message bus")),
+        ("polkit", crate::lang::t("Permissions")),
+        ("polkitd", crate::lang::t("Permissions")),
+        ("cups", crate::lang::t("Printing")),
+        ("cupsd", crate::lang::t("Printing")),
+        ("upower", crate::lang::t("Battery info")),
+        ("upowerd", crate::lang::t("Battery info")),
+        ("udisks2", crate::lang::t("Disks")),
+        ("udisksd", crate::lang::t("Disks")),
+        ("power-profiles-daemon", crate::lang::t("Power mode")),
+        ("accounts-daemon", crate::lang::t("User accounts")),
+        ("cron", crate::lang::t("Scheduled tasks")),
+        ("ssh", crate::lang::t("Remote login")),
+        ("sshd", crate::lang::t("Remote login")),
+        ("avahi-daemon", crate::lang::t("Network discovery")),
+        ("modemmanager", crate::lang::t("Modems")),
+        ("colord", crate::lang::t("Color profiles")),
+        ("rtkit-daemon", crate::lang::t("Sound priority")),
+        ("packagekit", crate::lang::t("Software updates")),
+        ("packagekitd", crate::lang::t("Software updates")),
+        ("xwayland-satellite", crate::lang::t("X11 apps")),
+        ("xwayland", crate::lang::t("X11 apps")),
+        ("gvfsd", crate::lang::t("Files service")),
+        ("seatd", crate::lang::t("Seat")),
+        ("systemd", crate::lang::t("Session manager")),
+        ("at-spi-bus-launcher", crate::lang::t("Accessibility")),
+        ("at-spi2-registryd", crate::lang::t("Accessibility")),
+        ("gnome-keyring-daemon", crate::lang::t("Passwords")),
+        ("snapd", crate::lang::t("Snap packages")),
+        ("thermald", crate::lang::t("Temperature")),
+        ("irqbalance", crate::lang::t("CPU balance")),
+        ("rsyslog", crate::lang::t("System log")),
+        ("chronyd", crate::lang::t("Clock sync")),
+        ("firewalld", crate::lang::t("Firewall")),
     ];
     if word.starts_with("gvfs") {
-        return Some("Files service");
+        return Some(crate::lang::t("Files service"));
     }
     known.iter().find(|(key, _)| *key == word).map(|(_, name)| *name)
 }
@@ -653,11 +653,11 @@ pub fn group(before: Option<&Snapshot>, now: &Snapshot, how: &Grouping) -> Vec<G
         let flatpak = is_sandbox(head);
         let matched = match_app(head, how.apps).or_else(|| sandboxed_app(head, list, how.apps));
         let (kind, name, icon) = if Some(root) == how.shell {
-            (Kind::Drifter, "Drifter".to_string(), None)
+            (Kind::Drifter, crate::lang::t("Drifter").to_string(), None)
         } else if program == SETTINGS_APP || head.comm == SETTINGS_APP {
-            (Kind::App, "Settings".to_string(), Some("preferences-system".to_string()))
+            (Kind::App, crate::lang::t("Settings").to_string(), Some("preferences-system".to_string()))
         } else if program == ACTIVITY_APP || head.comm.starts_with("drifter-activi") {
-            (Kind::App, "Activity".to_string(), Some(art_icon()))
+            (Kind::App, crate::lang::t("Activity").to_string(), Some(art_icon()))
         } else if let (true, Some(app)) = (ours, matched) {
             (Kind::App, app.name.clone(), app.icon.clone())
         } else if let (true, true, Some(id)) = (ours, flatpak, flatpak_id(list)) {
@@ -673,7 +673,7 @@ pub fn group(before: Option<&Snapshot>, now: &Snapshot, how: &Grouping) -> Vec<G
         let paused = head.state == 'T';
         let detail = describe(kind, &people, root, &program, head.unit.as_deref(), paused);
         let detail = match (flatpak, paused) {
-            (true, false) => format!("Flatpak · {detail}"),
+            (true, false) => crate::lang::tf("Flatpak · {}", &[&(detail)]),
             _ => detail,
         };
         let protected = root == how.me || (kind == Kind::Background && is_core(&program, head.unit.as_deref()));
@@ -761,18 +761,18 @@ fn sandboxed_app<'a>(head: &Proc, list: &[&Proc], apps: &'a [App]) -> Option<&'a
 
 fn describe(kind: Kind, people: &[Member], root: u32, program: &str, unit: Option<&str>, paused: bool) -> String {
     if paused {
-        return "Paused".to_string();
+        return crate::lang::t("Paused").to_string();
     }
     if kind == Kind::Drifter {
-        return "Draws your screen".to_string();
+        return crate::lang::t("Draws your screen").to_string();
     }
     if let Some(job) = busiest_job(people, root, program) {
-        return format!("Running {job}");
+        return crate::lang::tf("Running {}", &[&(job)]);
     }
     let count = people.len();
     match kind {
         Kind::App => match count {
-            1 => "1 process".to_string(),
+            1 => crate::lang::t("1 process").to_string(),
             n => format!("{n} processes"),
         },
         _ => {

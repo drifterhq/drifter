@@ -24,6 +24,7 @@ pub mod hud;
 pub mod icon;
 pub mod image;
 pub mod keyboard;
+pub mod lang;
 pub mod launchpad;
 pub mod lock;
 pub mod menu;

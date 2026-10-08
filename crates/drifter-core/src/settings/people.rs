@@ -25,25 +25,25 @@ impl Model {
             return vec![Group {
                 header: None,
                 rows: Vec::new(),
-                footer: Some("Reading the accounts…".into()),
+                footer: Some(crate::lang::t("Reading the accounts…").into()),
                 thumbs: None,
             }];
         };
-        let change = || Control::Buttons(vec![Mark::Text("Change")]);
+        let change = || Control::Buttons(vec![Mark::Text(crate::lang::t("Change"))]);
         let mut groups = Vec::new();
         if let Some(me) = &users.me {
             let full = match me.full.trim().is_empty() {
-                true => "Not set",
+                true => crate::lang::t("Not set"),
                 false => me.full.trim(),
             };
             groups.push(Group {
-                header: Some("Your account"),
+                header: Some(crate::lang::t("Your account")),
                 rows: vec![
-                    Row::new(Id::MyName, "Full name", change()).detail(full),
-                    Row::new(Id::MyPicture, "Picture", change())
-                        .detail("Shown when you log in"),
-                    Row::new(Id::MyPassword, "Password", change())
-                        .detail("Asks for your current password first"),
+                    Row::new(Id::MyName, crate::lang::t("Full name"), change()).detail(full),
+                    Row::new(Id::MyPicture, crate::lang::t("Picture"), change())
+                        .detail(crate::lang::t("Shown when you log in")),
+                    Row::new(Id::MyPassword, crate::lang::t("Password"), change())
+                        .detail(crate::lang::t("Asks for your current password first")),
                 ],
                 footer: self.user_note.clone(),
                 thumbs: None,
@@ -55,13 +55,13 @@ impl Model {
             .enumerate()
             .map(|(at, user)| {
                 let flip = match user.admin {
-                    true => "Make Standard",
-                    false => "Make Admin",
+                    true => crate::lang::t("Make Standard"),
+                    false => crate::lang::t("Make Admin"),
                 };
                 let mut row = Row::new(
                     Id::User(at),
                     user.shown(),
-                    Control::Buttons(vec![Mark::Text(flip), Mark::Text("Remove")]),
+                    Control::Buttons(vec![Mark::Text(flip), Mark::Text(crate::lang::t("Remove"))]),
                 )
                 .detail(&format!("{} · {}", user.login, user.kind()))
                 .enabled(users.service);
@@ -73,18 +73,18 @@ impl Model {
             })
             .collect();
         rows.push(
-            Row::new(Id::AddUser, "Add a user…", Control::Buttons(vec![Mark::Plus]))
+            Row::new(Id::AddUser, crate::lang::t("Add a user…"), Control::Buttons(vec![Mark::Plus]))
                 .enabled(users.service),
         );
         let footer = match (users.service, users.me.is_some()) {
-            (false, _) => "Install accountsservice to add users or change them.",
+            (false, _) => crate::lang::t("Install accountsservice to add users or change them."),
             (true, _) if users.others.is_empty() => {
-                "No other users yet. Adding a user asks for an admin password."
+                crate::lang::t("No other users yet. Adding a user asks for an admin password.")
             }
-            (true, _) => "Adding, removing or changing another user asks for an admin password.",
+            (true, _) => crate::lang::t("Adding, removing or changing another user asks for an admin password."),
         };
         groups.push(Group {
-            header: Some("Other users"),
+            header: Some(crate::lang::t("Other users")),
             rows,
             footer: Some(match users.me {
                 Some(_) => footer.to_string(),
@@ -159,7 +159,7 @@ impl Look {
         let x = spot.max().x + 26.0;
         let room = card.max().x - x - 20.0;
         let Some(me) = me else {
-            let text = fonts.body.paint("Reading your account…", self.dim);
+            let text = fonts.body.paint(crate::lang::t("Reading your account…"), self.dim);
             canvas.stamp(&text, Vec2::new(x, card.center().y - crate::paint::logical(&text).y / 2.0), 1.0);
             return;
         };
@@ -168,7 +168,7 @@ impl Look {
             &super::fit(fonts.body, &format!("{} · {}", me.login, me.kind()), room),
             self.dim,
         );
-        let hint = fonts.small.paint("Click the picture to change it.", self.dim);
+        let hint = fonts.small.paint(crate::lang::t("Click the picture to change it."), self.dim);
         let tall = crate::paint::logical(&name).y + crate::paint::logical(&kind).y + crate::paint::logical(&hint).y + 10.0;
         let mut y = card.center().y - tall / 2.0;
         canvas.stamp(&name, Vec2::new(x, y), 1.0);

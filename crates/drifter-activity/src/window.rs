@@ -96,6 +96,7 @@ fn themed(config: &Config) -> Look {
 pub fn run() -> Result<(), String> {
     let path = Config::config_path();
     let config = Config::load_from(&path).unwrap_or_default();
+    drifter_core::lang::use_config(config.appearance.language.as_deref());
     let find = |px| Font::find(config.font_path(), px);
     let fonts = (find(13.0)?, find(11.5)?, find(22.0)?);
     drifter_core::icon::set_theme(config.appearance.icons.clone());
@@ -109,7 +110,7 @@ pub fn run() -> Result<(), String> {
 
     let surface = compositor.create_surface(&qh);
     let window = shell.create_window(surface, WindowDecorations::RequestServer, &qh);
-    window.set_title("Activity");
+    window.set_title(drifter_core::lang::t("Activity"));
     window.set_app_id(APP);
     let look = themed(&config);
     let least = look.least();
@@ -449,10 +450,10 @@ impl Activity {
         let result = activity::send(signal, group);
         let words = match (&result, signal) {
             (Err(_), signal) => signal.failed(&group.name),
-            (Ok(()), Signal::Pause) => format!("Paused {}.", group.name),
-            (Ok(()), Signal::Resume) => format!("{} runs again.", group.name),
-            (Ok(()), Signal::Quit) => format!("Asked {} to quit.", group.name),
-            (Ok(()), Signal::Force) => format!("Force quit {}.", group.name),
+            (Ok(()), Signal::Pause) => drifter_core::lang::tf("Paused {}.", &[&(group.name)]),
+            (Ok(()), Signal::Resume) => drifter_core::lang::tf("{} runs again.", &[&(group.name)]),
+            (Ok(()), Signal::Quit) => drifter_core::lang::tf("Asked {} to quit.", &[&(group.name)]),
+            (Ok(()), Signal::Force) => drifter_core::lang::tf("Force quit {}.", &[&(group.name)]),
         };
         if let Ok(()) = result
             && let Some(held) = self.model.groups.iter_mut().find(|held| held.key == group.key)
@@ -460,7 +461,7 @@ impl Activity {
             match signal {
                 Signal::Pause => {
                     held.paused = true;
-                    held.detail = "Paused".to_string();
+                    held.detail = drifter_core::lang::t("Paused").to_string();
                 }
                 Signal::Resume => held.paused = false,
                 _ => {}
@@ -493,9 +494,9 @@ impl Activity {
                 std::thread::spawn(move || {
                     let _ = child.wait();
                 });
-                format!("Opened {} again.", gone.name)
+                drifter_core::lang::tf("Opened {} again.", &[&(gone.name)])
             }
-            Err(error) => format!("{} did not open: {error}.", gone.name),
+            Err(error) => drifter_core::lang::tf("{} did not open: {}.", &[&(gone.name), &(error)]),
         };
         self.model.toast = Some(Toast { words, reopen: false });
         self.toast_at = Some(Instant::now());

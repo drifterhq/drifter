@@ -107,9 +107,9 @@ impl Card {
 
     fn go(self) -> &'static str {
         match self {
-            Card::Hello => "Begin",
-            Card::Done => "Start",
-            _ => "Continue",
+            Card::Hello => crate::lang::t("Begin"),
+            Card::Done => crate::lang::t("Start"),
+            _ => crate::lang::t("Continue"),
         }
     }
 }
@@ -146,17 +146,17 @@ impl Motion {
 
     pub fn tip(self) -> &'static str {
         match self {
-            Motion::Still => "Nothing moves on its own, and windows and panels appear at once.",
-            Motion::Calm => "Your livepaper drifts slowly, and windows and panels still glide.",
-            Motion::Full => "Your livepaper drifts at full speed, and every animation plays.",
+            Motion::Still => crate::lang::t("Nothing moves on its own, and windows and panels appear at once."),
+            Motion::Calm => crate::lang::t("Your livepaper drifts slowly, and windows and panels still glide."),
+            Motion::Full => crate::lang::t("Your livepaper drifts at full speed, and every animation plays."),
         }
     }
 
     fn label(self) -> &'static str {
         match self {
-            Motion::Still => "Still",
-            Motion::Calm => "Calm",
-            Motion::Full => "Full",
+            Motion::Still => crate::lang::t("Still"),
+            Motion::Calm => crate::lang::t("Calm"),
+            Motion::Full => crate::lang::t("Full"),
         }
     }
 }
@@ -184,10 +184,10 @@ impl Lesson {
 
     fn title(self) -> &'static str {
         match self {
-            Lesson::Search => "Find anything",
-            Lesson::Glide => "Glide around",
-            Lesson::Overview => "See everything",
-            Lesson::Zoom => "Zoom in and out",
+            Lesson::Search => crate::lang::t("Find anything"),
+            Lesson::Glide => crate::lang::t("Glide around"),
+            Lesson::Overview => crate::lang::t("See everything"),
+            Lesson::Zoom => crate::lang::t("Zoom in and out"),
         }
     }
 }
@@ -647,7 +647,7 @@ impl Look {
                 true => self.ink,
                 false => self.dim,
             };
-            let words = fonts.body.paint("Back", ink);
+            let words = fonts.body.paint(crate::lang::t("Back"), ink);
             let size = logical(&words);
             canvas.stamp(&words, Vec2::new(rect.origin.x + 10.0, rect.center().y - size.y / 2.0).round(), 1.0);
         }
@@ -706,18 +706,18 @@ impl Look {
             }
             false => mark(canvas, Vec2::new(SIZE.x / 2.0, 168.0), 46.0, self.accent),
         }
-        let hero = fonts.hero.paint_bold("Welcome to Drifter", self.ink);
+        let hero = fonts.hero.paint_bold(crate::lang::t("Welcome to Drifter"), self.ink);
         let size = logical(&hero);
         canvas.stamp(&hero, Vec2::new((SIZE.x - size.x) / 2.0, 240.0).round(), 1.0);
         self.line_center(canvas, &fonts.body, &view.greeting, 294.0, self.dim);
     }
 
     fn paint_look(&self, canvas: &mut Canvas, view: &View, fonts: &Fonts) {
-        self.title(canvas, fonts, "Pick your look", PAD);
+        self.title(canvas, fonts, crate::lang::t("Pick your look"), PAD);
         let styles = [Style::Light, Style::Dark, Style::Auto];
         let chosen = styles.iter().position(|style| *style == view.style).unwrap_or(1);
         let hover = styles.iter().position(|style| view.hovered(Hit::Style(*style)));
-        self.segments(canvas, fonts, self.segments_rect(3, 34.0), &["Light", "Dark", "Auto"], chosen, hover);
+        self.segments(canvas, fonts, self.segments_rect(3, 34.0), &[crate::lang::t("Light"), crate::lang::t("Dark"), crate::lang::t("Auto")], chosen, hover);
         for (at, paper) in view.papers.iter().take(SHOWN_PAPERS).enumerate() {
             let rect = self.paper_rect(at);
             let hover = view.hovered(Hit::Paper(at));
@@ -741,7 +741,7 @@ impl Look {
         }
         let rows = view.papers.len().min(SHOWN_PAPERS).div_ceil(4).max(1);
         let y = self.paper_rect((rows - 1) * 4).max().y + 44.0;
-        self.line_center(canvas, &fonts.small, LIVEPAPER, y, self.dim);
+        self.line_center(canvas, &fonts.small, crate::lang::t(LIVEPAPER), y, self.dim);
     }
 
     fn row_label(&self, canvas: &mut Canvas, fonts: &Fonts, top: f64, label: &str, detail: &str) {
@@ -752,16 +752,16 @@ impl Look {
     }
 
     fn paint_comfort(&self, canvas: &mut Canvas, view: &View, fonts: &Fonts) {
-        self.title(canvas, fonts, "Motion and text", PAD);
-        self.row_label(canvas, fonts, 112.0, "Motion", "How much the desktop moves");
+        self.title(canvas, fonts, crate::lang::t("Motion and text"), PAD);
+        self.row_label(canvas, fonts, 112.0, crate::lang::t("Motion"), crate::lang::t("How much the desktop moves"));
         let chosen = Motion::ALL.iter().position(|motion| *motion == view.motion).unwrap_or(2);
         let hover = Motion::ALL.iter().position(|motion| view.hovered(Hit::Motion(*motion)));
         let labels: Vec<&str> = Motion::ALL.iter().map(|motion| motion.label()).collect();
         self.segments(canvas, fonts, self.segments_rect(3, 112.0), &labels, chosen, hover);
         canvas.round_rect(Rect::new(Vec2::new(PAD, 160.0), Vec2::new(SIZE.x - PAD * 2.0, 1.0)), 0.0, self.rule, 0.8);
-        self.row_label(canvas, fonts, 186.0, "Text size", "The size your apps use");
+        self.row_label(canvas, fonts, 186.0, crate::lang::t("Text size"), crate::lang::t("The size your apps use"));
         let hover = [false, true].iter().position(|large| view.hovered(Hit::Text(*large)));
-        self.segments(canvas, fonts, self.segments_rect(2, 186.0), &["Regular", "Large"], usize::from(view.large), hover);
+        self.segments(canvas, fonts, self.segments_rect(2, 186.0), &[crate::lang::t("Regular"), crate::lang::t("Large")], usize::from(view.large), hover);
         if let Some(Hit::Motion(motion)) = view.hover {
             let words = fonts.small.paint(motion.tip(), WHITE);
             let size = logical(&words);
@@ -814,11 +814,11 @@ impl Look {
         for (at, color) in [[255, 95, 87], [254, 188, 46], [40, 200, 64]].into_iter().enumerate() {
             canvas.circle(sheet.origin + Vec2::new(16.0 + at as f64 * 15.0, 14.0), 4.5, color, 1.0);
         }
-        let heading = fonts.note_title.paint_bold("Notes for Tuesday", self.ink);
+        let heading = fonts.note_title.paint_bold(crate::lang::t("Notes for Tuesday"), self.ink);
         canvas.stamp(&heading, sheet.origin + Vec2::new(18.0, 30.0), 1.0);
         let lines = [
-            "Walk before lunch. Water the fern.",
-            "Call about the bike, then rest a little.",
+            crate::lang::t("Walk before lunch. Water the fern."),
+            crate::lang::t("Call about the bike, then rest a little."),
         ];
         let mut y = sheet.origin.y + 30.0 + logical(&heading).y + 6.0;
         for line in lines {
@@ -830,8 +830,8 @@ impl Look {
     }
 
     fn paint_display(&self, canvas: &mut Canvas, view: &View, fonts: &Fonts) {
-        self.title(canvas, fonts, "Choose a size", PAD);
-        let words = fonts.body.paint("Pick the one that looks sharp and easy to read.", self.dim);
+        self.title(canvas, fonts, crate::lang::t("Choose a size"), PAD);
+        let words = fonts.body.paint(crate::lang::t("Pick the one that looks sharp and easy to read."), self.dim);
         canvas.stamp(&words, Vec2::new(PAD, 76.0), 1.0);
         let count = view.scales.len();
         let most = view.scales.iter().copied().fold(1.0, f64::max);
@@ -876,7 +876,7 @@ impl Look {
             let size = logical(&words);
             canvas.stamp(&words, Vec2::new(cell.center().x - size.x / 2.0, cell.origin.y + 96.0).round(), 1.0);
             if view.suggested.is_some_and(|best| (best - scale).abs() < 0.01) {
-                let words = fonts.small.paint("Suggested", self.accent);
+                let words = fonts.small.paint(crate::lang::t("Suggested"), self.accent);
                 let size = logical(&words);
                 canvas.stamp(&words, Vec2::new(cell.center().x - size.x / 2.0, cell.origin.y + 118.0).round(), 1.0);
             }
@@ -885,9 +885,9 @@ impl Look {
             let first = self.scale_rect(count, 0);
             let last = self.scale_rect(count, count - 1);
             let y = first.max().y + 22.0;
-            let left = fonts.small.paint("More space", self.dim);
+            let left = fonts.small.paint(crate::lang::t("More space"), self.dim);
             canvas.stamp(&left, Vec2::new(first.center().x - logical(&left).x / 2.0, y).round(), 1.0);
-            let right = fonts.small.paint("Larger", self.dim);
+            let right = fonts.small.paint(crate::lang::t("Larger"), self.dim);
             canvas.stamp(&right, Vec2::new(last.center().x - logical(&right).x / 2.0, y).round(), 1.0);
             let from = Vec2::new(first.center().x + logical(&left).x / 2.0 + 12.0, y + 8.0);
             let to = Vec2::new(last.center().x - logical(&right).x / 2.0 - 12.0, y + 8.0);
@@ -907,9 +907,9 @@ impl Look {
         let key = |word: &str| Bit::Key(word.to_string());
         let word = |text: &str| Bit::Word(text.to_string());
         let search: Vec<Bit> = match view.search.is_empty() {
-            true => vec![word("Click the search in the top bar")],
+            true => vec![word(crate::lang::t("Click the search in the top bar"))],
             false => {
-                let mut bits = vec![word("Press")];
+                let mut bits = vec![word(crate::lang::t("Press"))];
                 bits.extend(view.search.iter().map(|name| key(name)));
                 bits
             }
@@ -917,30 +917,30 @@ impl Look {
         match view.device {
             Device::Touchpad => [
                 (Lesson::Search, search),
-                (Lesson::Glide, vec![word("Swipe with three fingers")]),
-                (Lesson::Overview, vec![word("Tap with three fingers")]),
-                (Lesson::Zoom, vec![word("Hold"), key(held), word("and scroll with two fingers")]),
+                (Lesson::Glide, vec![word(crate::lang::t("Swipe with three fingers"))]),
+                (Lesson::Overview, vec![word(crate::lang::t("Tap with three fingers"))]),
+                (Lesson::Zoom, vec![word(crate::lang::t("Hold")), key(held), word("and scroll with two fingers")]),
             ],
             Device::Mouse => [
                 (Lesson::Search, search),
-                (Lesson::Glide, vec![word("Hold"), key(held), word("and push into an edge")]),
-                (Lesson::Overview, vec![word("Rest the pointer in the top left corner")]),
-                (Lesson::Zoom, vec![word("Hold"), key(held), word("and turn the wheel")]),
+                (Lesson::Glide, vec![word(crate::lang::t("Hold")), key(held), word(crate::lang::t("and push into an edge"))]),
+                (Lesson::Overview, vec![word(crate::lang::t("Rest the pointer in the top left corner"))]),
+                (Lesson::Zoom, vec![word(crate::lang::t("Hold")), key(held), word(crate::lang::t("and turn the wheel"))]),
             ],
         }
     }
 
     fn paint_keys(&self, canvas: &mut Canvas, view: &View, fonts: &Fonts) {
         let all = view.done.iter().all(|done| *done);
-        self.title(canvas, fonts, if all { "You know the moves" } else { "Four moves to know" }, PAD);
+        self.title(canvas, fonts, if all { crate::lang::t("You know the moves") } else { crate::lang::t("Four moves to know") }, PAD);
         let device = [Device::Touchpad, Device::Mouse];
         let chosen = device.iter().position(|each| *each == view.device).unwrap_or(0);
         let hover = device.iter().position(|each| view.hovered(Hit::Device(*each)));
-        self.segments(canvas, fonts, self.device_rect(), &["Touchpad", "Mouse"], chosen, hover);
+        self.segments(canvas, fonts, self.device_rect(), &[crate::lang::t("Touchpad"), crate::lang::t("Mouse")], chosen, hover);
         let keys = [Modifier::Super, Modifier::Ctrl];
         let chosen = keys.iter().position(|each| *each == view.modifier).unwrap_or(0);
         let hover = keys.iter().position(|each| view.hovered(Hit::Camera(*each)));
-        self.segments(canvas, fonts, self.camera_rect(), &["Super", "Ctrl"], chosen, hover);
+        self.segments(canvas, fonts, self.camera_rect(), &["Super", crate::lang::t("Ctrl")], chosen, hover);
         let well = self.well_rect();
         let (high, low) = match self.light {
             true => ([246, 247, 250], [230, 232, 238]),
@@ -1080,7 +1080,7 @@ impl Look {
                     self.keycap(canvas, fonts, rect, name, view.held && is_modifier(name));
                     x += wide;
                 }
-                caption(canvas, "Then type a few letters");
+                caption(canvas, crate::lang::t("Then type a few letters"));
             }
             (lesson, Device::Touchpad) => {
                 let pad = Rect::from_center(center + Vec2::new(0.0, 6.0), Vec2::new(200.0, 132.0));
@@ -1104,7 +1104,7 @@ impl Look {
                             self.finger(canvas, dot);
                         }
                         arrow(canvas, pad.center() + Vec2::new(44.0, 26.0), pad.center() + Vec2::new(78.0, 26.0), self.accent);
-                        caption(canvas, "The world slides with your fingers");
+                        caption(canvas, crate::lang::t("The world slides with your fingers"));
                     }
                     Lesson::Overview => {
                         for dot in fingers(3, pad.center()) {
@@ -1112,7 +1112,7 @@ impl Look {
                             canvas.ring(Rect::from_center(dot, Vec2::splat(48.0)), 24.0, 1.0, self.accent, 0.15);
                             self.finger(canvas, dot);
                         }
-                        caption(canvas, "Tap again to fly back");
+                        caption(canvas, crate::lang::t("Tap again to fly back"));
                     }
                     _ => {
                         let cap = Rect::from_center(Vec2::new(center.x, pad.origin.y - 32.0), Vec2::new(76.0, 40.0));
@@ -1122,7 +1122,7 @@ impl Look {
                         }
                         arrow(canvas, pad.center() + Vec2::new(46.0, 12.0), pad.center() + Vec2::new(46.0, -26.0), self.accent);
                         arrow(canvas, pad.center() + Vec2::new(-46.0, -12.0), pad.center() + Vec2::new(-46.0, 26.0), self.accent);
-                        caption(canvas, "Up to zoom in, down to zoom out");
+                        caption(canvas, crate::lang::t("Up to zoom in, down to zoom out"));
                     }
                 }
             }
@@ -1147,12 +1147,12 @@ impl Look {
                             arrow(canvas, tip - Vec2::new(56.0, -12.0), tip - Vec2::new(18.0, -12.0), WHITE);
                             pointer(canvas, tip);
                             canvas.round_rect(Rect::new(Vec2::new(glass.max().x - 3.0, glass.origin.y + 8.0), Vec2::new(3.0, glass.size.y - 16.0)), 1.5, WHITE, 0.8);
-                            caption(canvas, "The pointer pulls the world along");
+                            caption(canvas, crate::lang::t("The pointer pulls the world along"));
                         }
                         _ => {
                             canvas.glow(glass.origin + Vec2::splat(4.0), 46.0, WHITE, 0.55);
                             pointer(canvas, glass.origin + Vec2::new(10.0, 8.0));
-                            caption(canvas, "Click a window to fly to it");
+                            caption(canvas, crate::lang::t("Click a window to fly to it"));
                         }
                     }
                 }
@@ -1164,7 +1164,7 @@ impl Look {
                     let body = Rect::from_center(Vec2::new(center.x + 58.0, center.y - 4.0), Vec2::new(62.0, 100.0));
                     self.mouse(canvas, body, true);
                     arrow(canvas, Vec2::new(body.max().x + 16.0, body.center().y + 18.0), Vec2::new(body.max().x + 16.0, body.center().y - 22.0), self.accent);
-                    caption(canvas, "Up to zoom in, down to zoom out");
+                    caption(canvas, crate::lang::t("Up to zoom in, down to zoom out"));
                 }
             },
         }
@@ -1206,13 +1206,13 @@ impl Look {
     }
 
     fn paint_apps(&self, canvas: &mut Canvas, view: &View, fonts: &Fonts) {
-        self.title(canvas, fonts, "Your apps", PAD);
-        let words = fonts.body.paint("These open your links, files and media. Click one to change it.", self.dim);
+        self.title(canvas, fonts, crate::lang::t("Your apps"), PAD);
+        let words = fonts.body.paint(crate::lang::t("These open your links, files and media. Click one to change it."), self.dim);
         canvas.stamp(&words, Vec2::new(PAD, 76.0), 1.0);
         let open = view.choosing.as_ref().map(|(role, _)| *role);
         for (group, (name, _, _)) in GROUPS.iter().enumerate() {
             let span = self.group_span(group);
-            let words = fonts.small.paint(name, self.dim);
+            let words = fonts.small.paint(crate::lang::t(name), self.dim);
             let size = logical(&words);
             let y = span.origin.y + 4.0;
             canvas.stamp(&words, Vec2::new(span.center().x - size.x / 2.0, y).round(), 0.9);
@@ -1253,13 +1253,13 @@ impl Look {
             }
             let (name, ink) = match &tile.name {
                 Some(name) => (short_name(name), self.ink),
-                None => ("Choose".to_string(), self.dim),
+                None => (crate::lang::t("Choose").to_string(), self.dim),
             };
             let name = fit(&fonts.small, &name, slot.size.x + 4.0);
             let words = fonts.small.paint(&name, ink);
             canvas.stamp(&words, Vec2::new(slot.center().x - logical(&words).x / 2.0, slot.origin.y + 72.0).round(), fade);
             let (label, ink) = match tile.busy {
-                true => ("Getting it", self.accent),
+                true => (crate::lang::t("Getting it"), self.accent),
                 false => (role_word(tile.role), self.dim),
             };
             let label = fit(&fonts.small, label, slot.size.x + 12.0);
@@ -1320,8 +1320,8 @@ impl Look {
             let words = fonts.small.paint(&name, ink);
             canvas.stamp(&words, Vec2::new(cell.center().x - logical(&words).x / 2.0, cell.origin.y + 64.0).round(), 1.0);
             let under = match (choice.busy, choice.installed) {
-                (true, _) => Some("Getting it"),
-                (false, false) => Some("Get"),
+                (true, _) => Some(crate::lang::t("Getting it")),
+                (false, false) => Some(crate::lang::t("Get")),
                 _ => None,
             };
             if let Some(under) = under {
@@ -1331,7 +1331,7 @@ impl Look {
         }
         self.paint_other(canvas, fonts, self.choice_rect(anchor, count, count));
         let weak = view.tiles.get(anchor).is_some_and(|tile| tile.weak && tile.name.is_some());
-        let note = view.note.as_deref().or(weak.then_some("A dedicated app works better here."));
+        let note = view.note.as_deref().or(weak.then_some(crate::lang::t("A dedicated app works better here.")));
         if let Some(note) = note {
             self.line_center(canvas, &fonts.small, note, pop.max().y + 8.0, self.dim);
         }
@@ -1349,7 +1349,7 @@ impl Look {
         for step in [-1.0, 0.0, 1.0] {
             canvas.circle(icon.center() + Vec2::new(step * 9.0, 0.0), 3.0, self.dim, 1.0);
         }
-        let words = fonts.small.paint("Other…", self.dim);
+        let words = fonts.small.paint(crate::lang::t("Other…"), self.dim);
         canvas.stamp(&words, Vec2::new(cell.center().x - logical(&words).x / 2.0, cell.origin.y + 64.0).round(), 1.0);
     }
 
@@ -1378,9 +1378,9 @@ impl Look {
         canvas.shadow(Rect::from_center(center + Vec2::new(0.0, 4.0), Vec2::splat(84.0)), 42.0, 10.0, 0.3);
         canvas.shade(Rect::from_center(center, Vec2::splat(84.0)), 42.0, lift(GREEN, 0.2), lift(GREEN, -0.15), 1.0);
         tick(canvas, center, 17.0, WHITE);
-        let hero = fonts.hero.paint_bold("You're all set", self.ink);
+        let hero = fonts.hero.paint_bold(crate::lang::t("You're all set"), self.ink);
         canvas.stamp(&hero, Vec2::new((SIZE.x - logical(&hero).x) / 2.0, 226.0).round(), 1.0);
-        self.line_center(canvas, &fonts.body, "Open this again any time from Programs.", 278.0, self.dim);
+        self.line_center(canvas, &fonts.body, crate::lang::t("Open this again any time from Programs."), 278.0, self.dim);
         let rect = self.quiet_rect(fonts);
         if view.hovered(Hit::Quiet) {
             canvas.round_rect(rect, 8.0, self.raised, 0.4);
@@ -1475,14 +1475,14 @@ fn mark(canvas: &mut Canvas, center: Vec2, radius: f64, accent: [u8; 3]) {
 
 fn role_word(role: Role) -> &'static str {
     match role {
-        Role::Browser => "Browser",
-        Role::Mail => "Mail",
-        Role::Files => "Files",
-        Role::Terminal => "Terminal",
-        Role::Editor => "Editor",
-        Role::Images => "Photos",
-        Role::Video => "Video",
-        Role::Music => "Music",
+        Role::Browser => crate::lang::t("Browser"),
+        Role::Mail => crate::lang::t("Mail"),
+        Role::Files => crate::lang::t("Files"),
+        Role::Terminal => crate::lang::t("Terminal"),
+        Role::Editor => crate::lang::t("Editor"),
+        Role::Images => crate::lang::t("Photos"),
+        Role::Video => crate::lang::t("Video"),
+        Role::Music => crate::lang::t("Music"),
     }
 }
 
@@ -1596,13 +1596,13 @@ pub fn scales_for(pixels: Vec2) -> Vec<f64> {
 
 pub fn greeting(hour: u32, name: &str) -> String {
     let part = match hour {
-        5..=11 => "Good morning",
-        12..=17 => "Good afternoon",
-        _ => "Good evening",
+        5..=11 => crate::lang::t("Good morning"),
+        12..=17 => crate::lang::t("Good afternoon"),
+        _ => crate::lang::t("Good evening"),
     };
     match name.trim().is_empty() {
-        true => format!("{part}. Let's make it yours."),
-        false => format!("{part}, {}. Let's make it yours.", name.trim()),
+        true => crate::lang::tf("{}. Let's make it yours.", &[&(part)]),
+        false => crate::lang::tf("{}, {}. Let's make it yours.", &[&(part), &(name.trim())]),
     }
 }
 

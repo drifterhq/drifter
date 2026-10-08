@@ -368,19 +368,19 @@ impl State {
                 }
                 let button = drifter_core::launchpad::is_button(&app.launch);
                 if app.place.is_none() && !button {
-                    items.push(Item::line(1, "New Window"));
+                    items.push(Item::line(1, drifter_core::lang::t("New Window")));
                 }
                 items.push(Item::line(
                     2,
                     match app.pinned {
-                        true => "Remove from Dock",
-                        false => "Keep in Dock",
+                        true => drifter_core::lang::t("Remove from Dock"),
+                        false => drifter_core::lang::t("Keep in Dock"),
                     },
                 ));
-                items.push(Item::line(4, "Settings…"));
+                items.push(Item::line(4, drifter_core::lang::t("Settings…")));
                 if !self.windows_of(&app.key).is_empty() {
                     items.push(Item::rule(98));
-                    items.push(Item::line(3, "Quit"));
+                    items.push(Item::line(3, drifter_core::lang::t("Quit")));
                 }
                 let at = self.pointer;
                 self.open_popover(items, at, Target::Dock(app.key.clone()));
@@ -388,10 +388,10 @@ impl State {
             }
             Some(Slot::Trash) => {
                 let items = vec![
-                    Item::line(10, "Open"),
+                    Item::line(10, drifter_core::lang::t("Open")),
                     Item {
                         enabled: self.trash_full,
-                        ..Item::line(11, "Empty Trash")
+                        ..Item::line(11, drifter_core::lang::t("Empty Trash"))
                     },
                 ];
                 let at = self.pointer;
@@ -421,28 +421,28 @@ impl State {
             Item::line(
                 BAR_HIDING,
                 match hides {
-                    true => "Turn Hiding Off",
-                    false => "Turn Hiding On",
+                    true => drifter_core::lang::t("Turn Hiding Off"),
+                    false => drifter_core::lang::t("Turn Hiding On"),
                 },
             ),
-            Item::more(BAR_SIZE, "Dock Size"),
+            Item::more(BAR_SIZE, drifter_core::lang::t("Dock Size")),
             Item::rule(90),
             Item::line(
                 BAR_COG,
                 match self.dock.settings {
-                    true => "Hide Settings Button",
-                    false => "Show Settings Button",
+                    true => drifter_core::lang::t("Hide Settings Button"),
+                    false => drifter_core::lang::t("Show Settings Button"),
                 },
             ),
             Item::line(
                 BAR_TRASH,
                 match self.dock.trash {
-                    true => "Hide Trash",
-                    false => "Show Trash",
+                    true => drifter_core::lang::t("Hide Trash"),
+                    false => drifter_core::lang::t("Show Trash"),
                 },
             ),
             Item::rule(91),
-            Item::line(BAR_SETTINGS, "Dock Settings…"),
+            Item::line(BAR_SETTINGS, drifter_core::lang::t("Dock Settings…")),
         ]
     }
 
@@ -816,8 +816,8 @@ impl State {
                 launch.title().map(str::to_string).unwrap_or_else(|| launch.name())
             }
             Slot::Minimized(index) => hidden.get(index)?.clone(),
-            Slot::Settings => "Settings".to_string(),
-            Slot::Trash => "Trash".to_string(),
+            Slot::Settings => drifter_core::lang::t("Settings").to_string(),
+            Slot::Trash => drifter_core::lang::t("Trash").to_string(),
         };
         Some((text, rect))
     }

@@ -42,7 +42,7 @@ pub fn parse_variants(text: &str, layout: &str) -> Vec<Layout> {
         })
         .collect();
     found.sort_by_key(|variant| variant.name.to_lowercase());
-    found.insert(0, Layout::new("", "Plain"));
+    found.insert(0, Layout::new("", crate::lang::t("Plain")));
     found
 }
 
@@ -135,7 +135,7 @@ pub fn set_compose(options: &str, at: usize) -> String {
 
 pub fn name_of(layouts: &[Layout], code: &str) -> String {
     if code.is_empty() {
-        return "System default".to_string();
+        return crate::lang::t("System default").to_string();
     }
     layouts
         .iter()

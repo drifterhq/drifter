@@ -122,7 +122,7 @@ impl Look {
         canvas.round_rect(cancel, 8.0, self.button, 1.0);
         canvas.round_rect(confirm, 8.0, self.accent, 1.0);
         for (rect, word, ink) in [
-            (cancel, "Cancel", self.ink),
+            (cancel, crate::lang::t("Cancel"), self.ink),
             (confirm, verb, [255, 255, 255]),
         ] {
             let text = font.paint(word, ink);

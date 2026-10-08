@@ -91,16 +91,16 @@ impl Look {
 
         if let Some(font) = font {
             let name = match reading.gauge {
-                Gauge::Volume => "Volume",
-                Gauge::Microphone => "Microphone",
-                Gauge::Brightness => "Brightness",
+                Gauge::Volume => crate::lang::t("Volume"),
+                Gauge::Microphone => crate::lang::t("Microphone"),
+                Gauge::Brightness => crate::lang::t("Brightness"),
             };
             let label = font.paint(name, self.ink);
             let at = Vec2::new(24.0, (self.size.y - crate::paint::logical(&label).y) / 2.0);
             canvas.stamp(&label, at, 1.0);
 
             let words = match reading.muted {
-                true => "Muted".to_string(),
+                true => crate::lang::t("Muted").to_string(),
                 false => format!("{}%", (reading.level * 100.0).round() as i64),
             };
             let value = font.paint(&words, if reading.muted { self.dim } else { self.ink });

@@ -193,7 +193,7 @@ impl State {
             });
         if spawned.is_err() {
             pending.busy = false;
-            pending.error = Some("The password cannot be checked right now.".into());
+            pending.error = Some(drifter_core::lang::t("The password cannot be checked right now.").into());
         }
         self.paint_prompt();
     }

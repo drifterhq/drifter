@@ -35,7 +35,7 @@ impl Agent {
                 question,
                 reply: Some(reply),
             })
-            .map_err(|_| zbus::fdo::Error::Failed("Settings closed".into()))?;
+            .map_err(|_| zbus::fdo::Error::Failed(drifter_core::lang::t("Settings closed").into()))?;
         match answer.recv_timeout(PATIENCE) {
             Ok(Some(text)) => Ok(text),
             _ => Err(zbus::fdo::Error::AccessDenied("not paired".into())),
@@ -63,7 +63,7 @@ impl Agent {
     }
 
     fn display_pin_code(&self, _device: OwnedObjectPath, pincode: String) {
-        self.show(format!("Type {pincode} on {}, then press Enter.", self.name));
+        self.show(drifter_core::lang::tf("Type {} on {}, then press Enter.", &[&(pincode), &(self.name)]));
     }
 
     fn request_passkey(&self, _device: OwnedObjectPath) -> zbus::fdo::Result<u32> {
@@ -76,7 +76,7 @@ impl Agent {
     }
 
     fn display_passkey(&self, _device: OwnedObjectPath, passkey: u32, _entered: u16) {
-        self.show(format!("Type {passkey:06} on {}, then press Enter.", self.name));
+        self.show(drifter_core::lang::tf("Type {} on {}, then press Enter.", &[&format!("{:06}", passkey), &(self.name)]));
     }
 
     fn request_confirmation(&self, _device: OwnedObjectPath, passkey: u32) -> zbus::fdo::Result<()> {
@@ -99,7 +99,7 @@ fn device_path(bus: &zbus::blocking::Connection, mac: &str) -> Result<OwnedObjec
         .and_then(|builder| builder.path("/"))
         .and_then(|builder| builder.build())
         .and_then(|manager| manager.get_managed_objects().map_err(zbus::Error::from))
-        .map_err(|error| format!("Bluetooth did not answer: {error}"))?;
+        .map_err(|error| drifter_core::lang::tf("Bluetooth did not answer: {}", &[&(error)]))?;
     objects
         .into_iter()
         .find(|(_, faces)| {
@@ -110,7 +110,7 @@ fn device_path(bus: &zbus::blocking::Connection, mac: &str) -> Result<OwnedObjec
                 .is_some_and(|address| address.eq_ignore_ascii_case(mac))
         })
         .map(|(path, _)| path)
-        .ok_or_else(|| "The device went away. Search again.".to_string())
+        .ok_or_else(|| drifter_core::lang::t("The device went away. Search again.").to_string())
 }
 
 static PAIRING: Mutex<()> = Mutex::new(());
@@ -124,13 +124,13 @@ pub fn pair(mac: &str, name: &str, asks: LoopSender<Asked>) -> Result<(), String
     let bus = zbus::blocking::connection::Builder::system()
         .and_then(|builder| builder.serve_at(PATH, agent))
         .and_then(|builder| builder.build())
-        .map_err(|error| format!("Cannot reach Bluetooth: {error}"))?;
+        .map_err(|error| drifter_core::lang::tf("Cannot reach Bluetooth: {}", &[&(error)]))?;
     let path = zbus::zvariant::ObjectPath::try_from(PATH).map_err(|error| error.to_string())?;
     let manager = zbus::blocking::Proxy::new(&bus, "org.bluez", "/org/bluez", "org.bluez.AgentManager1")
         .map_err(|error| error.to_string())?;
     manager
         .call_method("RegisterAgent", &(&path, "KeyboardDisplay"))
-        .map_err(|error| format!("Bluetooth would not take the pairing helper: {error}"))?;
+        .map_err(|error| drifter_core::lang::tf("Bluetooth would not take the pairing helper: {}", &[&(error)]))?;
     let device = device_path(&bus, mac)?;
     let paired = zbus::blocking::Proxy::new(&bus, "org.bluez", device.as_ref(), "org.bluez.Device1")
         .map_err(|error| error.to_string())
@@ -147,18 +147,18 @@ pub fn pair(mac: &str, name: &str, asks: LoopSender<Asked>) -> Result<(), String
 fn said(error: &zbus::Error) -> String {
     let text = error.to_string();
     if text.contains("AuthenticationFailed") || text.contains("AuthenticationRejected") {
-        return "The code did not match. Try again.".to_string();
+        return drifter_core::lang::t("The code did not match. Try again.").to_string();
     }
     if text.contains("AuthenticationCanceled") {
-        return "Pairing was stopped.".to_string();
+        return drifter_core::lang::t("Pairing was stopped.").to_string();
     }
     if text.contains("AlreadyExists") {
-        return "It is already paired.".to_string();
+        return drifter_core::lang::t("It is already paired.").to_string();
     }
     if text.contains("ConnectionAttemptFailed") || text.contains("PageTimeout") {
-        return "It did not answer. Put it in pairing mode and try again.".to_string();
+        return drifter_core::lang::t("It did not answer. Put it in pairing mode and try again.").to_string();
     }
-    format!("It did not pair: {text}")
+    drifter_core::lang::tf("It did not pair: {}", &[&(text)])
 }
 
 #[cfg(test)]

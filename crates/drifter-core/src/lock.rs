@@ -23,9 +23,9 @@ pub enum Note {
 impl Note {
     pub fn text(self) -> &'static str {
         match self {
-            Note::Ask => "Enter Password",
-            Note::Checking => "Checking...",
-            Note::Wrong => "Wrong password",
+            Note::Ask => crate::lang::t("Enter Password"),
+            Note::Checking => crate::lang::t("Checking..."),
+            Note::Wrong => crate::lang::t("Wrong password"),
         }
     }
 }

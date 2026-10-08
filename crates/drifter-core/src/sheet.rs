@@ -682,34 +682,34 @@ impl Sheet {
                 tab: Tab::Command,
                 text,
                 ..
-            } => Some(("Add", Pick::Command(text.trim().to_string()))),
+            } => Some((crate::lang::t("Add"), Pick::Command(text.trim().to_string()))),
             Sheet::Picker { .. } => None,
             Sheet::Files {
                 purpose: For::Folder | For::WindowArt | For::DockArt,
                 folder,
                 ..
-            } => Some(("Choose this folder", Pick::Folder(folder.clone()))),
+            } => Some((crate::lang::t("Choose this folder"), Pick::Folder(folder.clone()))),
             Sheet::Files {
                 purpose: For::Export,
                 folder,
                 ..
-            } => Some(("Save here", Pick::Folder(folder.clone()))),
+            } => Some((crate::lang::t("Save here"), Pick::Folder(folder.clone()))),
             Sheet::Files {
                 purpose: For::DockIcon(_),
                 ..
-            } => Some(("Use the app's icon", Pick::Default)),
-            Sheet::Capture { .. } => Some(("No shortcut", Pick::Default)),
-            Sheet::Secret { text, .. } => Some(("Join", Pick::Command(text.clone()))),
+            } => Some((crate::lang::t("Use the app's icon"), Pick::Default)),
+            Sheet::Capture { .. } => Some((crate::lang::t("No shortcut"), Pick::Default)),
+            Sheet::Secret { text, .. } => Some((crate::lang::t("Join"), Pick::Command(text.clone()))),
             Sheet::Form { go, .. } => self.submit().map(|pick| (*go, pick)),
-            Sheet::Faces { .. } => Some(("Choose a file…", Pick::Browse)),
+            Sheet::Faces { .. } => Some((crate::lang::t("Choose a file…"), Pick::Browse)),
             Sheet::Files { .. } | Sheet::Choices { .. } | Sheet::Info { .. } => None,
         }
     }
 
     fn cancel_label(&self) -> &'static str {
         match self {
-            Sheet::Info { .. } => "Close",
-            _ => "Cancel",
+            Sheet::Info { .. } => crate::lang::t("Close"),
+            _ => crate::lang::t("Cancel"),
         }
     }
 
@@ -722,46 +722,46 @@ impl Sheet {
             return title;
         }
         match self.purpose() {
-            For::Login => "Start at login",
-            For::Dock => "Add to the dock",
-            For::Folder => "Choose a wallpaper folder",
-            For::ShotFolder => "Choose where screenshots go",
-            For::DockIcon(_) => "Choose an icon",
-            For::Default(crate::desktop::Role::Files) => "Choose the file manager",
-            For::Default(crate::desktop::Role::Terminal) => "Choose the terminal",
-            For::Default(crate::desktop::Role::Browser) => "Choose the web browser",
-            For::Default(crate::desktop::Role::Editor) => "Choose the text editor",
-            For::Default(crate::desktop::Role::Mail) => "Choose the mail app",
-            For::Default(crate::desktop::Role::Images) => "Choose the photo viewer",
-            For::Default(crate::desktop::Role::Video) => "Choose the video player",
-            For::Default(crate::desktop::Role::Music) => "Choose the music player",
-            For::Layout => "Choose a keyboard layout",
-            For::Variant => "Choose a variant",
-            For::Picture => "Choose a wallpaper",
-            For::Pointer => "Choose a pointer picture",
-            For::Font => "Choose a font",
-            For::WindowArt => "Choose the window art folder",
-            For::DockArt => "Choose the dock art folder",
-            For::IconTheme => "Choose an icon theme",
-            For::CursorTheme => "Choose a cursor theme",
-            For::Output => "Choose a speaker or headphones",
-            For::Input => "Choose a microphone",
-            For::Zone => "Choose a time zone",
-            For::Shortcut(_) => "Press the new shortcut",
-            For::Import => "Choose a settings file",
-            For::Export => "Choose where to save the settings",
-            For::Wifi(_) | For::WifiEnterprise(_) => "Join a network",
-            For::WifiHidden => "Join a hidden network",
-            For::BluePin | For::BlueConfirm => "Pair a device",
-            For::NetInfo(_) => "Network details",
-            For::MyName => "Change your full name",
-            For::MyPassword => "Change your password",
-            For::MyFace | For::NewFace => "Choose a picture",
-            For::AddUser => "Add a user",
-            For::RemoveUser(_) => "Remove a user",
-            For::MakeAdmin(_) => "Change a user",
-            For::PlaceName(_) => "Rename this place",
-            For::DockItem(_) => "Dock item",
+            For::Login => crate::lang::t("Start at login"),
+            For::Dock => crate::lang::t("Add to the dock"),
+            For::Folder => crate::lang::t("Choose a wallpaper folder"),
+            For::ShotFolder => crate::lang::t("Choose where screenshots go"),
+            For::DockIcon(_) => crate::lang::t("Choose an icon"),
+            For::Default(crate::desktop::Role::Files) => crate::lang::t("Choose the file manager"),
+            For::Default(crate::desktop::Role::Terminal) => crate::lang::t("Choose the terminal"),
+            For::Default(crate::desktop::Role::Browser) => crate::lang::t("Choose the web browser"),
+            For::Default(crate::desktop::Role::Editor) => crate::lang::t("Choose the text editor"),
+            For::Default(crate::desktop::Role::Mail) => crate::lang::t("Choose the mail app"),
+            For::Default(crate::desktop::Role::Images) => crate::lang::t("Choose the photo viewer"),
+            For::Default(crate::desktop::Role::Video) => crate::lang::t("Choose the video player"),
+            For::Default(crate::desktop::Role::Music) => crate::lang::t("Choose the music player"),
+            For::Layout => crate::lang::t("Choose a keyboard layout"),
+            For::Variant => crate::lang::t("Choose a variant"),
+            For::Picture => crate::lang::t("Choose a wallpaper"),
+            For::Pointer => crate::lang::t("Choose a pointer picture"),
+            For::Font => crate::lang::t("Choose a font"),
+            For::WindowArt => crate::lang::t("Choose the window art folder"),
+            For::DockArt => crate::lang::t("Choose the dock art folder"),
+            For::IconTheme => crate::lang::t("Choose an icon theme"),
+            For::CursorTheme => crate::lang::t("Choose a cursor theme"),
+            For::Output => crate::lang::t("Choose a speaker or headphones"),
+            For::Input => crate::lang::t("Choose a microphone"),
+            For::Zone => crate::lang::t("Choose a time zone"),
+            For::Shortcut(_) => crate::lang::t("Press the new shortcut"),
+            For::Import => crate::lang::t("Choose a settings file"),
+            For::Export => crate::lang::t("Choose where to save the settings"),
+            For::Wifi(_) | For::WifiEnterprise(_) => crate::lang::t("Join a network"),
+            For::WifiHidden => crate::lang::t("Join a hidden network"),
+            For::BluePin | For::BlueConfirm => crate::lang::t("Pair a device"),
+            For::NetInfo(_) => crate::lang::t("Network details"),
+            For::MyName => crate::lang::t("Change your full name"),
+            For::MyPassword => crate::lang::t("Change your password"),
+            For::MyFace | For::NewFace => crate::lang::t("Choose a picture"),
+            For::AddUser => crate::lang::t("Add a user"),
+            For::RemoveUser(_) => crate::lang::t("Remove a user"),
+            For::MakeAdmin(_) => crate::lang::t("Change a user"),
+            For::PlaceName(_) => crate::lang::t("Rename this place"),
+            For::DockItem(_) => crate::lang::t("Dock item"),
         }
     }
 
@@ -860,7 +860,7 @@ impl Sheet {
 
         if let (Some(tabs), Sheet::Picker { tab, .. }) = (frame.tabs, self) {
             canvas.round_rect(tabs, 7.0, look.off, 1.0);
-            for (slot, (name, which)) in [("Applications", Tab::Apps), ("Command", Tab::Command)]
+            for (slot, (name, which)) in [(crate::lang::t("Applications"), Tab::Apps), (crate::lang::t("Command"), Tab::Command)]
                 .iter()
                 .enumerate()
             {
@@ -914,7 +914,7 @@ impl Sheet {
                     1.0,
                 );
                 let (shown, ink) = match text.is_empty() {
-                    true => ("A command line, like foot -e htop", look.dim),
+                    true => (crate::lang::t("A command line, like foot -e htop"), look.dim),
                     false => (text.as_str(), look.ink),
                 };
                 let room = field.size.x - 24.0;
@@ -934,7 +934,7 @@ impl Sheet {
                 );
                 canvas.round_rect(caret, 0.0, look.accent, 1.0);
                 let note = fonts.small.paint(
-                    "It runs as written, with no shell. Press Enter to add it.",
+                    crate::lang::t("It runs as written, with no shell. Press Enter to add it."),
                     look.dim,
                 );
                 canvas.stamp(
@@ -961,7 +961,7 @@ impl Sheet {
                 );
                 let dots = "•".repeat(text.chars().count());
                 let (shown, ink) = match text.is_empty() {
-                    true => ("Password", look.dim),
+                    true => (crate::lang::t("Password"), look.dim),
                     false => (dots.as_str(), look.ink),
                 };
                 let room = field.size.x - 24.0;
@@ -982,7 +982,7 @@ impl Sheet {
                 canvas.round_rect(caret, 0.0, look.accent, 1.0);
                 let note = fonts
                     .small
-                    .paint("Type the network password, then press Enter.", look.dim);
+                    .paint(crate::lang::t("Type the network password, then press Enter."), look.dim);
                 canvas.stamp(
                     &note,
                     field.origin + Vec2::new(4.0, field.size.y + 10.0),
@@ -993,14 +993,14 @@ impl Sheet {
                 let list = frame.list;
                 canvas.round_rect(list, 8.0, look.card, 1.0);
                 let shown = match now.is_empty() {
-                    true => "None".to_string(),
+                    true => crate::lang::t("None").to_string(),
                     false => now.clone(),
                 };
                 let keys = fonts.title.paint(&shown, look.ink);
                 canvas.stamp(&keys, list.center() - crate::paint::logical(&keys) / 2.0, 1.0);
                 let lines = [
-                    "Hold Ctrl, Alt, Shift or Super and press a key.",
-                    "Esc keeps the old shortcut.",
+                    crate::lang::t("Hold Ctrl, Alt, Shift or Super and press a key."),
+                    crate::lang::t("Esc keeps the old shortcut."),
                 ];
                 for (at, line) in lines.iter().enumerate() {
                     let text = fonts.small.paint(line, look.dim);
@@ -1081,11 +1081,11 @@ impl Sheet {
                         Some(image) => canvas.stamp(image, spot.center() - crate::paint::logical(image) / 2.0, 1.0),
                         None => canvas.round_rect(spot, spot.size.x * 0.22, look.off, 1.0),
                     }
-                    "Click the icon to choose another."
+                    crate::lang::t("Click the icon to choose another.")
                 }
                 None => {
                     paint_face(canvas, look, icons, spot, picture.as_deref());
-                    "Click the picture to choose another."
+                    crate::lang::t("Click the picture to choose another.")
                 }
             };
             let hint = fonts.small.paint(words, look.dim);
@@ -1129,7 +1129,7 @@ impl Sheet {
             }
         }
         if let (Some(row), Some(chosen)) = (form.shape_row, shape) {
-            let label = fonts.small.paint("Shape", look.dim);
+            let label = fonts.small.paint(crate::lang::t("Shape"), look.dim);
             canvas.stamp(&label, row.origin - Vec2::new(-2.0, 20.0), 1.0);
             canvas.round_rect(row, 7.0, look.rule, 1.0);
             for (at, (rect, name)) in form.shapes.iter().zip(SHAPES).enumerate() {
@@ -1203,7 +1203,7 @@ impl Sheet {
             | Sheet::Faces { .. } => Vec::new(),
         };
         if rows.is_empty() {
-            let empty = fonts.small.paint("Nothing here", look.dim);
+            let empty = fonts.small.paint(crate::lang::t("Nothing here"), look.dim);
             inside.stamp(&empty, list.size / 2.0 - crate::paint::logical(&empty) / 2.0, 1.0);
         }
         for (index, (name, icon, folder)) in rows.iter().enumerate() {
@@ -1304,7 +1304,7 @@ fn paint_faces(
     if stock.is_empty() {
         let empty = fonts
             .small
-            .paint("No pictures here yet. Choose a file instead.", look.dim);
+            .paint(crate::lang::t("No pictures here yet. Choose a file instead."), look.dim);
         inside.stamp(&empty, list.size / 2.0 - crate::paint::logical(&empty) / 2.0, 1.0);
     }
     for (path, cell) in stock.iter().zip(face_cells(list.size.x, stock.len())) {
@@ -1340,7 +1340,7 @@ fn search(canvas: &mut Canvas, look: &Look, fonts: &Fonts, field: Rect, text: &s
         1.0,
     );
     let (shown, ink) = match text.is_empty() {
-        true => ("Type to search", look.dim),
+        true => (crate::lang::t("Type to search"), look.dim),
         false => (text, look.ink),
     };
     let room = field.size.x - 24.0;

@@ -77,16 +77,16 @@ pub fn plain(message: &str) -> String {
             .map(|at| words[at + 1..].iter().copied().filter(|word| !word.starts_with('-')).collect())
             .unwrap_or_default();
         return match wanted.as_slice() {
-            [] if installs.is_some() => "Drifter wants to install software.".to_string(),
-            [] => "Drifter wants to make a change.".to_string(),
-            names => format!("Drifter wants to install {}.", names.iter().map(|name| pretty(name)).collect::<Vec<_>>().join(", ")),
+            [] if installs.is_some() => crate::lang::t("Drifter wants to install software.").to_string(),
+            [] => crate::lang::t("Drifter wants to make a change.").to_string(),
+            names => crate::lang::tf("Drifter wants to install {}.", &[&(names.iter().map(|name| pretty(name)).collect::<Vec<_>>().join(", "))]),
         };
     }
     let rest = ["Authentication is required to ", "Authentication is needed to "]
         .iter()
         .find_map(|head| message.strip_prefix(head));
     match rest {
-        Some(rest) => format!("Drifter wants to {}", rest.trim_end_matches('.')).trim().to_string() + ".",
+        Some(rest) => crate::lang::tf("Drifter wants to {}", &[&(rest.trim_end_matches('.'))]).trim().to_string() + ".",
         None => message.to_string(),
     }
 }
@@ -204,7 +204,7 @@ impl Look {
         let dots = ask.typed.min(MOST_DOTS);
         match dots {
             0 => {
-                let hint = font.paint("Password", self.dim);
+                let hint = font.paint(crate::lang::t("Password"), self.dim);
                 let at = Vec2::new(field.origin.x + 12.0, field.center().y - crate::paint::logical(&hint).y / 2.0);
                 canvas.stamp(&hint, at.round(), 0.7);
             }
@@ -216,7 +216,7 @@ impl Look {
             }
         }
         let note = match (ask.busy, &ask.error) {
-            (true, _) => Some(("Checking…".to_string(), self.dim)),
+            (true, _) => Some((crate::lang::t("Checking…").to_string(), self.dim)),
             (false, Some(error)) => Some((error.clone(), self.bad)),
             _ => None,
         };
@@ -225,8 +225,8 @@ impl Look {
             canvas.stamp(&painted, Vec2::new(middle - crate::paint::logical(&painted).x / 2.0, field.max().y + 6.0).round(), 1.0);
         }
         for (rect, label, color, ink) in [
-            (self.cancel_rect(size), "Cancel", self.off, self.ink),
-            (self.go_rect(size), "Allow", self.accent, [255, 255, 255]),
+            (self.cancel_rect(size), crate::lang::t("Cancel"), self.off, self.ink),
+            (self.go_rect(size), crate::lang::t("Allow"), self.accent, [255, 255, 255]),
         ] {
             canvas.round_rect(rect, 8.0, color, if ask.busy { 0.5 } else { 1.0 });
             let painted = font.paint(label, ink);

@@ -60,21 +60,21 @@ impl Action {
 
     pub fn label(self) -> &'static str {
         match self {
-            Action::Switch => "Switch windows",
-            Action::Close => "Close the window",
-            Action::Screenshot => "Take a screenshot",
-            Action::Lock => "Lock the screen",
-            Action::Power => "Power menu",
-            Action::Overview => "Overview",
-            Action::Terminal => "Open the terminal",
-            Action::Files => "Open the file manager",
-            Action::Browser => "Open the web browser",
-            Action::Settings => "Open Settings",
-            Action::Search => "Search",
-            Action::ShotScreen => "Screenshot of the screen",
-            Action::ShotPart => "Screenshot of a part or a window",
-            Action::ShotBar => "Screenshot and recording bar",
-            Action::ScreenReader => "Turn the screen reader on or off",
+            Action::Switch => crate::lang::t("Switch windows"),
+            Action::Close => crate::lang::t("Close the window"),
+            Action::Screenshot => crate::lang::t("Take a screenshot"),
+            Action::Lock => crate::lang::t("Lock the screen"),
+            Action::Power => crate::lang::t("Power menu"),
+            Action::Overview => crate::lang::t("Overview"),
+            Action::Terminal => crate::lang::t("Open the terminal"),
+            Action::Files => crate::lang::t("Open the file manager"),
+            Action::Browser => crate::lang::t("Open the web browser"),
+            Action::Settings => crate::lang::t("Open Settings"),
+            Action::Search => crate::lang::t("Search"),
+            Action::ShotScreen => crate::lang::t("Screenshot of the screen"),
+            Action::ShotPart => crate::lang::t("Screenshot of a part or a window"),
+            Action::ShotBar => crate::lang::t("Screenshot and recording bar"),
+            Action::ScreenReader => crate::lang::t("Turn the screen reader on or off"),
         }
     }
 
@@ -235,7 +235,7 @@ impl Combo {
         let real = self.resolve(camera);
         let mut parts: Vec<String> = Vec::new();
         let mods = [
-            (real.mods.ctrl, "Ctrl"),
+            (real.mods.ctrl, crate::lang::t("Ctrl")),
             (real.mods.alt, "Alt"),
             (real.mods.shift, "Shift"),
             (real.mods.logo, "Super"),
@@ -284,13 +284,13 @@ pub fn keysym_word(name: &str) -> String {
 
 pub fn pretty(key: &str) -> String {
     match key {
-        "Return" => "Enter".into(),
-        "Escape" => "Esc".into(),
-        "Print" => "Print Screen".into(),
+        "Return" => crate::lang::t("Enter").into(),
+        "Escape" => crate::lang::t("Esc").into(),
+        "Print" => crate::lang::t("Print Screen").into(),
         "space" => "Space".into(),
-        "BackSpace" => "Backspace".into(),
-        "Prior" => "Page Up".into(),
-        "Next" => "Page Down".into(),
+        "BackSpace" => crate::lang::t("Backspace").into(),
+        "Prior" => crate::lang::t("Page Up").into(),
+        "Next" => crate::lang::t("Page Down").into(),
         key if key.chars().count() == 1 => key.to_uppercase(),
         key => key.replace('_', " "),
     }

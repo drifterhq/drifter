@@ -164,8 +164,8 @@ pub fn moments(readings: &[Reading]) -> Vec<Moment> {
         }
         found.push(Moment {
             at: peak.0,
-            head: format!("{} worked hard", lead.name),
-            words: format!("It used up to {}% of the CPU for {}.", peak.1.round() as u64, span(end - at + 1)),
+            head: crate::lang::tf("{} worked hard", &[&(lead.name)]),
+            words: crate::lang::tf("It used up to {}% of the CPU for {}.", &[&(peak.1.round() as u64), &(span(end - at + 1))]),
         });
         at = end + 1;
     }
@@ -181,22 +181,22 @@ pub fn moments(readings: &[Reading]) -> Vec<Moment> {
                 found.push(Moment {
                     at,
                     head: format!("{} opened", share.name),
-                    words: format!("It holds {} of memory.", super::memory_words(share.mem_mb * 1024)),
+                    words: crate::lang::tf("It holds {} of memory.", &[&(super::memory_words(share.mem_mb * 1024))]),
                 });
             }
         }
         if now.mem >= 90.0 && was.mem < 90.0 {
             found.push(Moment {
                 at,
-                head: "Memory got tight".to_string(),
-                words: format!("{}% of memory was in use.", now.mem.round() as u64),
+                head: crate::lang::t("Memory got tight").to_string(),
+                words: crate::lang::tf("{}% of memory was in use.", &[&(now.mem.round() as u64)]),
             });
         }
         if now.swap_mb >= was.swap_mb + 100 {
             found.push(Moment {
                 at,
-                head: "Memory moved to swap".to_string(),
-                words: format!("{} MB moved to the disk to make room.", now.swap_mb - was.swap_mb),
+                head: crate::lang::t("Memory moved to swap").to_string(),
+                words: crate::lang::tf("{} MB moved to the disk to make room.", &[&(now.swap_mb - was.swap_mb)]),
             });
         }
     }
@@ -206,9 +206,9 @@ pub fn moments(readings: &[Reading]) -> Vec<Moment> {
 
 pub fn ago(seconds: u64) -> String {
     match seconds {
-        0..45 => "Now".to_string(),
-        45..90 => "1 min ago".to_string(),
-        _ => format!("{} min ago", (seconds as f64 / 60.0).round() as u64),
+        0..45 => crate::lang::t("Now").to_string(),
+        45..90 => crate::lang::t("1 min ago").to_string(),
+        _ => crate::lang::tf("{} min ago", &[&((seconds as f64 / 60.0).round() as u64)]),
     }
 }
 

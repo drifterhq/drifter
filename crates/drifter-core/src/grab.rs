@@ -39,12 +39,12 @@ impl Tool {
 
     pub fn label(self) -> &'static str {
         match (self.take, self.pick) {
-            (Take::Still, Pick::Screen) => "Capture Entire Screen",
-            (Take::Still, Pick::Window) => "Capture Selected Window",
-            (Take::Still, Pick::Portion) => "Capture Selected Portion",
-            (Take::Video, Pick::Screen) => "Record Entire Screen",
-            (Take::Video, Pick::Window) => "Record Selected Window",
-            (Take::Video, Pick::Portion) => "Record Selected Portion",
+            (Take::Still, Pick::Screen) => crate::lang::t("Capture Entire Screen"),
+            (Take::Still, Pick::Window) => crate::lang::t("Capture Selected Window"),
+            (Take::Still, Pick::Portion) => crate::lang::t("Capture Selected Portion"),
+            (Take::Video, Pick::Screen) => crate::lang::t("Record Entire Screen"),
+            (Take::Video, Pick::Window) => crate::lang::t("Record Selected Window"),
+            (Take::Video, Pick::Portion) => crate::lang::t("Record Selected Portion"),
         }
     }
 
@@ -59,8 +59,8 @@ impl Tool {
 
     pub fn go_word(self) -> &'static str {
         match self.take {
-            Take::Still => "Capture",
-            Take::Video => "Record",
+            Take::Still => crate::lang::t("Capture"),
+            Take::Video => crate::lang::t("Record"),
         }
     }
 
@@ -108,8 +108,8 @@ pub fn crop(image: &Image, rect: Rect) -> Image {
 
 pub fn file_name(take: Take, stamp: &str, extension: &str) -> String {
     match take {
-        Take::Still => format!("Screenshot {stamp}.{extension}"),
-        Take::Video => format!("Screen Recording {stamp}.mp4"),
+        Take::Still => crate::lang::tf("Screenshot {}.{}", &[&(stamp), &(extension)]),
+        Take::Video => crate::lang::tf("Screen Recording {}.mp4", &[&(stamp)]),
     }
 }
 
@@ -163,7 +163,7 @@ pub fn sources(listing: &str) -> Vec<Source> {
         };
         match name.ends_with(".monitor") {
             true => Source {
-                label: format!("Sound from {}", label.trim_start_matches("Monitor of ")),
+                label: crate::lang::tf("Sound from {}", &[&(label.trim_start_matches("Monitor of "))]),
                 name,
             },
             false => Source { name, label },
@@ -307,7 +307,7 @@ impl Bar {
                 Slot::Close => close_mark(&mut canvas, center, self.dim),
                 Slot::Tool(tool) => tool_mark(&mut canvas, tool, center, self.ink),
                 Slot::Options => {
-                    let word = font.paint("Options", self.ink);
+                    let word = font.paint(crate::lang::t("Options"), self.ink);
                     let at = Vec2::new(rect.origin.x + 12.0, center.y - crate::paint::logical(&word).y / 2.0);
                     canvas.stamp(&word, at.round(), 1.0);
                     let tip = Vec2::new(rect.max().x - 16.0, center.y + 2.0);

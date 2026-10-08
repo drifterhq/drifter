@@ -41,7 +41,7 @@ pub fn month_name(day: NaiveDate) -> String {
         "January", "February", "March", "April", "May", "June", "July", "August", "September",
         "October", "November", "December",
     ];
-    format!("{} {}", NAMES[day.month0() as usize], day.year())
+    format!("{} {}", crate::lang::t(NAMES[day.month0() as usize]), day.year())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -154,11 +154,11 @@ impl Look {
         }
 
         let top = self.list_top(rows);
-        let heading = kinds.head.paint_bold("Notifications", self.ink);
+        let heading = kinds.head.paint_bold(crate::lang::t("Notifications"), self.ink);
         let heading_at = Vec2::new(self.pad + 4.0, top + 13.0 - crate::paint::logical(&heading).y / 2.0).round();
         canvas.stamp(&heading, heading_at, 1.0);
         if notes.is_empty() {
-            let none = kinds.body.paint("You're all caught up", self.dim);
+            let none = kinds.body.paint(crate::lang::t("You're all caught up"), self.dim);
             let at = Vec2::new((self.width - crate::paint::logical(&none).x) / 2.0, top + 34.0 + 22.0);
             canvas.stamp(&none, at.round(), 0.85);
             return canvas.image;
@@ -168,7 +168,7 @@ impl Look {
         canvas.stamp(&count, count_at.round(), 0.8);
         let clear = self.clear_rect(rows);
         canvas.round_rect(clear, 11.0, self.card, 0.9);
-        let word = kinds.meta.paint("Clear", self.ink);
+        let word = kinds.meta.paint(crate::lang::t("Clear"), self.ink);
         canvas.stamp(&word, (clear.center() - crate::paint::logical(&word) / 2.0).round(), 1.0);
         for (index, note) in notes.iter().take(NOTES).enumerate() {
             let rect = Rect::new(

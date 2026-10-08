@@ -175,6 +175,7 @@ pub fn run() -> Result<(), String> {
     let path = Config::config_path();
     Config::first_run(&path).map_err(|error| format!("cannot make {}: {error}", path.display()))?;
     let config = Config::load_from(&path).map_err(|error| error.to_string())?;
+    drifter_core::lang::use_config(config.appearance.language.as_deref());
     let find = |px| Font::find(config.font_path(), px);
     let fonts = (find(13.0)?, find(11.5)?, find(22.0)?);
     let wallpaper = config
@@ -210,7 +211,7 @@ pub fn run() -> Result<(), String> {
 
     let surface = compositor.create_surface(&qh);
     let window = shell.create_window(surface, WindowDecorations::RequestServer, &qh);
-    window.set_title("Settings");
+    window.set_title(drifter_core::lang::t("Settings"));
     window.set_app_id(APP);
     let look = themed(&model, 0.0);
     let least = look.least();
@@ -1140,9 +1141,9 @@ impl Settings {
                     let name = self.model.places.get(at).map(|place| place.name.clone()).unwrap_or_default();
                     self.sheet = Some(Sheet::form(
                         For::PlaceName(at),
-                        "Rename this place",
-                        vec![Field::plain("Name", &name)],
-                        "Save",
+                        drifter_core::lang::t("Rename this place"),
+                        vec![Field::plain(drifter_core::lang::t("Name"), &name)],
+                        drifter_core::lang::t("Save"),
                     ));
                 }
                 Some(Ask::Forget) => {
@@ -1386,22 +1387,22 @@ impl Settings {
                 let full = self.model.me().map(|me| me.full.clone()).unwrap_or_default();
                 self.sheet = Some(Sheet::form(
                     For::MyName,
-                    "Change your full name",
-                    vec![Field::plain("Full name", &full)],
-                    "Save",
+                    drifter_core::lang::t("Change your full name"),
+                    vec![Field::plain(drifter_core::lang::t("Full name"), &full)],
+                    drifter_core::lang::t("Save"),
                 ));
             }
             UserAsk::Picture => self.open_faces(For::MyFace, None),
             UserAsk::Password => {
                 self.sheet = Some(Sheet::form(
                     For::MyPassword,
-                    "Change your password",
+                    drifter_core::lang::t("Change your password"),
                     vec![
-                        Field::secret("Current password"),
-                        Field::secret("New password"),
-                        Field::secret("Repeat the new password"),
+                        Field::secret(drifter_core::lang::t("Current password")),
+                        Field::secret(drifter_core::lang::t("New password")),
+                        Field::secret(drifter_core::lang::t("Repeat the new password")),
                     ],
-                    "Change Password",
+                    drifter_core::lang::t("Change Password"),
                 ));
             }
             UserAsk::Add => {
@@ -1416,16 +1417,16 @@ impl Settings {
                 self.sheet = Some(
                     Sheet::form(
                         For::AddUser,
-                        "Add a user",
+                        drifter_core::lang::t("Add a user"),
                         vec![
-                            Field::plain("Full name", ""),
-                            Field::following("Account name"),
-                            Field::secret("Password"),
-                            Field::secret("Repeat the password"),
+                            Field::plain(drifter_core::lang::t("Full name"), ""),
+                            Field::following(drifter_core::lang::t("Account name")),
+                            Field::secret(drifter_core::lang::t("Password")),
+                            Field::secret(drifter_core::lang::t("Repeat the password")),
                         ],
-                        "Add User",
+                        drifter_core::lang::t("Add User"),
                     )
-                    .with_switch("Allow this user to administer the computer", false)
+                    .with_switch(drifter_core::lang::t("Allow this user to administer the computer"), false)
                     .with_face(face),
                 );
             }
@@ -1434,8 +1435,8 @@ impl Settings {
                     return;
                 };
                 self.model.user_note = Some(match admin {
-                    true => format!("Making {} an admin…", user.shown()),
-                    false => format!("Making {} a standard user…", user.shown()),
+                    true => drifter_core::lang::tf("Making {} an admin…", &[&(user.shown())]),
+                    false => drifter_core::lang::tf("Making {} a standard user…", &[&(user.shown())]),
                 });
                 self.user_job(
                     For::MakeAdmin(at),
@@ -1450,12 +1451,9 @@ impl Settings {
                     return;
                 };
                 self.sheet = Some(
-                    Sheet::form(For::RemoveUser(at), &format!("Remove {}?", user.shown()), Vec::new(), "Remove")
-                        .with_switch("Delete the home folder too", false)
-                        .with_note(&format!(
-                            "If you keep it, {} stays on this computer.",
-                            user.home.display()
-                        )),
+                    Sheet::form(For::RemoveUser(at), &drifter_core::lang::tf("Remove {}?", &[&(user.shown())]), Vec::new(), drifter_core::lang::t("Remove"))
+                        .with_switch(drifter_core::lang::t("Delete the home folder too"), false)
+                        .with_note(&drifter_core::lang::tf("If you keep it, {} stays on this computer.", &[&(user.home.display())])),
                 );
             }
         }
@@ -1481,15 +1479,15 @@ impl Settings {
         self.sheet = Some(
             Sheet::form(
                 For::DockItem(at),
-                "Dock item",
+                drifter_core::lang::t("Dock item"),
                 vec![
-                    Field::plain("Name", &self.model.name_of(&item)),
-                    Field::plain("Target: an app id or a command", &target),
+                    Field::plain(drifter_core::lang::t("Name"), &self.model.name_of(&item)),
+                    Field::plain(drifter_core::lang::t("Target: an app id or a command"), &target),
                 ],
-                "Save",
+                drifter_core::lang::t("Save"),
             )
             .with_art(item.icon().map(Path::to_path_buf), &Model::icon_key(&plain), shape)
-            .with_switch("Fill clear parts with a color", item.background()),
+            .with_switch(drifter_core::lang::t("Fill clear parts with a color"), item.background()),
         );
         self.want_art();
     }
@@ -1524,7 +1522,7 @@ impl Settings {
                 let _ = done.send((purpose, crate::users::run(job)));
             });
         if let Err(error) = spawned {
-            self.user_finished(purpose, Err(format!("Cannot start: {error}")));
+            self.user_finished(purpose, Err(drifter_core::lang::tf("Cannot start: {}", &[&(error)])));
         }
     }
 
@@ -1599,13 +1597,13 @@ impl Settings {
             let ssid = text(0).trim().to_string();
             if ssid.is_empty() {
                 if let Some(sheet) = self.sheet.as_mut() {
-                    sheet.work(Some("Type the network name."), false);
+                    sheet.work(Some(drifter_core::lang::t("Type the network name.")), false);
                 }
                 return;
             }
             self.sheet = None;
             let password = Some(text(1)).filter(|password| !password.is_empty());
-            let note = format!("Joining {ssid}…");
+            let note = drifter_core::lang::tf("Joining {}…", &[&(ssid)]);
             self.net_job(crate::net::Job::JoinHidden { ssid, password }, note);
             return;
         }
@@ -1617,13 +1615,13 @@ impl Settings {
             let (user, password) = (text(0).trim().to_string(), text(1));
             if user.is_empty() || password.is_empty() {
                 if let Some(sheet) = self.sheet.as_mut() {
-                    sheet.work(Some("Type your username and password."), false);
+                    sheet.work(Some(drifter_core::lang::t("Type your username and password.")), false);
                 }
                 return;
             }
             self.sheet = None;
             let domain = Some(text(2).trim().to_string()).filter(|domain| !domain.is_empty());
-            let note = format!("Joining {}…", net.ssid);
+            let note = drifter_core::lang::tf("Joining {}…", &[&(net.ssid)]);
             self.net_job(
                 crate::net::Job::JoinEnterprise {
                     ssid: net.ssid,
@@ -1652,16 +1650,16 @@ impl Settings {
         }
         let checked: Result<(Job, String), String> = match purpose {
             For::MyName => users::check_full(&text(0))
-                .map(|full| (Job::Rename(full), "Saving…".to_string())),
+                .map(|full| (Job::Rename(full), drifter_core::lang::t("Saving…").to_string())),
             For::MyPassword => match text(0).is_empty() {
-                true => Err("Type your current password.".to_string()),
+                true => Err(drifter_core::lang::t("Type your current password.").to_string()),
                 false => users::check_new_password(&text(1), &text(2)).map(|()| {
                     (
                         Job::Password {
                             old: text(0),
                             new: text(1),
                         },
-                        "Changing your password…".to_string(),
+                        drifter_core::lang::t("Changing your password…").to_string(),
                     )
                 }),
             },
@@ -1675,7 +1673,7 @@ impl Settings {
                 users::check_full(&text(0)).and_then(|full| {
                     users::check_login(&text(1), &taken)?;
                     users::check_new_password(&text(2), &text(3))?;
-                    let note = format!("Adding {full}. Type an admin password if asked.");
+                    let note = drifter_core::lang::tf("Adding {}. Type an admin password if asked.", &[&(full)]);
                     Ok((
                         Job::Add {
                             full,
@@ -1694,9 +1692,9 @@ impl Settings {
                         uid: user.uid,
                         files: on,
                     },
-                    format!("Removing {}. Type an admin password if asked.", user.shown()),
+                    drifter_core::lang::tf("Removing {}. Type an admin password if asked.", &[&(user.shown())]),
                 )),
-                None => Err("That user is gone.".to_string()),
+                None => Err(drifter_core::lang::t("That user is gone.").to_string()),
             },
             _ => return,
         };
@@ -1733,7 +1731,7 @@ impl Settings {
             });
         if let Err(error) = spawned {
             self.searching = false;
-            self.model.net_note = Some(format!("Cannot start: {error}"));
+            self.model.net_note = Some(drifter_core::lang::tf("Cannot start: {}", &[&(error)]));
         }
     }
 
@@ -1753,21 +1751,21 @@ impl Settings {
             }
             Question::Pin(name) => Sheet::form(
                 For::BluePin,
-                &format!("Type the PIN for {name}"),
-                vec![Field::plain("PIN code, often 0000 or 1234", "")],
-                "Pair",
+                &drifter_core::lang::tf("Type the PIN for {}", &[&(name)]),
+                vec![Field::plain(drifter_core::lang::t("PIN code, often 0000 or 1234"), "")],
+                drifter_core::lang::t("Pair"),
             ),
             Question::Passkey(name) => Sheet::form(
                 For::BluePin,
-                &format!("Type the passkey {name} shows"),
-                vec![Field::plain("Passkey", "")],
-                "Pair",
+                &drifter_core::lang::tf("Type the passkey {} shows", &[&(name)]),
+                vec![Field::plain(drifter_core::lang::t("Passkey"), "")],
+                drifter_core::lang::t("Pair"),
             ),
             Question::Confirm(name, key) => Sheet::form(
                 For::BlueConfirm,
-                &format!("Does {name} show {key:06}?"),
+                &drifter_core::lang::tf("Does {} show {}?", &[&(name), &format!("{:06}", key)]),
                 Vec::new(),
-                "Yes, Pair",
+                drifter_core::lang::t("Yes, Pair"),
             ),
         };
         self.agent_reply = asked.reply;
@@ -1799,21 +1797,21 @@ impl Settings {
                 if net.enterprise && !net.known {
                     self.sheet = Some(Sheet::form(
                         For::WifiEnterprise(at),
-                        &format!("Join {}", net.ssid),
+                        &drifter_core::lang::tf("Join {}", &[&(net.ssid)]),
                         vec![
-                            Field::plain("Username", ""),
-                            Field::secret("Password"),
-                            Field::plain("Server domain, if your school or work gave one", ""),
+                            Field::plain(drifter_core::lang::t("Username"), ""),
+                            Field::secret(drifter_core::lang::t("Password")),
+                            Field::plain(drifter_core::lang::t("Server domain, if your school or work gave one"), ""),
                         ],
-                        "Join",
+                        drifter_core::lang::t("Join"),
                     ));
                     return;
                 }
                 if net.secure && !net.known {
-                    self.sheet = Some(Sheet::secret(For::Wifi(at), &format!("Join {}", net.ssid)));
+                    self.sheet = Some(Sheet::secret(For::Wifi(at), &drifter_core::lang::tf("Join {}", &[&(net.ssid)])));
                     return;
                 }
-                let note = format!("Joining {}…", net.ssid);
+                let note = drifter_core::lang::tf("Joining {}…", &[&(net.ssid)]);
                 self.net_job(
                     Job::Join {
                         ssid: net.ssid,
@@ -1825,28 +1823,28 @@ impl Settings {
             }
             NetAsk::Leave(at) => {
                 if let Some(net) = net(at) {
-                    let note = format!("Leaving {}…", net.ssid);
+                    let note = drifter_core::lang::tf("Leaving {}…", &[&(net.ssid)]);
                     self.net_job(Job::Leave(net.ssid), note);
                 }
             }
             NetAsk::Forget(at) => {
                 if let Some(net) = net(at) {
-                    let note = format!("Forgetting {}…", net.ssid);
+                    let note = drifter_core::lang::tf("Forgetting {}…", &[&(net.ssid)]);
                     self.net_job(Job::Forget(net.ssid), note);
                 }
             }
             NetAsk::Hidden => {
                 self.sheet = Some(Sheet::form(
                     For::WifiHidden,
-                    "Join a hidden network",
+                    drifter_core::lang::t("Join a hidden network"),
                     vec![
-                        Field::plain("Network name", ""),
-                        Field::secret("Password, or leave it empty for an open network"),
+                        Field::plain(drifter_core::lang::t("Network name"), ""),
+                        Field::secret(drifter_core::lang::t("Password, or leave it empty for an open network")),
                     ],
-                    "Join",
+                    drifter_core::lang::t("Join"),
                 ));
             }
-            NetAsk::Search => self.net_job(Job::Search, "Searching for ten seconds…".to_string()),
+            NetAsk::Search => self.net_job(Job::Search, drifter_core::lang::t("Searching for ten seconds…").to_string()),
             NetAsk::Pair(at) | NetAsk::Connect(at) | NetAsk::Disconnect(at) | NetAsk::Remove(at) => {
                 let Some(gadget) = gadget(at) else {
                     return;
@@ -1857,11 +1855,11 @@ impl Settings {
                             mac: gadget.mac,
                             name: gadget.name.clone(),
                         },
-                        "Pairing with",
+                        drifter_core::lang::t("Pairing with"),
                     ),
-                    NetAsk::Connect(_) => (Job::Connect(gadget.mac), "Connecting to"),
-                    NetAsk::Disconnect(_) => (Job::Disconnect(gadget.mac), "Disconnecting"),
-                    _ => (Job::Remove(gadget.mac), "Removing"),
+                    NetAsk::Connect(_) => (Job::Connect(gadget.mac), drifter_core::lang::t("Connecting to")),
+                    NetAsk::Disconnect(_) => (Job::Disconnect(gadget.mac), drifter_core::lang::t("Disconnecting")),
+                    _ => (Job::Remove(gadget.mac), drifter_core::lang::t("Removing")),
                 };
                 self.net_job(job, format!("{verb} {}…", gadget.name));
             }
@@ -1883,7 +1881,7 @@ impl Settings {
     }
 
     fn open_files(&mut self, purpose: For) {
-        let pictures = drifter_core::folders::user_dir(&home(), "PICTURES", "Pictures");
+        let pictures = drifter_core::folders::user_dir(&home(), "PICTURES", drifter_core::lang::t("Pictures"));
         let pictures = if pictures.is_dir() { pictures } else { home() };
         let near = |path: Option<&PathBuf>| {
             path.and_then(|path| path.parent())
@@ -1959,14 +1957,14 @@ impl Settings {
                 self.open_faces(For::NewFace, chosen);
             }
             Pick::Browse => {
-                let pictures = drifter_core::folders::user_dir(&home(), "PICTURES", "Pictures");
+                let pictures = drifter_core::folders::user_dir(&home(), "PICTURES", drifter_core::lang::t("Pictures"));
                 let start = if pictures.is_dir() { pictures } else { home() };
                 self.sheet = Some(Sheet::files(purpose, start));
             }
             Pick::Submit { texts, on } => self.submit_form(purpose, texts, on),
             Pick::File(file) if purpose == For::MyFace => {
                 self.sheet = None;
-                self.model.user_note = Some("Changing your picture…".to_string());
+                self.model.user_note = Some(drifter_core::lang::t("Changing your picture…").to_string());
                 self.user_job(For::MyFace, crate::users::Job::Face(file));
             }
             Pick::File(file) if matches!(purpose, For::DockIcon(_)) && self.parked.is_some() => {
@@ -2010,7 +2008,7 @@ impl Settings {
                     return;
                 };
                 if let Some(net) = self.model.wifi.as_ref().and_then(|wifi| wifi.nets.get(at).cloned()) {
-                    let note = format!("Joining {}…", net.ssid);
+                    let note = drifter_core::lang::tf("Joining {}…", &[&(net.ssid)]);
                     self.net_job(
                         crate::net::Job::Join {
                             ssid: net.ssid,
@@ -2325,13 +2323,10 @@ impl Settings {
             .unwrap_or_else(|| self.path.with_file_name(drifter_core::config::DEFAULTS));
         let note = match std::fs::read_to_string(&defaults) {
             Ok(text) => match drifter_core::settings::replace_config(&self.path, &text) {
-                Ok(backup) => format!("Back to the defaults. The old file is {}", backup.display()),
-                Err(error) => format!("Cannot reset: {error}"),
+                Ok(backup) => drifter_core::lang::tf("Back to the defaults. The old file is {}", &[&(backup.display())]),
+                Err(error) => drifter_core::lang::tf("Cannot reset: {}", &[&(error)]),
             },
-            Err(error) => format!(
-                "Cannot read the defaults in {}: {error}",
-                defaults.display()
-            ),
+            Err(error) => drifter_core::lang::tf("Cannot read the defaults in {}: {}", &[&(defaults.display()), &(error)]),
         };
         self.reload();
         self.model.file_note = Some(note);
@@ -2339,12 +2334,12 @@ impl Settings {
 
     fn import(&mut self, file: &Path) {
         let note = match std::fs::read_to_string(file) {
-            Err(error) => format!("Cannot read {}: {error}", file.display()),
+            Err(error) => drifter_core::lang::tf("Cannot read {}: {}", &[&(file.display()), &(error)]),
             Ok(text) => match drifter_core::settings::check_import(&text) {
-                Err(error) => format!("Not imported: {error}"),
+                Err(error) => drifter_core::lang::tf("Not imported: {}", &[&(error)]),
                 Ok(()) => match drifter_core::settings::replace_config(&self.path, &text) {
-                    Ok(backup) => format!("Imported. The old file is {}", backup.display()),
-                    Err(error) => format!("Cannot import: {error}"),
+                    Ok(backup) => drifter_core::lang::tf("Imported. The old file is {}", &[&(backup.display())]),
+                    Err(error) => drifter_core::lang::tf("Cannot import: {}", &[&(error)]),
                 },
             },
         };
@@ -2355,8 +2350,8 @@ impl Settings {
     fn export(&mut self, folder: &Path) {
         let target = drifter_core::settings::export_path(folder, |path| path.exists());
         self.model.file_note = Some(match std::fs::copy(&self.path, &target) {
-            Ok(_) => format!("Saved to {}", target.display()),
-            Err(error) => format!("Cannot save to {}: {error}", target.display()),
+            Ok(_) => drifter_core::lang::tf("Saved to {}", &[&(target.display())]),
+            Err(error) => drifter_core::lang::tf("Cannot save to {}: {}", &[&(target.display()), &(error)]),
         });
     }
 
@@ -2417,8 +2412,8 @@ impl Settings {
         if wifi_on.is_some() && wifi_on != before.wifi.as_ref().map(|wifi| wifi.on) {
             let on = wifi_on.unwrap_or(false);
             let note = match on {
-                true => "Turning Wi-Fi on…",
-                false => "Turning Wi-Fi off…",
+                true => drifter_core::lang::t("Turning Wi-Fi on…"),
+                false => drifter_core::lang::t("Turning Wi-Fi off…"),
             };
             self.net_job(crate::net::Job::WifiPower(on), note.to_string());
         }
@@ -2426,8 +2421,8 @@ impl Settings {
         if blue_on.is_some() && blue_on != before.blue.as_ref().map(|blue| blue.on) {
             let on = blue_on.unwrap_or(false);
             let note = match on {
-                true => "Turning Bluetooth on…",
-                false => "Turning Bluetooth off…",
+                true => drifter_core::lang::t("Turning Bluetooth on…"),
+                false => drifter_core::lang::t("Turning Bluetooth off…"),
             };
             self.net_job(crate::net::Job::BluePower(on), note.to_string());
         }

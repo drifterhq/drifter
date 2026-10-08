@@ -188,7 +188,7 @@ impl Look {
             canvas.circle(glass + Vec2::new(6.5 + t, 6.5 + t), 1.6, self.dim, 1.0);
         }
         let (text, ink) = match query.is_empty() {
-            true => ("Search apps", self.dim),
+            true => (crate::lang::t("Search apps"), self.dim),
             false => (query, self.ink),
         };
         let words = big.paint(text, ink);
@@ -216,7 +216,7 @@ impl Look {
             );
         }
         if apps.is_empty() {
-            let none = font.paint("No apps match", self.dim);
+            let none = font.paint(crate::lang::t("No apps match"), self.dim);
             canvas.stamp(&none, Vec2::new((size.x - crate::paint::logical(&none).x) / 2.0, size.y / 2.0), 1.0);
         }
 

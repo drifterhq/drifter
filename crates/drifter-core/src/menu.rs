@@ -15,7 +15,7 @@ pub const BACK: i32 = -1;
 pub const BACK_RULE: i32 = -2;
 
 pub fn with_back(items: Vec<Item>) -> Vec<Item> {
-    let mut out = vec![Item::line(BACK, "Back"), Item::rule(BACK_RULE)];
+    let mut out = vec![Item::line(BACK, crate::lang::t("Back")), Item::rule(BACK_RULE)];
     out.extend(items);
     out
 }

@@ -256,10 +256,10 @@ impl State {
             .unwrap_or(0.0);
         let suggested = drifter_core::welcome::suggest(pixels.x, millimeters, &scales);
         let place = match head.name.starts_with("eDP") || head.name.starts_with("LVDS") || head.name.starts_with("DSI") {
-            true => "Built-in screen".to_string(),
+            true => drifter_core::lang::t("Built-in screen").to_string(),
             false => head.name.clone(),
         };
-        let words = format!("{place}, {} by {}", pixels.x as u32, pixels.y as u32);
+        let words = drifter_core::lang::tf("{}, {} by {}", &[&place, &(pixels.x as u32), &(pixels.y as u32)]);
         (scales, head.scale, suggested, words)
     }
 
@@ -1087,7 +1087,7 @@ impl State {
         }
         open.view.note = match installer() {
             None if picks.iter().any(|pick| matches!(pick, Pick::Get(_))) => {
-                Some("Getting new apps needs pkexec and apt or dnf.".to_string())
+                Some(drifter_core::lang::t("Getting new apps needs pkexec and apt or dnf.").to_string())
             }
             _ => None,
         };
@@ -1215,7 +1215,7 @@ impl State {
     fn welcome_install(&mut self, offer: Offer) {
         let Some((program, package)) = installer().map(|(tool, apt)| (tool, if apt { offer.apt } else { offer.dnf })) else {
             if let Some(open) = self.welcome.as_mut() {
-                open.view.note = Some("Getting new apps needs pkexec and apt or dnf.".to_string());
+                open.view.note = Some(drifter_core::lang::t("Getting new apps needs pkexec and apt or dnf.").to_string());
             }
             self.paint_welcome();
             return;
@@ -1273,7 +1273,7 @@ impl State {
         match found {
             Some(id) => self.welcome_default(offer.role, &id),
             None => {
-                open.view.note = Some(format!("{} did not install.", offer.name));
+                open.view.note = Some(drifter_core::lang::tf("{} did not install.", &[&(offer.name)]));
                 self.welcome_scan();
             }
         }

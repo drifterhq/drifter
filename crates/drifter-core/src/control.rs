@@ -36,10 +36,10 @@ impl Tile {
 
     pub fn label(self) -> &'static str {
         match self {
-            Tile::Wifi => "Wi-Fi",
-            Tile::Bluetooth => "Bluetooth",
-            Tile::Quiet => "Do Not Disturb",
-            Tile::Dark => "Dark Mode",
+            Tile::Wifi => crate::lang::t("Wi-Fi"),
+            Tile::Bluetooth => crate::lang::t("Bluetooth"),
+            Tile::Quiet => crate::lang::t("Do Not Disturb"),
+            Tile::Dark => crate::lang::t("Dark Mode"),
         }
     }
 }
@@ -67,19 +67,19 @@ impl Status {
     pub fn note(&self, tile: Tile) -> String {
         match tile {
             Tile::Wifi => match &self.wifi {
-                None => "Not available".to_string(),
-                Some((false, _)) => "Off".to_string(),
-                Some((true, name)) if name.is_empty() => "Not connected".to_string(),
+                None => crate::lang::t("Not available").to_string(),
+                Some((false, _)) => crate::lang::t("Off").to_string(),
+                Some((true, name)) if name.is_empty() => crate::lang::t("Not connected").to_string(),
                 Some((true, name)) => name.clone(),
             },
             Tile::Bluetooth => match self.bluetooth {
-                None => "Not available".to_string(),
-                Some(true) => "On".to_string(),
-                Some(false) => "Off".to_string(),
+                None => crate::lang::t("Not available").to_string(),
+                Some(true) => crate::lang::t("On").to_string(),
+                Some(false) => crate::lang::t("Off").to_string(),
             },
             Tile::Quiet | Tile::Dark => match self.on(tile) {
-                true => "On".to_string(),
-                false => "Off".to_string(),
+                true => crate::lang::t("On").to_string(),
+                false => crate::lang::t("Off").to_string(),
             },
         }
     }
@@ -205,8 +205,8 @@ impl Look {
             canvas.stamp(&note, Vec2::new(x, rect.center().y + 1.0), 1.0);
         }
         for (which, (name, level)) in [
-            ("Display", status.light),
-            ("Sound", status.volume.map(|(level, muted)| if muted { 0.0 } else { level })),
+            (crate::lang::t("Display"), status.light),
+            (crate::lang::t("Sound"), status.volume.map(|(level, muted)| if muted { 0.0 } else { level })),
         ]
         .into_iter()
         .enumerate()

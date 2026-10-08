@@ -741,9 +741,9 @@ impl State {
             use drifter_core::menu::Item;
             use drifter_core::power::Action;
             let items = vec![
-                Item::line(Action::Suspend.id(), "Sleep"),
-                Item::line(Action::Reboot.id(), "Restart…"),
-                Item::line(Action::Shutdown.id(), "Shut Down…"),
+                Item::line(Action::Suspend.id(), drifter_core::lang::t("Sleep")),
+                Item::line(Action::Reboot.id(), drifter_core::lang::t("Restart…")),
+                Item::line(Action::Shutdown.id(), drifter_core::lang::t("Shut Down…")),
             ];
             let at = Vec2::new(power.max().x, power.max().y + 6.0);
             self.open_popover(items, at, Target::Desktop);
