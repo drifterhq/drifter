@@ -1548,6 +1548,7 @@ fn run_tool(run: &mut Run, program: &str, args: &[&str]) -> (bool, String) {
 #[test]
 fn wlr_randr_lists_and_changes_the_screen() {
     let mut run = start("randr", &Config::default(), None);
+    run.screen.state.config_path = run.folder.join("drifter.toml");
     let name = run.screen.state.heads[0].name.clone();
 
     let (ok, listed) = run_tool(&mut run, "wlr-randr", &[]);
@@ -1569,9 +1570,20 @@ fn wlr_randr_lists_and_changes_the_screen() {
     assert!(!ok, "the last head cannot be turned off: {said}");
     assert_eq!(run.screen.state.heads.len(), 1);
 
-    let (ok, said) = run_tool(&mut run, "wlr-randr", &["--output", &name, "--transform", "flipped"]);
-    assert!(!ok, "a flipped head is refused: {said}");
-    assert_eq!(run.screen.state.heads[0].rotate, 90);
+    let (ok, said) = run_tool(&mut run, "wlr-randr", &["--output", &name, "--transform", "flipped-90"]);
+    assert!(ok, "a flipped head is taken: {said}");
+    let head = &run.screen.state.heads[0];
+    assert_eq!((head.rotate, head.flip), (90, true));
+    let (ok, listed) = run_tool(&mut run, "wlr-randr", &[]);
+    assert!(ok && listed.contains("Transform: flipped-90"), "{listed}");
+
+    let saved = std::fs::read_to_string(&run.screen.state.config_path).unwrap_or_default();
+    let config = Config::parse(&saved).expect("the saved config parses");
+    let kept = config.monitor.iter().find(|each| each.name == name).expect("the head is saved");
+    assert_eq!((kept.scale, kept.rotate, kept.flip), (2.0, 90, true), "{saved}");
+
+    let (_, said) = run_tool(&mut run, "wlr-randr", &["--output", &name, "--adaptive-sync", "enabled"]);
+    assert!(!run.screen.state.heads[0].vrr, "an offscreen head has no adaptive sync: {said}");
 }
 
 #[test]

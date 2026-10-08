@@ -23,6 +23,12 @@ pub struct MonitorConfig {
     pub mode: Option<String>,
     #[serde(default = "yes")]
     pub enabled: bool,
+    #[serde(default)]
+    pub flip: bool,
+    #[serde(default)]
+    pub vrr: bool,
+    #[serde(default)]
+    pub mirror: Option<String>,
 }
 
 fn one() -> f64 {
@@ -43,7 +49,14 @@ impl MonitorConfig {
             y: None,
             mode: None,
             enabled: true,
+            flip: false,
+            vrr: false,
+            mirror: None,
         }
+    }
+
+    pub fn mirrors(&self) -> Option<&str> {
+        self.mirror.as_deref().filter(|source| *source != self.name)
     }
 }
 
@@ -60,6 +73,9 @@ impl MonitorConfig {
         }
         if !TURNS.contains(&self.rotate) {
             return Err(format!("monitor {} rotate is 0, 90, 180 or 270", self.name));
+        }
+        if self.mirror.as_deref() == Some(self.name.as_str()) {
+            return Err(format!("monitor {} cannot mirror itself", self.name));
         }
         if let Some(mode) = &self.mode
             && crate::mode::parse(mode).is_none()
@@ -324,6 +340,9 @@ mod tests {
             y: at.map(|(_, y)| y),
             mode: None,
             enabled: true,
+            flip: false,
+            vrr: false,
+            mirror: None,
         }
     }
 

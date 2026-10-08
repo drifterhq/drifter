@@ -193,4 +193,55 @@ impl State {
             log!("drifter: cannot listen for sandboxed clients: {error}");
         }
     }
+
+    pub(super) fn draw_mirrors(&mut self, at: usize, clear: smithay::backend::renderer::Color32F) {
+        use smithay::backend::renderer::element::utils::{Relocate, RelocateRenderElement};
+
+        let mirrors: Vec<usize> = (0..self.heads.len())
+            .filter(|index| *index != at && self.mirror_source(&self.heads[*index]) == Some(at))
+            .filter(|index| !self.heads[*index].awaiting)
+            .collect();
+        if mirrors.is_empty() {
+            return;
+        }
+        let screen = self.screen;
+        for index in mirrors {
+            let head = &self.heads[index];
+            let turned = match head.rotate % 180 {
+                90 => Vec2::new(head.pixels.y, head.pixels.x),
+                _ => head.pixels,
+            };
+            let fit = (turned.x / screen.x).min(turned.y / screen.y);
+            let offset = ((turned - screen * fit) / 2.0).round();
+            let mut pieces = self.elements();
+            self.style_fade_elements(&mut pieces);
+            let shown: Vec<_> = pieces
+                .into_iter()
+                .map(|piece| {
+                    RelocateRenderElement::from_element(
+                        RescaleRenderElement::from_element(piece, (0, 0).into(), fit),
+                        (offset.x as i32, offset.y as i32),
+                        Relocate::Relative,
+                    )
+                })
+                .collect();
+            let State { heads, renderer, .. } = self;
+            let head = &mut heads[index];
+            match head.compositor.render_frame(renderer, &shown, clear, false) {
+                Ok(true) => continue,
+                Ok(false) => {}
+                Err(error) => {
+                    log!("drifter: mirror {} failed: {error}", head.name);
+                    continue;
+                }
+            }
+            if let Err(error) = head.compositor.queue_frame() {
+                log!("drifter: mirror {} cannot flip: {error}", head.name);
+                continue;
+            }
+            head.frames += 1;
+            head.awaiting = true;
+            self.gather_feedback(index);
+        }
+    }
 }

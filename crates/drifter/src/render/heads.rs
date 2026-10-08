@@ -4,8 +4,26 @@ impl State {
     pub(super) fn head_rects(&self) -> Vec<Rect> {
         self.heads
             .iter()
-            .map(|head| Rect::new(head.place, head.screen))
+            .map(|head| match self.mirror_source(head) {
+                Some(_) => Rect::new(head.place, Vec2::ZERO),
+                None => Rect::new(head.place, head.screen),
+            })
             .collect()
+    }
+
+    pub(super) fn own_monitor(&self, name: &str) -> drifter_core::screens::MonitorConfig {
+        self.monitors
+            .iter()
+            .find(|each| each.name == name)
+            .cloned()
+            .unwrap_or_else(|| drifter_core::screens::MonitorConfig::named(name))
+    }
+
+    pub(super) fn mirror_source(&self, head: &Head) -> Option<usize> {
+        let source = head.mirror.as_deref()?;
+        self.heads
+            .iter()
+            .position(|each| each.name == source && each.mirror.is_none())
     }
 
     pub(super) fn stash(&mut self) {
@@ -212,7 +230,8 @@ impl State {
         let (width, height) = drm_mode.size();
         let pixels = Vec2::new(f64::from(width), f64::from(height));
         let wanted = drifter_core::screens::Head::new(&name, pixels, &self.monitors);
-        let transform = turn(wanted.rotate);
+        let own = self.own_monitor(&name);
+        let transform = turn(wanted.rotate, own.flip);
         let source = OutputModeSource::Static {
             size: (i32::from(width), i32::from(height)).into(),
             scale: Scale::from(1.0),
@@ -290,6 +309,9 @@ impl State {
             pixels,
             scale: wanted.scale,
             rotate: wanted.rotate,
+            flip: own.flip,
+            vrr: false,
+            mirror: own.mirrors().map(str::to_string),
             place: Vec2::ZERO,
             camera: Camera::at_work_zoom(self.world / 2.0),
             flight: None,
@@ -462,7 +484,7 @@ impl State {
             head.compositor.set_output_mode_source(OutputModeSource::Static {
                 size: head.mode.size,
                 scale: Scale::from(1.0),
-                transform: turn(head.rotate),
+                transform: turn(head.rotate, head.flip),
             });
             head.compositor.reset_buffers();
             out!("screen      {} now {}", head.name, picked.text());
@@ -480,12 +502,47 @@ impl State {
             .iter()
             .map(|head| drifter_core::screens::Head::new(&head.name, head.pixels, &self.monitors))
             .collect();
-        let rects = drifter_core::screens::arrange(&wanted, &self.monitors);
+        let owns: Vec<drifter_core::screens::MonitorConfig> =
+            self.heads.iter().map(|head| self.own_monitor(&head.name)).collect();
+        for (head, own) in self.heads.iter_mut().zip(&owns) {
+            head.mirror = own.mirrors().map(str::to_string);
+        }
+        let mirrored: Vec<Option<usize>> = self.heads.iter().map(|head| self.mirror_source(head)).collect();
+        let free: Vec<drifter_core::screens::Head> = wanted
+            .iter()
+            .zip(&mirrored)
+            .filter(|(_, source)| source.is_none())
+            .map(|(want, _)| want.clone())
+            .collect();
+        let mut placed = drifter_core::screens::arrange(&free, &self.monitors).into_iter();
+        let mut rects: Vec<Rect> = mirrored
+            .iter()
+            .map(|source| match source {
+                None => placed.next().unwrap_or(Rect::new(Vec2::ZERO, Vec2::ZERO)),
+                Some(_) => Rect::new(Vec2::ZERO, Vec2::ZERO),
+            })
+            .collect();
+        for (index, source) in mirrored.iter().enumerate() {
+            if let Some(source) = source {
+                rects[index] = rects[*source];
+            }
+        }
         for (index, (want, rect)) in wanted.iter().zip(&rects).enumerate() {
-            let transform = turn(want.rotate);
+            let flip = owns[index].flip;
+            let transform = turn(want.rotate, flip);
+            let vrr = owns[index].vrr;
             let head = &mut self.heads[index];
             let resized = head.screen != rect.size;
-            if head.rotate != want.rotate {
+            if head.vrr != vrr {
+                match head.compositor.use_vrr(vrr) {
+                    Ok(()) => head.vrr = vrr,
+                    Err(error) => {
+                        log!("drifter: {} cannot use adaptive sync: {error}", head.name);
+                        head.vrr = false;
+                    }
+                }
+            }
+            if head.rotate != want.rotate || head.flip != flip {
                 head.compositor
                     .set_output_mode_source(OutputModeSource::Static {
                         size: head.mode.size,
@@ -496,6 +553,7 @@ impl State {
             }
             head.scale = want.scale;
             head.rotate = want.rotate;
+            head.flip = flip;
             head.place = rect.origin;
             head.screen = rect.size;
             head.output.change_current_state(
@@ -601,6 +659,8 @@ impl State {
                 enabled: true,
                 position: (head.place.x as i32, head.place.y as i32),
                 rotate: head.rotate,
+                flip: head.flip,
+                vrr: head.vrr,
                 scale: head.scale,
             }
         };
@@ -618,6 +678,8 @@ impl State {
                         enabled: false,
                         position: (0, 0),
                         rotate: own.map(|each| each.rotate).unwrap_or(0),
+                        flip: own.is_some_and(|each| each.flip),
+                        vrr: own.is_some_and(|each| each.vrr),
                         scale: own.map(|each| each.scale).unwrap_or(1.0),
                     });
                 }
@@ -664,6 +726,7 @@ impl State {
         if only_test {
             return Answer::Done;
         }
+        self.save_key(|text| drifter_core::settings::write_monitors(text, &planned));
         self.monitors = planned;
         match self.wants_rescan() {
             true => self.scan_heads(),
@@ -716,11 +779,15 @@ pub(super) fn core_modes(modes: &[smithay::reexports::drm::control::Mode]) -> Ve
         .collect()
 }
 
-pub(super) fn turn(rotate: u32) -> Transform {
-    match rotate {
-        90 => Transform::_90,
-        180 => Transform::_180,
-        270 => Transform::_270,
-        _ => Transform::Normal,
+pub(super) fn turn(rotate: u32, flip: bool) -> Transform {
+    match (rotate, flip) {
+        (90, false) => Transform::_90,
+        (180, false) => Transform::_180,
+        (270, false) => Transform::_270,
+        (_, false) => Transform::Normal,
+        (90, true) => Transform::Flipped90,
+        (180, true) => Transform::Flipped180,
+        (270, true) => Transform::Flipped270,
+        (_, true) => Transform::Flipped,
     }
 }

@@ -172,6 +172,9 @@ struct Head {
     pixels: Vec2,
     scale: f64,
     rotate: u32,
+    flip: bool,
+    vrr: bool,
+    mirror: Option<String>,
     place: Vec2,
     camera: Camera,
     flight: Option<(Flight, Instant)>,
@@ -1188,7 +1191,7 @@ impl State {
 
         let mut drew = false;
         for index in 0..self.heads.len() {
-            if self.heads[index].awaiting {
+            if self.heads[index].awaiting || self.mirror_source(&self.heads[index]).is_some() {
                 continue;
             }
             match self.with_head(index, |state| state.draw_head(now)) {
@@ -1267,6 +1270,7 @@ impl State {
                 }
             })?;
 
+        self.draw_mirrors(at, clear);
         self.serve_copies(&shown, !empty);
         self.shoot_old_style(&shown);
         self.sync_wlr_toplevels();

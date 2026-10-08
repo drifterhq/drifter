@@ -107,6 +107,23 @@ impl Scanout {
         })
     }
 
+    pub fn use_vrr(&mut self, on: bool) -> Result<(), String> {
+        each!(self, compositor => {
+            if on {
+                let support = compositor.vrr_supported(compositor.surface().current_connectors().into_iter().next().ok_or("no connector")?)
+                    .map_err(|e| e.to_string())?;
+                if support == smithay::backend::drm::VrrSupport::NotSupported {
+                    return Err("the monitor does not offer it".to_string());
+                }
+            }
+            compositor.use_vrr(on).map_err(|e| e.to_string())
+        },
+            _screen => match on {
+                true => Err("an offscreen head has no refresh to vary".to_string()),
+                false => Ok(()),
+            })
+    }
+
     pub fn queue_frame(&mut self) -> Result<(), String> {
         each!(self, compositor => compositor.queue_frame(()).map_err(|e| e.to_string()),
             _screen => Ok(()))

@@ -25,6 +25,8 @@ pub struct Seen {
     pub enabled: bool,
     pub position: (i32, i32),
     pub rotate: u32,
+    pub flip: bool,
+    pub vrr: bool,
     pub scale: f64,
 }
 
@@ -32,8 +34,9 @@ pub struct Seen {
 pub struct Want {
     pub mode: Option<Mode>,
     pub position: Option<(i32, i32)>,
-    pub rotate: Option<u32>,
+    pub rotate: Option<(u32, bool)>,
     pub scale: Option<f64>,
+    pub vrr: Option<bool>,
     pub refused: bool,
 }
 
@@ -61,24 +64,32 @@ pub struct Outputs {
 }
 
 pub fn global(display: &DisplayHandle) -> GlobalId {
-    display.create_global::<State, ZwlrOutputManagerV1, ()>(3, ())
+    display.create_global::<State, ZwlrOutputManagerV1, ()>(4, ())
 }
 
-fn transform(rotate: u32) -> Transform {
-    match rotate {
-        90 => Transform::_90,
-        180 => Transform::_180,
-        270 => Transform::_270,
-        _ => Transform::Normal,
+fn transform(rotate: u32, flip: bool) -> Transform {
+    match (rotate, flip) {
+        (90, false) => Transform::_90,
+        (180, false) => Transform::_180,
+        (270, false) => Transform::_270,
+        (_, false) => Transform::Normal,
+        (90, true) => Transform::Flipped90,
+        (180, true) => Transform::Flipped180,
+        (270, true) => Transform::Flipped270,
+        (_, true) => Transform::Flipped,
     }
 }
 
-fn rotate_of(transform: Transform) -> Option<u32> {
+fn rotate_of(transform: Transform) -> Option<(u32, bool)> {
     match transform {
-        Transform::Normal => Some(0),
-        Transform::_90 => Some(90),
-        Transform::_180 => Some(180),
-        Transform::_270 => Some(270),
+        Transform::Normal => Some((0, false)),
+        Transform::_90 => Some((90, false)),
+        Transform::_180 => Some((180, false)),
+        Transform::_270 => Some((270, false)),
+        Transform::Flipped => Some((0, true)),
+        Transform::Flipped90 => Some((90, true)),
+        Transform::Flipped180 => Some((180, true)),
+        Transform::Flipped270 => Some((270, true)),
         _ => None,
     }
 }
@@ -154,7 +165,7 @@ fn announce(display: &DisplayHandle, manager: &ZwlrOutputManagerV1, seen: &Seen)
     let mut modes = Vec::new();
     for mode in &seen.modes {
         let Ok(made) =
-            client.create_resource::<ZwlrOutputModeV1, Mode, State>(display, version, *mode)
+            client.create_resource::<ZwlrOutputModeV1, Mode, State>(display, version.min(3), *mode)
         else {
             continue;
         };
@@ -203,8 +214,15 @@ fn update(sent: &mut Sent, now: &Seen) -> bool {
             sent.head.position(now.position.0, now.position.1);
             touched = true;
         }
-        if fresh || before.rotate != now.rotate {
-            sent.head.transform(transform(now.rotate));
+        if fresh || before.rotate != now.rotate || before.flip != now.flip {
+            sent.head.transform(transform(now.rotate, now.flip));
+            touched = true;
+        }
+        if sent.head.version() >= 4 && (fresh || before.vrr != now.vrr) {
+            sent.head.adaptive_sync(match now.vrr {
+                true => zwlr_output_head_v1::AdaptiveSyncState::Enabled,
+                false => zwlr_output_head_v1::AdaptiveSyncState::Disabled,
+            });
             touched = true;
         }
         if fresh || (before.scale - now.scale).abs() > 1e-6 {
@@ -391,6 +409,11 @@ impl Dispatch<ZwlrOutputConfigurationHeadV1, Arc<Mutex<Want>>> for State {
                 WEnum::Unknown(_) => want.refused = true,
             },
             Request::SetScale { scale } => want.scale = Some(scale),
+            Request::SetAdaptiveSync { state } => match state {
+                WEnum::Value(zwlr_output_head_v1::AdaptiveSyncState::Enabled) => want.vrr = Some(true),
+                WEnum::Value(zwlr_output_head_v1::AdaptiveSyncState::Disabled) => want.vrr = Some(false),
+                _ => want.refused = true,
+            },
             _ => {}
         }
     }
@@ -420,6 +443,8 @@ pub fn plan(
                 let mut fresh = MonitorConfig::named(name);
                 fresh.scale = head.scale;
                 fresh.rotate = head.rotate;
+                fresh.flip = head.flip;
+                fresh.vrr = head.vrr;
                 out.push(fresh);
                 out.len() - 1
             }
@@ -430,7 +455,7 @@ pub fn plan(
             continue;
         };
         if want.refused {
-            return Err(format!("{name} cannot be flipped"));
+            return Err(format!("{name} was sent a transform or sync state Drifter does not know"));
         }
         entry.enabled = true;
         if let Some(mode) = want.mode {
@@ -448,8 +473,12 @@ pub fn plan(
             entry.x = Some(i64::from(x));
             entry.y = Some(i64::from(y));
         }
-        if let Some(rotate) = want.rotate {
+        if let Some((rotate, flip)) = want.rotate {
             entry.rotate = rotate;
+            entry.flip = flip;
+        }
+        if let Some(vrr) = want.vrr {
+            entry.vrr = vrr;
         }
         if let Some(scale) = want.scale {
             entry.scale = scale;

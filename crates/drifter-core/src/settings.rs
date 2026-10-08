@@ -130,7 +130,7 @@ impl Section {
     pub fn words(self) -> &'static str {
         match self {
             Section::Desktop => "world workspace zoom pan hot corner camera",
-            Section::Displays => "monitor screen scale rotation resolution refresh rate hz mode brightness night light warm",
+            Section::Displays => "monitor screen scale rotation flip resolution refresh rate hz mode adaptive sync vrr freesync gsync mirror duplicate brightness night light warm",
             Section::Wallpaper => "background picture image photo",
             Section::Appearance => "theme dark light accent color icons cursor font",
             Section::Window => "title bar buttons close minimize maximize",
@@ -232,9 +232,16 @@ pub struct Monitor {
     pub enabled: bool,
     pub modes: Vec<crate::mode::Mode>,
     pub current: Option<crate::mode::Mode>,
+    pub flip: bool,
+    pub vrr: bool,
+    pub mirror: Option<String>,
 }
 
 impl Monitor {
+    pub fn mirrors(&self) -> Option<&str> {
+        self.mirror.as_deref().filter(|source| *source != self.name)
+    }
+
     fn head(&self) -> Head {
         Head {
             name: self.name.clone(),
@@ -574,6 +581,9 @@ impl Model {
                 Monitor {
                     mode: own.and_then(|each| each.mode.clone()),
                     enabled: own.is_none_or(|each| each.enabled),
+                    flip: own.is_some_and(|each| each.flip),
+                    vrr: own.is_some_and(|each| each.vrr),
+                    mirror: own.and_then(|each| each.mirror.clone()),
                     modes: kept.map(|each| each.modes.clone()).unwrap_or_default(),
                     current: kept.and_then(|each| each.current),
                     name: head.name,
@@ -681,6 +691,9 @@ impl Model {
                 y: Some(rect.origin.y as i64),
                 mode: monitor.mode.clone(),
                 enabled: monitor.enabled,
+                flip: monitor.flip,
+                vrr: monitor.vrr,
+                mirror: monitor.mirror.clone(),
             })
             .collect();
         for kept in &self.monitor_config {
@@ -703,6 +716,34 @@ impl Model {
         }
         let rects = self.monitor_rects();
         self.monitors[at].place = screens::snap(&rects, at, wanted.round());
+    }
+
+    fn step_mirror(&mut self, up: bool) {
+        let picked = self.picked;
+        let Some(name) = self.monitors.get(picked).map(|monitor| monitor.name.clone()) else {
+            return;
+        };
+        let mut choices: Vec<Option<String>> = vec![None];
+        choices.extend(
+            self.monitors
+                .iter()
+                .filter(|each| each.name != name && each.enabled && each.mirrors().is_none())
+                .map(|each| Some(each.name.clone())),
+        );
+        let now = self.monitors[picked].mirrors().map(str::to_string);
+        let at = choices.iter().position(|each| *each == now).unwrap_or(0);
+        let next = match up {
+            true => (at + 1) % choices.len(),
+            false => (at + choices.len() - 1) % choices.len(),
+        };
+        self.monitors[picked].mirror = choices[next].clone();
+        if let Some(source) = choices[next].as_deref() {
+            for each in &mut self.monitors {
+                if each.mirrors() == Some(name.as_str()) {
+                    each.mirror = Some(source.to_string());
+                }
+            }
+        }
     }
 
     fn tidy_monitor(&mut self) {
@@ -742,6 +783,17 @@ impl Model {
                 _ => format!("{hertz:.2} Hz"),
             };
             rows.push(stepped(Id::Refresh, "Refresh rate", rates > 1, rate));
+        }
+        rows.push(
+            Row::new(Id::Vrr, "Adaptive sync", Control::Switch(monitor.vrr))
+                .detail("Smoother games and video on FreeSync and G-Sync monitors"),
+        );
+        if self.monitors.len() > 1 {
+            let shown = match monitor.mirrors() {
+                Some(source) => format!("Shows the same picture as {source}"),
+                None => "Off. This monitor has its own desktop".to_string(),
+            };
+            rows.push(Row::new(Id::Mirror, "Mirror", Control::Buttons(vec![Mark::Minus, Mark::Plus])).detail(&shown));
         }
         if self.monitors.len() > 1 {
             let others_on = self
@@ -812,6 +864,8 @@ impl Model {
                             .unwrap_or(0),
                     },
                 ),
+                Row::new(Id::Flip, "Flip left to right", Control::Switch(monitor.flip))
+                    .detail("For a projector shown from behind, or a mirror rig"),
             ]
             .into_iter()
             .chain(self.mode_rows(monitor))
@@ -1708,6 +1762,16 @@ impl Model {
                     monitor.enabled = on;
                 }
             }
+            (Id::Flip, Value::Switch(on)) => {
+                if let Some(monitor) = self.monitors.get_mut(self.picked) {
+                    monitor.flip = on;
+                }
+            }
+            (Id::Vrr, Value::Switch(on)) => {
+                if let Some(monitor) = self.monitors.get_mut(self.picked) {
+                    monitor.vrr = on;
+                }
+            }
             (Id::Turn, Value::Choice(n)) => {
                 if let Some(monitor) = self.monitors.get_mut(self.picked) {
                     monitor.rotate = screens::TURNS[n.min(3)];
@@ -1773,6 +1837,7 @@ impl Model {
             (Id::Scale, 1) => self.step_scale(true),
             (Id::Resolution, at) => self.step_mode(true, at == 1),
             (Id::Refresh, at) => self.step_mode(false, at == 1),
+            (Id::Mirror, at) => self.step_mirror(at == 1),
             (Id::MyName | Id::MyPicture | Id::MyPassword | Id::User(_) | Id::AddUser, index) => {
                 return self.press_user(id, index);
             }
@@ -2071,28 +2136,7 @@ impl Model {
         }
         let monitors = self.monitor_entries();
         if monitors != before.monitor_entries() {
-            let mut list = toml_edit::ArrayOfTables::new();
-            for monitor in &monitors {
-                let mut table = toml_edit::Table::new();
-                table.insert("name", toml_edit::value(monitor.name.as_str()));
-                table.insert("scale", toml_edit::value(monitor.scale));
-                table.insert("rotate", toml_edit::value(i64::from(monitor.rotate)));
-                if let (Some(x), Some(y)) = (monitor.x, monitor.y) {
-                    table.insert("x", toml_edit::value(x));
-                    table.insert("y", toml_edit::value(y));
-                }
-                if let Some(mode) = &monitor.mode {
-                    table.insert("mode", toml_edit::value(mode.as_str()));
-                }
-                if !monitor.enabled {
-                    table.insert("enabled", toml_edit::value(false));
-                }
-                list.push(table);
-            }
-            doc.remove("monitor");
-            if !list.is_empty() {
-                doc.insert("monitor", toml_edit::Item::ArrayOfTables(list));
-            }
+            put_monitors(&mut doc, &monitors);
         }
         for (at, key) in ["files", "terminal", "browser", "settings", "trash", "apps"]
             .iter()
@@ -2203,6 +2247,48 @@ pub fn write_app(text: &str, key: &str, item: &Launch) -> Result<String, String>
         .parse::<toml_edit::DocumentMut>()
         .map_err(|error| format!("the config no longer parses: {error}"))?;
     put(&mut doc, "apps", key, launch(item));
+    Ok(doc.to_string())
+}
+
+fn put_monitors(doc: &mut toml_edit::DocumentMut, monitors: &[MonitorConfig]) {
+    let mut list = toml_edit::ArrayOfTables::new();
+    for monitor in monitors {
+        let mut table = toml_edit::Table::new();
+        table.insert("name", toml_edit::value(monitor.name.as_str()));
+        table.insert("scale", toml_edit::value(monitor.scale));
+        table.insert("rotate", toml_edit::value(i64::from(monitor.rotate)));
+        if let (Some(x), Some(y)) = (monitor.x, monitor.y) {
+            table.insert("x", toml_edit::value(x));
+            table.insert("y", toml_edit::value(y));
+        }
+        if let Some(mode) = &monitor.mode {
+            table.insert("mode", toml_edit::value(mode.as_str()));
+        }
+        if !monitor.enabled {
+            table.insert("enabled", toml_edit::value(false));
+        }
+        if monitor.flip {
+            table.insert("flip", toml_edit::value(true));
+        }
+        if monitor.vrr {
+            table.insert("vrr", toml_edit::value(true));
+        }
+        if let Some(source) = monitor.mirrors() {
+            table.insert("mirror", toml_edit::value(source));
+        }
+        list.push(table);
+    }
+    doc.remove("monitor");
+    if !list.is_empty() {
+        doc.insert("monitor", toml_edit::Item::ArrayOfTables(list));
+    }
+}
+
+pub fn write_monitors(text: &str, monitors: &[MonitorConfig]) -> Result<String, String> {
+    let mut doc = text
+        .parse::<toml_edit::DocumentMut>()
+        .map_err(|error| format!("the config no longer parses: {error}"))?;
+    put_monitors(&mut doc, monitors);
     Ok(doc.to_string())
 }
 
@@ -2420,9 +2506,12 @@ pub enum Id {
     MonitorName,
     Scale,
     Turn,
+    Flip,
     Resolution,
     Refresh,
     MonitorOn,
+    Vrr,
+    Mirror,
     Brightness,
     Picture,
     Variant,
