@@ -1060,6 +1060,7 @@ impl Settings {
 
     fn speak(&mut self) {
         let view = crate::access::View {
+            sheet: self.sheet.as_ref(),
             model: &self.model,
             look: &self.look,
             section: self.section,
@@ -1083,6 +1084,11 @@ impl Settings {
             return;
         };
         match order {
+            Order::Pick(pick) => {
+                if self.sheet.is_some() {
+                    self.take(pick);
+                }
+            }
             Order::Section(section) => {
                 if section != self.section {
                     self.go_to(section);

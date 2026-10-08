@@ -712,14 +712,14 @@ impl Sheet {
         }
     }
 
-    fn cancel_label(&self) -> &'static str {
+    pub fn cancel_label(&self) -> &'static str {
         match self {
             Sheet::Info { .. } => crate::lang::t("Close"),
             _ => crate::lang::t("Cancel"),
         }
     }
 
-    fn title(&self) -> &str {
+    pub fn title(&self) -> &str {
         if let Sheet::Capture { title, .. }
         | Sheet::Secret { title, .. }
         | Sheet::Info { title, .. }

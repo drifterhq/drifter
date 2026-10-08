@@ -4,6 +4,7 @@ use std::hash::{Hash, Hasher};
 use accesskit::{Action, ActionData, ActionRequest, Node, NodeId, Role, Toggled, TreeId, TreeInfo, TreeUpdate};
 use drifter_core::lang::t;
 use drifter_core::settings::{Control, Hit, Id, Look, Mark, Model, Section, Spot, Value};
+use drifter_core::sheet::{Pick, Sheet};
 use drifter_core::{Rect, Vec2};
 use smithay_client_toolkit::reexports::calloop::channel::Sender;
 
@@ -13,6 +14,7 @@ pub enum Heard {
 }
 
 pub enum Aim {
+    Pick(Pick),
     Section(Section),
     Spot(Spot),
     Hit(Spot, Hit),
@@ -75,6 +77,7 @@ fn mark_name(mark: Mark) -> String {
 }
 
 pub struct View<'a> {
+    pub sheet: Option<&'a Sheet>,
     pub model: &'a Model,
     pub look: &'a Look,
     pub section: Section,
@@ -187,8 +190,9 @@ fn build(view: &View) -> (TreeUpdate, HashMap<NodeId, Aim>) {
                     for (slot, mark) in marks.iter().enumerate() {
                         let kid = node_id(&format!("{key} button {slot}"));
                         let mut button = Node::new(Role::Button);
-                        let name = match (mark, marks.contains(&Mark::Plus)) {
-                            (Mark::Minus, false) => t("Remove").to_string(),
+                        let name = match (mark, marks.contains(&Mark::Plus), marks.contains(&Mark::Minus)) {
+                            (Mark::Minus, false, _) => t("Remove").to_string(),
+                            (Mark::Plus, _, false) => t("Add").to_string(),
                             _ => mark_name(*mark),
                         };
                         button.set_label(format!("{}, {}", name, row.label));
@@ -250,7 +254,7 @@ fn build(view: &View) -> (TreeUpdate, HashMap<NodeId, Aim>) {
             nodes.push((id, node));
             rows.push(id);
         }
-        let gid = node_id(&format!("group {at}"));
+        let gid = node_id(&format!("group {:?} {at}", view.section));
         let mut node = Node::new(Role::Group);
         if let Some(header) = group.header {
             node.set_label(header);
@@ -268,9 +272,15 @@ fn build(view: &View) -> (TreeUpdate, HashMap<NodeId, Aim>) {
     panel.set_children(parts);
     nodes.push((page, panel));
 
+    let mut top = vec![side, page];
+    if let Some(sheet) = view.sheet {
+        let (dialog, inside) = sheet_nodes(sheet, &mut nodes, &mut aims);
+        top.push(dialog);
+        focus = inside;
+    }
     let mut root = Node::new(Role::Window);
     root.set_label(t("Settings"));
-    root.set_children(vec![side, page]);
+    root.set_children(top);
     nodes.push((ROOT, root));
 
     let mut info = TreeInfo::new(ROOT);
@@ -282,6 +292,169 @@ fn build(view: &View) -> (TreeUpdate, HashMap<NodeId, Aim>) {
         focus,
     };
     (update, aims)
+}
+
+fn button(nodes: &mut Vec<(NodeId, Node)>, aims: &mut HashMap<NodeId, Aim>, key: &str, label: &str, pick: Pick) -> NodeId {
+    let id = node_id(key);
+    let mut node = Node::new(Role::Button);
+    node.set_label(label);
+    node.add_action(Action::Click);
+    nodes.push((id, node));
+    aims.insert(id, Aim::Pick(pick));
+    id
+}
+
+fn sheet_nodes(sheet: &Sheet, nodes: &mut Vec<(NodeId, Node)>, aims: &mut HashMap<NodeId, Aim>) -> (NodeId, NodeId) {
+    let dialog = node_id("dialog");
+    let mut kids = Vec::new();
+    let mut focus = dialog;
+    let list = |nodes: &mut Vec<(NodeId, Node)>, aims: &mut HashMap<NodeId, Aim>, items: Vec<(String, Pick)>| {
+        let lid = node_id("dialog list");
+        let mut rows = Vec::new();
+        for (at, (name, pick)) in items.into_iter().take(200).enumerate() {
+            let id = node_id(&format!("dialog item {at} {name}"));
+            let mut node = Node::new(Role::ListItem);
+            node.set_label(name);
+            node.add_action(Action::Click);
+            nodes.push((id, node));
+            aims.insert(id, Aim::Pick(pick));
+            rows.push(id);
+        }
+        let mut node = Node::new(Role::List);
+        node.set_children(rows);
+        nodes.push((lid, node));
+        lid
+    };
+    match sheet {
+        Sheet::Form { fields, focus: at, switch, note, .. } => {
+            for (slot, field) in fields.iter().enumerate() {
+                let id = node_id(&format!("dialog field {slot}"));
+                let mut node = Node::new(if field.secret { Role::PasswordInput } else { Role::TextInput });
+                node.set_label(field.label);
+                if !field.secret {
+                    node.set_value(field.text.clone());
+                }
+                node.add_action(Action::Focus);
+                nodes.push((id, node));
+                aims.insert(id, Aim::Pick(Pick::Focus(slot)));
+                if slot == *at {
+                    focus = id;
+                }
+                kids.push(id);
+            }
+            if let Some((label, on)) = switch {
+                let id = node_id("dialog switch");
+                let mut node = Node::new(Role::CheckBox);
+                node.set_label(*label);
+                node.set_toggled(if *on { Toggled::True } else { Toggled::False });
+                node.add_action(Action::Click);
+                nodes.push((id, node));
+                aims.insert(id, Aim::Pick(Pick::Toggle));
+                kids.push(id);
+            }
+            if let Some(note) = note {
+                let id = node_id("dialog note");
+                let mut node = Node::new(Role::Label);
+                node.set_label(note.clone());
+                node.set_live(accesskit::Live::Polite);
+                nodes.push((id, node));
+                kids.push(id);
+            }
+            if let Some(pick) = sheet.enter().filter(|pick| matches!(pick, Pick::Submit { .. })) {
+                kids.push(button(nodes, aims, "dialog go", go_label(sheet), pick));
+            }
+            if fields.is_empty() {
+                focus = *kids.last().unwrap_or(&dialog);
+            }
+        }
+        Sheet::Secret { title, .. } => {
+            let id = node_id("dialog secret");
+            let mut node = Node::new(Role::PasswordInput);
+            node.set_label(title.clone());
+            nodes.push((id, node));
+            kids.push(id);
+            focus = id;
+        }
+        Sheet::Choices { items, text, .. } => {
+            let id = node_id("dialog search");
+            let mut node = Node::new(Role::SearchInput);
+            node.set_label(t("Type to search"));
+            node.set_value(text.clone());
+            nodes.push((id, node));
+            kids.push(id);
+            focus = id;
+            let found = drifter_core::sheet::matching(items, text)
+                .into_iter()
+                .map(|item| (item.name.clone(), Pick::Choice(item.code.clone())))
+                .collect();
+            kids.push(list(nodes, aims, found));
+        }
+        Sheet::Picker { apps, .. } => {
+            let found = apps.iter().enumerate().map(|(at, app)| (app.name.clone(), Pick::App(at))).collect();
+            kids.push(list(nodes, aims, found));
+        }
+        Sheet::Files { entries, folder, .. } => {
+            let mut found: Vec<(String, Pick)> = entries
+                .iter()
+                .map(|entry| match entry.folder {
+                    true => (drifter_core::lang::tf("Folder {}", &[&entry.name]), Pick::Into(entry.path.clone())),
+                    false => (entry.name.clone(), Pick::File(entry.path.clone())),
+                })
+                .collect();
+            if let Some(up) = folder.parent() {
+                found.insert(0, (t("Up one folder").to_string(), Pick::Into(up.to_path_buf())));
+            }
+            kids.push(list(nodes, aims, found));
+        }
+        Sheet::Info { lines, .. } => {
+            for (at, (name, value)) in lines.iter().enumerate() {
+                let id = node_id(&format!("dialog line {at}"));
+                let mut node = Node::new(Role::Label);
+                node.set_label(match value.is_empty() {
+                    true => name.clone(),
+                    false => format!("{name}: {value}"),
+                });
+                nodes.push((id, node));
+                kids.push(id);
+            }
+        }
+        Sheet::Capture { now, note, .. } => {
+            let id = node_id("dialog capture");
+            let mut node = Node::new(Role::Label);
+            node.set_label(match note {
+                Some(note) => note.clone(),
+                None => drifter_core::lang::tf("Press the new shortcut. Now: {}", &[now]),
+            });
+            node.set_live(accesskit::Live::Polite);
+            nodes.push((id, node));
+            kids.push(id);
+            focus = id;
+        }
+        Sheet::Faces { stock, .. } => {
+            let found = stock
+                .iter()
+                .map(|path| {
+                    let name = path.file_stem().map(|stem| stem.to_string_lossy().replace('-', " ")).unwrap_or_default();
+                    (name, Pick::File(path.clone()))
+                })
+                .collect();
+            kids.push(list(nodes, aims, found));
+        }
+    }
+    kids.push(button(nodes, aims, "dialog cancel", sheet.cancel_label(), Pick::Cancel));
+    let mut node = Node::new(Role::Dialog);
+    node.set_label(sheet.title());
+    node.set_modal();
+    node.set_children(kids);
+    nodes.push((dialog, node));
+    (dialog, focus)
+}
+
+fn go_label(sheet: &Sheet) -> &'static str {
+    match sheet {
+        Sheet::Form { go, .. } => go,
+        _ => t("OK"),
+    }
 }
 
 impl Access {
@@ -312,6 +485,8 @@ impl Access {
     pub fn aim(&self, request: &ActionRequest) -> Option<Order> {
         let aim = self.aims.get(&request.target_node)?;
         Some(match (aim, request.action) {
+            (Aim::Pick(pick), Action::Click | Action::Focus) => Order::Pick(pick.clone()),
+            (Aim::Pick(_), _) => return None,
             (Aim::Section(section), _) => Order::Section(*section),
             (Aim::Spot(spot), _) => Order::Focus(*spot),
             (Aim::Hit(spot, hit), Action::Click) => Order::Act(*spot, *hit),
@@ -329,6 +504,7 @@ impl Access {
 }
 
 pub enum Order {
+    Pick(Pick),
     Section(Section),
     Focus(Spot),
     Act(Spot, Hit),

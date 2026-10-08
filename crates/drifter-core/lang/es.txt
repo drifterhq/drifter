@@ -2097,6 +2097,12 @@ Good evening
 Color {}
 = Color {}
 
+Folder {}
+= Carpeta {}
+
+Press the new shortcut. Now: {}
+= Pulsa el nuevo atajo. Ahora: {}
+
 Settings closed
 = Ajustes se cerró
 

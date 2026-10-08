@@ -2097,6 +2097,12 @@ Good evening
 Color {}
 = Farbe {}
 
+Folder {}
+= Ordner {}
+
+Press the new shortcut. Now: {}
+= Drücke das neue Tastenkürzel. Jetzt: {}
+
 Settings closed
 = Einstellungen wurden geschlossen
 
