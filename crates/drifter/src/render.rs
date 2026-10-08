@@ -469,6 +469,7 @@ pub struct State {
     socket: String,
     drm: Option<DrmDevice>,
     gbm: Option<GbmDevice<DrmDeviceFd>>,
+    copier: Option<Result<GlesRenderer, String>>,
     render_node: Option<smithay::backend::drm::DrmNode>,
     render_formats: smithay::backend::allocator::format::FormatSet,
     virtual_size: (u32, u32),

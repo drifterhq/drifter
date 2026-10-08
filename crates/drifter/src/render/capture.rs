@@ -185,11 +185,64 @@ impl State {
             Ok(()) => return Ok(()),
             Err(error) => error,
         };
-        if !crate::screencopy::by_hand(dmabuf.format().modifier) {
-            return Err(refused);
-        }
         let bytes = self.capture(elements, cursor)?;
-        crate::screencopy::write_dmabuf(dmabuf, self.physical(), &bytes)
+        if crate::screencopy::by_hand(dmabuf.format().modifier) {
+            return crate::screencopy::write_dmabuf(dmabuf, self.physical(), &bytes);
+        }
+        self.copy_with_gpu(dmabuf, &bytes)
+            .map_err(|error| format!("{refused}; the GPU copy failed too: {error}"))
+    }
+
+    fn copy_with_gpu(
+        &mut self,
+        dmabuf: &mut smithay::backend::allocator::dmabuf::Dmabuf,
+        bytes: &[u8],
+    ) -> Result<(), String> {
+        use smithay::backend::allocator::Buffer;
+        use smithay::backend::renderer::{Bind, Frame, ImportMem, Renderer};
+        use smithay::utils::{Buffer as BufferCoord, Physical, Rectangle, Size};
+
+        if self.copier.is_none() {
+            let made = match self.gbm.as_ref() {
+                Some(gbm) => super::start::gles(gbm).map(|(renderer, _)| renderer),
+                None => Err("there is no GPU to copy with".to_string()),
+            };
+            if let Err(error) = &made {
+                log!("drifter: tiled screen copies cannot work: {error}");
+            }
+            self.copier = Some(made);
+        }
+        let Some(Ok(gles)) = self.copier.as_mut() else {
+            return Err("there is no GPU to copy with".to_string());
+        };
+        let size = dmabuf.size();
+        let (width, height) = (size.w, size.h);
+        let texture = gles
+            .import_memory(bytes, DrmFourcc::Abgr8888, (width, height).into(), false)
+            .map_err(|e| format!("cannot upload the screen: {e}"))?;
+        let mut target = gles
+            .bind(dmabuf)
+            .map_err(|e| format!("cannot draw into the buffer: {e}"))?;
+        let whole = Rectangle::<i32, Physical>::from_size(Size::from((width, height)));
+        let mut frame = gles
+            .render(&mut target, whole.size, Transform::Normal)
+            .map_err(|e| format!("cannot start the copy: {e}"))?;
+        Frame::render_texture_from_to(
+                &mut frame,
+                &texture,
+                Rectangle::<f64, BufferCoord>::from_size(Size::from((f64::from(width), f64::from(height)))),
+                whole,
+                &[whole],
+                &[],
+                Transform::Normal,
+                1.0,
+            )
+            .map_err(|e| format!("cannot copy the screen: {e}"))?;
+        frame
+            .finish()
+            .map_err(|e| format!("cannot finish the copy: {e}"))?
+            .wait()
+            .map_err(|_| "the copy was interrupted".to_string())
     }
 
     pub(super) fn serve_copies(&mut self, elements: &[Shown], changed: bool) {

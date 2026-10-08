@@ -412,6 +412,7 @@ pub fn open(
         socket: String::new(),
         drm,
         gbm,
+        copier: None,
         render_node,
         render_formats: renderer_formats,
         virtual_size,
