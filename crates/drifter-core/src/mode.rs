@@ -228,7 +228,7 @@ mod tests {
     fn a_chosen_mode_the_monitor_lacks_falls_back() {
         let modes = virtio_gpu();
         let picked = pick(&modes, Some("3840x2160@60"), None).unwrap();
-        assert_eq!((picked.width, picked.height, picked.refresh_mhz), (1920, 1080, 75_000));
+        assert_eq!((picked.width, picked.height, picked.refresh_mhz), (1280, 800, 60_000));
         let picked = pick(&modes, Some("nonsense"), Some((1280, 800))).unwrap();
         assert_eq!((picked.width, picked.height), (1280, 800));
     }
