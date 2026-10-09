@@ -187,7 +187,9 @@ pub fn read_cell(
 
 pub fn battery_rows(read: impl Fn(&str) -> Option<String>) -> Vec<(String, String)> {
     let number = |key: &str| read(key).and_then(|text| text.trim().parse::<f64>().ok());
-    if read("type").as_deref().map(str::trim) != Some("Battery") {
+    if read("type").as_deref().map(str::trim) != Some("Battery")
+        || read("scope").as_deref().map(str::trim) == Some("Device")
+    {
         return Vec::new();
     }
     let pair = |energy: &str, charge: &str| number(energy).or_else(|| number(charge));
@@ -377,6 +379,7 @@ mod tests {
     #[test]
     fn mains_power_and_a_bare_capacity_are_handled() {
         assert!(battery_rows(supply(&[("type", "Mains"), ("online", "1")])).is_empty());
+        assert!(battery_rows(supply(&[("type", "Battery"), ("scope", "Device"), ("capacity", "60")])).is_empty());
         let rows = battery_rows(supply(&[
             ("type", "Battery"),
             ("capacity", "64"),

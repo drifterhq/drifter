@@ -108,6 +108,12 @@ pub fn choices(modes: &[Mode]) -> Vec<Mode> {
 }
 
 pub fn select(modes: &[Mode], want: Option<(u32, u32)>) -> Option<Mode> {
+    let want = want.or_else(|| {
+        modes
+            .iter()
+            .find(|m| m.preferred)
+            .map(|m| (m.width, m.height))
+    });
     if let Some((width, height)) = want {
         let exact = modes
             .iter()
@@ -150,9 +156,21 @@ mod tests {
     }
 
     #[test]
-    fn the_preferred_flag_never_decides_on_its_own() {
-        let picked = select(&virtio_gpu(), None).unwrap();
-        assert_eq!((picked.width, picked.height), (1920, 1080));
+    fn a_monitor_gets_its_preferred_size_over_a_larger_one() {
+        let modes = [
+            Mode::new(4096, 2160, 60_000, false),
+            Mode::new(3840, 2160, 30_000, false),
+            Mode::new(3840, 2160, 60_000, true),
+            Mode::new(1920, 1080, 120_000, false),
+        ];
+        let picked = select(&modes, None).unwrap();
+        assert_eq!((picked.width, picked.height, picked.refresh_mhz), (3840, 2160, 60_000));
+    }
+
+    #[test]
+    fn no_preferred_mode_falls_back_to_the_largest() {
+        let modes = [Mode::new(1920, 1080, 60_000, false), Mode::new(2560, 1440, 60_000, false)];
+        assert_eq!(select(&modes, None).unwrap().width, 2560);
     }
 
     #[test]

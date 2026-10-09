@@ -192,6 +192,9 @@ pub(crate) fn battery() -> Option<(&'static str, u8)> {
         .filter_map(|entry| {
             let dir = entry.path();
             let kind = read(&dir, "type")?;
+            if read(&dir, "scope").is_some_and(|scope| scope.trim() == "Device") {
+                return None;
+            }
             let full = read(&dir, "energy_full").or_else(|| read(&dir, "charge_full"));
             let now = read(&dir, "energy_now").or_else(|| read(&dir, "charge_now"));
             stats::read_cell(
