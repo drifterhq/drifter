@@ -369,6 +369,10 @@ impl State {
             self.toggle_glance();
             return true;
         }
+        if code == BTN_LEFT && self.battery_rect().is_some_and(|rect| rect.contains(self.pointer)) {
+            self.toggle_charges();
+            return true;
+        }
         if code == BTN_LEFT
             && self
                 .clock
@@ -610,24 +614,27 @@ impl State {
             ..drifter_core::lock::Look::themed(&self.palette)
         };
         let seen = self.battery_seen;
+        let painted = self.battery_art.is_some();
         self.on_worker(
             "battery",
             move || {
                 let reading = crate::stats::battery().map(|(label, percent)| (label == "CHG", percent));
-                let image = match reading == seen {
-                    true => None,
-                    false => reading.map(|reading| {
-                        (
-                            drifter_core::lock::paint_battery(&look, font.as_deref(), reading),
-                            reading.0.then(|| drifter_core::lock::paint_charge(&look, font.as_deref(), reading)),
-                        )
-                    }),
+                let image = match (reading == seen && painted, reading) {
+                    (true, _) => None,
+                    (false, Some(reading)) => Some((
+                        drifter_core::lock::paint_battery(&look, font.as_deref(), reading),
+                        reading.0.then(|| drifter_core::lock::paint_charge(&look, font.as_deref(), reading)),
+                    )),
+                    (false, None) => Some((drifter_core::charges::paint_desktop(look.ink, 28.0), None)),
                 };
                 (reading, image)
             },
             |state, (reading, image)| {
                 state.battery_busy = false;
-                if reading == state.battery_seen {
+                if state.charges.is_some() {
+                    state.paint_charges();
+                }
+                if image.is_none() {
                     return;
                 }
                 state.battery_seen = reading;
@@ -767,7 +774,7 @@ impl State {
     }
 
     fn hover_card_spot(&self) -> Option<(HoverCard, Rect)> {
-        if self.popover.is_some() || self.glance_panel.is_some() {
+        if self.popover.is_some() || self.glance_panel.is_some() || self.charges.is_some() || self.battery_seen.is_none() {
             return None;
         }
         self.battery_rect()

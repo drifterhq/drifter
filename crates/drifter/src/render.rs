@@ -10,6 +10,7 @@ mod bars;
 mod camera;
 mod capture;
 mod centers;
+mod charges;
 mod clients;
 mod deskmenu;
 mod dock;
@@ -525,6 +526,7 @@ pub struct State {
     control_status: drifter_core::control::Status,
     control_stale: bool,
     notes_panel: Option<(TextureBuffer<Tex>, Rect, usize)>,
+    charges: Option<charges::ChargesPanel>,
     glance_panel: Option<activity::GlancePanel>,
     activity_launched: Option<Instant>,
     fn_key: drifter_core::fnkey::FnKey,
@@ -887,6 +889,11 @@ impl State {
         }
         if let Some((art, rect, _)) = self.notes_panel.as_ref().filter(|_| live) {
             elements.push(Skin::Texture(element(art, *rect, 1.0)));
+        }
+        if let Some(panel) = self.charges.as_ref().filter(|_| live)
+            && let Some(art) = panel.art.as_ref()
+        {
+            elements.push(Skin::Texture(element(art, panel.rect, 1.0)));
         }
         if let Some(panel) = self.glance_panel.as_ref().filter(|_| live)
             && let Some(art) = panel.art.as_ref()
@@ -1487,7 +1494,7 @@ impl State {
         if self.dock_drag.is_some() {
             return Some(Edge::Bottom);
         }
-        if self.control.is_some() || self.notes_panel.is_some() || self.glance_panel.is_some() {
+        if self.control.is_some() || self.notes_panel.is_some() || self.glance_panel.is_some() || self.charges.is_some() {
             return Some(Edge::Top);
         }
         for edge in Edge::ALL {

@@ -665,6 +665,9 @@ impl State {
         if self.press_centers(code) {
             return true;
         }
+        if self.press_charges() {
+            return true;
+        }
         let had_menu = self.popover.is_some();
         if self.press_popover() {
             return true;

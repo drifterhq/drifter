@@ -168,7 +168,7 @@ impl State {
 
     pub(super) fn hover_glance(&mut self) {
         let on_dot = self.stats_spot().is_some_and(|spot| spot.contains(self.pointer));
-        let busy = self.lock.is_some() || self.popover.is_some() || self.control.is_some() || self.notes_panel.is_some();
+        let busy = self.lock.is_some() || self.popover.is_some() || self.control.is_some() || self.notes_panel.is_some() || self.charges.is_some();
         if self.glance_panel.is_none() {
             if on_dot && !busy {
                 self.open_glance(false);

@@ -107,6 +107,7 @@ impl State {
         self.popover = None;
         self.control = None;
         self.notes_panel = None;
+        self.charges = None;
         self.glance_panel = None;
         self.start_ripple(at);
         let mut picks = Vec::new();

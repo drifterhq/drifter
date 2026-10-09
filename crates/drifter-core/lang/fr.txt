@@ -2678,3 +2678,12 @@ Media
 
 A livepaper is a wallpaper that moves gently and changes color with the time of day.
 = Un livepaper est un fond d’écran qui bouge doucement et change de couleur avec l’heure du jour.
+
+Batteries
+= Batteries
+
+This computer
+= Cet ordinateur
+
+No batteries found
+= Aucune batterie trouvée

@@ -164,6 +164,27 @@ impl Canvas {
         });
     }
 
+    pub fn arc(&mut self, center: Vec2, radius: f64, width: f64, share: f64, color: [u8; 3], alpha: f64) {
+        let share = share.clamp(0.0, 1.0);
+        if share <= 0.0 {
+            return;
+        }
+        let (center, radius, half) = (center * density(), radius * density(), width * density() / 2.0);
+        let sweep = share * std::f64::consts::TAU;
+        let at = |turn: f64| center + Vec2::new(turn.sin(), -turn.cos()) * radius;
+        let (start, end) = (at(0.0), at(sweep));
+        let rect = Rect::from_center(center, Vec2::splat((radius + half + 1.0) * 2.0));
+        self.shape(rect, color, alpha, |p| {
+            let rel = p - center;
+            let turn = rel.x.atan2(-rel.y).rem_euclid(std::f64::consts::TAU);
+            let band = half - (rel.length() - radius).abs();
+            match share >= 1.0 || turn <= sweep {
+                true => band,
+                false => (half - (p - start).length()).max(half - (p - end).length()),
+            }
+        });
+    }
+
     pub fn glow(&mut self, center: Vec2, radius: f64, color: [u8; 3], alpha: f64) {
         let (center, radius) = (center * density(), radius * density());
         let rect = Rect::from_center(center, Vec2::splat(radius * 2.0));

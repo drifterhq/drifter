@@ -62,6 +62,7 @@ impl State {
         self.launchpad = None;
         self.control = None;
         self.notes_panel = None;
+        self.charges = None;
         self.glance_panel = None;
         self.shooter = Some(Shooter {
             tool,

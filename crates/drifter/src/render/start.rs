@@ -494,6 +494,7 @@ pub fn open(
         control_status: drifter_core::control::Status::default(),
         control_stale: false,
         notes_panel: None,
+        charges: None,
         glance_panel: None,
         activity_launched: None,
         fn_key: drifter_core::fnkey::FnKey::default(),

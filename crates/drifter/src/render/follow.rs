@@ -358,6 +358,7 @@ impl State {
         self.search = None;
         self.control = None;
         self.notes_panel = None;
+        self.charges = None;
         self.glance_panel = None;
         let button = drifter_core::control::paint_icon(self.tray.button as u32, palette.ink);
         if let Ok(Some(buffer)) = upload(&mut self.renderer, Some(&button), "control center button") {

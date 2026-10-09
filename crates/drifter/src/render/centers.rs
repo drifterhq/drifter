@@ -106,6 +106,7 @@ impl State {
         self.control = None;
         self.notes_panel = None;
         self.glance_panel = None;
+        self.charges = None;
     }
 
     pub(super) fn press_centers(&mut self, code: u32) -> bool {

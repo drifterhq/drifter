@@ -4,6 +4,7 @@ pub mod autostart;
 pub mod calendar;
 pub mod camera;
 pub mod cascade;
+pub mod charges;
 pub mod color;
 pub mod config;
 pub mod control;
