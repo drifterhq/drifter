@@ -202,6 +202,13 @@ pub struct Search {
     pub mode_before: Option<Mode>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Pane {
+    #[default]
+    Files,
+    Side,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tab {
     pub dir: PathBuf,
@@ -336,6 +343,9 @@ pub struct Model {
     pub dragging: Option<Drag>,
     pub hover: Option<super::look::Hit>,
     pub tip: Option<super::look::Hit>,
+    pub pane: Pane,
+    pub ring: bool,
+    pub side_at: Option<usize>,
     pub saved: bool,
     pub marks: Vec<super::marks::Mark>,
     pub marks_path: PathBuf,
@@ -476,6 +486,9 @@ impl Model {
             dragging: None,
             hover: None,
             tip: None,
+            pane: Pane::Files,
+            ring: false,
+            side_at: None,
             saved: true,
             marks: Vec::new(),
             marks_path: super::marks::file(),

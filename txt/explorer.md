@@ -92,10 +92,13 @@ Later steps build on these.
     - Built: in the path, search and rename fields (List, Icons and Columns), a click puts the caret where you click, even when the text scrolls. A drag picks text, a double-click picks a word and a triple-click picks all. Shift+click extends. A click inside the rename box no longer ends the rename. Tests drive the mouse through rename in List and Icons and through the path field.
 24. Keyboard: there is no visible focus ring.
     Waits on: nothing.
+    - Built: after a key moves the focus, a ring shows on the focused item in List, Icons, Columns and Gallery, and on the focused sidebar line. With no focused item the whole file area gets the ring. A mouse click hides it. Checked on Blue.
 25. Keyboard: you cannot use Tab to move between the sidebar and the files.
     Waits on: 24.
+    - Built: Tab and Shift+Tab move the focus between the sidebar and the files. In the sidebar the focus starts on the open folder. Escape goes back to the files. A click in either pane moves the focus there. Checked on Blue.
 26. Keyboard: the tree has no keyboard control.
     Waits on: 24.
+    - Built: in the sidebar, Up, Down, Home, End and Page Up/Down move. Right opens a folder, then steps into it. Left closes it, then goes to its parent. Enter or Space opens the line (or mounts a drive). The Menu key opens the line's menu. The sidebar scrolls to keep the focus in view. Checked on Blue.
 27. Screen readers: there is no Orca support. Activity and Settings have it.
     Waits on: 24, 25, 26.
 

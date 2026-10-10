@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use super::look::{Fonts, Hit, Look, Rail, SheetHit, Spot};
-use super::model::{Act, Drag, Line, Menu, Model, Sheet};
+use super::model::{Act, Drag, Line, Menu, Model, Pane, Sheet};
 use super::prefs::{self, Click, Mode};
 use crate::geom::Vec2;
 
@@ -84,6 +84,7 @@ fn press_field(model: &mut Model, ui: &Ui, spot: Spot, at: Vec2, clicks: u32, sh
 
 pub fn press(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, button: Button, clicks: u32, mods: Mods) {
     model.tip = None;
+    model.ring = false;
     if model.menu.is_some() {
         return press_menu(model, ui, lines, at);
     }
@@ -120,6 +121,14 @@ pub fn press(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, button: Butto
         return;
     };
     let right = button == Button::Right;
+    match hit {
+        Hit::Line(index) | Hit::Caret(index) | Hit::Eject(index) => {
+            model.pane = Pane::Side;
+            model.side_at = Some(index);
+        }
+        Hit::Entry(_) | Hit::Strip(_) | Hit::Column(..) | Hit::Space | Hit::Picture => model.pane = Pane::Files,
+        _ => {}
+    }
     if button == Button::Middle {
         return press_middle(model, ui, lines, hit);
     }
@@ -687,6 +696,104 @@ pub fn scroll(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, dx: f64, dy:
     }
 }
 
+fn side_key(model: &mut Model, ui: &Ui, key: &Key) -> bool {
+    let lines = model.lines();
+    let usable: Vec<usize> = (0..lines.len()).filter(|at| !matches!(lines[*at], Line::Head(_))).collect();
+    let Some(&first) = usable.first() else {
+        return false;
+    };
+    let at = model.side_at.filter(|at| usable.contains(at)).unwrap_or(first);
+    let place = usable.iter().position(|each| *each == at).unwrap_or(0);
+    let to = match key.named {
+        Named::Up => usable[place.saturating_sub(1)],
+        Named::Down => usable[(place + 1).min(usable.len() - 1)],
+        Named::Home => first,
+        Named::End => usable[usable.len() - 1],
+        Named::PageUp => usable[place.saturating_sub(10)],
+        Named::PageDown => usable[(place + 10).min(usable.len() - 1)],
+        Named::Right => match &lines[at] {
+            Line::Folder { path, open: false, .. } => {
+                let path = path.clone();
+                model.fold(&path);
+                at
+            }
+            Line::Folder { depth, open: true, .. } => match lines.get(at + 1) {
+                Some(Line::Folder { depth: next, .. }) if next > depth => at + 1,
+                _ => at,
+            },
+            _ => at,
+        },
+        Named::Left => match &lines[at] {
+            Line::Folder { path, open: true, .. } => {
+                let path = path.clone();
+                model.fold(&path);
+                at
+            }
+            Line::Folder { depth, .. } if *depth > 0 => (0..at).rev().find(|each| matches!(&lines[*each], Line::Folder { depth: up, .. } if up + 1 == *depth)).unwrap_or(at),
+            _ => at,
+        },
+        Named::Enter | Named::Letter(' ') => {
+            model.ring = true;
+            match lines[at].clone() {
+                Line::Drive { path: None, drive: Some(drive), .. } => {
+                    if let Some(device) = drive.device {
+                        model.act(Act::Mount(device));
+                    }
+                }
+                line => {
+                    if let Some(path) = line.path() {
+                        model.go(path.to_path_buf(), None);
+                    }
+                }
+            }
+            return true;
+        }
+        Named::Menu => {
+            let Some(side) = ui.look.frame(ui.size, model).side else {
+                return true;
+            };
+            let rects = ui.look.line_rects(side, &lines, model.tree_scroll);
+            let spot = rects.get(at).map_or(Vec2::new(40.0, 120.0), |area| Vec2::new(area.origin.x + 20.0, area.max().y));
+            let items = match lines[at].clone() {
+                Line::Drive { drive: Some(drive), .. } => model.drive_menu(&drive),
+                line => match line.path() {
+                    Some(path) => model.line_menu(path, matches!(line, Line::Place { mark: true, .. })),
+                    None => return true,
+                },
+            };
+            model.menu = Some(menu_at(items, spot));
+            return true;
+        }
+        Named::Escape if model.alerts.is_empty() && model.search.is_none() => {
+            model.pane = Pane::Files;
+            return true;
+        }
+        _ => return false,
+    };
+    model.ring = true;
+    model.side_at = Some(to);
+    show_side(model, ui);
+    true
+}
+
+fn show_side(model: &mut Model, ui: &Ui) {
+    let Some(side) = ui.look.frame(ui.size, model).side else {
+        return;
+    };
+    let lines = model.lines();
+    let Some(area) = model.side_at.and_then(|at| ui.look.line_rects(side, &lines, model.tree_scroll).get(at).copied()) else {
+        return;
+    };
+    if area.origin.y < side.origin.y + 6.0 {
+        model.tree_scroll -= side.origin.y + 6.0 - area.origin.y;
+    } else if area.max().y > side.max().y - 6.0 {
+        model.tree_scroll += area.max().y - side.max().y + 6.0;
+    }
+    let most = (ui.look.tree_height(&lines) - side.size.y).max(0.0).ceil();
+    model.tree_scroll = model.tree_scroll.round().clamp(0.0, most);
+    model.tree_rest = 0.0;
+}
+
 pub fn show_focus(model: &mut Model, ui: &Ui) {
     let frame = ui.look.frame(ui.size, model);
     let body = frame.body;
@@ -800,6 +907,25 @@ pub fn key(model: &mut Model, ui: &Ui, key: &Key) {
         }
         return;
     }
+    let side_on = model.prefs.tree || model.prefs.places || model.prefs.drives;
+    if key.named == Named::Tab && !key.ctrl && !key.alt {
+        model.ring = true;
+        model.pane = match (model.pane, side_on) {
+            (Pane::Files, true) => Pane::Side,
+            _ => Pane::Files,
+        };
+        if model.pane == Pane::Side {
+            let lines = model.lines();
+            let here = lines.iter().position(|line| matches!(line, Line::Folder { path, .. } if path == &model.dir)).or_else(|| lines.iter().position(|line| line.path() == Some(model.dir.as_path())));
+            let start = model.side_at.filter(|at| lines.get(*at).is_some_and(|line| !matches!(line, Line::Head(_))));
+            model.side_at = start.or(here).or_else(|| lines.iter().position(|line| !matches!(line, Line::Head(_))));
+            show_side(model, ui);
+        }
+        return;
+    }
+    if model.pane == Pane::Side && side_on && !key.ctrl && !key.alt && side_key(model, ui, key) {
+        return;
+    }
     if key.ctrl {
         let act = match key.named {
             Named::Letter('n') if key.shift => Some(Act::NewFolder),
@@ -864,6 +990,10 @@ pub fn key(model: &mut Model, ui: &Ui, key: &Key) {
         _ => ((frame.body.size.y / super::look::ROW_H).floor() as usize).max(1),
     } as isize;
     let across = if mode == Mode::Icons { cols as isize } else { 1 };
+    if matches!(key.named, Named::Up | Named::Down | Named::Left | Named::Right | Named::Home | Named::End | Named::PageUp | Named::PageDown) {
+        model.ring = true;
+        model.pane = Pane::Files;
+    }
     match key.named {
         Named::Up => model.step(-across, key.shift),
         Named::Down => model.step(across, key.shift),

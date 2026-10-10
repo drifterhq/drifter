@@ -100,6 +100,14 @@ pub fn rail_thumb(area: Rect, content: f64, scroll: f64) -> Rect {
     rect(area.max().x - 12.0, top, 12.0, tall)
 }
 
+pub fn ringed(model: &Model, pane: super::model::Pane) -> bool {
+    model.ring && model.pane == pane && (pane == super::model::Pane::Files || model.prefs.tree || model.prefs.places || model.prefs.drives)
+}
+
+fn inset(area: Rect, by: f64) -> Rect {
+    rect(area.origin.x + by, area.origin.y + by, area.size.x - by * 2.0, area.size.y - by * 2.0)
+}
+
 pub fn rail_hot(model: &Model, rail: Rail) -> bool {
     model.hover == Some(Hit::Rail(rail)) || matches!(model.dragging, Some(super::model::Drag::Rail { rail: held, .. }) if held == rail)
 }
@@ -735,6 +743,9 @@ impl Look {
         canvas.round_rect(rect(0.0, 0.0, size.x, size.y), 0.0, self.back, 1.0);
         if touches(clip, frame.body) {
             self.paint_body(&mut canvas, &frame, job);
+            if ringed(model, super::model::Pane::Files) && model.focus_index().is_none() {
+                canvas.ring(inset(frame.body, 3.0), 8.0, 2.0, self.accent, 0.8);
+            }
         }
         if let Some(lasso) = self.lasso_box(model) {
             let top = frame.body.origin.y + if model.view.mode == Mode::List { HEAD_H } else { 0.0 };
@@ -1345,6 +1356,9 @@ impl Look {
             } else if hot {
                 canvas.round_rect(area, 7.0, self.hover, 0.7);
             }
+            if model.side_at == Some(index) && ringed(model, super::model::Pane::Side) {
+                canvas.ring(inset(area, 1.0), 7.0, 2.0, if here { self.on_accent } else { self.accent }, 1.0);
+            }
             let ink = if here { self.on_accent } else { self.ink };
             let middle = area.center().y;
             match line {
@@ -1511,7 +1525,11 @@ impl Look {
             }
             let picked = model.picked.contains(&entry.path);
             let hot = model.hover == Some(Hit::Entry(at));
-            self.row_back(canvas, area, picked, hot, model.focus.as_ref() == Some(&entry.path) && model.picked.len() > 1, at % 2 == 1);
+            let focused = model.focus.as_ref() == Some(&entry.path);
+            self.row_back(canvas, area, picked, hot, focused && model.picked.len() > 1, at % 2 == 1);
+            if focused && ringed(model, super::model::Pane::Files) {
+                canvas.ring(inset(area, 1.0), 6.0, 2.0, if picked { self.on_accent } else { self.accent }, 1.0);
+            }
             let ink = if picked { self.on_accent } else { self.ink };
             let dim = if picked { mix(self.on_accent, self.accent, 0.25) } else { self.dim };
             let middle = area.center().y;
@@ -1651,6 +1669,9 @@ impl Look {
             } else if hot {
                 canvas.round_rect(tile, 10.0, self.hover, 0.45);
             }
+            if model.focus.as_ref() == Some(&entry.path) && ringed(model, super::model::Pane::Files) {
+                canvas.ring(tile, 10.0, 2.0, self.accent, 1.0);
+            }
             self.entry_art(canvas, job.art, model, entry, art_area);
             let label_top = art_area.max().y + 8.0;
             let room = cell.x - 10.0;
@@ -1714,6 +1735,9 @@ impl Look {
                     (true, false) => canvas.round_rect(line, 6.0, self.hover, 1.0),
                     _ if hot => canvas.round_rect(line, 6.0, self.hover, 0.5),
                     _ => {}
+                }
+                if current && model.focus.as_ref() == Some(&entry.path) && ringed(model, super::model::Pane::Files) {
+                    canvas.ring(inset(line, 1.0), 6.0, 2.0, if picked { self.on_accent } else { self.accent }, 1.0);
                 }
                 let strong = picked && (current || index + 1 == count);
                 let ink = if strong { self.on_accent } else { self.ink };
@@ -1853,6 +1877,9 @@ impl Look {
                 canvas.round_rect(tile, 10.0, self.accent, 1.0);
             } else if model.hover == Some(Hit::Strip(at)) {
                 canvas.round_rect(tile, 10.0, self.hover, 0.6);
+            }
+            if model.focus.as_ref() == Some(&entry.path) && ringed(model, super::model::Pane::Files) {
+                canvas.ring(inset(tile, 1.0), 10.0, 2.0, if picked { self.on_accent } else { self.accent }, 1.0);
             }
             let side = tile.size.x - 16.0;
             self.entry_art(canvas, job.art, model, entry, Rect::from_center(tile.center(), Vec2::splat(side)));
@@ -2250,7 +2277,7 @@ impl Look {
             Sheet::Info(info) => Vec2::new(460.0, 330.0 + 34.0 * (4 + usize::from(info.mode.is_some()) + usize::from(info.target.is_some())) as f64),
             Sheet::Confirm { .. } => Vec2::new(420.0, 190.0),
             Sheet::Clash { names, .. } => Vec2::new(540.0, if names.len() == 1 { 190.0 } else { 236.0 }),
-            Sheet::Keys => Vec2::new(520.0, 615.0),
+            Sheet::Keys => Vec2::new(520.0, 640.0),
             Sheet::About => Vec2::new(380.0, 260.0),
         };
         let fitted = Vec2::new(want.x.min(size.x - 24.0), want.y.min(size.y - 24.0));
@@ -2632,12 +2659,13 @@ impl Look {
     fn paint_keys(&self, canvas: &mut Canvas, area: Rect, fonts: &Fonts) {
         let head = fonts.title.paint_weight(crate::lang::t("Keyboard Shortcuts"), self.ink, 620.0);
         canvas.stamp(&head, Vec2::new(area.origin.x + 24.0, area.origin.y + 22.0).round(), 1.0);
-        let rows: [(&str, &str); 19] = [
+        let rows: [(&str, &str); 20] = [
             ("Enter", crate::lang::t("Open")),
             ("Alt+Up / Backspace", crate::lang::t("Enclosing Folder")),
             ("Alt+Left / Alt+Right", crate::lang::t("Back and forward")),
             ("Ctrl+L", crate::lang::t("Type a path")),
             ("Ctrl+F", crate::lang::t("Search")),
+            ("Tab", crate::lang::t("Move between the sidebar and the files")),
             ("Ctrl+T / Ctrl+W", crate::lang::t("New tab and close tab")),
             ("Ctrl+Tab", crate::lang::t("Next tab")),
             ("F2", crate::lang::t("Rename")),
@@ -3100,6 +3128,66 @@ mod repaint_tests {
         input::press(&mut model, &ui, &lines, end, Button::Left, 1, Mods::default());
         input::motion(&mut model, &ui, &lines, Vec2::new(x_of(font, &text, text.len() - 4, area), area.center().y));
         assert_eq!(model.path.as_ref().unwrap().picked_text(), Some("work"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_keyboard_moves_between_the_sidebar_and_the_files() {
+        use super::super::input::{self, Button, Key, Mods, Named, Ui};
+        use super::super::model::{Pane, Pref};
+        let dir = std::env::temp_dir().join(format!("drifter-panes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("work/inner")).unwrap();
+        std::fs::write(dir.join("work/a.txt"), "x").unwrap();
+        let mut model = Model::new(dir.join("explorer.toml"), Some(dir.join("work")));
+        model.set(Pref::Root(super::super::prefs::Root::Computer));
+        for _ in 0..8 {
+            model.lines();
+            model.settle_all(std::time::Duration::from_secs(5));
+        }
+        let (Ok(body), Ok(small), Ok(title)) = (crate::Font::find(None, 13.0), crate::Font::find(None, 11.5), crate::Font::find(None, 17.0)) else {
+            return;
+        };
+        let fonts = Fonts { body: &body, small: &small, title: &title };
+        let look = Look::themed(&crate::theme::DARK, [64, 128, 238]);
+        let size = Vec2::new(900.0, 600.0);
+        crate::paint::set_density(1);
+        let ui = Ui { look: &look, fonts: &fonts, size };
+        let art = Art::default();
+        let press = |model: &mut Model, named: Named| input::key(model, &ui, &Key { named, text: None, ctrl: false, shift: false, alt: false });
+        let lines = model.lines();
+        let plain = look.paint(size, &Paint { model: &model, lines: &lines, fonts: &fonts, art: &art, clip: None });
+        press(&mut model, Named::Tab);
+        assert_eq!(model.pane, Pane::Side);
+        assert!(model.ring);
+        let lines = model.lines();
+        let at = model.side_at.expect("a line");
+        assert_eq!(lines[at].path(), Some(dir.join("work").as_path()));
+        let ringed = look.paint(size, &Paint { model: &model, lines: &lines, fonts: &fonts, art: &art, clip: None });
+        assert!(!same(&plain, &ringed), "the sidebar ring shows");
+        press(&mut model, Named::Left);
+        press(&mut model, Named::Left);
+        let lines = model.lines();
+        assert_eq!(lines[model.side_at.unwrap()].path(), Some(dir.as_path()));
+        press(&mut model, Named::Enter);
+        assert_eq!(model.dir, dir);
+        press(&mut model, Named::Right);
+        press(&mut model, Named::Right);
+        let lines = model.lines();
+        assert_eq!(lines[model.side_at.unwrap()].path(), Some(dir.join("work").as_path()));
+        press(&mut model, Named::Tab);
+        assert_eq!(model.pane, Pane::Files);
+        press(&mut model, Named::Down);
+        assert_eq!(model.focus, Some(dir.join("work")));
+        let lines = model.lines();
+        let files = look.paint(size, &Paint { model: &model, lines: &lines, fonts: &fonts, art: &art, clip: None });
+        model.ring = false;
+        let quiet = look.paint(size, &Paint { model: &model, lines: &lines, fonts: &fonts, art: &art, clip: None });
+        assert!(!same(&files, &quiet), "the file ring shows");
+        model.ring = true;
+        let frame = look.frame(size, &model);
+        input::press(&mut model, &ui, &lines, frame.body.center(), Button::Left, 1, Mods::default());
+        assert!(!model.ring);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -3311,3 +3311,6 @@ Folders inside
 
 Stop
 = Arrêter
+
+Move between the sidebar and the files
+= Passer de la barre latérale aux fichiers

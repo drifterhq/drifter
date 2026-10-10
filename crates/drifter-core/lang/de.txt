@@ -3314,3 +3314,6 @@ Folders inside
 
 Stop
 = Anhalten
+
+Move between the sidebar and the files
+= Zwischen Seitenleiste und Dateien wechseln
