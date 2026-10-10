@@ -1866,6 +1866,9 @@ impl Model {
         let in_trash = ops::in_trash(&self.dir);
         match act {
             Act::Open => {
+                if matches!(self.sheet, Some(Sheet::Look)) {
+                    self.sheet = None;
+                }
                 let paths = self.chosen_paths();
                 self.open_paths(paths);
             }
@@ -2176,8 +2179,20 @@ impl Model {
             Act::OpenRecent(path) => self.open_paths(vec![path]),
             Act::Reveal(path) => {
                 if let Some(parent) = path.parent() {
+                    let searched = self.search.is_some();
                     self.leave_search();
-                    self.go(parent.to_path_buf(), Some(path.clone()));
+                    match parent == self.dir {
+                        true => {
+                            if searched {
+                                match self.listing(&self.dir).is_some() {
+                                    true => self.apply(),
+                                    false => self.reload(),
+                                }
+                            }
+                            self.pick_only(path.clone());
+                        }
+                        false => self.go(parent.to_path_buf(), Some(path.clone())),
+                    }
                 }
             }
             Act::CopyThisPath(path) => {
@@ -2520,6 +2535,11 @@ impl Model {
             return items;
         }
         items.push(Item::new(crate::lang::t("Open"), "Enter", Act::Open));
+        if self.searching()
+            && let Some(found) = self.single().map(|one| one.path.clone())
+        {
+            items.push(Item::new(crate::lang::t("Show in Folder"), "", Act::Reveal(found)));
+        }
         match &folder {
             Some(path) => {
                 items.push(Item::new(crate::lang::t("Open in New Tab"), "", Act::Tab(path.clone())));
@@ -3195,6 +3215,58 @@ mod tests {
         press(&mut model, Named::Letter('b'), Some("b"));
         press(&mut model, Named::Letter(' '), Some(" "));
         assert_eq!(model.sheet, None, "a space while typing a name is part of the name");
+    }
+
+    #[test]
+    fn search_results_can_show_their_folder() {
+        let (place, mut model) = place("found");
+        model.act(Act::Search);
+        if let Some(search) = model.search.as_mut() {
+            search.field.put("2026");
+        }
+        model.search_changed();
+        for _ in 0..50 {
+            model.settle_all(Duration::from_millis(100));
+            if model.search.as_ref().is_some_and(|search| search.done) {
+                break;
+            }
+        }
+        let found = place.0.join("work/Photos/2026");
+        model.pick_only(found.clone());
+        let reveal = model.item_menu().into_iter().find(|item| item.act == Some(Act::Reveal(found.clone())));
+        assert!(reveal.is_some(), "a found item offers Show in Folder");
+        model.act(Act::Reveal(found.clone()));
+        assert_eq!((model.dir.clone(), model.search.is_none()), (place.0.join("work/Photos"), true));
+        assert_eq!(model.single().map(|one| one.path.clone()), Some(found));
+        model.act(Act::Search);
+        if let Some(search) = model.search.as_mut() {
+            search.field.put("2026");
+        }
+        model.search_changed();
+        for _ in 0..50 {
+            model.settle_all(Duration::from_millis(100));
+            if model.search.as_ref().is_some_and(|search| search.done) {
+                break;
+            }
+        }
+        let here = place.0.join("work/Photos/2026");
+        model.act(Act::Reveal(here.clone()));
+        assert_eq!(model.entries.len(), 1, "the whole folder comes back, not just the result");
+        model.go(place.0.join("work"), None);
+        model.act(Act::Search);
+        if let Some(search) = model.search.as_mut() {
+            search.field.put("b.txt");
+        }
+        model.search_changed();
+        for _ in 0..50 {
+            model.settle_all(Duration::from_millis(100));
+            if model.search.as_ref().is_some_and(|search| search.done) {
+                break;
+            }
+        }
+        model.act(Act::Reveal(place.0.join("work/b.txt")));
+        assert_eq!(model.entries.len(), 3, "every item of the same folder shows again");
+        assert_eq!(model.single().map(|one| one.name.clone()), Some("b.txt".to_string()));
     }
 
     #[test]
