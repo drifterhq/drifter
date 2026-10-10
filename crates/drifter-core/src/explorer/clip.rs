@@ -51,6 +51,10 @@ impl Held {
     }
 }
 
+pub fn best_files(offered: &[String]) -> Option<&'static str> {
+    [FILES, URIS].into_iter().find(|kind| offered.iter().any(|each| each == kind))
+}
+
 pub fn best(offered: &[String]) -> Option<&'static str> {
     FILE_KINDS.into_iter().find(|kind| offered.iter().any(|each| each == kind))
 }
@@ -114,5 +118,7 @@ mod tests {
         assert_eq!(best(&offered), Some(URIS));
         assert_eq!(best(&[PLAIN.to_string()]), Some(PLAIN));
         assert_eq!(best(&["image/png".to_string()]), None);
+        assert_eq!(best_files(&offered), Some(URIS));
+        assert_eq!(best_files(&[PLAIN.to_string()]), None);
     }
 }

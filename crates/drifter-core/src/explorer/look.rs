@@ -793,8 +793,10 @@ impl Look {
         if let Some(status) = frame.status.filter(|status| touches(clip, *status)) {
             self.paint_status(&mut canvas, status, model, fonts);
         }
-        if let Some(super::model::Drag::Files { paths, at, live: true, .. }) = &model.dragging {
-            self.paint_drag(&mut canvas, size, job, paths, *at);
+        match &model.dragging {
+            Some(super::model::Drag::Files { paths, at, live: true, .. }) => self.paint_drag(&mut canvas, size, job, paths, *at),
+            Some(super::model::Drag::Foreign { at }) => self.paint_spot(&mut canvas, size, job, &[], *at),
+            _ => {}
         }
         if let Some(sheet) = &model.sheet {
             self.paint_sheet(&mut canvas, size, sheet, job);
@@ -902,7 +904,12 @@ impl Look {
                 Line::Head(_) => None,
             };
         }
-        match self.hit(size, model, lines, fonts, at)? {
+        let here = || {
+            let moved = paths.iter().all(|path| path.parent() == Some(model.dir.as_path()));
+            let fits = frame.body.contains(at) && !model.searching() && !super::ops::in_trash(&model.dir);
+            (fits && (paths.is_empty() || !moved)).then(|| (Drop::Into(model.dir.clone()), frame.body))
+        };
+        let found = match self.hit(size, model, lines, fonts, at)? {
             Hit::Entry(index) | Hit::Strip(index) => {
                 let one = model.entries.get(index)?;
                 into(&one.path, self.entry_rect(&frame, model, index)?, one.folder)
@@ -922,12 +929,12 @@ impl Look {
                 into(&one.path, rect(area.origin.x + 6.0, y, COLUMN_W - 12.0, ROW_H), one.folder)
             }
             _ => None,
-        }
+        };
+        found.or_else(here)
     }
 
-    fn paint_drag(&self, canvas: &mut Canvas, size: Vec2, job: &Paint, paths: &[PathBuf], at: Vec2) {
-        let fonts = job.fonts;
-        if let Some((drop, area)) = self.drop_at(size, job.model, job.lines, fonts, at, paths) {
+    fn paint_spot(&self, canvas: &mut Canvas, size: Vec2, job: &Paint, paths: &[PathBuf], at: Vec2) {
+        if let Some((drop, area)) = self.drop_at(size, job.model, job.lines, job.fonts, at, paths) {
             match drop {
                 Drop::Mark => canvas.round_rect(area, 1.5, self.accent, 1.0),
                 Drop::Into(_) | Drop::Trash => {
@@ -936,6 +943,11 @@ impl Look {
                 }
             }
         }
+    }
+
+    fn paint_drag(&self, canvas: &mut Canvas, size: Vec2, job: &Paint, paths: &[PathBuf], at: Vec2) {
+        let fonts = job.fonts;
+        self.paint_spot(canvas, size, job, paths, at);
         let words = match paths {
             [one] => super::entry::name_of(one),
             _ => super::entry::items(paths.len()),
@@ -3132,6 +3144,30 @@ mod repaint_tests {
         input::press(&mut model, &ui, &lines, end, Button::Left, 1, Mods::default());
         input::motion(&mut model, &ui, &lines, Vec2::new(x_of(font, &text, text.len() - 4, area), area.center().y));
         assert_eq!(model.path.as_ref().unwrap().picked_text(), Some("work"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn files_from_elsewhere_drop_into_the_open_folder() {
+        let dir = std::env::temp_dir().join(format!("drifter-drop-here-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("work/inner")).unwrap();
+        std::fs::write(dir.join("work/a.txt"), "x").unwrap();
+        let mut model = Model::new(dir.join("explorer.toml"), Some(dir.join("work")));
+        model.settle_all(std::time::Duration::from_secs(5));
+        let (Ok(body), Ok(small), Ok(title)) = (crate::Font::find(None, 13.0), crate::Font::find(None, 11.5), crate::Font::find(None, 17.0)) else {
+            return;
+        };
+        let fonts = Fonts { body: &body, small: &small, title: &title };
+        let look = Look::themed(&crate::theme::DARK, [64, 128, 238]);
+        let size = Vec2::new(900.0, 600.0);
+        let lines = model.lines();
+        let empty = look.frame(size, &model).body.max() - Vec2::new(20.0, 20.0);
+        let here = Some(Drop::Into(dir.join("work")));
+        let drop = |paths: &[PathBuf]| look.drop_at(size, &model, &lines, &fonts, empty, paths).map(|(drop, _)| drop);
+        assert_eq!(drop(&[]), here, "a drop from another app");
+        assert_eq!(drop(&[dir.join("far.txt")]), here, "a drop from another folder");
+        assert_eq!(drop(&[dir.join("work/a.txt")]), None, "a file already here stays put");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

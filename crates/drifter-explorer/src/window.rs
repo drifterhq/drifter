@@ -3,7 +3,8 @@ use std::time::{Duration, Instant};
 
 use drifter_core::explorer::input::{self, Button, Key, Mods, Named, Ui};
 use drifter_core::explorer::look::{Art, Fonts, Look, Paint, Want};
-use drifter_core::explorer::model::{Act, Effect, Model};
+use drifter_core::explorer::look::Drop;
+use drifter_core::explorer::model::{Act, Drag, Effect, Model};
 use drifter_core::explorer::ops::{self, Done, Job};
 use drifter_core::explorer::clip::{self, Held};
 use drifter_core::explorer::prefs::Prefs;
@@ -11,7 +12,7 @@ use drifter_core::{Config, Font, Image, Vec2};
 use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState};
 use smithay_client_toolkit::data_device_manager::data_device::{DataDevice, DataDeviceHandler};
 use smithay_client_toolkit::data_device_manager::data_offer::{DataOfferHandler, DragOffer};
-use smithay_client_toolkit::data_device_manager::data_source::{CopyPasteSource, DataSourceHandler};
+use smithay_client_toolkit::data_device_manager::data_source::{CopyPasteSource, DataSourceHandler, DragSource};
 use smithay_client_toolkit::data_device_manager::{DataDeviceManagerState, WritePipe};
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
 use smithay_client_toolkit::reexports::calloop::EventLoop;
@@ -84,6 +85,10 @@ struct Explorer {
     serial: u32,
     clip_ask: u64,
     pasted: LoopSender<(u64, Option<Held>)>,
+    press_serial: u32,
+    drag_out: Option<(DragSource, Held)>,
+    drop_offer: Option<DragOffer>,
+    dropped: LoopSender<(Drop, Option<Held>, bool)>,
     fonts: (Font, Font, Font),
     model: Model,
     art: Art,
@@ -197,6 +202,15 @@ pub fn run() -> Result<(), String> {
             }
         })
         .map_err(|e| format!("cannot watch the clipboard: {e}"))?;
+    let (dropped, dropped_rx) = loop_channel::<(Drop, Option<Held>, bool)>();
+    events
+        .handle()
+        .insert_source(dropped_rx, |event, _, app: &mut Explorer| {
+            if let ChannelEvent::Msg((target, held, copy)) = event {
+                app.landed(target, held, copy);
+            }
+        })
+        .map_err(|e| format!("cannot watch drops: {e}"))?;
     let (jobs, jobs_rx) = loop_channel::<Done>();
     events
         .handle()
@@ -250,6 +264,10 @@ pub fn run() -> Result<(), String> {
         serial: 0,
         clip_ask: 0,
         pasted,
+        press_serial: 0,
+        drag_out: None,
+        drop_offer: None,
+        dropped,
         fonts,
         model,
         art: Art::default(),
@@ -818,6 +836,7 @@ impl PointerHandler for Explorer {
                     let scrolls = (self.model.scroll, self.model.tree_scroll);
                     let rail = matches!(self.model.dragging, Some(drifter_core::explorer::model::Drag::Rail { .. }));
                     if self.with_ui(|model, ui, lines| input::motion(model, ui, lines, at)) {
+                        self.lift();
                         if rail {
                             let (body, side) = (self.model.scroll - scrolls.0, self.model.tree_scroll - scrolls.1);
                             match (body != 0.0, side != 0.0) {
@@ -841,6 +860,7 @@ impl PointerHandler for Explorer {
                 }
                 PointerEventKind::Press { button, serial, .. } if matches!(button, BTN_LEFT | BTN_RIGHT | BTN_MIDDLE) => {
                     self.serial = serial;
+                    self.press_serial = serial;
                     self.press(button)
                 }
                 PointerEventKind::Release { button, .. } if button == BTN_LEFT => {
@@ -920,12 +940,69 @@ impl Explorer {
     }
 }
 
+impl Explorer {
+    fn lift(&mut self) {
+        let Some(Drag::Files { paths, live: true, .. }) = self.model.dragging.clone() else {
+            return;
+        };
+        let (Some(data), Some(device), None) = (self.data.as_ref(), self.device.as_ref(), self.drag_out.as_ref()) else {
+            return;
+        };
+        let source = data.create_drag_and_drop_source(&self.qh, clip::FILE_KINDS.iter().copied(), DndAction::Copy | DndAction::Move);
+        source.start_drag(device, self.window.wl_surface(), None, self.press_serial);
+        self.drag_out = Some((source, Held::Files(paths, false)));
+    }
+
+    fn landed(&mut self, target: Drop, held: Option<Held>, copy: bool) {
+        if let Some(Held::Files(paths, _)) = held {
+            self.model.drop_on(target, paths, copy);
+            self.after();
+        }
+        if let Some(offer) = self.drop_offer.take() {
+            offer.finish();
+            offer.destroy();
+        }
+    }
+}
+
 impl DataDeviceHandler for Explorer {
-    fn enter(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice, _: f64, _: f64, _: &wl_surface::WlSurface) {}
+    fn enter(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice, x: f64, y: f64, _: &wl_surface::WlSurface) {
+        let Some(offer) = self.device.as_ref().and_then(|device| device.data().drag_offer()) else {
+            return;
+        };
+        match offer.with_mime_types(clip::best_files) {
+            Some(kind) => {
+                offer.accept_mime_type(offer.serial, Some(kind.to_string()));
+                let at = Vec2::new(x, y);
+                let (preferred, dragging) = match &self.drag_out {
+                    Some((_, Held::Files(paths, _))) => (DndAction::Move, Drag::Files { paths: paths.clone(), from: at, at, live: true, pending: None }),
+                    _ => (DndAction::Copy, Drag::Foreign { at }),
+                };
+                offer.set_actions(DndAction::Copy | DndAction::Move, preferred);
+                self.model.dragging = Some(dragging);
+                self.stale = true;
+            }
+            None => {
+                offer.accept_mime_type(offer.serial, None);
+                offer.set_actions(DndAction::empty(), DndAction::empty());
+            }
+        }
+    }
 
-    fn leave(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {}
+    fn leave(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {
+        if matches!(self.model.dragging, Some(Drag::Foreign { .. } | Drag::Files { .. })) {
+            self.model.dragging = None;
+            self.stale = true;
+        }
+    }
 
-    fn motion(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice, _: f64, _: f64) {}
+    fn motion(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice, x: f64, y: f64) {
+        match self.model.dragging.as_mut() {
+            Some(Drag::Foreign { at } | Drag::Files { at, .. }) => *at = Vec2::new(x, y),
+            _ => return,
+        }
+        self.stale = true;
+    }
 
     fn selection(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {
         if self.held.is_some() {
@@ -955,7 +1032,49 @@ impl DataDeviceHandler for Explorer {
         });
     }
 
-    fn drop_performed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {}
+    fn drop_performed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {
+        self.model.dragging = None;
+        self.stale = true;
+        let Some(offer) = self.device.as_ref().and_then(|device| device.data().drag_offer()) else {
+            return;
+        };
+        let at = Vec2::new(offer.x, offer.y);
+        let ours = match &self.drag_out {
+            Some((_, Held::Files(paths, _))) => paths.clone(),
+            _ => Vec::new(),
+        };
+        let target = self.with_ui(|model, ui, lines| ui.look.drop_at(ui.size, model, lines, ui.fonts, at, &ours).map(|(target, _)| target));
+        let kind = offer.with_mime_types(clip::best_files);
+        let (Some(target), Some(kind)) = (target, kind) else {
+            offer.destroy();
+            return;
+        };
+        let copy = match ours.is_empty() {
+            true => offer.selected_action != DndAction::Move,
+            false => self.mods.ctrl,
+        };
+        if !ours.is_empty() {
+            self.drop_offer = Some(offer);
+            self.landed(target, Some(Held::Files(ours, false)), copy);
+            return;
+        }
+        let Ok(pipe) = offer.receive(kind.to_string()) else {
+            offer.destroy();
+            return;
+        };
+        self.drop_offer = Some(offer);
+        let file = std::fs::File::from(std::os::fd::OwnedFd::from(pipe));
+        let dropped = self.dropped.clone();
+        std::thread::spawn(move || {
+            use std::io::Read;
+            let mut bytes = Vec::new();
+            let held = match file.take(clip::MOST as u64).read_to_end(&mut bytes) {
+                Ok(_) => clip::read(kind, &bytes),
+                Err(_) => None,
+            };
+            let _ = dropped.send((target, held, copy));
+        });
+    }
 }
 
 impl DataOfferHandler for Explorer {
@@ -968,12 +1087,13 @@ impl DataSourceHandler for Explorer {
     fn accept_mime(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource, _: Option<String>) {}
 
     fn send_request(&mut self, _: &Connection, _: &QueueHandle<Self>, source: &WlDataSource, mime: String, fd: WritePipe) {
-        use std::os::fd::{FromRawFd, IntoRawFd};
-        let bytes = self.held.as_ref().filter(|(ours, _)| ours.inner() == source).and_then(|(_, held)| held.bytes(&mime));
+        let held = self.held.as_ref().filter(|(ours, _)| ours.inner() == source).map(|(_, held)| held);
+        let dragged = self.drag_out.as_ref().filter(|(ours, _)| ours.inner() == source).map(|(_, held)| held);
+        let bytes = held.or(dragged).and_then(|held| held.bytes(&mime));
         let Some(bytes) = bytes else {
             return;
         };
-        let mut file = unsafe { std::fs::File::from_raw_fd(fd.into_raw_fd()) };
+        let mut file = std::fs::File::from(std::os::fd::OwnedFd::from(fd));
         std::thread::spawn(move || {
             use std::io::Write;
             let _ = file.write_all(&bytes);
@@ -981,15 +1101,22 @@ impl DataSourceHandler for Explorer {
     }
 
     fn cancelled(&mut self, _: &Connection, _: &QueueHandle<Self>, source: &WlDataSource) {
-        match self.held.as_ref().is_some_and(|(ours, _)| ours.inner() == source) {
-            true => self.held = None,
-            false => source.destroy(),
+        if self.held.as_ref().is_some_and(|(ours, _)| ours.inner() == source) {
+            self.held = None;
+        } else if self.drag_out.as_ref().is_some_and(|(ours, _)| ours.inner() == source) {
+            self.drag_out = None;
+        } else {
+            source.destroy();
         }
     }
 
     fn dnd_dropped(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource) {}
 
-    fn dnd_finished(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource) {}
+    fn dnd_finished(&mut self, _: &Connection, _: &QueueHandle<Self>, source: &WlDataSource) {
+        if self.drag_out.as_ref().is_some_and(|(ours, _)| ours.inner() == source) {
+            self.drag_out = None;
+        }
+    }
 
     fn action(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource, _: DndAction) {}
 }

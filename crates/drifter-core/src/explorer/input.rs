@@ -582,6 +582,7 @@ pub fn motion(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2) -> bool {
             }
             return before != model.prefs.zoom;
         }
+        Some(Drag::Foreign { .. }) => return false,
         None => {}
     }
     if let Some(menu) = model.menu.clone() {
