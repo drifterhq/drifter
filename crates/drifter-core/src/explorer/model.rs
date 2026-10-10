@@ -72,6 +72,12 @@ pub enum Act {
     Mount(String),
     Unmount(String),
     Eject(String),
+    NewTab,
+    Tab(PathBuf),
+    ShowTab(usize),
+    NextTab(isize),
+    CloseTab(usize),
+    CloseOtherTabs(usize),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -196,6 +202,30 @@ pub struct Search {
     pub mode_before: Option<Mode>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Tab {
+    pub dir: PathBuf,
+    pub back: Vec<PathBuf>,
+    pub ahead: Vec<PathBuf>,
+    pub picked: HashSet<PathBuf>,
+    pub focus: Option<PathBuf>,
+    pub anchor: Option<PathBuf>,
+    pub scroll: f64,
+}
+
+impl Tab {
+    fn at(dir: PathBuf) -> Tab {
+        Tab { dir, back: Vec::new(), ahead: Vec::new(), picked: HashSet::new(), focus: None, anchor: None, scroll: 0.0 }
+    }
+}
+
+pub fn title_of(dir: &Path) -> String {
+    match ops::in_trash(dir) {
+        true => crate::lang::t("Trash").to_string(),
+        false => entry::name_of(dir),
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Running {
     pub id: u64,
@@ -306,6 +336,8 @@ pub struct Model {
     pub marks_stamp: Option<SystemTime>,
     pub place_list: Vec<(PathBuf, String, &'static str)>,
     pub search: Option<Search>,
+    pub tabs: Vec<Tab>,
+    pub tab: usize,
     pub reader: Reader,
     pub listed: HashMap<PathBuf, Listing>,
     pub loading: Option<Instant>,
@@ -434,6 +466,8 @@ impl Model {
             marks_stamp: None,
             place_list: Vec::new(),
             search: None,
+            tabs: Vec::new(),
+            tab: 0,
             reader: Reader::default(),
             listed: HashMap::new(),
             loading: None,
@@ -453,7 +487,78 @@ impl Model {
             let home = model.home.clone();
             model.load(home, None);
         }
+        model.tabs = vec![model.tab_now()];
         model
+    }
+
+    fn tab_now(&self) -> Tab {
+        Tab { dir: self.dir.clone(), back: self.back.clone(), ahead: self.ahead.clone(), picked: self.picked.clone(), focus: self.focus.clone(), anchor: self.anchor.clone(), scroll: self.scroll }
+    }
+
+    pub fn tab_dirs(&self) -> Vec<PathBuf> {
+        self.tabs.iter().enumerate().map(|(at, tab)| if at == self.tab { self.dir.clone() } else { tab.dir.clone() }).collect()
+    }
+
+    pub fn new_tab(&mut self, dir: PathBuf, show: bool) {
+        self.tabs[self.tab] = self.tab_now();
+        let at = self.tab + 1;
+        self.tabs.insert(at, Tab::at(dir));
+        if show {
+            self.show_tab(at);
+        }
+    }
+
+    pub fn show_tab(&mut self, to: usize) {
+        if to >= self.tabs.len() || to == self.tab {
+            return;
+        }
+        self.tabs[self.tab] = self.tab_now();
+        self.tab = to;
+        let tab = self.tabs[to].clone();
+        self.path = None;
+        let dir = tab.dir.ancestors().find(|at| at.is_dir()).map_or_else(|| self.home.clone(), Path::to_path_buf);
+        if !self.load(dir, None) {
+            let home = self.home.clone();
+            self.load(home, None);
+        }
+        self.back = tab.back;
+        self.ahead = tab.ahead;
+        if self.dir == tab.dir {
+            let known: HashSet<&PathBuf> = self.entries.iter().map(|each| &each.path).collect();
+            let fresh = !known.is_empty() || self.loading.is_none();
+            self.picked = tab.picked.into_iter().filter(|path| !fresh || known.contains(path)).collect();
+            self.focus = tab.focus.filter(|path| !fresh || known.contains(path));
+            self.anchor = tab.anchor.filter(|path| !fresh || known.contains(path));
+            self.scroll = tab.scroll;
+            self.after_pick();
+        }
+        self.tabs[self.tab] = self.tab_now();
+    }
+
+    pub fn close_tab(&mut self, at: usize) {
+        if at >= self.tabs.len() {
+            return;
+        }
+        if self.tabs.len() == 1 {
+            return self.act(Act::Close);
+        }
+        if at == self.tab {
+            let to = if at + 1 < self.tabs.len() { at + 1 } else { at - 1 };
+            self.show_tab(to);
+        }
+        self.tabs.remove(at);
+        if self.tab > at {
+            self.tab -= 1;
+        }
+    }
+
+    pub fn tab_menu(&self, at: usize) -> Vec<Item> {
+        vec![
+            Item::new(crate::lang::t("New Tab"), "Ctrl+T", Act::NewTab),
+            Item::rule(),
+            Item::new(crate::lang::t("Close Tab"), "Ctrl+W", Act::CloseTab(at)),
+            Item::new(crate::lang::t("Close Other Tabs"), "", Act::CloseOtherTabs(at)).when(self.tabs.len() > 1),
+        ]
     }
 
     pub fn drive_of(&self, device: &str) -> Option<super::drives::Drive> {
@@ -1431,6 +1536,21 @@ impl Model {
             Act::OpenWith(id) => self.open_with(&id),
             Act::NewWindow => self.effects.push(Effect::NewWindow(self.dir.clone())),
             Act::Window(path) => self.effects.push(Effect::NewWindow(path)),
+            Act::NewTab => self.new_tab(self.dir.clone(), true),
+            Act::Tab(path) => self.new_tab(path, true),
+            Act::ShowTab(at) => self.show_tab(at),
+            Act::NextTab(by) => {
+                let count = self.tabs.len() as isize;
+                self.show_tab((self.tab as isize + by).rem_euclid(count) as usize);
+            }
+            Act::CloseTab(at) => self.close_tab(at),
+            Act::CloseOtherTabs(at) => {
+                if at < self.tabs.len() {
+                    self.show_tab(at);
+                    self.tabs = vec![self.tab_now()];
+                    self.tab = 0;
+                }
+            }
             Act::NewFolder | Act::NewFile if in_trash => {}
             Act::NewFolder => match ops::new_folder(&self.dir) {
                 Ok(made) => {
@@ -1763,6 +1883,7 @@ impl Model {
         match at {
             0 => vec![
                 Item::new(crate::lang::t("New Window"), "Ctrl+N", Act::NewWindow),
+                Item::new(crate::lang::t("New Tab"), "Ctrl+T", Act::NewTab),
                 Item::new(crate::lang::t("New Folder"), "Shift+Ctrl+N", Act::NewFolder).when(!in_trash),
                 Item::new(crate::lang::t("New Text File"), "", Act::NewFile).when(!in_trash),
                 Item::rule(),
@@ -1780,7 +1901,8 @@ impl Model {
                 Item::rule(),
                 Item::new(crate::lang::t("Get Info"), "Ctrl+I", Act::Info),
                 Item::rule(),
-                Item::new(crate::lang::t("Close Window"), "Ctrl+W", Act::Close),
+                Item::new(crate::lang::t("Close Tab"), "Ctrl+W", Act::CloseTab(self.tab)).when(self.tabs.len() > 1),
+                Item::new(crate::lang::t("Close Window"), if self.tabs.len() > 1 { "Ctrl+Q" } else { "Ctrl+W" }, Act::Close),
             ],
             1 => vec![
                 Item::new(crate::lang::t("Undo"), "Ctrl+Z", Act::Undo).when(!self.undo.is_empty()),
@@ -1856,6 +1978,7 @@ impl Model {
         items.push(Item::new(crate::lang::t("Open"), "Enter", Act::Open));
         match &folder {
             Some(path) => {
+                items.push(Item::new(crate::lang::t("Open in New Tab"), "", Act::Tab(path.clone())));
                 items.push(Item::new(crate::lang::t("Open in New Window"), "", Act::Window(path.clone())));
                 items.push(Item::new(crate::lang::t("Open in Terminal"), "", Act::Terminal(Some(path.clone()))));
                 if !self.marked(path) {
@@ -1888,6 +2011,7 @@ impl Model {
     pub fn line_menu(&mut self, path: &Path, mark: bool) -> Vec<Item> {
         let mut items = vec![
             Item::new(crate::lang::t("Open"), "", Act::Go(path.to_path_buf())),
+            Item::new(crate::lang::t("Open in New Tab"), "", Act::Tab(path.to_path_buf())),
             Item::new(crate::lang::t("Open in New Window"), "", Act::Window(path.to_path_buf())),
         ];
         if path != ops::trash_files() {
@@ -2336,6 +2460,40 @@ mod tests {
         model.search_changed();
         model.go(work.join("Photos"), None);
         assert!(model.search.is_none());
+    }
+
+    #[test]
+    fn tabs_keep_their_own_folder_history_and_picks() {
+        let (place, mut model) = place("tabs");
+        let work = place.0.join("work");
+        let photos = work.join("Photos");
+        model.pick_only(work.join("b.txt"));
+        model.act(Act::NewTab);
+        assert_eq!((model.tabs.len(), model.tab, model.dir.clone()), (2, 1, work.clone()));
+        assert!(model.picked.is_empty());
+        model.go(photos.clone(), None);
+        model.act(Act::ShowTab(0));
+        assert_eq!(model.dir, work);
+        assert!(model.picked.contains(&work.join("b.txt")));
+        assert!(model.back.is_empty());
+        model.act(Act::NextTab(1));
+        assert_eq!(model.dir, photos);
+        assert_eq!(model.back, vec![work.clone()]);
+        model.new_tab(photos.join("2026"), false);
+        assert_eq!(model.tab_dirs(), vec![work.clone(), photos.clone(), photos.join("2026")]);
+        assert_eq!(model.dir, photos);
+        model.act(Act::CloseTab(1));
+        assert_eq!((model.tabs.len(), model.tab, model.dir.clone()), (2, 1, photos.join("2026")));
+        std::fs::create_dir(work.join("Gone")).unwrap();
+        model.new_tab(work.join("Gone"), false);
+        std::fs::remove_dir(work.join("Gone")).unwrap();
+        model.act(Act::ShowTab(2));
+        assert_eq!(model.dir, work);
+        model.act(Act::CloseOtherTabs(0));
+        assert_eq!((model.tabs.len(), model.tab, model.dir.clone()), (1, 0, work.clone()));
+        assert!(model.effects.is_empty());
+        model.act(Act::CloseTab(0));
+        assert_eq!(model.effects, vec![Effect::Close]);
     }
 
     #[test]

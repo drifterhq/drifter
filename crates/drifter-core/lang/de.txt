@@ -3287,3 +3287,21 @@ The first {} found
 
 {} found
 = {} gefunden
+
+New Tab
+= Neuer Tab
+
+Close Tab
+= Tab schließen
+
+Close Other Tabs
+= Andere Tabs schließen
+
+Open in New Tab
+= In neuem Tab öffnen
+
+New tab and close tab
+= Neuer Tab und Tab schließen
+
+Next tab
+= Nächster Tab

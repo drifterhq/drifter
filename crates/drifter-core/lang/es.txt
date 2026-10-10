@@ -3287,3 +3287,21 @@ The first {} found
 
 {} found
 = {} encontrados
+
+New Tab
+= Pestaña nueva
+
+Close Tab
+= Cerrar pestaña
+
+Close Other Tabs
+= Cerrar las otras pestañas
+
+Open in New Tab
+= Abrir en una pestaña nueva
+
+New tab and close tab
+= Pestaña nueva y cerrar pestaña
+
+Next tab
+= Pestaña siguiente

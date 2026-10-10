@@ -3284,3 +3284,21 @@ The first {} found
 
 {} found
 = {} trouvés
+
+New Tab
+= Nouvel onglet
+
+Close Tab
+= Fermer l’onglet
+
+Close Other Tabs
+= Fermer les autres onglets
+
+Open in New Tab
+= Ouvrir dans un nouvel onglet
+
+New tab and close tab
+= Nouvel onglet et fermer l’onglet
+
+Next tab
+= Onglet suivant

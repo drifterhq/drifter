@@ -99,6 +99,9 @@ pub fn press(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, button: Butto
         return;
     };
     let right = button == Button::Right;
+    if button == Button::Middle {
+        return press_middle(model, ui, lines, hit);
+    }
     match hit {
         Hit::Bar(index) => open_bar(model, ui, index),
         Hit::Back => model.act(Act::Back),
@@ -149,6 +152,17 @@ pub fn press(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, button: Butto
             }
         }
         Hit::SearchClear => model.act(Act::EndSearch),
+        Hit::Tab(index) => match right {
+            true => model.menu = Some(menu_at(model.tab_menu(index), at)),
+            false => model.act(Act::ShowTab(index)),
+        },
+        Hit::TabClose(index) => model.act(Act::CloseTab(index)),
+        Hit::TabNew => model.act(Act::NewTab),
+        Hit::Tabs => match (right, clicks) {
+            (true, _) => model.menu = Some(menu_at(model.tab_menu(model.tab), at)),
+            (false, 2..) => model.act(Act::NewTab),
+            _ => {}
+        },
         Hit::Show(mode) => model.act(Act::Show(mode)),
         Hit::Gear => model.act(Act::Prefs),
         Hit::Dismiss => model.act(Act::Dismiss),
@@ -216,6 +230,23 @@ pub fn press(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, button: Butto
                 model.act(Act::Open);
             }
         }
+    }
+}
+
+fn press_middle(model: &mut Model, ui: &Ui, lines: &[Line], hit: Hit) {
+    let folder = match hit {
+        Hit::Tab(index) | Hit::TabClose(index) => return model.close_tab(index),
+        Hit::Entry(index) | Hit::Strip(index) => model.entries.get(index).filter(|one| one.folder).map(|one| one.path.clone()),
+        Hit::Column(column, Some(row)) => model.columns.get(column).and_then(|c| c.entries.get(row)).filter(|one| one.folder).map(|one| one.path.clone()),
+        Hit::Line(index) => lines.get(index).and_then(Line::path).map(Path::to_path_buf),
+        Hit::Crumb(index) => {
+            let area = ui.look.path_rect(ui.look.frame(ui.size, model).bar);
+            ui.look.crumbs(area, model, ui.fonts).get(index).map(|crumb| crumb.path.clone())
+        }
+        _ => None,
+    };
+    if let Some(folder) = folder {
+        model.new_tab(folder, false);
     }
 }
 
@@ -451,7 +482,7 @@ pub fn motion(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2) -> bool {
     if model.sheet.is_some() {
         return false;
     }
-    let hover = ui.look.hit(ui.size, model, lines, ui.fonts, at).filter(|hit| !matches!(hit, Hit::Space | Hit::Picture | Hit::Path | Hit::Split | Hit::Zoom(_) | Hit::Banner | Hit::Jobs | Hit::Search));
+    let hover = ui.look.hit(ui.size, model, lines, ui.fonts, at).filter(|hit| !matches!(hit, Hit::Space | Hit::Picture | Hit::Path | Hit::Split | Hit::Zoom(_) | Hit::Banner | Hit::Jobs | Hit::Search | Hit::Tabs));
     let changed = hover != model.hover;
     model.hover = hover;
     changed
@@ -643,7 +674,12 @@ pub fn key(model: &mut Model, ui: &Ui, key: &Key) {
             Named::Letter('n') if key.shift => Some(Act::NewFolder),
             Named::Letter('f') => Some(Act::Search),
             Named::Letter('n') => Some(Act::NewWindow),
-            Named::Letter('w') | Named::Letter('q') => Some(Act::Close),
+            Named::Letter('t') => Some(Act::NewTab),
+            Named::Letter('w') => Some(Act::CloseTab(model.tab)),
+            Named::Letter('q') => Some(Act::Close),
+            Named::Tab => Some(Act::NextTab(if key.shift { -1 } else { 1 })),
+            Named::PageDown => Some(Act::NextTab(1)),
+            Named::PageUp => Some(Act::NextTab(-1)),
             Named::Letter('l') => Some(Act::EditPath),
             Named::Letter('c') if key.shift => Some(Act::CopyPath),
             Named::Letter('c') => Some(Act::Copy),
@@ -677,6 +713,10 @@ pub fn key(model: &mut Model, ui: &Ui, key: &Key) {
             Named::Right => Some(Act::Forward),
             Named::Up => Some(Act::Up),
             Named::Down => Some(Act::Open),
+            Named::Letter(digit @ '1'..='9') if model.tabs.len() > 1 => Some(match digit {
+                '9' => Act::ShowTab(model.tabs.len() - 1),
+                _ => Act::ShowTab(digit as usize - '1' as usize),
+            }),
             _ => None,
         };
         if let Some(act) = act {

@@ -402,10 +402,7 @@ impl Explorer {
                 Effect::Close => self.exit = true,
             }
         }
-        let title = match ops::in_trash(&self.model.dir) {
-            true => drifter_core::lang::t("Trash").to_string(),
-            false => drifter_core::explorer::entry::name_of(&self.model.dir),
-        };
+        let title = drifter_core::explorer::model::title_of(&self.model.dir);
         if title != self.title {
             self.window.set_title(title.clone());
             self.title = title;

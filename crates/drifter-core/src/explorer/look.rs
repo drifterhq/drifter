@@ -16,6 +16,7 @@ pub const MENU_H: f64 = 30.0;
 pub const BAR_H: f64 = 50.0;
 pub const STATUS_H: f64 = 28.0;
 pub const BANNER_H: f64 = 40.0;
+pub const TABS_H: f64 = 36.0;
 pub const JOB_H: f64 = 50.0;
 pub const SPLIT_W: f64 = 6.0;
 pub const ROW_H: f64 = 26.0;
@@ -67,6 +68,10 @@ pub enum Hit {
     CrumbArrow(usize),
     Search,
     SearchClear,
+    Tab(usize),
+    TabClose(usize),
+    TabNew,
+    Tabs,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -156,6 +161,7 @@ impl Art {
 pub struct Frame {
     pub menu: Rect,
     pub bar: Rect,
+    pub tabs: Option<Rect>,
     pub banner: Option<Rect>,
     pub jobs: Option<Rect>,
     pub side: Option<Rect>,
@@ -246,8 +252,10 @@ impl Look {
     pub fn frame(&self, size: Vec2, model: &Model) -> Frame {
         let menu = rect(0.0, 0.0, size.x, MENU_H);
         let bar = rect(0.0, MENU_H, size.x, BAR_H);
-        let banner = (!model.alerts.is_empty()).then(|| rect(0.0, MENU_H + BAR_H, size.x, BANNER_H));
-        let below = MENU_H + BAR_H + banner.map_or(0.0, |banner| banner.size.y);
+        let tabs = (model.tabs.len() > 1).then(|| rect(0.0, MENU_H + BAR_H, size.x, TABS_H));
+        let under = MENU_H + BAR_H + tabs.map_or(0.0, |tabs| tabs.size.y);
+        let banner = (!model.alerts.is_empty()).then(|| rect(0.0, under, size.x, BANNER_H));
+        let below = under + banner.map_or(0.0, |banner| banner.size.y);
         let shown = model.jobs.iter().filter(|job| job.shown()).count();
         let jobs = (shown > 0).then(|| rect(0.0, below, size.x, JOB_H * shown as f64));
         let top = below + jobs.map_or(0.0, |jobs| jobs.size.y);
@@ -262,7 +270,7 @@ impl Look {
         let split = side_on.then(|| rect(side_w - SPLIT_W / 2.0, top, SPLIT_W, tall));
         let body = rect(side_w, top, size.x - side_w, tall);
         let status = model.prefs.status.then(|| rect(0.0, size.y - STATUS_H, size.x, STATUS_H));
-        Frame { menu, bar, banner, jobs, side, split, body, status, clip: None }
+        Frame { menu, bar, tabs, banner, jobs, side, split, body, status, clip: None }
     }
 
     pub fn bar_titles(&self, fonts: &Fonts) -> Vec<(Rect, &'static str)> {
@@ -478,6 +486,20 @@ impl Look {
             }
             return None;
         }
+        if let Some(tabs) = frame.tabs
+            && tabs.contains(at)
+        {
+            let (rects, plus) = self.strip_tabs(tabs, model.tabs.len());
+            if plus.contains(at) {
+                return Some(Hit::TabNew);
+            }
+            let found = rects.iter().position(|area| area.contains(at));
+            return Some(match found {
+                Some(index) if self.tab_close_rect(rects[index]).contains(at) => Hit::TabClose(index),
+                Some(index) => Hit::Tab(index),
+                None => Hit::Tabs,
+            });
+        }
         if let Some(banner) = frame.banner
             && banner.contains(at)
         {
@@ -627,6 +649,10 @@ impl Look {
         if touches(clip, frame.bar) {
             self.paint_bar(&mut canvas, &frame, job);
         }
+        if let Some(tabs) = frame.tabs.filter(|tabs| touches(clip, *tabs)) {
+            let piece = self.paint_tabs(tabs, job, moved(clip, tabs.origin));
+            canvas.stamp(&piece, tabs.origin, 1.0);
+        }
         if let Some(banner) = frame.banner.filter(|banner| touches(clip, *banner)) {
             self.paint_banner(&mut canvas, banner, model, fonts);
         }
@@ -684,6 +710,10 @@ impl Look {
             Hit::Crumb(index) => {
                 let crumb = self.crumbs(self.path_rect(frame.bar), model, fonts).get(index)?.clone();
                 into(&crumb.path, crumb.area, true)
+            }
+            Hit::Tab(index) | Hit::TabClose(index) if index != model.tab => {
+                let dir = model.tab_dirs().get(index)?.clone();
+                into(&dir, *self.strip_tabs(frame.tabs?, model.tabs.len()).0.get(index)?, true)
             }
             Hit::Column(column, Some(row)) => {
                 let one = model.columns.get(column)?.entries.get(row)?;
@@ -1572,6 +1602,74 @@ impl Look {
         }
     }
 
+    pub fn strip_tabs(&self, area: Rect, count: usize) -> (Vec<Rect>, Rect) {
+        let room = (area.size.x - 16.0 - 40.0).max(0.0);
+        let width = (room / count.max(1) as f64).min(240.0).floor();
+        let top = area.origin.y + 5.0;
+        let tabs = (0..count).map(|at| rect(area.origin.x + 8.0 + at as f64 * width, top, width, area.max().y - top)).collect();
+        let plus = rect(area.origin.x + 8.0 + count as f64 * width + 6.0, top + 1.0, 28.0, 26.0);
+        (tabs, plus)
+    }
+
+    pub fn tab_close_rect(&self, tab: Rect) -> Rect {
+        rect(tab.max().x - 28.0, tab.origin.y + (tab.size.y - 22.0) / 2.0, 22.0, 22.0)
+    }
+
+    fn paint_tabs(&self, area: Rect, job: &Paint, clip: Option<Rect>) -> Image {
+        let model = job.model;
+        let fonts = job.fonts;
+        let mut canvas = Canvas::new(area.size.x.round() as u32, area.size.y.round() as u32);
+        canvas.clip_to(clip);
+        let local = rect(0.0, 0.0, area.size.x, area.size.y);
+        canvas.round_rect(local, 0.0, self.bar, 1.0);
+        canvas.round_rect(rect(0.0, local.max().y - 1.0, local.size.x, 1.0), 0.0, self.rule, 1.0);
+        let dirs = model.tab_dirs();
+        let (tabs, plus) = self.strip_tabs(local, dirs.len());
+        let lit = |index: usize| index == model.tab || matches!(model.hover, Some(Hit::Tab(at) | Hit::TabClose(at)) if at == index);
+        for (index, (dir, tab)) in dirs.iter().zip(&tabs).enumerate() {
+            let current = index == model.tab;
+            let face = rect(tab.origin.x + 1.0, tab.origin.y, tab.size.x - 2.0, tab.size.y + 10.0);
+            match (current, lit(index)) {
+                (true, _) => {
+                    canvas.round_rect(Rect::new(face.origin - Vec2::new(1.0, 1.0), face.size + Vec2::new(2.0, 0.0)), 8.0, self.rule, 1.0);
+                    canvas.round_rect(face, 7.0, self.back, 1.0);
+                }
+                (false, true) => canvas.round_rect(rect(face.origin.x, face.origin.y, face.size.x, tab.size.y - 4.0), 7.0, self.hover, 0.7),
+                (false, false) => {
+                    if index + 1 < tabs.len() && !lit(index + 1) {
+                        canvas.round_rect(rect(tab.max().x - 0.5, tab.origin.y + 7.0, 1.0, tab.size.y - 18.0), 0.0, self.rule, 1.0);
+                    }
+                }
+            }
+            let close = self.tab_close_rect(*tab);
+            let show_close = lit(index);
+            let icon = rect(tab.origin.x + 12.0, tab.center().y - 8.0 - 1.0, 16.0, 16.0);
+            self.icon_or_glyph(&mut canvas, job.art, folder_icon(dir, model), Family::Folder, icon);
+            let left = icon.max().x + 8.0;
+            let right = if show_close { close.origin.x - 4.0 } else { tab.max().x - 12.0 };
+            let ink = if current { self.ink } else { self.dim };
+            self.text(&mut canvas, fonts.body, &super::model::title_of(dir), ink, Vec2::new(left, icon.center().y), right - left);
+            if show_close {
+                let hot = model.hover == Some(Hit::TabClose(index));
+                if hot {
+                    canvas.round_rect(close, 5.0, self.hover, 1.0);
+                }
+                let c = close.center();
+                let ink = if hot { self.ink } else { self.dim };
+                canvas.line(c + Vec2::new(-4.0, -4.0), c + Vec2::new(4.0, 4.0), 1.6, ink, 1.0);
+                canvas.line(c + Vec2::new(4.0, -4.0), c + Vec2::new(-4.0, 4.0), 1.6, ink, 1.0);
+            }
+        }
+        if let Some(tab) = tabs.get(model.tab) {
+            canvas.round_rect(rect(tab.origin.x + 1.0, local.max().y - 1.0, tab.size.x - 2.0, 1.0), 0.0, self.back, 1.0);
+        }
+        self.button(&mut canvas, plus, model.hover == Some(Hit::TabNew), false);
+        let c = plus.center();
+        canvas.line(c + Vec2::new(-5.0, 0.0), c + Vec2::new(5.0, 0.0), 1.8, self.dim, 1.0);
+        canvas.line(c + Vec2::new(0.0, -5.0), c + Vec2::new(0.0, 5.0), 1.8, self.dim, 1.0);
+        canvas.image
+    }
+
     pub fn dismiss_rect(&self, banner: Rect) -> Rect {
         rect(banner.max().x - 10.0 - BUTTON, banner.origin.y + (banner.size.y - BUTTON) / 2.0, BUTTON, BUTTON)
     }
@@ -1649,6 +1747,8 @@ impl Look {
             }
             Hit::Stop(id) => self.job_rows(frame.jobs?, model).into_iter().find(|(each, _)| each == id)?.1,
             Hit::Dismiss => self.dismiss_rect(frame.banner?),
+            Hit::Tab(index) | Hit::TabClose(index) => *self.strip_tabs(frame.tabs?, model.tabs.len()).0.get(*index)?,
+            Hit::TabNew => self.strip_tabs(frame.tabs?, model.tabs.len()).1,
             _ => return None,
         };
         Some(Rect::new(area.origin - Vec2::splat(4.0), area.size + Vec2::splat(8.0)))
@@ -1891,7 +1991,7 @@ impl Look {
             Sheet::Info(info) => Vec2::new(460.0, 330.0 + 34.0 * (4 + usize::from(info.mode.is_some()) + usize::from(info.target.is_some())) as f64),
             Sheet::Confirm { .. } => Vec2::new(420.0, 190.0),
             Sheet::Clash { names, .. } => Vec2::new(540.0, if names.len() == 1 { 190.0 } else { 236.0 }),
-            Sheet::Keys => Vec2::new(520.0, 520.0),
+            Sheet::Keys => Vec2::new(520.0, 615.0),
             Sheet::About => Vec2::new(380.0, 260.0),
         };
         let fitted = Vec2::new(want.x.min(size.x - 24.0), want.y.min(size.y - 24.0));
@@ -2273,11 +2373,14 @@ impl Look {
     fn paint_keys(&self, canvas: &mut Canvas, area: Rect, fonts: &Fonts) {
         let head = fonts.title.paint_weight(crate::lang::t("Keyboard Shortcuts"), self.ink, 620.0);
         canvas.stamp(&head, Vec2::new(area.origin.x + 24.0, area.origin.y + 22.0).round(), 1.0);
-        let rows: [(&str, &str); 16] = [
+        let rows: [(&str, &str); 19] = [
             ("Enter", crate::lang::t("Open")),
             ("Alt+Up / Backspace", crate::lang::t("Enclosing Folder")),
             ("Alt+Left / Alt+Right", crate::lang::t("Back and forward")),
             ("Ctrl+L", crate::lang::t("Type a path")),
+            ("Ctrl+F", crate::lang::t("Search")),
+            ("Ctrl+T / Ctrl+W", crate::lang::t("New tab and close tab")),
+            ("Ctrl+Tab", crate::lang::t("Next tab")),
             ("F2", crate::lang::t("Rename")),
             ("Delete", crate::lang::t("Move to Trash")),
             ("Shift+Delete", crate::lang::t("Delete Forever")),

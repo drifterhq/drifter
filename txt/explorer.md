@@ -65,6 +65,7 @@ Later steps build on these.
     - Built: a search box in the toolbar (click it or press Ctrl+F). It finds names in the open folder and every folder below, on a worker thread, and does not follow folder links. Results come in as they are found, with a Folder column, up to 2000. Hidden files are searched only when they are shown. The status bar counts what was found. × or Escape ends the search, and opening another folder ends it too. Checked on Blue: "png" in ~/demo found the 4 pictures, and Escape brought the folder back.
 16. Tabs.
     Waits on: 3, 4.
+    - Built: a tab bar shows under the toolbar when there are two or more tabs. Each tab keeps its own folder, Back and Forward history, picks and scroll. Ctrl+T opens a new tab, Ctrl+W closes the tab (the window when it is the last), Ctrl+Q closes the window, Ctrl+Tab and Ctrl+Page Down/Up switch, and Alt+1 to 9 jump. "Open in New Tab" is in the folder and sidebar menus. A middle-click on a folder opens it in a tab behind, and a middle-click on a tab closes it. Click + or double-click the empty bar for a new tab. Right-click a tab for Close Other Tabs. Drop files on a tab to move them into its folder. If a tab's folder is gone, the tab opens the nearest folder above it. Checked on Blue. Left: tabs are not saved between launches.
 17. Remembering the window size.
     Waits on: nothing.
 18. A different view for each folder.
