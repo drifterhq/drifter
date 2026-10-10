@@ -2967,11 +2967,11 @@ untitled
 Its first place is not known
 = Son emplacement d’origine est inconnu
 
-Copying {}
-= Copie de {}
+Copying {} to {}
+= Copie de {} vers {}
 
-Moving {}
-= Déplacement de {}
+Moving {} to {}
+= Déplacement de {} vers {}
 
 Moving {} to the Trash
 = Mise à la corbeille de {}
@@ -3152,3 +3152,39 @@ Loading…
 
 {} more
 = {} de plus
+
+Stopped
+= Arrêté
+
+Stopping…
+= Arrêt en cours…
+
+Getting ready…
+= Préparation…
+
+{} of {}
+= {} sur {}
+
+about {} s left
+= environ {} s restantes
+
+about {} min left
+= environ {} min restantes
+
+about {} h left
+= environ {} h restantes
+
+Stopped: {}
+= Arrêté : {}
+
+{}. Closing the window stops it.
+= {}. Fermer la fenêtre l’arrête.
+
+{} and {} more. Closing the window stops them.
+= {} et {} de plus. Fermer la fenêtre les arrête.
+
+Stop the work and close?
+= Arrêter le travail et fermer ?
+
+Stop and Close
+= Arrêter et fermer

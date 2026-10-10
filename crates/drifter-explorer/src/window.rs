@@ -166,7 +166,8 @@ pub fn run() -> Result<(), String> {
         .handle()
         .insert_source(Timer::from_duration(Duration::from_millis(500)), |_, _, app: &mut Explorer| {
             app.tick();
-            TimeoutAction::ToDuration(Duration::from_millis(500))
+            let busy = app.model.jobs.iter().any(|job| job.shown()) || app.model.loading.is_some();
+            TimeoutAction::ToDuration(Duration::from_millis(if busy { 250 } else { 500 }))
         })
         .map_err(|e| format!("cannot start the timer: {e}"))?;
 
@@ -373,7 +374,7 @@ impl Explorer {
     fn after(&mut self) {
         for effect in std::mem::take(&mut self.model.effects) {
             match effect {
-                Effect::Job(job) => self.run_job(job),
+                Effect::Job(id, job) => self.run_job(id, job),
                 Effect::Launch(argv) => {
                     if let Err(error) = launch(&argv, &self.model.dir) {
                         self.model.say(error, true);
@@ -405,10 +406,12 @@ impl Explorer {
         self.stale = true;
     }
 
-    fn run_job(&mut self, job: Job) {
+    fn run_job(&mut self, id: u64, job: Job) {
         let jobs = self.jobs.clone();
+        let progress = self.model.progress_of(id);
         std::thread::spawn(move || {
-            let done = ops::run(job);
+            let mut done = ops::run(job, &progress);
+            done.id = id;
             let _ = jobs.send(done);
         });
     }
@@ -524,7 +527,8 @@ impl OutputHandler for Explorer {
 
 impl WindowHandler for Explorer {
     fn request_close(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &Window) {
-        self.exit = true;
+        self.model.act(drifter_core::explorer::model::Act::Close);
+        self.after();
     }
 
     fn configure(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &Window, configure: WindowConfigure, _: u32) {

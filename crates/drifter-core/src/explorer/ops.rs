@@ -1,5 +1,50 @@
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+#[derive(Debug, Default)]
+pub struct Progress {
+    pub bytes: AtomicU64,
+    pub total: AtomicU64,
+    pub items: AtomicU64,
+    pub count: AtomicU64,
+    pub counting: AtomicBool,
+    pub stop: AtomicBool,
+}
+
+impl Progress {
+    pub fn stopped(&self) -> bool {
+        self.stop.load(Ordering::Relaxed)
+    }
+
+    pub fn share(&self) -> Option<f64> {
+        if self.counting.load(Ordering::Relaxed) {
+            return None;
+        }
+        let (bytes, total) = (self.bytes.load(Ordering::Relaxed), self.total.load(Ordering::Relaxed));
+        let (items, count) = (self.items.load(Ordering::Relaxed), self.count.load(Ordering::Relaxed));
+        match (total, count) {
+            (1.., _) => Some((bytes as f64 / total as f64).min(1.0)),
+            (0, 1..) => Some((items as f64 / count as f64).min(1.0)),
+            _ => None,
+        }
+    }
+
+    fn wrote(&self, bytes: u64) {
+        self.bytes.fetch_add(bytes, Ordering::Relaxed);
+    }
+
+    fn item(&self) {
+        self.items.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn check(&self) -> io::Result<()> {
+        match self.stopped() {
+            true => Err(io::Error::new(io::ErrorKind::Interrupted, crate::lang::t("Stopped"))),
+            false => Ok(()),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Trashed {
@@ -29,6 +74,8 @@ pub enum Undo {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Done {
+    pub id: u64,
+    pub stopped: bool,
     pub undo: Option<Undo>,
     pub made: Vec<PathBuf>,
     pub failed: Vec<String>,
@@ -46,13 +93,20 @@ impl Job {
     }
 
     pub fn doing(&self) -> String {
-        let count = self.count();
+        use crate::explorer::entry::{items, name_of};
+        let what = match self {
+            Job::Copy { from, .. } | Job::Move { from, .. } | Job::Trash(from) | Job::Delete(from) | Job::Restore(from) => match from.as_slice() {
+                [one] => name_of(one),
+                many => items(many.len()),
+            },
+            Job::EmptyTrash | Job::Undo(_) => String::new(),
+        };
         match self {
-            Job::Copy { .. } => crate::lang::tf("Copying {}", &[&crate::explorer::entry::items(count)]),
-            Job::Move { .. } => crate::lang::tf("Moving {}", &[&crate::explorer::entry::items(count)]),
-            Job::Trash(_) => crate::lang::tf("Moving {} to the Trash", &[&crate::explorer::entry::items(count)]),
-            Job::Delete(_) => crate::lang::tf("Deleting {}", &[&crate::explorer::entry::items(count)]),
-            Job::Restore(_) => crate::lang::tf("Putting back {}", &[&crate::explorer::entry::items(count)]),
+            Job::Copy { into, .. } => crate::lang::tf("Copying {} to {}", &[&what, &name_of(into)]),
+            Job::Move { into, .. } => crate::lang::tf("Moving {} to {}", &[&what, &name_of(into)]),
+            Job::Trash(_) => crate::lang::tf("Moving {} to the Trash", &[&what]),
+            Job::Delete(_) => crate::lang::tf("Deleting {}", &[&what]),
+            Job::Restore(_) => crate::lang::tf("Putting back {}", &[&what]),
             Job::EmptyTrash => crate::lang::t("Emptying the Trash").to_string(),
             Job::Undo(_) => crate::lang::t("Undoing").to_string(),
         }
@@ -96,6 +150,10 @@ pub fn split_name(name: &str) -> (&str, &str) {
 }
 
 pub fn copy_into(from: &Path, into: &Path) -> io::Result<PathBuf> {
+    copy_into_with(from, into, &Progress::default())
+}
+
+pub fn copy_into_with(from: &Path, into: &Path, progress: &Progress) -> io::Result<PathBuf> {
     let name = from.file_name().ok_or_else(|| io::Error::other("no name"))?.to_string_lossy().into_owned();
     if into.starts_with(from) {
         return Err(io::Error::other(crate::lang::t("A folder cannot go inside itself")));
@@ -107,27 +165,122 @@ pub fn copy_into(from: &Path, into: &Path) -> io::Result<PathBuf> {
         }
         false => unique(into, &name),
     };
-    copy_tree(from, &target)?;
+    if let Err(error) = copy_tree(from, &target, progress) {
+        if error.kind() != io::ErrorKind::AlreadyExists {
+            let _ = remove(&target);
+        }
+        return Err(error);
+    }
     Ok(target)
 }
 
-fn copy_tree(from: &Path, to: &Path) -> io::Result<()> {
+fn copy_tree(from: &Path, to: &Path, progress: &Progress) -> io::Result<()> {
+    progress.check()?;
     let meta = std::fs::symlink_metadata(from)?;
     if meta.file_type().is_symlink() {
-        return std::os::unix::fs::symlink(std::fs::read_link(from)?, to);
+        std::os::unix::fs::symlink(std::fs::read_link(from)?, to)?;
+        progress.item();
+        return Ok(());
     }
     if meta.is_dir() {
         std::fs::create_dir(to)?;
+        progress.item();
         for item in std::fs::read_dir(from)? {
             let item = item?;
-            copy_tree(&item.path(), &to.join(item.file_name()))?;
+            copy_tree(&item.path(), &to.join(item.file_name()), progress)?;
         }
         return std::fs::set_permissions(to, meta.permissions());
     }
-    std::fs::copy(from, to).map(|_| ())
+    copy_file(from, to, &meta, progress)?;
+    progress.item();
+    Ok(())
+}
+
+const CHUNK: usize = 4 << 20;
+
+fn copy_file(from: &Path, to: &Path, meta: &std::fs::Metadata, progress: &Progress) -> io::Result<()> {
+    use std::io::{Read, Write};
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut source = std::fs::File::open(from)?;
+    let mut target = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(to)?;
+    if !copy_range(&source, &target, progress)? {
+        let mut buffer = vec![0u8; CHUNK];
+        loop {
+            progress.check()?;
+            let read = match source.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(read) => read,
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(error) => return Err(error),
+            };
+            target.write_all(&buffer[..read])?;
+            progress.wrote(read as u64);
+        }
+    }
+    target.set_permissions(meta.permissions())?;
+    if let Ok(when) = meta.modified() {
+        let _ = target.set_modified(when);
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn copy_range(source: &std::fs::File, target: &std::fs::File, progress: &Progress) -> io::Result<bool> {
+    use std::os::fd::AsRawFd;
+    let mut moved_any = false;
+    loop {
+        progress.check()?;
+        let wrote = unsafe { libc::copy_file_range(source.as_raw_fd(), std::ptr::null_mut(), target.as_raw_fd(), std::ptr::null_mut(), CHUNK, 0) };
+        match wrote {
+            0 => return Ok(true),
+            1.. => {
+                moved_any = true;
+                progress.wrote(wrote as u64);
+            }
+            _ => {
+                let error = io::Error::last_os_error();
+                match error.raw_os_error() {
+                    Some(libc::EINTR) => {}
+                    Some(libc::EXDEV | libc::ENOSYS | libc::EINVAL | libc::EOPNOTSUPP | libc::EPERM) if !moved_any => return Ok(false),
+                    _ => return Err(error),
+                }
+            }
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn copy_range(_: &std::fs::File, _: &std::fs::File, _: &Progress) -> io::Result<bool> {
+    Ok(false)
+}
+
+fn measure(path: &Path, progress: &Progress) -> io::Result<()> {
+    progress.check()?;
+    let meta = std::fs::symlink_metadata(path)?;
+    progress.count.fetch_add(1, Ordering::Relaxed);
+    if meta.is_dir() {
+        for item in std::fs::read_dir(path)? {
+            measure(&item?.path(), progress)?;
+        }
+    } else if meta.is_file() {
+        progress.total.fetch_add(meta.len(), Ordering::Relaxed);
+    }
+    Ok(())
+}
+
+fn same_disk(a: &Path, b: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match (std::fs::symlink_metadata(a), std::fs::metadata(b)) {
+        (Ok(a), Ok(b)) => a.dev() == b.dev(),
+        _ => true,
+    }
 }
 
 pub fn move_into(from: &Path, into: &Path) -> io::Result<PathBuf> {
+    move_into_with(from, into, &Progress::default())
+}
+
+pub fn move_into_with(from: &Path, into: &Path, progress: &Progress) -> io::Result<PathBuf> {
     if from.parent() == Some(into) {
         return Ok(from.to_path_buf());
     }
@@ -136,15 +289,20 @@ pub fn move_into(from: &Path, into: &Path) -> io::Result<PathBuf> {
     }
     let name = from.file_name().ok_or_else(|| io::Error::other("no name"))?.to_string_lossy().into_owned();
     let target = unique(into, &name);
-    move_to(from, &target)?;
+    move_to(from, &target, progress)?;
     Ok(target)
 }
 
-fn move_to(from: &Path, to: &Path) -> io::Result<()> {
+fn move_to(from: &Path, to: &Path, progress: &Progress) -> io::Result<()> {
     match std::fs::rename(from, to) {
         Ok(()) => Ok(()),
         Err(error) if error.raw_os_error() == Some(libc::EXDEV) => {
-            copy_tree(from, to)?;
+            if let Err(error) = copy_tree(from, to, progress) {
+                if error.kind() != io::ErrorKind::AlreadyExists {
+                    let _ = remove(to);
+                }
+                return Err(error);
+            }
             remove(from)
         }
         Err(error) => Err(error),
@@ -152,10 +310,19 @@ fn move_to(from: &Path, to: &Path) -> io::Result<()> {
 }
 
 fn remove(path: &Path) -> io::Result<()> {
-    match std::fs::symlink_metadata(path)?.is_dir() {
-        true => std::fs::remove_dir_all(path),
-        false => std::fs::remove_file(path),
+    remove_with(path, &Progress::default())
+}
+
+fn remove_with(path: &Path, progress: &Progress) -> io::Result<()> {
+    progress.check()?;
+    let meta = std::fs::symlink_metadata(path)?;
+    if !meta.is_dir() {
+        return std::fs::remove_file(path);
     }
+    for item in std::fs::read_dir(path)? {
+        remove_with(&item?.path(), progress)?;
+    }
+    std::fs::remove_dir(path)
 }
 
 pub(crate) fn encode(path: &Path) -> String {
@@ -188,6 +355,10 @@ pub(crate) fn decode(text: &str) -> String {
 }
 
 pub fn trash_in(root: &Path, path: &Path) -> io::Result<Trashed> {
+    trash_in_with(root, path, &Progress::default())
+}
+
+fn trash_in_with(root: &Path, path: &Path, progress: &Progress) -> io::Result<Trashed> {
     let (files, infos) = (root.join("files"), root.join("info"));
     std::fs::create_dir_all(&files)?;
     std::fs::create_dir_all(&infos)?;
@@ -212,7 +383,7 @@ pub fn trash_in(root: &Path, path: &Path) -> io::Result<Trashed> {
             Err(error) => return Err(error),
         }
     };
-    if let Err(error) = move_to(path, &file) {
+    if let Err(error) = move_to(path, &file, progress) {
         let _ = std::fs::remove_file(&info);
         return Err(error);
     }
@@ -224,11 +395,15 @@ pub fn trash(path: &Path) -> io::Result<Trashed> {
 }
 
 pub fn put_back(trashed: &Trashed) -> io::Result<PathBuf> {
+    put_back_with(trashed, &Progress::default())
+}
+
+fn put_back_with(trashed: &Trashed, progress: &Progress) -> io::Result<PathBuf> {
     let parent = trashed.from.parent().ok_or_else(|| io::Error::other("no folder"))?;
     std::fs::create_dir_all(parent)?;
     let name = trashed.from.file_name().ok_or_else(|| io::Error::other("no name"))?.to_string_lossy().into_owned();
     let target = unique(parent, &name);
-    move_to(&trashed.file, &target)?;
+    move_to(&trashed.file, &target, progress)?;
     let _ = std::fs::remove_file(&trashed.info);
     Ok(target)
 }
@@ -242,13 +417,15 @@ pub fn trashed_from(root: &Path, file: &Path) -> Option<Trashed> {
 }
 
 pub fn empty_trash_in(root: &Path) -> io::Result<()> {
-    for sub in ["files", "info"] {
-        let Ok(items) = std::fs::read_dir(root.join(sub)) else {
-            continue;
-        };
-        for item in items.flatten() {
-            remove(&item.path())?;
-        }
+    empty_trash_with(root, &Progress::default())
+}
+
+fn empty_trash_with(root: &Path, progress: &Progress) -> io::Result<()> {
+    let items: Vec<PathBuf> = ["files", "info"].iter().filter_map(|sub| std::fs::read_dir(root.join(sub)).ok()).flatten().flatten().map(|item| item.path()).collect();
+    progress.count.store(items.len() as u64, Ordering::Relaxed);
+    for item in items {
+        remove_with(&item, progress)?;
+        progress.item();
     }
     Ok(())
 }
@@ -286,19 +463,61 @@ pub fn new_file(dir: &Path) -> io::Result<PathBuf> {
     Ok(path)
 }
 
-pub fn run(job: Job) -> Done {
-    run_with(&trash_root(), job)
+pub fn run(job: Job, progress: &Progress) -> Done {
+    run_with(&trash_root(), job, progress)
 }
 
-pub fn run_with(root: &Path, job: Job) -> Done {
+fn count_moves(paths: &[PathBuf], into: &Path, progress: &Progress) -> io::Result<()> {
+    progress.counting.store(true, Ordering::Relaxed);
+    let far: Vec<&PathBuf> = paths.iter().filter(|path| !same_disk(path, into)).collect();
+    match far.is_empty() {
+        true => progress.count.store(paths.len() as u64, Ordering::Relaxed),
+        false => {
+            for path in far {
+                measure(path, progress)?;
+            }
+        }
+    }
+    progress.counting.store(false, Ordering::Relaxed);
+    Ok(())
+}
+
+fn each_moved(progress: &Progress, far: bool) {
+    if !far {
+        progress.item();
+    }
+}
+
+pub fn run_with(root: &Path, job: Job, progress: &Progress) -> Done {
     let words = job.doing();
-    let mut done = Done { undo: None, made: Vec::new(), failed: Vec::new(), words };
+    let mut done = Done { id: 0, stopped: false, undo: None, made: Vec::new(), failed: Vec::new(), words };
     let fail = |path: &Path, error: io::Error| format!("{}: {error}", crate::explorer::entry::name_of(path));
+    let counted = match &job {
+        Job::Copy { from, .. } => {
+            progress.counting.store(true, Ordering::Relaxed);
+            let all = from.iter().try_for_each(|path| measure(path, progress));
+            progress.counting.store(false, Ordering::Relaxed);
+            all
+        }
+        Job::Move { from, into } => count_moves(from, into, progress),
+        Job::Trash(paths) => count_moves(paths, root, progress),
+        Job::Delete(paths) | Job::Restore(paths) => {
+            progress.count.store(paths.len() as u64, Ordering::Relaxed);
+            Ok(())
+        }
+        Job::EmptyTrash | Job::Undo(_) => Ok(()),
+    };
+    if counted.is_err() && progress.stopped() {
+        done.stopped = true;
+        return done;
+    }
+    let far = progress.total.load(Ordering::Relaxed) > 0;
     match job {
         Job::Copy { from, into } => {
             for path in &from {
-                match copy_into(path, &into) {
+                match copy_into_with(path, &into, progress) {
                     Ok(made) => done.made.push(made),
+                    Err(_) if progress.stopped() => break,
                     Err(error) => done.failed.push(fail(path, error)),
                 }
             }
@@ -307,54 +526,65 @@ pub fn run_with(root: &Path, job: Job) -> Done {
         Job::Move { from, into } => {
             let mut moved = Vec::new();
             for path in &from {
-                match move_into(path, &into) {
+                match move_into_with(path, &into, progress) {
                     Ok(made) if &made == path => {}
                     Ok(made) => {
                         moved.push((path.clone(), made.clone()));
                         done.made.push(made);
                     }
+                    Err(_) if progress.stopped() => break,
                     Err(error) => done.failed.push(fail(path, error)),
                 }
+                each_moved(progress, far);
             }
             done.undo = (!moved.is_empty()).then_some(Undo::Moved(moved));
         }
         Job::Trash(paths) => {
             let mut gone = Vec::new();
             for path in &paths {
-                match trash_in(root, path) {
+                match trash_in_with(root, path, progress) {
                     Ok(trashed) => gone.push(trashed),
+                    Err(_) if progress.stopped() => break,
                     Err(error) => done.failed.push(fail(path, error)),
                 }
+                each_moved(progress, far);
             }
             done.undo = (!gone.is_empty()).then_some(Undo::Trashed(gone));
         }
         Job::Delete(paths) => {
             for path in &paths {
-                if let Err(error) = remove(path) {
-                    done.failed.push(fail(path, error));
+                match remove_with(path, progress) {
+                    Err(_) if progress.stopped() => break,
+                    Err(error) => done.failed.push(fail(path, error)),
+                    Ok(()) => {}
                 }
                 if let Some(trashed) = trashed_from(root, path) {
                     let _ = std::fs::remove_file(trashed.info);
                 }
+                progress.item();
             }
         }
         Job::Restore(paths) => {
             for path in &paths {
-                match trashed_from(root, path).ok_or_else(|| io::Error::other(crate::lang::t("Its first place is not known"))).and_then(|t| put_back(&t)) {
+                match trashed_from(root, path).ok_or_else(|| io::Error::other(crate::lang::t("Its first place is not known"))).and_then(|t| put_back_with(&t, progress)) {
                     Ok(made) => done.made.push(made),
+                    Err(_) if progress.stopped() => break,
                     Err(error) => done.failed.push(fail(path, error)),
                 }
+                progress.item();
             }
         }
         Job::EmptyTrash => {
-            if let Err(error) = empty_trash_in(root) {
+            if let Err(error) = empty_trash_with(root, progress)
+                && !progress.stopped()
+            {
                 done.failed.push(fail(root, error));
             }
         }
         Job::Undo(undo) => match undo {
             Undo::Made(paths) => {
                 for path in &paths {
-                    if let Err(error) = trash_in(root, path) {
+                    if let Err(error) = trash_in_with(root, path, progress) {
                         done.failed.push(fail(path, error));
                     }
                 }
@@ -364,7 +594,7 @@ pub fn run_with(root: &Path, job: Job) -> Done {
                     let back = was.parent().map(|parent| unique(parent, &crate::explorer::entry::name_of(was)));
                     match back {
                         Some(back) => {
-                            if let Err(error) = move_to(now, &back) {
+                            if let Err(error) = move_to(now, &back, progress) {
                                 done.failed.push(fail(now, error));
                             }
                         }
@@ -379,7 +609,7 @@ pub fn run_with(root: &Path, job: Job) -> Done {
             }
             Undo::Trashed(gone) => {
                 for trashed in &gone {
-                    match put_back(trashed) {
+                    match put_back_with(trashed, progress) {
                         Ok(made) => done.made.push(made),
                         Err(error) => done.failed.push(fail(&trashed.file, error)),
                     }
@@ -387,6 +617,7 @@ pub fn run_with(root: &Path, job: Job) -> Done {
             }
         },
     }
+    done.stopped = progress.stopped();
     done
 }
 
@@ -420,6 +651,72 @@ mod tests {
     }
 
     #[test]
+    fn a_copy_counts_first_then_reports_every_byte() {
+        let place = Place::new("progress");
+        let from = place.work().join("from");
+        std::fs::create_dir_all(from.join("inner")).unwrap();
+        std::fs::write(from.join("big.bin"), vec![7u8; 9 << 20]).unwrap();
+        std::fs::write(from.join("inner/small.txt"), "hi").unwrap();
+        let old = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+        std::fs::File::options().write(true).open(from.join("big.bin")).unwrap().set_modified(old).unwrap();
+        let into = place.work().join("into");
+        std::fs::create_dir(&into).unwrap();
+        let progress = Progress::default();
+        let done = run_with(&place.trash(), Job::Copy { from: vec![from.clone()], into: into.clone() }, &progress);
+        assert!(done.failed.is_empty() && !done.stopped);
+        assert_eq!(progress.total.load(Ordering::Relaxed), (9 << 20) + 2);
+        assert_eq!(progress.bytes.load(Ordering::Relaxed), (9 << 20) + 2);
+        assert_eq!(progress.items.load(Ordering::Relaxed), progress.count.load(Ordering::Relaxed));
+        assert_eq!(progress.share(), Some(1.0));
+        assert_eq!(std::fs::read(into.join("from/big.bin")).unwrap().len(), 9 << 20);
+        assert_eq!(std::fs::metadata(into.join("from/big.bin")).unwrap().modified().unwrap(), old);
+    }
+
+    #[test]
+    fn a_stopped_copy_leaves_no_half_file() {
+        let place = Place::new("stop");
+        let from = place.work().join("big.bin");
+        std::fs::write(&from, vec![1u8; 64 << 20]).unwrap();
+        let into = place.work().join("into");
+        std::fs::create_dir(&into).unwrap();
+        let progress = std::sync::Arc::new(Progress::default());
+        progress.stop.store(true, Ordering::Relaxed);
+        let done = run_with(&place.trash(), Job::Copy { from: vec![from.clone()], into: into.clone() }, &progress);
+        assert!(done.stopped && done.made.is_empty() && done.failed.is_empty());
+        let progress = std::sync::Arc::new(Progress::default());
+        let watching = progress.clone();
+        let stopper = std::thread::spawn(move || {
+            while watching.bytes.load(Ordering::Relaxed) == 0 {
+                std::thread::yield_now();
+            }
+            watching.stop.store(true, Ordering::Relaxed);
+        });
+        let done = run_with(&place.trash(), Job::Copy { from: vec![from.clone(), from.clone()], into: into.clone() }, &progress);
+        stopper.join().unwrap();
+        assert!(done.stopped && done.failed.is_empty());
+        assert!(progress.bytes.load(Ordering::Relaxed) < 128 << 20);
+        let left: Vec<PathBuf> = std::fs::read_dir(&into).unwrap().map(|item| item.unwrap().path()).collect();
+        assert_eq!(left, done.made);
+        assert!(from.exists());
+    }
+
+    #[test]
+    fn a_delete_counts_items_and_can_stop() {
+        let place = Place::new("delete");
+        let paths: Vec<PathBuf> = (0..4).map(|n| place.work().join(format!("{n}.txt"))).collect();
+        for path in &paths {
+            std::fs::write(path, "x").unwrap();
+        }
+        let progress = Progress::default();
+        run_with(&place.trash(), Job::Delete(paths[..2].to_vec()), &progress);
+        assert_eq!(progress.share(), Some(1.0));
+        let progress = Progress::default();
+        progress.stop.store(true, Ordering::Relaxed);
+        let done = run_with(&place.trash(), Job::Delete(paths[2..].to_vec()), &progress);
+        assert!(done.stopped && paths[2].exists() && paths[3].exists() && !paths[0].exists());
+    }
+
+    #[test]
     fn a_copy_in_the_same_folder_gets_a_new_name() {
         let place = Place::new("copy");
         let file = place.work().join("note.txt");
@@ -449,14 +746,14 @@ mod tests {
         let place = Place::new("trash");
         let file = place.work().join("old file.txt");
         std::fs::write(&file, "keep").unwrap();
-        let done = run_with(&place.trash(), Job::Trash(vec![file.clone()]));
+        let done = run_with(&place.trash(), Job::Trash(vec![file.clone()]), &Progress::default());
         assert!(done.failed.is_empty(), "{:?}", done.failed);
         assert!(!file.exists());
         let info = std::fs::read_to_string(place.trash().join("info/old file.txt.trashinfo")).unwrap();
         assert!(info.contains("old%20file.txt"), "{info}");
         let found = trashed_from(&place.trash(), &place.trash().join("files/old file.txt")).unwrap();
         assert_eq!(found.from, std::path::absolute(&file).unwrap());
-        let undone = run_with(&place.trash(), Job::Undo(done.undo.unwrap()));
+        let undone = run_with(&place.trash(), Job::Undo(done.undo.unwrap()), &Progress::default());
         assert!(undone.failed.is_empty());
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "keep");
         assert!(!place.trash().join("info/old file.txt.trashinfo").exists());
@@ -467,11 +764,11 @@ mod tests {
         let place = Place::new("twice");
         for _ in 0..2 {
             std::fs::write(place.work().join("a.txt"), "x").unwrap();
-            run_with(&place.trash(), Job::Trash(vec![place.work().join("a.txt")]));
+            run_with(&place.trash(), Job::Trash(vec![place.work().join("a.txt")]), &Progress::default());
         }
         assert!(place.trash().join("files/a.txt").exists());
         assert!(place.trash().join("files/a.2.txt").exists());
-        run_with(&place.trash(), Job::EmptyTrash);
+        run_with(&place.trash(), Job::EmptyTrash, &Progress::default());
         assert_eq!(std::fs::read_dir(place.trash().join("files")).unwrap().count(), 0);
     }
 
@@ -482,9 +779,9 @@ mod tests {
         std::fs::write(&file, "x").unwrap();
         let into = place.work().join("into");
         std::fs::create_dir(&into).unwrap();
-        let done = run_with(&place.trash(), Job::Move { from: vec![file.clone()], into: into.clone() });
+        let done = run_with(&place.trash(), Job::Move { from: vec![file.clone()], into: into.clone() }, &Progress::default());
         assert!(into.join("m.txt").exists() && !file.exists());
-        run_with(&place.trash(), Job::Undo(done.undo.unwrap()));
+        run_with(&place.trash(), Job::Undo(done.undo.unwrap()), &Progress::default());
         assert!(file.exists() && !into.join("m.txt").exists());
     }
 

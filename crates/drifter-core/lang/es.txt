@@ -2970,11 +2970,11 @@ untitled
 Its first place is not known
 = Su ubicación original no se conoce
 
-Copying {}
-= Copiando {}
+Copying {} to {}
+= Copiando {} a {}
 
-Moving {}
-= Moviendo {}
+Moving {} to {}
+= Moviendo {} a {}
 
 Moving {} to the Trash
 = Moviendo {} a la papelera
@@ -3155,3 +3155,39 @@ Loading…
 
 {} more
 = {} más
+
+Stopped
+= Detenido
+
+Stopping…
+= Deteniendo…
+
+Getting ready…
+= Preparando…
+
+{} of {}
+= {} de {}
+
+about {} s left
+= quedan unos {} s
+
+about {} min left
+= quedan unos {} min
+
+about {} h left
+= quedan unas {} h
+
+Stopped: {}
+= Detenido: {}
+
+{}. Closing the window stops it.
+= {}. Si cierras la ventana, se detiene.
+
+{} and {} more. Closing the window stops them.
+= {} y {} más. Si cierras la ventana, se detienen.
+
+Stop the work and close?
+= ¿Detener el trabajo y cerrar?
+
+Stop and Close
+= Detener y cerrar

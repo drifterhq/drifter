@@ -71,6 +71,17 @@ fn main() {
         shot(&mut model, "alert");
         model.hover = None;
         model.alerts.clear();
+        model.start_job(drifter_core::explorer::ops::Job::Copy { from: vec![home.join("Documents/clip.mkv")], into: home.join("Videos") });
+        model.start_job(drifter_core::explorer::ops::Job::EmptyTrash);
+        for job in &mut model.jobs {
+            job.started -= std::time::Duration::from_secs(20);
+        }
+        let first = &model.jobs[0].progress;
+        first.total.store(4_700_000_000, std::sync::atomic::Ordering::Relaxed);
+        first.bytes.store(1_300_000_000, std::sync::atomic::Ordering::Relaxed);
+        shot(&mut model, "jobs");
+        model.jobs.clear();
+        model.effects.clear();
         model.act(Act::EditPath);
         shot(&mut model, "path");
     }

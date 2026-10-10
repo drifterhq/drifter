@@ -16,6 +16,7 @@ pub const MENU_H: f64 = 30.0;
 pub const BAR_H: f64 = 50.0;
 pub const STATUS_H: f64 = 28.0;
 pub const BANNER_H: f64 = 40.0;
+pub const JOB_H: f64 = 50.0;
 pub const SPLIT_W: f64 = 6.0;
 pub const ROW_H: f64 = 26.0;
 pub const HEAD_H: f64 = 28.0;
@@ -59,6 +60,8 @@ pub enum Hit {
     Picture,
     Dismiss,
     Banner,
+    Stop(u64),
+    Jobs,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -139,6 +142,7 @@ pub struct Frame {
     pub menu: Rect,
     pub bar: Rect,
     pub banner: Option<Rect>,
+    pub jobs: Option<Rect>,
     pub side: Option<Rect>,
     pub split: Option<Rect>,
     pub body: Rect,
@@ -212,7 +216,10 @@ impl Look {
         let menu = rect(0.0, 0.0, size.x, MENU_H);
         let bar = rect(0.0, MENU_H, size.x, BAR_H);
         let banner = (!model.alerts.is_empty()).then(|| rect(0.0, MENU_H + BAR_H, size.x, BANNER_H));
-        let top = MENU_H + BAR_H + banner.map_or(0.0, |banner| banner.size.y);
+        let below = MENU_H + BAR_H + banner.map_or(0.0, |banner| banner.size.y);
+        let shown = model.jobs.iter().filter(|job| job.shown()).count();
+        let jobs = (shown > 0).then(|| rect(0.0, below, size.x, JOB_H * shown as f64));
+        let top = below + jobs.map_or(0.0, |jobs| jobs.size.y);
         let status_h = if model.prefs.status { STATUS_H } else { 0.0 };
         let tall = (size.y - top - status_h).max(0.0);
         let side_on = model.prefs.tree || model.prefs.places || model.prefs.drives;
@@ -224,7 +231,7 @@ impl Look {
         let split = side_on.then(|| rect(side_w - SPLIT_W / 2.0, top, SPLIT_W, tall));
         let body = rect(side_w, top, size.x - side_w, tall);
         let status = model.prefs.status.then(|| rect(0.0, size.y - STATUS_H, size.x, STATUS_H));
-        Frame { menu, bar, banner, side, split, body, status }
+        Frame { menu, bar, banner, jobs, side, split, body, status }
     }
 
     pub fn bar_titles(&self, fonts: &Fonts) -> Vec<(Rect, &'static str)> {
@@ -414,6 +421,12 @@ impl Look {
                 false => Hit::Banner,
             });
         }
+        if let Some(jobs) = frame.jobs
+            && jobs.contains(at)
+        {
+            let found = self.job_rows(jobs, model).into_iter().find(|(_, row)| self.stop_rect(*row).contains(at));
+            return Some(found.map_or(Hit::Jobs, |(id, _)| Hit::Stop(id)));
+        }
         if let Some(status) = frame.status
             && status.contains(at)
         {
@@ -526,6 +539,9 @@ impl Look {
         self.paint_bar(&mut canvas, &frame, job);
         if let Some(banner) = frame.banner {
             self.paint_banner(&mut canvas, banner, model, fonts);
+        }
+        if let Some(jobs) = frame.jobs {
+            self.paint_jobs(&mut canvas, jobs, model, fonts);
         }
         if let Some(status) = frame.status {
             self.paint_status(&mut canvas, status, model, fonts);
@@ -1359,6 +1375,56 @@ impl Look {
         rect(banner.max().x - 10.0 - BUTTON, banner.origin.y + (banner.size.y - BUTTON) / 2.0, BUTTON, BUTTON)
     }
 
+    pub fn job_rows(&self, area: Rect, model: &Model) -> Vec<(u64, Rect)> {
+        model.jobs.iter().filter(|job| job.shown()).enumerate().map(|(at, job)| (job.id, rect(area.origin.x, area.origin.y + at as f64 * JOB_H, area.size.x, JOB_H))).collect()
+    }
+
+    pub fn stop_rect(&self, row: Rect) -> Rect {
+        rect(row.max().x - 10.0 - BUTTON, row.origin.y + (row.size.y - BUTTON) / 2.0, BUTTON, BUTTON)
+    }
+
+    fn paint_jobs(&self, canvas: &mut Canvas, area: Rect, model: &Model, fonts: &Fonts) {
+        canvas.round_rect(area, 0.0, self.bar, 1.0);
+        for (id, row) in self.job_rows(area, model) {
+            let Some(job) = model.jobs.iter().find(|each| each.id == id) else {
+                continue;
+            };
+            canvas.round_rect(rect(0.0, row.max().y - 1.0, row.size.x, 1.0), 0.0, self.rule, 1.0);
+            let stop = self.stop_rect(row);
+            let hot = model.hover == Some(Hit::Stop(id));
+            self.button(canvas, stop, hot, false);
+            let c = stop.center();
+            canvas.line(c + Vec2::new(-5.0, -5.0), c + Vec2::new(5.0, 5.0), 2.0, self.ink, 1.0);
+            canvas.line(c + Vec2::new(5.0, -5.0), c + Vec2::new(-5.0, 5.0), 2.0, self.ink, 1.0);
+            let left = row.origin.x + 16.0;
+            let right = stop.origin.x - 14.0;
+            let top = row.origin.y + 17.0;
+            let detail = job.detail();
+            let detail_w = match detail.is_empty() {
+                true => 0.0,
+                false => fonts.small.width_of(&detail) + 16.0,
+            };
+            self.text(canvas, fonts.body, &job.words, self.ink, Vec2::new(left, top), right - left - detail_w);
+            if !detail.is_empty() {
+                self.text_right(canvas, fonts.small, &detail, self.dim, right, top);
+            }
+            let track = rect(left, row.origin.y + 32.0, (right - left).max(0.0), 6.0);
+            canvas.round_rect(track, 3.0, self.raised, 1.0);
+            match job.progress.share() {
+                Some(share) => {
+                    let width = (track.size.x * share).max(6.0);
+                    canvas.round_rect(rect(track.origin.x, track.origin.y, width, track.size.y), 3.0, self.accent, 1.0);
+                }
+                None => {
+                    let sweep = (job.started.elapsed().as_secs_f64() * 0.6).fract();
+                    let width = track.size.x * 0.25;
+                    let x = track.origin.x + (track.size.x - width) * sweep;
+                    canvas.round_rect(rect(x, track.origin.y, width, track.size.y), 3.0, self.accent, 0.7);
+                }
+            }
+        }
+    }
+
     fn paint_banner(&self, canvas: &mut Canvas, banner: Rect, model: &Model, fonts: &Fonts) {
         let Some(words) = model.alerts.last() else {
             return;
@@ -1390,8 +1456,8 @@ impl Look {
         canvas.round_rect(status, 0.0, self.bar, 1.0);
         canvas.round_rect(rect(0.0, status.origin.y, status.size.x, 1.0), 0.0, self.rule, 1.0);
         let middle = status.center().y;
-        let (words, ink) = match (&model.note, model.busy.last()) {
-            (_, Some(busy)) => (format!("{busy}…"), self.ink),
+        let (words, ink) = match (&model.note, model.jobs.iter().rfind(|job| !job.shown())) {
+            (_, Some(job)) => (format!("{}…", job.words), self.ink),
             (Some((words, _)), None) => (words.clone(), self.ink),
             (None, None) => (model.summary(), self.dim),
         };

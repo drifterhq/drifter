@@ -2970,20 +2970,20 @@ untitled
 Its first place is not known
 = Der ursprüngliche Ort ist unbekannt
 
-Copying {}
-= {} werden kopiert
+Copying {} to {}
+= Kopiere {} nach {}
 
-Moving {}
-= {} werden verschoben
+Moving {} to {}
+= Verschiebe {} nach {}
 
 Moving {} to the Trash
-= {} werden in den Papierkorb gelegt
+= Lege {} in den Papierkorb
 
 Deleting {}
-= {} werden gelöscht
+= Lösche {}
 
 Putting back {}
-= {} werden zurückgelegt
+= Lege {} zurück
 
 {} already exists here
 = {} gibt es hier schon
@@ -3155,3 +3155,39 @@ Loading…
 
 {} more
 = {} weitere
+
+Stopped
+= Angehalten
+
+Stopping…
+= Wird angehalten …
+
+Getting ready…
+= Wird vorbereitet …
+
+{} of {}
+= {} von {}
+
+about {} s left
+= noch etwa {} s
+
+about {} min left
+= noch etwa {} min
+
+about {} h left
+= noch etwa {} h
+
+Stopped: {}
+= Angehalten: {}
+
+{}. Closing the window stops it.
+= {}. Wenn du das Fenster schließt, wird der Vorgang angehalten.
+
+{} and {} more. Closing the window stops them.
+= {} und {} weitere. Wenn du das Fenster schließt, werden sie angehalten.
+
+Stop the work and close?
+= Vorgang anhalten und schließen?
+
+Stop and Close
+= Anhalten und schließen

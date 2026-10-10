@@ -4,7 +4,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use super::entry::{self, Entry, Family, Sort};
 use super::field::Field;
-use super::ops::{self, Done, Job, Undo};
+use super::ops::{self, Done, Job, Progress, Undo};
 use super::open::{self, Handler};
 use super::prefs::{self, Click, Dates, Mode, Prefs, Root, Start};
 use super::read::{Ask, Got, Lens, Listing, Reader};
@@ -14,6 +14,7 @@ const BUDGET: Duration = match cfg!(test) {
     false => Duration::from_millis(50),
 };
 const SHOW_LOADING: Duration = Duration::from_millis(250);
+const SHOW_JOB: Duration = Duration::from_millis(400);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Act {
@@ -59,6 +60,8 @@ pub enum Act {
     About,
     Set(Pref),
     Dismiss,
+    Stop(u64),
+    StopAndClose,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -170,9 +173,60 @@ pub struct Column {
     pub scroll: f64,
 }
 
+#[derive(Debug, Clone)]
+pub struct Running {
+    pub id: u64,
+    pub words: String,
+    pub progress: std::sync::Arc<Progress>,
+    pub started: Instant,
+}
+
+impl Running {
+    pub fn shown(&self) -> bool {
+        self.started.elapsed() >= SHOW_JOB
+    }
+
+    pub fn detail(&self) -> String {
+        use std::sync::atomic::Ordering::Relaxed;
+        let p = &self.progress;
+        if p.stopped() {
+            return crate::lang::t("Stopping…").to_string();
+        }
+        if p.counting.load(Relaxed) {
+            return crate::lang::t("Getting ready…").to_string();
+        }
+        let (bytes, total) = (p.bytes.load(Relaxed), p.total.load(Relaxed));
+        if total == 0 {
+            let (items, count) = (p.items.load(Relaxed), p.count.load(Relaxed));
+            return match count {
+                0 => String::new(),
+                _ => crate::lang::tf("{} of {}", &[&items.min(count), &entry::items(count as usize)]),
+            };
+        }
+        let sizes = crate::lang::tf("{} of {}", &[&entry::size_words(bytes.min(total)), &entry::size_words(total)]);
+        let spent = self.started.elapsed().as_secs_f64();
+        match bytes > 0 && spent >= 3.0 {
+            true => {
+                let left = spent * (total.saturating_sub(bytes)) as f64 / bytes as f64;
+                format!("{sizes}, {}", time_left(left))
+            }
+            false => sizes,
+        }
+    }
+}
+
+pub fn time_left(seconds: f64) -> String {
+    let seconds = seconds.ceil().max(1.0) as u64;
+    match seconds {
+        0..60 => crate::lang::tf("about {} s left", &[&seconds]),
+        60..3600 => crate::lang::tf("about {} min left", &[&seconds.div_ceil(60)]),
+        _ => crate::lang::tf("about {} h left", &[&(seconds / 3600)]),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Effect {
-    Job(Job),
+    Job(u64, Job),
     Launch(Vec<String>),
     Clip(String),
     NewWindow(PathBuf),
@@ -202,7 +256,9 @@ pub struct Model {
     pub sheet: Option<Sheet>,
     pub clip: Option<(Vec<PathBuf>, bool)>,
     pub undo: Vec<Undo>,
-    pub busy: Vec<String>,
+    pub jobs: Vec<Running>,
+    pub job_ids: u64,
+    pub closing: bool,
     pub note: Option<(String, Instant)>,
     pub alerts: Vec<String>,
     pub peek: Option<Vec<String>>,
@@ -344,7 +400,9 @@ impl Model {
             sheet: None,
             clip: None,
             undo: Vec::new(),
-            busy: Vec::new(),
+            jobs: Vec::new(),
+            job_ids: 0,
+            closing: false,
             note: None,
             alerts: Vec::new(),
             peek: None,
@@ -659,6 +717,9 @@ impl Model {
         if self.loading.is_none() {
             self.reader.ask(Ask::Stamp(self.dir.clone()));
         } else if self.showing_loading() {
+            changed = true;
+        }
+        if self.jobs.iter().any(Running::shown) {
             changed = true;
         }
         changed | self.arrived()
@@ -1016,13 +1077,23 @@ impl Model {
     }
 
     pub fn start_job(&mut self, job: Job) {
-        self.busy.push(job.doing());
-        self.effects.push(Effect::Job(job));
+        self.job_ids += 1;
+        let id = self.job_ids;
+        self.jobs.push(Running { id, words: job.doing(), progress: Default::default(), started: Instant::now() });
+        self.effects.push(Effect::Job(id, job));
+    }
+
+    pub fn progress_of(&self, id: u64) -> std::sync::Arc<Progress> {
+        self.jobs.iter().find(|each| each.id == id).map(|each| each.progress.clone()).unwrap_or_default()
     }
 
     pub fn finished(&mut self, done: Done) {
-        if let Some(at) = self.busy.iter().position(|each| each == &done.words) {
-            self.busy.remove(at);
+        self.jobs.retain(|each| each.id != done.id);
+        if self.closing && self.jobs.is_empty() {
+            self.effects.push(Effect::Close);
+        }
+        if done.stopped {
+            self.say(crate::lang::tf("Stopped: {}", &[&done.words]), false);
         }
         if let Some(undo) = done.undo {
             self.undo.push(undo);
@@ -1237,7 +1308,25 @@ impl Model {
                     self.sheet = Some(Sheet::Info(info_of(one)));
                 }
             }
-            Act::Close => self.effects.push(Effect::Close),
+            Act::Close => match self.jobs.as_slice() {
+                [] => self.effects.push(Effect::Close),
+                [one, rest @ ..] => {
+                    let words = match rest.len() {
+                        0 => crate::lang::tf("{}. Closing the window stops it.", &[&one.words]),
+                        more => crate::lang::tf("{} and {} more. Closing the window stops them.", &[&one.words, &more]),
+                    };
+                    self.confirm(crate::lang::t("Stop the work and close?"), words, crate::lang::t("Stop and Close"), Act::StopAndClose);
+                }
+            },
+            Act::StopAndClose => {
+                for job in &self.jobs {
+                    job.progress.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+                self.closing = true;
+                if self.jobs.is_empty() {
+                    self.effects.push(Effect::Close);
+                }
+            }
             Act::Undo => match self.undo.pop() {
                 Some(undo) => self.start_job(Job::Undo(undo)),
                 None => self.say(crate::lang::t("Nothing to undo"), false),
@@ -1308,6 +1397,11 @@ impl Model {
             Act::Status => self.set(Pref::Status),
             Act::Dismiss => {
                 self.alerts.pop();
+            }
+            Act::Stop(id) => {
+                if let Some(job) = self.jobs.iter().find(|each| each.id == id) {
+                    job.progress.stop.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
             }
             Act::Reload => {
                 self.drives = drives_in(&std::fs::read_to_string("/proc/mounts").unwrap_or_default());
@@ -1796,6 +1890,34 @@ mod tests {
     }
 
     #[test]
+    fn a_job_can_be_stopped_and_says_so() {
+        let (place, mut model) = place("stopjob");
+        model.start_job(Job::Delete(vec![place.0.join("work/b.txt")]));
+        let id = model.jobs[0].id;
+        model.act(Act::Stop(id));
+        let progress = model.progress_of(id);
+        assert!(progress.stopped());
+        let mut done = ops::run_with(&place.0.join("Trash"), Job::Delete(vec![place.0.join("work/b.txt")]), &progress);
+        done.id = id;
+        model.finished(done);
+        assert!(model.jobs.is_empty());
+        assert!(place.0.join("work/b.txt").exists());
+        assert!(model.note.as_ref().is_some_and(|(words, _)| words.starts_with(crate::lang::t("Stopped"))));
+        model.start_job(Job::EmptyTrash);
+        model.act(Act::Close);
+        assert!(matches!(model.sheet, Some(Sheet::Confirm { act: Act::StopAndClose, .. })));
+        model.effects.clear();
+        model.act(Act::StopAndClose);
+        assert!(model.jobs[0].progress.stopped() && model.effects.is_empty());
+        let id = model.jobs[0].id;
+        model.finished(Done { id, stopped: true, undo: None, made: Vec::new(), failed: Vec::new(), words: String::new() });
+        assert_eq!(model.effects, [Effect::Close]);
+        assert_eq!(time_left(42.2), "about 43 s left");
+        assert_eq!(time_left(61.0), "about 2 min left");
+        assert_eq!(time_left(7300.0), "about 2 h left");
+    }
+
+    #[test]
     fn hidden_files_show_on_request() {
         let (_place, mut model) = place("hidden");
         assert_eq!(model.entries.len(), 3);
@@ -1856,14 +1978,15 @@ mod tests {
         model.go(place.0.join("work/Photos"), None);
         model.effects.clear();
         model.act(Act::Paste);
-        assert_eq!(model.effects, [Effect::Job(Job::Copy { from: vec![place.0.join("work/b.txt")], into: place.0.join("work/Photos") })]);
+        assert_eq!(model.effects, [Effect::Job(1, Job::Copy { from: vec![place.0.join("work/b.txt")], into: place.0.join("work/Photos") })]);
         let job = match model.effects.pop() {
-            Some(Effect::Job(job)) => job,
+            Some(Effect::Job(_, job)) => job,
             _ => unreachable!(),
         };
-        let done = ops::run_with(&place.0.join("Trash"), job);
+        let mut done = ops::run_with(&place.0.join("Trash"), job, &Progress::default());
+        done.id = 1;
         model.finished(done);
-        assert!(model.busy.is_empty());
+        assert!(model.jobs.is_empty());
         assert_eq!(model.single().map(|one| one.name.as_str()), Some("b.txt"));
         assert_eq!(model.undo.len(), 1);
     }
@@ -1881,7 +2004,7 @@ mod tests {
         assert!(model.lines().iter().any(|line| matches!(line, Line::Place { path, mark: true, .. } if path == &photos)));
         model.effects.clear();
         model.drop_on(Drop::Into(photos.clone()), vec![place.0.join("work/b.txt")], false);
-        assert_eq!(model.effects, [Effect::Job(Job::Move { from: vec![place.0.join("work/b.txt")], into: photos.clone() })]);
+        assert_eq!(model.effects, [Effect::Job(1, Job::Move { from: vec![place.0.join("work/b.txt")], into: photos.clone() })]);
         model.effects.clear();
         model.drop_on(Drop::Into(photos.join("2026")), vec![photos.clone()], false);
         assert!(model.effects.is_empty());
