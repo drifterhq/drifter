@@ -3368,3 +3368,12 @@ Can run as a program
 
 Cannot change “{}”: {}
 = No se puede cambiar «{}»: {}
+
+Check the spelling or try fewer letters
+= Revisa la ortografía o prueba con menos letras
+
+Things you move to the Trash wait here until you empty it
+= Lo que mueves a la Papelera espera aquí hasta que la vacíes
+
+Drop files here, or press Shift+Ctrl+N for a new folder
+= Suelta archivos aquí o pulsa Mayús+Ctrl+N para una carpeta nueva

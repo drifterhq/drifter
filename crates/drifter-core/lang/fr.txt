@@ -3365,3 +3365,12 @@ Can run as a program
 
 Cannot change “{}”: {}
 = Impossible de modifier « {} » : {}
+
+Check the spelling or try fewer letters
+= Vérifiez l’orthographe ou essayez moins de lettres
+
+Things you move to the Trash wait here until you empty it
+= Ce que vous mettez à la Corbeille attend ici jusqu’à ce que vous la vidiez
+
+Drop files here, or press Shift+Ctrl+N for a new folder
+= Déposez des fichiers ici ou appuyez sur Maj+Ctrl+N pour un nouveau dossier

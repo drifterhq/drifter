@@ -140,6 +140,7 @@ Later steps build on these.
     - Built: the big preview now grows a small picture to fill the space, up to 4 times its size (`grow_fit`); big pictures still shrink to fit. Pictures with see-through pixels no longer get a box shadow, in the preview or in tiles (`solid`), so logos and icons do not sit on a dark square. Test: `small_pictures_grow_in_the_gallery_but_not_without_end`. Checked on the trixie VM: a 48 px PNG showed at 192 px with no box behind it.
 38. Empty folders show gray text and nothing else.
     Waits on: 32.
+    - Built: an empty folder now shows its own folder icon, large and faded, then "This folder is empty" in normal ink and a hint: "Drop files here, or press Shift+Ctrl+N for a new folder". The empty Trash shows the Trash icon and "Things you move to the Trash wait here until you empty it". A search with no results shows a large magnifier and "Check the spelling or try fewer letters". Searching and loading keep plain text. In Gallery the empty state sits in the picture area. Checked on the trixie VM for all three.
 
 ## Phase 9: Make it the default
 

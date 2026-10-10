@@ -141,6 +141,13 @@ pub enum SheetHit {
 
 pub const APP_ROW: f64 = 34.0;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Empty {
+    Folder,
+    Trash,
+    Search,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Drop {
     Mark,
@@ -1574,20 +1581,48 @@ impl Look {
             }
             if model.entries.is_empty() && model.view.mode != Mode::Columns {
                 let hunting = model.search.as_ref().filter(|_| model.searching()).map(|search| search.done);
-                let words = match (model.loading.is_some(), super::ops::in_trash(&model.dir)) {
-                    _ if hunting == Some(false) => Some(crate::lang::t("Searching…")),
-                    _ if hunting == Some(true) => Some(crate::lang::t("Nothing matches")),
-                    (true, _) if model.showing_loading() => Some(crate::lang::t("Loading…")),
+                let trash = super::ops::in_trash(&model.dir);
+                let quiet = match (model.loading.is_some(), trash) {
+                    _ if hunting == Some(false) => Some((crate::lang::t("Searching…"), None, None)),
+                    _ if hunting == Some(true) => Some((crate::lang::t("Nothing matches"), Some(crate::lang::t("Check the spelling or try fewer letters")), Some(Empty::Search))),
+                    (true, _) if model.showing_loading() => Some((crate::lang::t("Loading…"), None, None)),
                     (true, _) => None,
-                    (false, true) => Some(crate::lang::t("The Trash is empty")),
-                    (false, false) => Some(crate::lang::t("This folder is empty")),
+                    (false, true) => Some((crate::lang::t("The Trash is empty"), Some(crate::lang::t("Things you move to the Trash wait here until you empty it")), Some(Empty::Trash))),
+                    (false, false) => Some((crate::lang::t("This folder is empty"), Some(crate::lang::t("Drop files here, or press Shift+Ctrl+N for a new folder")), Some(Empty::Folder))),
                 };
-                if let Some(words) = words {
-                    self.text_center(&mut piece, job.fonts.body, words, self.dim, local.center(), local.size.x - 40.0);
+                if let Some((words, hint, art)) = quiet {
+                    let middle = match model.view.mode {
+                        Mode::Gallery => self.picture_rect(local).center(),
+                        _ => local.center(),
+                    };
+                    let lift = if art.is_some() { 36.0 } else { 0.0 };
+                    if let Some(art) = art {
+                        self.paint_empty(&mut piece, job, art, &model.dir, Rect::from_center(middle - Vec2::new(0.0, 34.0), Vec2::splat(88.0)));
+                    }
+                    self.text_center(&mut piece, job.fonts.body, words, if art.is_some() { self.ink } else { self.dim }, middle + Vec2::new(0.0, lift), local.size.x - 40.0);
+                    if let Some(hint) = hint {
+                        self.text_center(&mut piece, job.fonts.small, hint, self.dim, middle + Vec2::new(0.0, lift + 22.0), local.size.x - 40.0);
+                    }
                 }
             }
         }
         canvas.stamp(&piece.image, body.origin, 1.0);
+    }
+
+    fn paint_empty(&self, canvas: &mut Canvas, job: &Paint, art: Empty, dir: &Path, area: Rect) {
+        let side = area.size.y.ceil() as u32;
+        let mut layer = Canvas::new(side, side);
+        let local = rect(0.0, 0.0, area.size.x, area.size.y);
+        match art {
+            Empty::Folder => self.icon_or_glyph(&mut layer, job.art, folder_icon(dir, job.model), Family::Folder, local),
+            Empty::Trash => self.icon_or_glyph(&mut layer, job.art, "user-trash", Family::Other, local),
+            Empty::Search => {
+                let c = local.center() - Vec2::new(8.0, 8.0);
+                layer.ring(Rect::from_center(c, Vec2::splat(50.0)), 25.0, 6.0, self.dim, 1.0);
+                layer.line(c + Vec2::new(19.0, 19.0), c + Vec2::new(36.0, 36.0), 8.0, self.dim, 1.0);
+            }
+        }
+        canvas.stamp(&layer.image, area.origin.round(), 0.55);
     }
 
     fn row_back(&self, canvas: &mut Canvas, area: Rect, picked: bool, hot: bool, focused: bool, stripe: bool) {
