@@ -28,15 +28,7 @@ The 2026-10-05 and 2026-10-07 work ran on the VM, with fake radios, and partly o
 
 ## Explorer
 
-Explorer (`drifter-explorer`) is built. It was tested under headless sway on a Raspberry Pi 4: views, menus, rename, copy, paste, trash, undo, the path bar and Settings work.
-
-- Try it under Drifter itself: the window frame, scale 1.5 and 2, theme changes.
-- Drag and drop between Explorer and other apps. Inside Explorer it works: files onto folders, folders into the sidebar.
-- Copy and paste with other apps through the Wayland clipboard. Now it uses `wl-copy` when it is installed.
-- Orca: Explorer has no screen reader support yet.
-- Big copies show only "Copying…", with no progress bar and no cancel.
-- Trash on a USB stick moves the file to the home Trash. The spec wants a `.Trash-UID` folder on that disk.
-- Offer Explorer for Files in Welcome and Default Apps.
+Explorer (`drifter-explorer`) is built and tested under headless sway on a Raspberry Pi 4. Its open work is in `txt/explorer.md`.
 
 ## Reach
 
