@@ -60,6 +60,7 @@ pub struct Prefs {
     pub start: Start,
     pub last: Option<PathBuf>,
     pub click: Click,
+    #[serde(rename = "ask_before_trash")]
     pub confirm_trash: bool,
     pub hidden: bool,
     pub mode: Mode,
@@ -92,7 +93,7 @@ impl Default for Prefs {
             start: Start::Home,
             last: None,
             click: Click::Double,
-            confirm_trash: false,
+            confirm_trash: true,
             hidden: false,
             mode: Mode::List,
             sort: Sort::Name,
@@ -198,6 +199,15 @@ mod tests {
         assert_eq!(read.zoom, MOST_ZOOM);
         assert!(read.folders_first);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn moving_to_the_trash_asks_unless_turned_off() {
+        assert!(Prefs::default().confirm_trash);
+        let old: Prefs = toml::from_str("confirm_trash = false").unwrap();
+        assert!(old.confirm_trash);
+        let off: Prefs = toml::from_str("ask_before_trash = false").unwrap();
+        assert!(!off.confirm_trash);
     }
 
     #[test]
