@@ -216,3 +216,6 @@ Later steps build on these.
 60. Language changes needed a restart.
     Waits on: 44.
     - Built: when drifter.toml changes, Explorer now sets the language again (`lang::use_config`), and when the words change it rebuilds the place names and the window title and repaints. Menus, columns, dates and the sidebar all read the new words from then on. Checked on the trixie VM: adding `language = "de"` while Explorer was open turned it German within a second (Datei, Persönlicher Ordner, Papierkorb, Heute), and removing it turned it back to English.
+61. Redo: Ctrl+Z worked, but an undo could not be taken back.
+    Waits on: nothing.
+    - Built: every undo now reports the step that reverses it (put back ↔ trash again, move back ↔ move again, rename back ↔ rename again, and for batch renames the whole set), and those go on a Redo list. Shift+Ctrl+Z or Ctrl+Y redoes; Edit has a Redo item (dimmed when there is nothing); any new action clears the list. Jobs started by Undo or Redo are tracked by id so their results land on the right list. Test: `undo_then_redo_for_trash_rename_and_new_folder`. Checked on the trixie VM before the change: undo after Move to Trash, after a drag into a folder and after New Folder all worked; after it: a drag of b.txt into box, Ctrl+Z, then Shift+Ctrl+Z put b.txt back in box.

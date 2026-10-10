@@ -70,6 +70,7 @@ pub enum Job {
     Restore(Vec<PathBuf>),
     EmptyTrash,
     Undo(Undo),
+    Redo(Undo),
     Compress(Vec<PathBuf>),
     Extract(Vec<PathBuf>),
     Mount { device: String, name: String },
@@ -104,7 +105,7 @@ impl Job {
             Job::Copy { from, .. } | Job::Move { from, .. } => from.len(),
             Job::Trash(paths) | Job::Delete(paths) | Job::Restore(paths) | Job::Compress(paths) | Job::Extract(paths) => paths.len(),
             Job::EmptyTrash => 0,
-            Job::Undo(_) | Job::Mount { .. } | Job::Unmount { .. } | Job::Eject { .. } => 1,
+            Job::Undo(_) | Job::Redo(_) | Job::Mount { .. } | Job::Unmount { .. } | Job::Eject { .. } => 1,
         }
     }
 
@@ -116,7 +117,7 @@ impl Job {
                 many => items(many.len()),
             },
             Job::Mount { name, .. } | Job::Unmount { name, .. } | Job::Eject { name, .. } => name.clone(),
-            Job::EmptyTrash | Job::Undo(_) => String::new(),
+            Job::EmptyTrash | Job::Undo(_) | Job::Redo(_) => String::new(),
         };
         match self {
             Job::Copy { into, .. } => crate::lang::tf("Copying {} to {}", &[&what, &name_of(into)]),
@@ -131,6 +132,7 @@ impl Job {
             Job::Eject { .. } => crate::lang::tf("Ejecting {}", &[&what]),
             Job::EmptyTrash => crate::lang::t("Emptying the Trash").to_string(),
             Job::Undo(_) => crate::lang::t("Undoing").to_string(),
+            Job::Redo(_) => crate::lang::t("Redoing").to_string(),
         }
     }
 }
@@ -830,7 +832,7 @@ pub fn run_with(root: &Path, job: Job, progress: &Progress) -> Done {
             progress.count.store(paths.len() as u64, Ordering::Relaxed);
             Ok(())
         }
-        Job::EmptyTrash | Job::Undo(_) => Ok(()),
+        Job::EmptyTrash | Job::Undo(_) | Job::Redo(_) => Ok(()),
     };
     if counted.is_err() && progress.stopped() {
         done.stopped = true;
@@ -941,7 +943,7 @@ pub fn run_with(root: &Path, job: Job, progress: &Progress) -> Done {
                 done.failed.extend(empty_trashes(&roots, progress).into_iter().filter(|_| !progress.stopped()).map(|error| error.to_string()));
             }
         }
-        Job::Undo(undo) => undo_with(root, undo, &Progress::default(), &mut done),
+        Job::Undo(undo) | Job::Redo(undo) => undo_with(root, undo, &Progress::default(), &mut done),
         Job::Compress(paths) => {
             match super::pack::compress(&paths, progress) {
                 Ok(made) => done.made.push(made),
@@ -985,34 +987,38 @@ fn undo_with(root: &Path, undo: Undo, progress: &Progress, done: &mut Done) {
     let fail = |path: &Path, error: io::Error| format!("{}: {error}", crate::explorer::entry::name_of(path));
     match undo {
         Undo::Made(paths) => {
+            let mut gone = Vec::new();
             for path in &paths {
-                if let Err(error) = trash_in_with(&trash_for(root, path), path, progress) {
-                    done.failed.push(fail(path, error));
+                match trash_in_with(&trash_for(root, path), path, progress) {
+                    Ok(trashed) => gone.push(trashed),
+                    Err(error) => done.failed.push(fail(path, error)),
                 }
             }
+            done.undo = (!gone.is_empty()).then_some(Undo::Trashed(gone));
         }
         Undo::Moved(pairs) => {
+            let mut reverse = Vec::new();
             for (was, now) in &pairs {
                 let back = was.parent().map(|parent| unique(parent, &crate::explorer::entry::name_of(was)));
                 match back {
-                    Some(back) => {
-                        if let Err(error) = move_to(now, &back, progress) {
-                            done.failed.push(fail(now, error));
-                        }
-                    }
+                    Some(back) => match move_to(now, &back, progress) {
+                        Ok(()) => reverse.push((now.clone(), back)),
+                        Err(error) => done.failed.push(fail(now, error)),
+                    },
                     None => done.failed.push(fail(now, io::Error::other("no folder"))),
                 }
             }
+            done.undo = (!reverse.is_empty()).then_some(Undo::Moved(reverse));
         }
-        Undo::Renamed(was, now) => {
-            if let Err(error) = std::fs::rename(&now, &was) {
-                done.failed.push(fail(&now, error));
-            }
-        }
+        Undo::Renamed(was, now) => match std::fs::rename(&now, &was) {
+            Ok(()) => done.undo = Some(Undo::Renamed(now, was)),
+            Err(error) => done.failed.push(fail(&now, error)),
+        },
         Undo::RenamedAll(pairs) => {
             let back: Vec<(PathBuf, PathBuf)> = pairs.into_iter().map(|(was, now)| (now, was)).collect();
-            if let Err(error) = rename_all(&back) {
-                done.failed.push(error);
+            match rename_all(&back) {
+                Ok(()) => done.undo = Some(Undo::RenamedAll(back)),
+                Err(error) => done.failed.push(error),
             }
         }
         Undo::Trashed(gone) => {
@@ -1022,6 +1028,7 @@ fn undo_with(root: &Path, undo: Undo, progress: &Progress, done: &mut Done) {
                     Err(error) => done.failed.push(fail(&trashed.file, error)),
                 }
             }
+            done.undo = (!done.made.is_empty()).then(|| Undo::Made(done.made.clone()));
         }
         Undo::Then(first, replaced) => {
             undo_with(root, *first, progress, done);

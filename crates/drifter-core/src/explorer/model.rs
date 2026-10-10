@@ -34,6 +34,7 @@ pub enum Act {
     Info,
     Close,
     Undo,
+    Redo,
     Cut,
     Copy,
     Paste,
@@ -453,6 +454,8 @@ pub struct Model {
     pub recent_list: Option<PathBuf>,
     pub pop: f64,
     pub undo: Vec<Undo>,
+    pub redo: Vec<Undo>,
+    pub turns: HashMap<u64, bool>,
     pub jobs: Vec<Running>,
     pub job_ids: u64,
     pub closing: bool,
@@ -603,6 +606,8 @@ impl Model {
             recent_list: (!cfg!(test)).then(|| super::recent::list_path(&home)),
             pop: 1.0,
             undo: Vec::new(),
+            redo: Vec::new(),
+            turns: HashMap::new(),
             jobs: Vec::new(),
             job_ids: 0,
             closing: false,
@@ -1713,10 +1718,27 @@ impl Model {
         Some(prefs::terminal_run(&program, argv))
     }
 
+    pub fn remember_undo(&mut self, undo: Undo) {
+        self.redo.clear();
+        self.undo.push(undo);
+        if self.undo.len() > 50 {
+            self.undo.remove(0);
+        }
+    }
+
     pub fn start_job(&mut self, job: Job) {
         self.job_ids += 1;
         let id = self.job_ids;
-        let stoppable = !matches!(job, Job::Undo(_));
+        match &job {
+            Job::Undo(_) => {
+                self.turns.insert(id, false);
+            }
+            Job::Redo(_) => {
+                self.turns.insert(id, true);
+            }
+            _ => {}
+        }
+        let stoppable = !matches!(job, Job::Undo(_) | Job::Redo(_));
         self.jobs.push(Running { id, stoppable, words: job.doing(), progress: Default::default(), started: Instant::now() });
         self.effects.push(Effect::Job(id, job));
     }
@@ -1737,10 +1759,20 @@ impl Model {
         if done.stopped {
             self.say(crate::lang::tf("Stopped: {}", &[&done.words]), false);
         }
+        let turn = self.turns.remove(&done.id);
         if let Some(undo) = done.undo {
-            self.undo.push(undo);
-            if self.undo.len() > 50 {
-                self.undo.remove(0);
+            match turn {
+                Some(false) => {
+                    self.redo.push(undo);
+                    self.redo.truncate(50);
+                }
+                Some(true) => {
+                    self.undo.push(undo);
+                    if self.undo.len() > 50 {
+                        self.undo.remove(0);
+                    }
+                }
+                None => self.remember_undo(undo),
             }
         }
         self.reload();
@@ -1779,7 +1811,7 @@ impl Model {
         match ops::rename(&path, &field.text) {
             Ok(made) if made == path => {}
             Ok(made) => {
-                self.undo.push(Undo::Renamed(path, made.clone()));
+                self.remember_undo(Undo::Renamed(path, made.clone()));
                 self.reload();
                 self.pick_only(made);
             }
@@ -1909,7 +1941,7 @@ impl Model {
             Act::NewFolder | Act::NewFile if in_trash => {}
             Act::NewFolder => match ops::new_folder(&self.dir) {
                 Ok(made) => {
-                    self.undo.push(Undo::Made(vec![made.clone()]));
+                    self.remember_undo(Undo::Made(vec![made.clone()]));
                     self.reload();
                     self.pick_only(made);
                     self.start_rename();
@@ -1918,7 +1950,7 @@ impl Model {
             },
             Act::NewFile => match ops::new_file(&self.dir) {
                 Ok(made) => {
-                    self.undo.push(Undo::Made(vec![made.clone()]));
+                    self.remember_undo(Undo::Made(vec![made.clone()]));
                     self.reload();
                     self.pick_only(made);
                     self.start_rename();
@@ -1951,7 +1983,7 @@ impl Model {
                 let pairs: Vec<(PathBuf, PathBuf)> = renamer.new_names().into_iter().filter(|(path, name)| entry::name_of(path) != *name).map(|(path, name)| (path.with_file_name(&name), path)).map(|(to, from)| (from, to)).collect();
                 self.sheet = None;
                 let result = ops::rename_all(&pairs);
-                self.undo.push(Undo::RenamedAll(pairs.clone()));
+                self.remember_undo(Undo::RenamedAll(pairs.clone()));
                 if let Err(words) = result {
                     self.say(words, true);
                 }
@@ -2108,6 +2140,10 @@ impl Model {
             Act::Undo => match self.undo.pop() {
                 Some(undo) => self.start_job(Job::Undo(undo)),
                 None => self.say(crate::lang::t("Nothing to undo"), false),
+            },
+            Act::Redo => match self.redo.pop() {
+                Some(redo) => self.start_job(Job::Redo(redo)),
+                None => self.say(crate::lang::t("Nothing to redo"), false),
             },
             Act::Cut | Act::Copy => {
                 let paths = self.chosen_paths();
@@ -2358,6 +2394,7 @@ impl Model {
             ],
             1 => vec![
                 Item::new(crate::lang::t("Undo"), "Ctrl+Z", Act::Undo).when(!self.undo.is_empty()),
+                Item::new(crate::lang::t("Redo"), "Shift+Ctrl+Z", Act::Redo).when(!self.redo.is_empty()),
                 Item::rule(),
                 Item::new(crate::lang::t("Cut"), "Ctrl+X", Act::Cut).when(any && !in_trash),
                 Item::new(crate::lang::t("Copy"), "Ctrl+C", Act::Copy).when(any),
@@ -2434,7 +2471,7 @@ impl Model {
                 if let Some(entry) = Entry::at(&made) {
                     info.entry = entry;
                 }
-                self.undo.push(Undo::Renamed(path, made.clone()));
+                self.remember_undo(Undo::Renamed(path, made.clone()));
                 self.reload();
                 self.pick_only(made);
             }
@@ -3302,6 +3339,54 @@ mod tests {
             panic!("Info stays open");
         };
         assert!(info.naming.is_some() && bee.exists(), "a clash keeps the field open");
+    }
+
+    #[test]
+    fn undo_then_redo_for_trash_rename_and_new_folder() {
+        let (place, mut model) = place("redo");
+        let work = place.0.join("work");
+        let trash = place.0.join("Trash");
+        let run = |model: &mut Model| {
+            let jobs: Vec<(u64, Job)> = model.effects.drain(..).filter_map(|effect| match effect {
+                Effect::Job(id, job) => Some((id, job)),
+                _ => None,
+            }).collect();
+            for (id, job) in jobs {
+                let mut done = ops::run_with(&trash, job, &Progress::default());
+                done.id = id;
+                model.finished(done);
+            }
+        };
+        let b = work.join("b.txt");
+        model.act(Act::TrashThese(vec![b.clone()]));
+        run(&mut model);
+        assert!(!b.exists());
+        model.act(Act::Undo);
+        run(&mut model);
+        assert!(b.exists(), "undo puts it back");
+        model.act(Act::Redo);
+        run(&mut model);
+        assert!(!b.exists(), "redo trashes it again");
+        model.act(Act::Undo);
+        run(&mut model);
+        assert!(b.exists());
+
+        model.pick_only(b.clone());
+        model.act(Act::Rename);
+        if let Some((_, field)) = model.renaming.as_mut() {
+            field.put("bee");
+        }
+        model.finish_rename();
+        let bee = work.join("bee.txt");
+        assert!(bee.exists() && model.redo.is_empty(), "a new action clears redo");
+        model.act(Act::Undo);
+        run(&mut model);
+        assert!(b.exists() && !bee.exists());
+        model.act(Act::Redo);
+        run(&mut model);
+        assert!(bee.exists() && !b.exists(), "redo renames again");
+        model.act(Act::Redo);
+        assert!(model.effects.is_empty(), "nothing more to redo");
     }
 
     #[test]

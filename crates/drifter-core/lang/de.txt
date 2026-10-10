@@ -3452,3 +3452,12 @@ New names
 
 Quick Look: {}
 = Übersicht: {}
+
+Redo
+= Wiederholen
+
+Nothing to redo
+= Nichts zu wiederholen
+
+Redoing
+= Wird wiederholt

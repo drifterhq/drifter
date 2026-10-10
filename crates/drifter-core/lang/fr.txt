@@ -3449,3 +3449,12 @@ New names
 
 Quick Look: {}
 = Coup d’œil : {}
+
+Redo
+= Rétablir
+
+Nothing to redo
+= Rien à rétablir
+
+Redoing
+= Rétablissement

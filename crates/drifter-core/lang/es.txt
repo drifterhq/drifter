@@ -3452,3 +3452,12 @@ New names
 
 Quick Look: {}
 = Vista rápida: {}
+
+Redo
+= Rehacer
+
+Nothing to redo
+= Nada que rehacer
+
+Redoing
+= Rehaciendo
