@@ -2147,6 +2147,28 @@ mod tests {
     }
 
     #[test]
+    fn path_crumbs_lead_to_each_folder_on_the_way() {
+        let (place, mut model) = place("crumbs");
+        let work = place.0.join("work");
+        model.go(work.join("Photos/2026"), None);
+        let Ok(body) = crate::Font::find(None, 13.0) else {
+            return;
+        };
+        let fonts = super::super::look::Fonts { body: &body, small: &body, title: &body };
+        let look = super::super::look::Look::themed(&crate::theme::DARK, [64, 128, 238]);
+        let bar = crate::Rect::new(crate::Vec2::new(100.0, 40.0), crate::Vec2::new(3000.0, 30.0));
+        let crumbs = look.crumbs(bar, &model, &fonts);
+        let last = crumbs.last().unwrap();
+        assert!(last.last && last.words == "2026" && last.path == work.join("Photos/2026"));
+        assert_eq!(crumbs[crumbs.len() - 2].path, work.join("Photos"));
+        assert!(crumbs.windows(2).all(|pair| pair[0].area.max().x <= pair[1].area.origin.x + 1.0));
+        let narrow = crate::Rect::new(crate::Vec2::new(100.0, 40.0), crate::Vec2::new(160.0, 30.0));
+        let tight = look.crumbs(narrow, &model, &fonts);
+        assert_eq!(tight.first().map(|crumb| crumb.words.as_str()), Some("…"));
+        assert!(tight.iter().all(|crumb| crumb.area.max().x <= narrow.max().x + 1.0));
+    }
+
+    #[test]
     fn hidden_files_show_on_request() {
         let (_place, mut model) = place("hidden");
         assert_eq!(model.entries.len(), 3);

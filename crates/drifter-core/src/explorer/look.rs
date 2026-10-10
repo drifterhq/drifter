@@ -63,6 +63,15 @@ pub enum Hit {
     Stop(u64),
     Jobs,
     Eject(usize),
+    Crumb(usize),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Crumb {
+    pub area: Rect,
+    pub path: PathBuf,
+    pub words: String,
+    pub last: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -429,7 +438,13 @@ impl Look {
             if let Some((mode, _)) = self.view_rects(frame.bar).into_iter().find(|(_, area)| area.contains(at)) {
                 return Some(Hit::Show(mode));
             }
-            if self.path_rect(frame.bar).contains(at) {
+            let path = self.path_rect(frame.bar);
+            if path.contains(at) {
+                if model.path.is_none()
+                    && let Some(found) = self.crumbs(path, model, fonts).iter().position(|crumb| crumb.area.contains(at) && !crumb.last)
+                {
+                    return Some(Hit::Crumb(found));
+                }
                 return Some(Hit::Path);
             }
             return None;
@@ -637,6 +652,10 @@ impl Look {
                 let one = model.entries.get(index)?;
                 into(&one.path, self.entry_rect(&frame, model, index)?, one.folder)
             }
+            Hit::Crumb(index) => {
+                let crumb = self.crumbs(self.path_rect(frame.bar), model, fonts).get(index)?.clone();
+                into(&crumb.path, crumb.area, true)
+            }
             Hit::Column(column, Some(row)) => {
                 let one = model.columns.get(column)?.entries.get(row)?;
                 let area = self.column_rect(frame.body, model, column);
@@ -782,50 +801,78 @@ impl Look {
         }
     }
 
-    fn paint_crumbs(&self, canvas: &mut Canvas, path: Rect, model: &Model, fonts: &Fonts) {
-        let shown = super::entry::short_path(&model.dir, &model.home);
-        let shown = match super::ops::in_trash(&model.dir) {
-            true => crate::lang::t("Trash").to_string(),
-            false => shown,
-        };
-        let mut x = path.origin.x + 10.0;
-        let parts: Vec<&str> = shown.split('/').filter(|part| !part.is_empty()).collect();
-        let parts: Vec<&str> = match shown.starts_with('/') {
-            true => std::iter::once("/").chain(parts).collect(),
-            false => parts,
-        };
-        let room = path.max().x - 10.0;
-        let widths: Vec<f64> = parts.iter().map(|part| fonts.body.width_of(part)).collect();
+    pub fn crumbs(&self, path: Rect, model: &Model, fonts: &Fonts) -> Vec<Crumb> {
+        let trash = super::ops::trash_files();
+        let mut parts: Vec<(String, PathBuf)> = Vec::new();
+        if super::ops::in_trash(&model.dir) {
+            parts.push((crate::lang::t("Trash").to_string(), trash.clone()));
+            if let Ok(rest) = model.dir.strip_prefix(&trash) {
+                let mut at = trash.clone();
+                for part in rest.components() {
+                    at.push(part);
+                    parts.push((part.as_os_str().to_string_lossy().into_owned(), at.clone()));
+                }
+            }
+        } else {
+            let (mut at, rest) = match model.dir.strip_prefix(&model.home) {
+                Ok(rest) => {
+                    parts.push(("~".to_string(), model.home.clone()));
+                    (model.home.clone(), rest.to_path_buf())
+                }
+                Err(_) => {
+                    parts.push(("/".to_string(), PathBuf::from("/")));
+                    (PathBuf::from("/"), model.dir.strip_prefix("/").map(Path::to_path_buf).unwrap_or_default())
+                }
+            };
+            for part in rest.components() {
+                at.push(part);
+                parts.push((part.as_os_str().to_string_lossy().into_owned(), at.clone()));
+            }
+        }
         let arrow = 18.0;
+        let room = path.max().x - 10.0;
+        let start = path.origin.x + 10.0;
+        let widths: Vec<f64> = parts.iter().map(|(words, _)| fonts.body.width_of(words) + 2.0).collect();
         let mut first = 0;
-        while first + 1 < parts.len() && widths[first..].iter().sum::<f64>() + arrow * (parts.len() - first) as f64 > room - x {
+        while first + 1 < parts.len() && widths[first..].iter().sum::<f64>() + arrow * (parts.len() - first) as f64 + if first > 0 { 32.0 } else { 0.0 } > room - start {
             first += 1;
         }
+        let tall = path.size.y - 8.0;
+        let top = path.origin.y + 4.0;
+        let mut out = Vec::new();
+        let mut x = start;
         if first > 0 {
-            self.text(canvas, fonts.body, "…", self.dim, Vec2::new(x, path.center().y), 20.0);
-            x += 14.0;
-            self.chevron(canvas, Vec2::new(x + 4.0, path.center().y), self.dim);
-            x += arrow - 4.0;
+            out.push(Crumb { area: rect(x - 4.0, top, 22.0, tall), path: parts[first - 1].1.clone(), words: "…".to_string(), last: false });
+            x += 14.0 + arrow - 4.0;
         }
-        for (at, part) in parts.iter().enumerate().skip(first) {
-            let last = at + 1 == parts.len();
-            let ink = if last { self.ink } else { self.dim };
-            let piece = match last {
-                true => fonts.body.paint_weight(part, ink, 560.0),
-                false => fonts.body.paint(part, ink),
-            };
-            let size = logical(&piece);
-            if x + size.x > room {
-                self.text(canvas, fonts.body, part, ink, Vec2::new(x, path.center().y), room - x);
-                break;
+        let count = parts.len();
+        for (at, (words, place)) in parts.into_iter().enumerate().skip(first) {
+            let wide = widths[at].min((room - x).max(0.0));
+            out.push(Crumb { area: rect(x - 4.0, top, wide + 8.0, tall), path: place, words, last: at + 1 == count });
+            x += wide + if at + 1 == count { 0.0 } else { arrow };
+        }
+        out
+    }
+
+    fn paint_crumbs(&self, canvas: &mut Canvas, path: Rect, model: &Model, fonts: &Fonts) {
+        let crumbs = self.crumbs(path, model, fonts);
+        let middle = path.center().y;
+        for (index, crumb) in crumbs.iter().enumerate() {
+            if model.hover == Some(Hit::Crumb(index)) && !crumb.last {
+                canvas.round_rect(crumb.area, 5.0, self.hover, 0.9);
             }
-            canvas.stamp(&piece, Vec2::new(x, path.center().y - size.y / 2.0).round(), 1.0);
-            x += size.x;
-            if !last && *part != "/" {
-                self.chevron(canvas, Vec2::new(x + 8.0, path.center().y), self.dim);
-                x += arrow;
-            } else if !last {
-                x += 6.0;
+            let ink = if crumb.last { self.ink } else { self.dim };
+            let x = crumb.area.origin.x + 4.0;
+            let room = crumb.area.size.x - 6.0;
+            match crumb.last {
+                true => {
+                    let piece = fonts.body.paint_weight(&fit(fonts.body, &crumb.words, room), ink, 560.0);
+                    canvas.stamp(&piece, Vec2::new(x, middle - logical(&piece).y / 2.0).round(), 1.0);
+                }
+                false => self.text(canvas, fonts.body, &crumb.words, ink, Vec2::new(x, middle), room + 2.0),
+            }
+            if !crumb.last && crumb.words != "/" {
+                self.chevron(canvas, Vec2::new(crumb.area.max().x + 5.0, middle), self.dim);
             }
         }
     }
@@ -1518,6 +1565,7 @@ impl Look {
             Hit::Up => self.nav_rects(frame.bar)[2],
             Hit::Show(mode) => self.view_rects(frame.bar).into_iter().find(|(each, _)| each == mode)?.1,
             Hit::Gear => self.gear_rect(frame.bar),
+            Hit::Crumb(index) => self.crumbs(self.path_rect(frame.bar), model, fonts).get(*index)?.area,
             Hit::Line(index) | Hit::Caret(index) | Hit::Eject(index) => *self.line_rects(frame.side?, lines, model.tree_scroll).get(*index)?,
             Hit::Head(_) => rect(frame.body.origin.x, frame.body.origin.y, frame.body.size.x, HEAD_H),
             Hit::Entry(index) | Hit::Strip(index) => self.entry_rect(&frame, model, *index)?,
@@ -2338,7 +2386,7 @@ mod repaint_tests {
             crate::paint::set_density(density);
             for mode in [Mode::List, Mode::Icons] {
                 model.prefs.mode = mode;
-                let pairs = [(None, Some(Hit::Entry(3))), (Some(Hit::Entry(3)), Some(Hit::Entry(4))), (Some(Hit::Entry(4)), Some(Hit::Line(2))), (Some(Hit::Line(2)), Some(Hit::Head(Sort::Name))), (Some(Hit::Head(Sort::Name)), Some(Hit::Gear)), (Some(Hit::Gear), None)];
+                let pairs = [(None, Some(Hit::Entry(3))), (Some(Hit::Entry(3)), Some(Hit::Entry(4))), (Some(Hit::Entry(4)), Some(Hit::Line(2))), (Some(Hit::Line(2)), Some(Hit::Head(Sort::Name))), (Some(Hit::Head(Sort::Name)), Some(Hit::Gear)), (Some(Hit::Gear), Some(Hit::Crumb(0))), (Some(Hit::Crumb(0)), None)];
                 for (was, now) in pairs {
                     model.hover = was.clone();
                     let lines = model.lines();

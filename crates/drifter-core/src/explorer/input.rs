@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use super::look::{Fonts, Hit, Look, SheetHit};
 use super::model::{Act, Drag, Line, Menu, Model, Sheet};
 use super::prefs::{self, Click, Mode};
@@ -111,6 +113,18 @@ pub fn press(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, button: Butto
             }
             false => model.act(Act::EditPath),
         },
+        Hit::Crumb(index) => {
+            let area = ui.look.path_rect(ui.look.frame(ui.size, model).bar);
+            if let Some(crumb) = ui.look.crumbs(area, model, ui.fonts).get(index).cloned() {
+                match right {
+                    true => model.act(Act::EditPath),
+                    false => {
+                        let pick = model.dir.ancestors().find(|at| at.parent() == Some(crumb.path.as_path())).map(Path::to_path_buf);
+                        model.go(crumb.path, pick);
+                    }
+                }
+            }
+        }
         Hit::Show(mode) => model.act(Act::Show(mode)),
         Hit::Gear => model.act(Act::Prefs),
         Hit::Dismiss => model.act(Act::Dismiss),
