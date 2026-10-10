@@ -156,6 +156,11 @@ fn top_of_root(root: &Path) -> Option<PathBuf> {
     (name == uid().to_string() && shared.file_name()? == ".Trash").then(|| shared.parent().map(Path::to_path_buf)).flatten()
 }
 
+fn top_real(root: &Path) -> Option<PathBuf> {
+    let top = top_of_root(root)?;
+    Some(top.canonicalize().unwrap_or(top))
+}
+
 pub fn root_of(path: &Path) -> Option<PathBuf> {
     let home = trash_root();
     path.ancestors().filter(|at| at.file_name().is_some_and(|name| name == "files")).filter_map(Path::parent).find(|root| *root == home || top_of_root(root).is_some()).map(Path::to_path_buf)
@@ -166,8 +171,21 @@ fn device(path: &Path) -> Option<u64> {
     std::fs::symlink_metadata(path).ok().map(|meta| meta.dev())
 }
 
+fn real(path: &Path) -> Option<PathBuf> {
+    Some(path.parent()?.canonicalize().ok()?.join(path.file_name()?))
+}
+
+fn mount_points() -> Option<Vec<PathBuf>> {
+    let text = std::fs::read_to_string("/proc/self/mounts").ok()?;
+    Some(text.lines().filter_map(|line| line.split_whitespace().nth(1)).map(|point| PathBuf::from(point.replace("\\040", " ").replace("\\011", "\t").replace("\\134", "\\"))).collect())
+}
+
 fn top_of(path: &Path) -> Option<PathBuf> {
-    let dev = device(path)?;
+    let path = real(path)?;
+    if let Some(points) = mount_points() {
+        return points.into_iter().filter(|point| path.starts_with(point) && path != *point).max_by_key(|point| point.components().count());
+    }
+    let dev = device(&path)?;
     let mut top = None;
     for at in path.ancestors().skip(1) {
         match device(at) {
@@ -185,6 +203,16 @@ fn usable(root: &Path) -> bool {
         return false;
     }
     std::fs::symlink_metadata(root).is_ok_and(|meta| meta.is_dir() && meta.uid() == uid())
+}
+
+fn trusted(root: &Path) -> bool {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let mine = |path: &Path| std::fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir() && meta.uid() == uid());
+    let shared_ok = match root.parent() {
+        Some(shared) if shared.file_name().is_some_and(|name| name == ".Trash") => std::fs::symlink_metadata(shared).is_ok_and(|meta| meta.is_dir() && meta.permissions().mode() & 0o1000 != 0),
+        _ => true,
+    };
+    shared_ok && mine(root) && mine(&root.join("files"))
 }
 
 pub fn trash_for(home: &Path, path: &Path) -> PathBuf {
@@ -227,7 +255,7 @@ pub fn other_trashes() -> Vec<PathBuf> {
         }
         let top = PathBuf::from(point.replace("\\040", " ").replace("\\011", "\t").replace("\\134", "\\"));
         for root in [top.join(format!(".Trash-{}", uid())), top.join(".Trash").join(uid().to_string())] {
-            if root.join("files").is_dir() && !out.contains(&root) {
+            if trusted(&root) && !out.contains(&root) {
                 out.push(root);
             }
         }
@@ -296,18 +324,33 @@ enum Placed {
     Over(PathBuf, Trashed),
 }
 
-fn place(root: &Path, from: &Path, into: &Path, clash: Clash, progress: &Progress) -> io::Result<Placed> {
-    if clash == Clash::KeepBoth || from.parent() == Some(into) {
+struct Spot<'a> {
+    root: &'a Path,
+    into: &'a Path,
+    clash: Clash,
+    made: &'a [PathBuf],
+    measured: bool,
+}
+
+fn place(spot: &Spot, from: &Path, progress: &Progress) -> io::Result<Placed> {
+    let (root, into) = (spot.root, spot.into);
+    if spot.clash == Clash::KeepBoth || from.parent() == Some(into) {
         return Ok(Placed::Free);
     }
     let plain = into.join(from.file_name().ok_or_else(|| io::Error::other("no name"))?);
-    if std::fs::symlink_metadata(&plain).is_err() {
+    if std::fs::symlink_metadata(&plain).is_err() || spot.made.contains(&plain) {
         return Ok(Placed::Free);
     }
-    if clash == Clash::Skip {
-        let skipped = Progress::default();
-        let _ = measure(from, &skipped);
-        progress.total.fetch_sub(skipped.total.load(Ordering::Relaxed).min(progress.total.load(Ordering::Relaxed)), Ordering::Relaxed);
+    if spot.clash == Clash::Skip {
+        if spot.measured {
+            let skipped = Progress::default();
+            let _ = measure(from, &skipped);
+            let less = |have: &std::sync::atomic::AtomicU64, by: u64| {
+                let _ = have.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |now| Some(now.saturating_sub(by)));
+            };
+            less(&progress.total, skipped.total.load(Ordering::Relaxed));
+            less(&progress.count, skipped.count.load(Ordering::Relaxed));
+        }
         return Ok(Placed::Skip);
     }
     if into.starts_with(from) {
@@ -316,7 +359,7 @@ fn place(root: &Path, from: &Path, into: &Path, clash: Clash, progress: &Progres
     if from.starts_with(&plain) {
         return Err(io::Error::other(crate::lang::t("A folder cannot be replaced by something inside it")));
     }
-    let old = trash_in_with(root, &plain, &Progress::default())?;
+    let old = trash_in_with(&trash_for(root, &plain), &plain, progress)?;
     Ok(Placed::Over(plain, old))
 }
 
@@ -345,6 +388,18 @@ fn copy_tree(from: &Path, to: &Path, progress: &Progress) -> io::Result<()> {
         }
         return std::fs::set_permissions(to, meta.permissions());
     }
+    if !meta.is_file() {
+        use std::os::unix::fs::{FileTypeExt, PermissionsExt};
+        if meta.file_type().is_fifo() {
+            use std::os::unix::ffi::OsStrExt;
+            let name = std::ffi::CString::new(to.as_os_str().as_bytes()).map_err(io::Error::other)?;
+            if unsafe { libc::mkfifo(name.as_ptr(), (meta.permissions().mode() & 0o7777) as libc::mode_t) } != 0 {
+                return Err(io::Error::last_os_error());
+            }
+        }
+        progress.item();
+        return Ok(());
+    }
     copy_file(from, to, &meta, progress)?;
     progress.item();
     Ok(())
@@ -357,7 +412,7 @@ fn copy_file(from: &Path, to: &Path, meta: &std::fs::Metadata, progress: &Progre
     use std::os::unix::fs::OpenOptionsExt;
     let mut source = std::fs::File::open(from)?;
     let mut target = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(to)?;
-    if !copy_range(&source, &target, progress)? {
+    if !copy_range(&source, &target, meta.len(), progress)? {
         let mut buffer = vec![0u8; CHUNK];
         loop {
             progress.check()?;
@@ -379,16 +434,17 @@ fn copy_file(from: &Path, to: &Path, meta: &std::fs::Metadata, progress: &Progre
 }
 
 #[cfg(target_os = "linux")]
-fn copy_range(source: &std::fs::File, target: &std::fs::File, progress: &Progress) -> io::Result<bool> {
+fn copy_range(source: &std::fs::File, target: &std::fs::File, length: u64, progress: &Progress) -> io::Result<bool> {
     use std::os::fd::AsRawFd;
-    let mut moved_any = false;
+    let mut moved: u64 = 0;
     loop {
         progress.check()?;
         let wrote = unsafe { libc::copy_file_range(source.as_raw_fd(), std::ptr::null_mut(), target.as_raw_fd(), std::ptr::null_mut(), CHUNK, 0) };
+        let moved_any = moved > 0;
         match wrote {
-            0 => return Ok(true),
+            0 => return Ok(moved_any && moved >= length),
             1.. => {
-                moved_any = true;
+                moved += wrote as u64;
                 progress.wrote(wrote as u64);
             }
             _ => {
@@ -404,7 +460,7 @@ fn copy_range(source: &std::fs::File, target: &std::fs::File, progress: &Progres
 }
 
 #[cfg(not(target_os = "linux"))]
-fn copy_range(_: &std::fs::File, _: &std::fs::File, _: &Progress) -> io::Result<bool> {
+fn copy_range(_: &std::fs::File, _: &std::fs::File, _: u64, _: &Progress) -> io::Result<bool> {
     Ok(false)
 }
 
@@ -529,8 +585,8 @@ fn trash_in_with(root: &Path, path: &Path, progress: &Progress) -> io::Result<Tr
             Ok(mut handle) => {
                 use std::io::Write;
                 let when = chrono::Local::now().format("%Y-%m-%dT%H:%M:%S");
-                let absolute = std::path::absolute(path)?;
-                let shown = match top_of_root(root).and_then(|top| absolute.strip_prefix(top).ok().map(Path::to_path_buf)) {
+                let absolute = real(path).map_or_else(|| std::path::absolute(path), Ok)?;
+                let shown = match top_real(root).and_then(|top| absolute.strip_prefix(top).ok().map(Path::to_path_buf)) {
                     Some(inside) => inside,
                     None => absolute,
                 };
@@ -575,13 +631,26 @@ pub fn deleted_at(info: &Path) -> Option<std::time::SystemTime> {
 }
 
 pub fn trashed_from(root: &Path, file: &Path) -> Option<Trashed> {
+    if file.parent() != Some(root.join("files").as_path()) {
+        return None;
+    }
     let name = file.file_name()?.to_string_lossy().into_owned();
     let info = root.join("info").join(format!("{name}.trashinfo"));
     let text = std::fs::read_to_string(&info).ok()?;
     let from = PathBuf::from(decode(text.lines().find_map(|line| line.strip_prefix("Path="))?.trim()));
-    let from = match (from.is_relative(), top_of_root(root)) {
-        (true, Some(top)) => top.join(from),
-        _ => from,
+    let from = match top_real(root) {
+        Some(top) => {
+            let whole = match from.is_relative() {
+                true => top.join(&from),
+                false => from,
+            };
+            let plain = whole.components().all(|part| !matches!(part, std::path::Component::ParentDir));
+            if !plain || !whole.starts_with(&top) {
+                return None;
+            }
+            whole
+        }
+        None => from,
     };
     Some(Trashed { from, file: file.to_path_buf(), info })
 }
@@ -591,13 +660,32 @@ pub fn empty_trash_in(root: &Path) -> io::Result<()> {
 }
 
 fn empty_trash_with(roots: &[PathBuf], progress: &Progress) -> io::Result<()> {
+    empty_trashes(roots, progress).into_iter().next().map_or(Ok(()), Err)
+}
+
+fn same_place(roots: &[PathBuf]) -> Vec<PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    let mut seen = std::collections::HashSet::new();
+    roots.iter().filter(|root| std::fs::metadata(root).map_or(true, |meta| seen.insert((meta.dev(), meta.ino())))).cloned().collect()
+}
+
+fn empty_trashes(roots: &[PathBuf], progress: &Progress) -> Vec<io::Error> {
+    let roots = same_place(roots);
     let items: Vec<PathBuf> = roots.iter().flat_map(|root| [root.join("files"), root.join("info")]).filter_map(|sub| std::fs::read_dir(sub).ok()).flatten().flatten().map(|item| item.path()).collect();
     progress.count.store(items.len() as u64, Ordering::Relaxed);
+    let mut failed = Vec::new();
     for item in items {
-        remove_with(&item, progress)?;
+        match remove_with(&item, progress) {
+            Err(error) if progress.stopped() => {
+                failed.push(error);
+                break;
+            }
+            Err(error) if error.kind() != io::ErrorKind::NotFound => failed.push(io::Error::other(format!("{}: {error}", crate::explorer::entry::name_of(&item)))),
+            _ => {}
+        }
         progress.item();
     }
-    Ok(())
+    failed
 }
 
 pub fn rename(path: &Path, name: &str) -> Result<PathBuf, String> {
@@ -637,9 +725,9 @@ pub fn run(job: Job, progress: &Progress) -> Done {
     run_with(&trash_root(), job, progress)
 }
 
-fn count_moves(paths: &[PathBuf], into: &Path, progress: &Progress) -> io::Result<()> {
+fn count_moves(paths: &[PathBuf], into: impl Fn(&Path) -> PathBuf, progress: &Progress) -> io::Result<()> {
     progress.counting.store(true, Ordering::Relaxed);
-    let far: Vec<&PathBuf> = paths.iter().filter(|path| !same_disk(path, into)).collect();
+    let far: Vec<&PathBuf> = paths.iter().filter(|path| !same_disk(path, &into(path))).collect();
     match far.is_empty() {
         true => progress.count.store(paths.len() as u64, Ordering::Relaxed),
         false => {
@@ -669,8 +757,8 @@ pub fn run_with(root: &Path, job: Job, progress: &Progress) -> Done {
             progress.counting.store(false, Ordering::Relaxed);
             all
         }
-        Job::Move { from, into, .. } => count_moves(from, into, progress),
-        Job::Trash(paths) => count_moves(paths, root, progress),
+        Job::Move { from, into, .. } => count_moves(from, |_| into.clone(), progress),
+        Job::Trash(paths) => count_moves(paths, |path| trash_for(root, path), progress),
         Job::Delete(paths) | Job::Restore(paths) => {
             progress.count.store(paths.len() as u64, Ordering::Relaxed);
             Ok(())
@@ -691,7 +779,8 @@ pub fn run_with(root: &Path, job: Job, progress: &Progress) -> Done {
         Job::Copy { from, into, clash } => {
             let mut replaced = Vec::new();
             for path in &from {
-                let result = match place(root, path, &into, clash, progress) {
+                let spot = Spot { root, into: &into, clash, made: &done.made, measured: true };
+                let result = match place(&spot, path, progress) {
                     Ok(Placed::Free) => copy_into_with(path, &into, progress).map(Some),
                     Ok(Placed::Skip) => Ok(None),
                     Ok(Placed::Over(target, old)) => match copy_onto(path, &target, progress) {
@@ -719,7 +808,8 @@ pub fn run_with(root: &Path, job: Job, progress: &Progress) -> Done {
             let mut moved = Vec::new();
             let mut replaced = Vec::new();
             for path in &from {
-                let result = match place(root, path, &into, clash, progress) {
+                let spot = Spot { root, into: &into, clash, made: &done.made, measured: !same_disk(path, &into) };
+                let result = match place(&spot, path, progress) {
                     Ok(Placed::Free) => move_into_with(path, &into, progress).map(Some),
                     Ok(Placed::Skip) => Ok(None),
                     Ok(Placed::Over(target, old)) => match move_to(path, &target, progress) {
@@ -785,13 +875,11 @@ pub fn run_with(root: &Path, job: Job, progress: &Progress) -> Done {
         }
         Job::EmptyTrash => {
             let roots: Vec<PathBuf> = std::iter::once(root.to_path_buf()).chain(other_trashes()).collect();
-            if let Err(error) = empty_trash_with(&roots, progress)
-                && !progress.stopped()
-            {
-                done.failed.push(fail(root, error));
+            if !progress.stopped() {
+                done.failed.extend(empty_trashes(&roots, progress).into_iter().filter(|_| !progress.stopped()).map(|error| error.to_string()));
             }
         }
-        Job::Undo(undo) => undo_with(root, undo, progress, &mut done),
+        Job::Undo(undo) => undo_with(root, undo, &Progress::default(), &mut done),
         Job::Compress(paths) => {
             match super::pack::compress(&paths, progress) {
                 Ok(made) => done.made.push(made),
@@ -1032,6 +1120,113 @@ mod tests {
         std::fs::create_dir(&shared).unwrap();
         assert_eq!(top_of_root(&shared.join(uid().to_string())), Some(top.clone()));
         assert_eq!(top_of_root(&place.trash()), None);
+    }
+
+    #[test]
+    fn replace_never_trashes_an_item_this_job_just_placed() {
+        let place = Place::new("twonames");
+        let into = place.work().join("into");
+        for dir in ["a", "b", "into"] {
+            std::fs::create_dir_all(place.work().join(dir)).unwrap();
+        }
+        std::fs::write(place.work().join("a/x.txt"), "A").unwrap();
+        std::fs::write(place.work().join("b/x.txt"), "B").unwrap();
+        std::fs::write(into.join("x.txt"), "OLD").unwrap();
+        let from = vec![place.work().join("a/x.txt"), place.work().join("b/x.txt")];
+        let done = run_with(&place.trash(), Job::Move { from, into: into.clone(), clash: Clash::Replace }, &Progress::default());
+        assert!(done.failed.is_empty(), "{:?}", done.failed);
+        assert_eq!(std::fs::read_to_string(into.join("x.txt")).unwrap(), "A");
+        assert_eq!(std::fs::read_to_string(into.join("x 2.txt")).unwrap(), "B");
+        assert_eq!(std::fs::read_dir(place.trash().join("files")).unwrap().count(), 1);
+        let undone = run_with(&place.trash(), Job::Undo(done.undo.unwrap()), &Progress::default());
+        assert!(undone.failed.is_empty(), "{:?}", undone.failed);
+        assert_eq!(std::fs::read_to_string(place.work().join("a/x.txt")).unwrap(), "A");
+        assert_eq!(std::fs::read_to_string(place.work().join("b/x.txt")).unwrap(), "B");
+        assert_eq!(std::fs::read_to_string(into.join("x.txt")).unwrap(), "OLD");
+    }
+
+    #[test]
+    fn skip_keeps_the_bar_whole() {
+        let place = Place::new("skipbar");
+        let into = place.work().join("into");
+        std::fs::create_dir(&into).unwrap();
+        std::fs::write(place.work().join("a"), "").unwrap();
+        std::fs::write(place.work().join("b"), "").unwrap();
+        std::fs::write(into.join("a"), "").unwrap();
+        let progress = Progress::default();
+        run_with(&place.trash(), Job::Copy { from: vec![place.work().join("a"), place.work().join("b")], into, clash: Clash::Skip }, &progress);
+        assert_eq!(progress.share(), Some(1.0));
+    }
+
+    #[test]
+    fn empty_trash_keeps_going_past_a_failure() {
+        use std::os::unix::fs::PermissionsExt;
+        let place = Place::new("emptyall");
+        let locked = place.trash().join("files/locked");
+        std::fs::create_dir_all(&locked).unwrap();
+        std::fs::write(locked.join("in.txt"), "x").unwrap();
+        std::fs::write(place.trash().join("files/free.txt"), "x").unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o500)).unwrap();
+        let failed = empty_trashes(&[place.trash(), place.trash()], &Progress::default());
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(failed.len(), 1);
+        assert!(!place.trash().join("files/free.txt").exists());
+    }
+
+    #[test]
+    fn a_pipe_inside_a_folder_is_made_again_not_read() {
+        use std::os::unix::fs::FileTypeExt;
+        let place = Place::new("fifo");
+        let from = place.work().join("box");
+        std::fs::create_dir(&from).unwrap();
+        let name = std::ffi::CString::new(from.join("pipe").to_string_lossy().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        let into = place.work().join("into");
+        std::fs::create_dir(&into).unwrap();
+        let done = run_with(&place.trash(), Job::Copy { from: vec![from], into: into.clone(), clash: Clash::KeepBoth }, &Progress::default());
+        assert!(done.failed.is_empty(), "{:?}", done.failed);
+        assert!(std::fs::symlink_metadata(into.join("box/pipe")).unwrap().file_type().is_fifo());
+    }
+
+    #[test]
+    fn only_top_level_trash_items_have_trash_info() {
+        let place = Place::new("nested");
+        let proj = place.work().join("proj");
+        std::fs::create_dir(&proj).unwrap();
+        std::fs::write(proj.join("a.txt"), "inner").unwrap();
+        std::fs::write(place.work().join("a.txt"), "outer").unwrap();
+        trash_in(&place.trash(), &proj).unwrap();
+        trash_in(&place.trash(), &place.work().join("a.txt")).unwrap();
+        let nested = place.trash().join("files/proj/a.txt");
+        assert!(trashed_from(&place.trash(), &nested).is_none());
+        let done = run_with(&place.trash(), Job::Restore(vec![nested.clone()]), &Progress::default());
+        assert_eq!(done.failed.len(), 1);
+        assert!(nested.exists() && place.trash().join("info/a.txt.trashinfo").exists());
+        let elsewhere = place.work().join("b");
+        std::fs::create_dir(&elsewhere).unwrap();
+        std::fs::write(elsewhere.join("a.txt"), "x").unwrap();
+        run_with(&place.trash(), Job::Delete(vec![elsewhere.join("a.txt")]), &Progress::default());
+        assert!(place.trash().join("info/a.txt.trashinfo").exists());
+    }
+
+    #[test]
+    fn a_disk_trash_cannot_send_things_outside_the_disk() {
+        let place = Place::new("escape");
+        let top = place.work().join("stick");
+        let root = top.join(format!(".Trash-{}", uid()));
+        std::fs::create_dir_all(root.join("files")).unwrap();
+        std::fs::create_dir_all(root.join("info")).unwrap();
+        std::fs::write(root.join("files/x"), "x").unwrap();
+        std::fs::write(root.join("info/x.trashinfo"), "[Trash Info]\nPath=../../outside/x\n").unwrap();
+        assert!(trashed_from(&root, &root.join("files/x")).is_none());
+        std::fs::write(root.join("info/x.trashinfo"), "[Trash Info]\nPath=/etc/x\n").unwrap();
+        assert!(trashed_from(&root, &root.join("files/x")).is_none());
+        assert!(trusted(&root));
+        let fake = place.work().join("fake");
+        std::fs::create_dir_all(fake.join("files")).unwrap();
+        let link = top.join(".Trash-link");
+        std::os::unix::fs::symlink(&fake, &link).unwrap();
+        assert!(!trusted(&link));
     }
 
     #[test]

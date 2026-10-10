@@ -15,7 +15,7 @@ Later steps build on these.
    Waits on: 1.
 3. Folders are read on the main thread, so a huge folder or a slow network drive freezes the window. Read them on a worker.
    Waits on: nothing.
-   - Built: folders, the tree, columns, text previews and change checks read on worker threads. A folder that takes more than 50 ms shows "Loading…" and fills in later. A 100,000-file folder now blocks 60 ms, not 0.9 s. Left: a test on the Pixelbook.
+   - Built: folders, the tree, columns, text previews and change checks read on worker threads. A folder that takes more than 50 ms shows "Loading…" and fills in later. A 100,000-file folder now blocks 60 ms, not 0.9 s. The last-folder check at start, the sidebar and drag targets no longer touch the disk. Still on the main thread: single-path checks when you act (a typed path, paste name checks, rename, new folder, Get Info). Left: a test on the Pixelbook.
 4. Folder watching: Explorer checks only the open folder, every half second. The tree and the other columns do not refresh when a folder changes. Watch every shown folder with inotify.
    Waits on: 3.
    - Built: one inotify thread watches the open folder, every open folder in the tree and every column. Changes come in 120 ms after they settle, and refresh the list, tree and columns without blocking. The thread sleeps until a change or a new folder set. The half-second check stays as a backup for network drives. Left: run the Linux watcher test and try it on the Pixelbook.
@@ -27,13 +27,13 @@ Later steps build on these.
 
 6. Big copies show only "Copying…", with no progress bar and no cancel.
    Waits on: 5.
-   - Built: copies, moves, Trash, delete and empty Trash show a row under the toolbar after 0.4 s. Each row names the item and target, has a progress bar, "1.3 GB of 4.7 GB, about 53 s left", and a × that stops the job. A stopped copy removes its half-done file. Closing the window with work running asks first. Copies keep the file date and use copy_file_range on Linux. Left: a test on the Pixelbook, with a USB stick for a cross-disk move.
+   - Built: copies, moves, Trash, delete and empty Trash show a row under the toolbar after 0.4 s. Each row names the item and target, has a progress bar, "1.3 GB of 4.7 GB, about 53 s left", and a × that stops the job. A stopped copy removes its half-done file. Closing the window with work running asks first. Copies keep the file date and use copy_file_range on Linux, falling back to plain reads when it stops short. Named pipes inside folders are made again, not read; sockets and devices are left out. Undo runs to the end and shows no stop button. Linux tests pass on Blue. Left: a test on the Pixelbook, with a USB stick for a cross-disk move.
 7. Name clashes: when a pasted file has the same name as one already there, Explorer adds "2" to the name without asking. Ask Replace, Skip or Keep Both.
    Waits on: 6.
    - Built: a paste or drop onto names already there opens a sheet: Cancel, Skip, Replace, Keep Both (the default, Enter). One choice covers all clashes. Replace puts the old item in the Trash, and Undo puts it back. Left: a test on the Pixelbook.
 8. Trash: on a USB stick, the file moves to the home Trash. The spec wants a `.Trash-UID` folder on that disk.
    Waits on: 6.
-   - Built: a file on another disk goes to that disk's `.Trash/UID` (if it is a sticky folder) or `.Trash-UID`, with its path relative to the disk. It falls back to the home Trash only if neither can be made. The Trash view lists every mounted disk's Trash; Put Back, Delete and Empty Trash work on all of them. Tested on a mounted disk image on the Mac. Left: a test with a USB stick on the Pixelbook.
+   - Built: a file on another disk goes to that disk's `.Trash/UID` (if it is a sticky folder) or `.Trash-UID`, with its path relative to the disk. It falls back to the home Trash only if neither can be made. The Trash view lists every mounted disk's Trash; Put Back, Delete and Empty Trash work on all of them. The disk top comes from the mount table, through symlinks. Trash folders must be real folders you own (and a sticky .Trash) before Explorer lists or empties them, and Put Back refuses paths that leave the disk. Empty Trash keeps going past an item it cannot remove. Trashing to a disk image was tested on the Mac; the merged view and Empty Trash across disks need Linux. Left: a test with a USB stick on the Pixelbook.
 9. Trash: the Trash view has no "original location" column and no "date deleted" column.
    Waits on: 8.
    - Built: the Trash list shows Original Location (as ~/Music) and Date Deleted in place of Modified. Click either head to sort. Left: a test on the Pixelbook.

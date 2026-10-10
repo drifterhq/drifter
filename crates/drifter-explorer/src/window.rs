@@ -117,6 +117,7 @@ pub fn run() -> Result<(), String> {
     let (ping, pinged) = make_ping().map_err(|e| format!("no wake-up pipe: {e}"))?;
     let mut model = Model::new(Prefs::path(), asked_path());
     model.reader.set_wake(std::sync::Arc::new(move || ping.ping()));
+    model.arrived();
     let surface = compositor.create_surface(&qh);
     let window = shell.create_window(surface, WindowDecorations::RequestServer, &qh);
     let title = drifter_core::explorer::entry::name_of(&model.dir);

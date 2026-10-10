@@ -428,7 +428,7 @@ impl Look {
         if let Some(jobs) = frame.jobs
             && jobs.contains(at)
         {
-            let found = self.job_rows(jobs, model).into_iter().find(|(_, row)| self.stop_rect(*row).contains(at));
+            let found = self.job_rows(jobs, model).into_iter().filter(|(id, _)| model.jobs.iter().any(|job| job.id == *id && job.stoppable)).find(|(_, row)| self.stop_rect(*row).contains(at));
             return Some(found.map_or(Hit::Jobs, |(id, _)| Hit::Stop(id)));
         }
         if let Some(status) = frame.status
@@ -564,10 +564,10 @@ impl Look {
 
     pub fn drop_at(&self, size: Vec2, model: &Model, lines: &[Line], fonts: &Fonts, at: Vec2, paths: &[PathBuf]) -> Option<(Drop, Rect)> {
         let frame = self.frame(size, model);
-        let folders = paths.iter().any(|path| path.is_dir());
-        let into = |path: &Path, area: Rect| -> Option<(Drop, Rect)> {
+        let folders = paths.iter().any(|path| model.known_folder(path));
+        let into = |path: &Path, area: Rect, folder: bool| -> Option<(Drop, Rect)> {
             let bad = paths.iter().any(|each| each == path || path.starts_with(each)) || super::ops::in_trash(path);
-            (!bad && path.is_dir()).then(|| (Drop::Into(path.to_path_buf()), area))
+            (!bad && folder).then(|| (Drop::Into(path.to_path_buf()), area))
         };
         if let Some(side) = frame.side
             && side.contains(at)
@@ -585,20 +585,20 @@ impl Look {
                 Line::Head(_) if folders && matches!(lines.get(found + 1), Some(Line::Place { .. })) => bar.map(|bar| (Drop::Mark, bar)),
                 Line::Place { path, .. } if path == &trash => Some((Drop::Trash, area)),
                 Line::Place { .. } if folders && ((at.y - area.origin.y) < area.size.y * 0.25 || (area.max().y - at.y) < area.size.y * 0.25) => bar.map(|bar| (Drop::Mark, bar)),
-                Line::Place { path, .. } | Line::Folder { path, .. } | Line::Drive { path, .. } => into(path, area),
+                Line::Place { path, .. } | Line::Folder { path, .. } | Line::Drive { path, .. } => into(path, area, true),
                 Line::Head(_) => None,
             };
         }
         match self.hit(size, model, lines, fonts, at)? {
             Hit::Entry(index) | Hit::Strip(index) => {
                 let one = model.entries.get(index)?;
-                into(&one.path, self.entry_rect(&frame, model, index)?)
+                into(&one.path, self.entry_rect(&frame, model, index)?, one.folder)
             }
             Hit::Column(column, Some(row)) => {
                 let one = model.columns.get(column)?.entries.get(row)?;
                 let area = self.column_rect(frame.body, model, column);
                 let y = area.origin.y + 6.0 + row as f64 * ROW_H - model.columns[column].scroll;
-                into(&one.path, rect(area.origin.x + 6.0, y, COLUMN_W - 12.0, ROW_H))
+                into(&one.path, rect(area.origin.x + 6.0, y, COLUMN_W - 12.0, ROW_H), one.folder)
             }
             _ => None,
         }
@@ -1393,11 +1393,13 @@ impl Look {
             };
             canvas.round_rect(rect(0.0, row.max().y - 1.0, row.size.x, 1.0), 0.0, self.rule, 1.0);
             let stop = self.stop_rect(row);
-            let hot = model.hover == Some(Hit::Stop(id));
-            self.button(canvas, stop, hot, false);
-            let c = stop.center();
-            canvas.line(c + Vec2::new(-5.0, -5.0), c + Vec2::new(5.0, 5.0), 2.0, self.ink, 1.0);
-            canvas.line(c + Vec2::new(5.0, -5.0), c + Vec2::new(-5.0, 5.0), 2.0, self.ink, 1.0);
+            if job.stoppable {
+                let hot = model.hover == Some(Hit::Stop(id));
+                self.button(canvas, stop, hot, false);
+                let c = stop.center();
+                canvas.line(c + Vec2::new(-5.0, -5.0), c + Vec2::new(5.0, 5.0), 2.0, self.ink, 1.0);
+                canvas.line(c + Vec2::new(5.0, -5.0), c + Vec2::new(-5.0, 5.0), 2.0, self.ink, 1.0);
+            }
             let left = row.origin.x + 16.0;
             let right = stop.origin.x - 14.0;
             let top = row.origin.y + 17.0;

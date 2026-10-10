@@ -65,6 +65,8 @@ pub enum Act {
     Clash(Clash),
     Compress,
     Extract,
+    TrashThese(Vec<PathBuf>),
+    DeleteThese(Vec<PathBuf>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -180,6 +182,7 @@ pub struct Column {
 #[derive(Debug, Clone)]
 pub struct Running {
     pub id: u64,
+    pub stoppable: bool,
     pub words: String,
     pub progress: std::sync::Arc<Progress>,
     pub started: Instant,
@@ -280,6 +283,7 @@ pub struct Model {
     pub marks: Vec<super::marks::Mark>,
     pub marks_path: PathBuf,
     pub marks_stamp: Option<SystemTime>,
+    pub place_list: Vec<(PathBuf, String, &'static str)>,
     pub reader: Reader,
     pub listed: HashMap<PathBuf, Listing>,
     pub loading: Option<Instant>,
@@ -374,13 +378,12 @@ impl Model {
     pub fn new(prefs_path: PathBuf, asked: Option<PathBuf>) -> Model {
         let prefs = Prefs::load_from(&prefs_path);
         let home = home();
-        let start = asked
-            .filter(|path| path.is_dir())
-            .or_else(|| match prefs.start {
-                Start::Last => prefs.last.clone().filter(|path| path.is_dir()),
-                Start::Home => None,
-            })
-            .unwrap_or_else(|| home.clone());
+        let last = match prefs.start {
+            Start::Last => prefs.last.clone(),
+            Start::Home => None,
+        };
+        let from_last = asked.is_none() && last.is_some();
+        let start = asked.or(last).unwrap_or_else(|| home.clone());
         let mut model = Model {
             prefs,
             prefs_path,
@@ -424,6 +427,7 @@ impl Model {
             marks: Vec::new(),
             marks_path: super::marks::file(),
             marks_stamp: None,
+            place_list: Vec::new(),
             reader: Reader::default(),
             listed: HashMap::new(),
             loading: None,
@@ -436,8 +440,21 @@ impl Model {
         model.read_marks();
         model.drives = drives_in(&std::fs::read_to_string("/proc/mounts").unwrap_or_default());
         model.open.insert(model.tree_base());
+        model.refresh_places();
         model.load(start, None);
+        if from_last && model.trouble.is_some() {
+            let home = model.home.clone();
+            model.load(home, None);
+        }
         model
+    }
+
+    pub fn known_folder(&self, path: &Path) -> bool {
+        let listed = self.entries.iter().chain(self.columns.iter().flat_map(|column| column.entries.iter())).find(|each| each.path == path);
+        match listed {
+            Some(each) => each.folder,
+            None => self.kids.contains_key(path) || self.kids.values().any(|kids| kids.iter().any(|kid| kid == path)) || self.place_list.iter().any(|(each, _, _)| each == path),
+        }
     }
 
     pub fn tree_base(&self) -> PathBuf {
@@ -780,6 +797,7 @@ impl Model {
     pub fn read_marks(&mut self) {
         self.marks = super::marks::load_from(&self.marks_path);
         self.marks_stamp = modified(&self.marks_path);
+        self.refresh_places();
     }
 
     pub fn marked(&self, path: &Path) -> bool {
@@ -810,6 +828,7 @@ impl Model {
     }
 
     fn write_marks(&mut self) {
+        self.refresh_places();
         match super::marks::save_to(&self.marks_path, &self.marks) {
             Ok(()) => self.marks_stamp = modified(&self.marks_path),
             Err(error) => self.say(crate::lang::tf("The sidebar was not saved: {}", &[&error]), true),
@@ -817,6 +836,14 @@ impl Model {
     }
 
     pub fn places(&self) -> Vec<(PathBuf, String, &'static str)> {
+        self.place_list.clone()
+    }
+
+    pub fn refresh_places(&mut self) {
+        self.place_list = self.find_places();
+    }
+
+    fn find_places(&self) -> Vec<(PathBuf, String, &'static str)> {
         let home = &self.home;
         let mut out = vec![(home.clone(), crate::lang::t("Home").to_string(), "user-home")];
         let named: [(&str, &str, &str, &str); 6] = [
@@ -1106,7 +1133,8 @@ impl Model {
     pub fn start_job(&mut self, job: Job) {
         self.job_ids += 1;
         let id = self.job_ids;
-        self.jobs.push(Running { id, words: job.doing(), progress: Default::default(), started: Instant::now() });
+        let stoppable = !matches!(job, Job::Undo(_));
+        self.jobs.push(Running { id, stoppable, words: job.doing(), progress: Default::default(), started: Instant::now() });
         self.effects.push(Effect::Job(id, job));
     }
 
@@ -1284,32 +1312,29 @@ impl Model {
                 if paths.is_empty() {
                     return;
                 }
-                match self.prefs.confirm_trash && self.sheet.is_none() {
+                match self.prefs.confirm_trash {
                     true => {
                         let words = gone_words(&paths);
-                        self.confirm(crate::lang::t("Move to Trash?"), words, crate::lang::t("Move to Trash"), Act::Trash);
+                        self.confirm(crate::lang::t("Move to Trash?"), words, crate::lang::t("Move to Trash"), Act::TrashThese(paths));
                     }
-                    false => {
-                        self.sheet = None;
-                        self.start_job(Job::Trash(paths));
-                    }
+                    false => self.start_job(Job::Trash(paths)),
                 }
+            }
+            Act::TrashThese(paths) => {
+                self.sheet = None;
+                self.start_job(Job::Trash(paths));
             }
             Act::DeleteForever => {
                 let paths = self.chosen_paths();
                 if paths.is_empty() {
                     return;
                 }
-                match self.sheet.is_none() {
-                    true => {
-                        let words = format!("{} {}", gone_words(&paths), crate::lang::t("This cannot be undone."));
-                        self.confirm(crate::lang::t("Delete forever?"), words, crate::lang::t("Delete"), Act::DeleteForever);
-                    }
-                    false => {
-                        self.sheet = None;
-                        self.start_job(Job::Delete(paths));
-                    }
-                }
+                let words = format!("{} {}", gone_words(&paths), crate::lang::t("This cannot be undone."));
+                self.confirm(crate::lang::t("Delete forever?"), words, crate::lang::t("Delete"), Act::DeleteThese(paths));
+            }
+            Act::DeleteThese(paths) => {
+                self.sheet = None;
+                self.start_job(Job::Delete(paths));
             }
             Act::Restore => {
                 let paths = self.chosen_paths();
@@ -1449,6 +1474,7 @@ impl Model {
                 }
             }
             Act::Reload => {
+                self.refresh_places();
                 self.drives = drives_in(&std::fs::read_to_string("/proc/mounts").unwrap_or_default());
                 self.handlers.clear();
                 self.reload();
@@ -2034,6 +2060,20 @@ mod tests {
         model.settle_all(Duration::from_secs(5));
         assert_eq!(model.kids.get(&work.join("Photos")).map(Vec::len), Some(2));
         assert!(model.index_of(&work.join("c.txt")).is_some());
+    }
+
+    #[test]
+    fn a_confirm_acts_on_what_it_named() {
+        let (place, mut model) = place("confirm");
+        let work = place.0.join("work");
+        model.pick_only(work.join("b.txt"));
+        model.act(Act::DeleteForever);
+        model.pick_only(work.join("a.png"));
+        let Some(Sheet::Confirm { act, .. }) = model.sheet.clone() else {
+            panic!("no sheet");
+        };
+        model.act(act);
+        assert_eq!(model.effects, [Effect::Job(1, Job::Delete(vec![work.join("b.txt")]))]);
     }
 
     #[test]
