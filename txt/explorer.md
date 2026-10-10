@@ -68,6 +68,7 @@ Later steps build on these.
     - Built: a tab bar shows under the toolbar when there are two or more tabs. Each tab keeps its own folder, Back and Forward history, picks and scroll. Ctrl+T opens a new tab, Ctrl+W closes the tab (the window when it is the last), Ctrl+Q closes the window, Ctrl+Tab and Ctrl+Page Down/Up switch, and Alt+1 to 9 jump. "Open in New Tab" is in the folder and sidebar menus. A middle-click on a folder opens it in a tab behind, and a middle-click on a tab closes it. Click + or double-click the empty bar for a new tab. Right-click a tab for Close Other Tabs. Drop files on a tab to move them into its folder. If a tab's folder is gone, the tab opens the nearest folder above it. Checked on Blue. Left: tabs are not saved between launches.
 17. Remembering the window size.
     Waits on: nothing.
+    - Built: the window size and the maximized state are saved (window_size, maximized in explorer.toml) and used for the next window. Sizes from tiled, maximized or full-screen windows are not saved, so the free size stays. Bad sizes in the file are ignored. Checked on Blue: a floating window resized to 896×591 opened again at 896×591. Left: check maximize under Drifter's own frame.
 18. A different view for each folder.
     Waits on: nothing.
 

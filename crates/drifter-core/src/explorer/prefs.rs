@@ -80,6 +80,8 @@ pub struct Prefs {
     pub status: bool,
     pub tree_width: u32,
     pub terminal: Option<String>,
+    pub window_size: Option<[u32; 2]>,
+    pub maximized: bool,
 }
 
 pub const LEAST_ZOOM: u32 = 32;
@@ -112,6 +114,8 @@ impl Default for Prefs {
             status: true,
             tree_width: 230,
             terminal: None,
+            window_size: None,
+            maximized: false,
         }
     }
 }
@@ -142,6 +146,7 @@ impl Prefs {
     pub fn tidy(mut self) -> Prefs {
         self.zoom = self.zoom.clamp(LEAST_ZOOM, MOST_ZOOM);
         self.tree_width = self.tree_width.clamp(LEAST_TREE, MOST_TREE);
+        self.window_size = self.window_size.filter(|[width, height]| (200..=16384).contains(width) && (200..=16384).contains(height));
         self
     }
 }
@@ -191,12 +196,15 @@ mod tests {
         let path = dir.join("explorer.toml");
         let mut prefs = Prefs { mode: Mode::Columns, zoom: 128, hidden: true, ..Prefs::default() };
         prefs.last = Some(PathBuf::from("/tmp"));
+        prefs.window_size = Some([1280, 800]);
+        prefs.maximized = true;
         prefs.save_to(&path).unwrap();
         assert_eq!(Prefs::load_from(&path), prefs);
-        std::fs::write(&path, "mode = \"icons\"\nzoom = 9000\n").unwrap();
+        std::fs::write(&path, "mode = \"icons\"\nzoom = 9000\nwindow_size = [5, 800]\n").unwrap();
         let read = Prefs::load_from(&path);
         assert_eq!(read.mode, Mode::Icons);
         assert_eq!(read.zoom, MOST_ZOOM);
+        assert_eq!(read.window_size, None);
         assert!(read.folders_first);
         std::fs::remove_dir_all(&dir).unwrap();
     }

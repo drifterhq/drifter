@@ -10,6 +10,7 @@ use drifter_core::{Config, Font, Image, Vec2};
 use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState};
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
 use smithay_client_toolkit::reexports::calloop::EventLoop;
+use smithay_client_toolkit::reexports::csd_frame::WindowState;
 use smithay_client_toolkit::reexports::calloop::channel::{Event as ChannelEvent, Sender as LoopSender, channel as loop_channel};
 use smithay_client_toolkit::reexports::calloop::ping::make_ping;
 use smithay_client_toolkit::reexports::calloop::timer::{TimeoutAction, Timer};
@@ -129,6 +130,10 @@ pub fn run() -> Result<(), String> {
     let look = themed(&config);
     let least = look.least();
     window.set_min_size(Some((least.x as u32, least.y as u32)));
+    let size = model.prefs.window_size.map_or(START, |[width, height]| (width.max(least.x as u32), height.max(least.y as u32)));
+    if model.prefs.maximized {
+        window.set_maximized();
+    }
     window.commit();
 
     let pool = SlotPool::new((START.0 * START.1 * 4) as usize, &shm).map_err(|e| format!("no shared memory: {e}"))?;
@@ -188,7 +193,7 @@ pub fn run() -> Result<(), String> {
         keyboard: None,
         gone_keyboards: Vec::new(),
         mods: Modifiers::default(),
-        size: START,
+        size,
         exit: false,
         configured: false,
         resized: false,
@@ -617,8 +622,28 @@ impl WindowHandler for Explorer {
         let width = configure.new_size.0.map(|v| v.get()).unwrap_or(self.size.0);
         let height = configure.new_size.1.map(|v| v.get()).unwrap_or(self.size.1);
         self.size = (width.max(least.x as u32), height.max(least.y as u32));
+        self.remember(&configure);
         self.configured = true;
         self.resized = true;
+    }
+}
+
+impl Explorer {
+    fn remember(&mut self, configure: &WindowConfigure) {
+        if configure.is_fullscreen() {
+            return;
+        }
+        let prefs = &mut self.model.prefs;
+        let free = !configure.is_maximized() && !configure.state.intersects(WindowState::TILED);
+        let size = Some([self.size.0, self.size.1]);
+        if free && prefs.window_size != size {
+            prefs.window_size = size;
+            self.model.saved = false;
+        }
+        if prefs.maximized != configure.is_maximized() {
+            prefs.maximized = configure.is_maximized();
+            self.model.saved = false;
+        }
     }
 }
 
