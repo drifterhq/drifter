@@ -2454,7 +2454,8 @@ impl Look {
             }
             Sheet::Confirm { .. } => Vec2::new(420.0, 190.0),
             Sheet::Clash { names, .. } => Vec2::new(540.0, if names.len() == 1 { 190.0 } else { 236.0 }),
-            Sheet::Keys => Vec2::new(520.0, 640.0),
+            Sheet::Keys => Vec2::new(520.0, 665.0),
+            Sheet::Look => Vec2::new(size.x - 80.0, size.y - 80.0).min(Vec2::new(1000.0, 760.0)),
             Sheet::About => Vec2::new(380.0, 260.0),
             Sheet::Apps(_) => Vec2::new(480.0, 560.0),
         };
@@ -2476,6 +2477,7 @@ impl Look {
                 let left = area.max().x - 20.0 - wide * 4.0 - gap * 3.0;
                 order.into_iter().enumerate().map(|(at, hit)| (hit, rect(left + at as f64 * (wide + gap), y, wide, 32.0))).collect()
             }
+            Sheet::Look => Vec::new(),
             _ => vec![(SheetHit::Done, rect(area.max().x - 20.0 - 100.0, y, 100.0, 32.0))],
         }
     }
@@ -2675,6 +2677,41 @@ impl Look {
         self.text(canvas, fonts.body, &words, self.ink, Vec2::new(tick.max().x + 10.0, always.center().y), always.size.x - 30.0);
     }
 
+    fn paint_look(&self, canvas: &mut Canvas, area: Rect, job: &Paint) {
+        let model = job.model;
+        let fonts = job.fonts;
+        let Some(one) = model.single() else {
+            return;
+        };
+        let head = fonts.title.paint_weight(&fit(fonts.title, &one.name, area.size.x - 48.0), self.ink, 620.0);
+        canvas.stamp(&head, Vec2::new(area.center().x - logical(&head).x / 2.0, area.origin.y + 16.0).round(), 1.0);
+        let detail = match one.folder {
+            true => one.kind_words(),
+            false => format!("{} · {} · {}", one.kind_words(), super::entry::size_words(one.size), model.date(one.modified)),
+        };
+        self.text_center(canvas, fonts.small, &detail, self.dim, Vec2::new(area.center().x, area.max().y - 22.0), area.size.x - 48.0);
+        let room = rect(area.origin.x + 24.0, area.origin.y + 56.0, area.size.x - 48.0, area.size.y - 56.0 - 48.0);
+        match (&model.peek, one.family().shows_picture() && model.prefs.thumbnails) {
+            (Some(lines), _) => {
+                let larger = Fonts { body: fonts.body, small: fonts.body, title: fonts.title };
+                self.paint_peek(canvas, room, lines, &larger);
+            }
+            (None, true) => match job.art.thumb(&one.path, room.size.x.max(room.size.y).clamp(1.0, 1600.0)) {
+                Some(image) => {
+                    let fitted = grow_fit(logical(image), room.size, MOST_GROW);
+                    let at = room.origin + fitted.origin;
+                    if solid(image) {
+                        canvas.shadow(rect(at.x, at.y, fitted.size.x, fitted.size.y), 4.0, 14.0, self.drop);
+                    }
+                    let shown = image.scaled(crate::paint::dense(fitted.size.x), crate::paint::dense(fitted.size.y));
+                    canvas.stamp(&shown, at.round(), 1.0);
+                }
+                None => self.entry_art(canvas, job.art, model, one, Rect::from_center(room.center(), Vec2::splat(room.size.y.min(160.0)))),
+            },
+            (None, false) => self.entry_art(canvas, job.art, model, one, Rect::from_center(room.center(), Vec2::splat(room.size.y.min(160.0)))),
+        }
+    }
+
     fn paint_sheet(&self, canvas: &mut Canvas, size: Vec2, sheet: &Sheet, job: &Paint) {
         let fonts = job.fonts;
         canvas.round_rect(rect(0.0, 0.0, size.x, size.y), 0.0, [0, 0, 0], if self.dark { 0.42 } else { 0.24 });
@@ -2725,6 +2762,7 @@ impl Look {
                 }
             }
             Sheet::Keys => self.paint_keys(canvas, area, fonts),
+            Sheet::Look => self.paint_look(canvas, area, job),
             Sheet::Apps(chooser) => self.paint_apps(canvas, area, chooser, job),
             Sheet::About => {
                 let c = Vec2::new(area.center().x, area.origin.y + 70.0);
@@ -2974,7 +3012,7 @@ impl Look {
     fn paint_keys(&self, canvas: &mut Canvas, area: Rect, fonts: &Fonts) {
         let head = fonts.title.paint_weight(crate::lang::t("Keyboard Shortcuts"), self.ink, 620.0);
         canvas.stamp(&head, Vec2::new(area.origin.x + 24.0, area.origin.y + 22.0).round(), 1.0);
-        let rows: [(&str, &str); 20] = [
+        let rows: [(&str, &str); 21] = [
             ("Enter", crate::lang::t("Open")),
             ("Alt+Up / Backspace", crate::lang::t("Enclosing Folder")),
             ("Alt+Left / Alt+Right", crate::lang::t("Back and forward")),
@@ -2993,6 +3031,7 @@ impl Look {
             ("Ctrl+1 to 4", crate::lang::t("Change the view")),
             ("Ctrl++ / Ctrl+-", crate::lang::t("Zoom")),
             ("Ctrl+H", crate::lang::t("Show Hidden Files")),
+            ("Space", crate::lang::t("Quick Look")),
             ("Ctrl+I", crate::lang::t("Get Info")),
             ("Ctrl+,", crate::lang::t("Settings")),
         ];

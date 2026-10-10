@@ -89,6 +89,7 @@ pub enum Act {
     ChangeApp,
     NameInInfo,
     NamedInInfo,
+    QuickLook,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -203,6 +204,7 @@ pub enum Sheet {
     Keys,
     About,
     Apps(Chooser),
+    Look,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1996,6 +1998,14 @@ impl Model {
             Act::Dismiss => {
                 self.alerts.pop();
             }
+            Act::QuickLook => match self.sheet {
+                Some(Sheet::Look) => self.sheet = None,
+                None if self.single().is_some() => {
+                    self.refresh_peek();
+                    self.sheet = Some(Sheet::Look);
+                }
+                _ => {}
+            },
             Act::NameInInfo => {
                 if let Some(Sheet::Info(info)) = self.sheet.as_mut()
                     && info.naming.is_none()
@@ -2351,6 +2361,7 @@ impl Model {
         }
         items.push(Item::new(crate::lang::t("Move to Trash"), "Delete", Act::Trash));
         items.push(Item::rule());
+        items.push(Item::new(crate::lang::t("Quick Look"), "Space", Act::QuickLook).when(one));
         items.push(Item::new(crate::lang::t("Get Info"), "Ctrl+I", Act::Info).when(one));
         items
     }
@@ -2955,6 +2966,31 @@ mod tests {
         assert!(model.jobs.is_empty());
         assert_eq!(model.single().map(|one| one.name.as_str()), Some("b.txt"));
         assert_eq!(model.undo.len(), 1);
+    }
+
+    #[test]
+    fn space_looks_at_a_file_and_arrows_step_through() {
+        use super::super::input::{self, Key, Named, Ui};
+        use super::super::look::{Fonts, Look};
+        let (place, mut model) = place("look");
+        let (Ok(body), Ok(small), Ok(title)) = (crate::Font::find(None, 13.0), crate::Font::find(None, 11.5), crate::Font::find(None, 17.0)) else {
+            return;
+        };
+        let fonts = Fonts { body: &body, small: &small, title: &title };
+        let look = Look::themed(&crate::theme::DARK, [64, 128, 238]);
+        let ui = Ui { look: &look, fonts: &fonts, size: crate::Vec2::new(900.0, 600.0) };
+        let press = |model: &mut Model, named: Named, text: Option<&str>| input::key(model, &ui, &Key { named, text: text.map(str::to_string), ctrl: false, shift: false, alt: false });
+        model.pick_only(place.0.join("work/a.png"));
+        press(&mut model, Named::Letter(' '), Some(" "));
+        assert_eq!(model.sheet, Some(Sheet::Look));
+        press(&mut model, Named::Right, None);
+        assert_eq!(model.single().map(|one| one.name.as_str()), Some("b.txt"));
+        assert!(model.peek.as_ref().is_some_and(|lines| lines.first().is_some_and(|line| line == "bee")), "{:?}", model.peek);
+        press(&mut model, Named::Escape, None);
+        assert_eq!(model.sheet, None);
+        press(&mut model, Named::Letter('b'), Some("b"));
+        press(&mut model, Named::Letter(' '), Some(" "));
+        assert_eq!(model.sheet, None, "a space while typing a name is part of the name");
     }
 
     #[test]

@@ -3380,3 +3380,6 @@ Drop files here, or press Shift+Ctrl+N for a new folder
 
 Explorer
 = Explorer
+
+Quick Look
+= Übersicht

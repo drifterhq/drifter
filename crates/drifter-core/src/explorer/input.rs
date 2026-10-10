@@ -1066,8 +1066,9 @@ pub fn key(model: &mut Model, ui: &Ui, key: &Key) {
             };
             model.menu = Some(menu_at(items, center));
         }
+        Named::Letter(' ') if !key.ctrl && !key.alt && model.typed.0.is_empty() => model.act(Act::QuickLook),
         _ => {
-            if let Some(text) = key.text.as_deref().filter(|text| !text.trim().is_empty() && !text.chars().any(char::is_control)) {
+            if let Some(text) = key.text.as_deref().filter(|text| !text.is_empty() && !text.chars().any(char::is_control)) {
                 model.type_to_find(text);
             }
         }
@@ -1076,6 +1077,20 @@ pub fn key(model: &mut Model, ui: &Ui, key: &Key) {
 }
 
 fn sheet_key(model: &mut Model, ui: &Ui, key: &Key) {
+    if matches!(model.sheet, Some(Sheet::Look)) {
+        match key.named {
+            Named::Letter(' ') | Named::Escape => model.sheet = None,
+            Named::Enter => {
+                model.sheet = None;
+                model.act(Act::Open);
+            }
+            Named::Left | Named::Up => model.step(-1, false),
+            Named::Right | Named::Down => model.step(1, false),
+            _ => {}
+        }
+        model.refresh_peek();
+        return;
+    }
     if matches!(&model.sheet, Some(Sheet::Info(info)) if info.naming.is_some()) {
         let pasted = model.clip_text.clone();
         let naming = match model.sheet.as_mut() {

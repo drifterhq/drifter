@@ -147,3 +147,9 @@ Later steps build on these.
 39. Offer Explorer for Files in Welcome and Default Apps.
     Waits on: all steps above.
     - Built: Drifter's own apps that sit next to the running program are now one list (`desktop::own_apps`: Activity and Explorer). `installed()` adds them, so Settings' app picker and Spotlight list Explorer even when no .desktop file is installed. `serving(Role::Files)` puts Explorer first (`ours_first`), so Welcome's Files choices start with it. Drifter's launcher finds own apps by id too, so a Files default of drifter-explorer opens it. Test: `drifter_apps_join_the_lists_and_explorer_leads_the_file_managers`. Checked on the trixie VM: Welcome's Files choices were Explorer, PCMan, PCManFM-Qt, Thunar (Get), Files (Get); picking Explorer saved files = "drifter-explorer" and inode/directory=drifter-explorer.desktop; Spotlight found Explorer and opened it.
+
+## Phase 10: Polish found after the list
+
+40. Quick Look: there is no quick way to see a file without opening it.
+    Waits on: nothing.
+    - Built: Space on a picked file opens a large preview sheet (`Sheet::Look`): the picture grown to fit (up to 4 times), or the first lines of a text file in the body font, or the big icon; the name sits on top and kind, size and date under it. Left/Up and Right/Down step to the next file while it stays open, Enter opens the file, Space or Escape closes, a click outside closes. A space typed while finding a file by name stays part of the name. Also in the item menu and the Keys sheet. Test: `space_looks_at_a_file_and_arrows_step_through`. Checked on the trixie VM: list.txt showed its lines, and Down showed shot.png.
