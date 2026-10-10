@@ -148,8 +148,8 @@ impl Section {
             Section::Touchpad => "trackpad tap swipe scroll gestures",
             Section::Shortcuts => "keys hotkeys keybindings screenshot folder format png jpeg",
             Section::Access => "accessibility large text bigger high contrast reduce motion animation sticky keys a11y screen reader orca speech blind",
-            Section::Power => "sleep suspend lid battery shutdown profile performance saver balanced",
-            Section::Lock => "password idle screen off login automatic",
+            Section::Power => "sleep suspend lid battery shutdown profile performance saver balanced screen monitor display off blank idle inactive timeout",
+            Section::Lock => "password idle screen off login automatic monitor display sleep blank inactive timeout",
             Section::Users => "user account people password picture photo avatar face admin administrator name add remove login",
             Section::Time => "clock zone ntp date language español deutsch français translation",
             Section::Login => "startup autostart apps",
@@ -1020,6 +1020,21 @@ impl Model {
         row
     }
 
+    pub(super) fn screen_off_row(&self) -> Row {
+        Row::new(
+            Id::ScreenOff,
+            crate::lang::t("Turn the screen off after"),
+            Control::Slider {
+                least: 0.0,
+                most: 60.0,
+                value: self.screen_off as f64,
+                unit: " min",
+                zero: Some(crate::lang::t("Never")),
+            },
+        )
+        .detail(crate::lang::t("Any key or pointer move turns it back on"))
+    }
+
     pub fn nudge(&self, section: Section, id: Id, steps: f64) -> Option<Value> {
         self.groups(section)
             .into_iter()
@@ -1307,18 +1322,7 @@ impl Model {
                         },
                     )
                     .detail(crate::lang::t("Minutes with no key press or pointer move")),
-                    Row::new(
-                        Id::ScreenOff,
-                        crate::lang::t("Turn the screen off after"),
-                        Control::Slider {
-                            least: 0.0,
-                            most: 60.0,
-                            value: self.screen_off as f64,
-                            unit: " min",
-                            zero: Some(crate::lang::t("Never")),
-                        },
-                    )
-                    .detail(crate::lang::t("Any key or pointer move turns it back on")),
+                    self.screen_off_row(),
                 ],
                 footer: Some(crate::lang::t("A video that is playing keeps the screen awake.").into()),
                 thumbs: None,
@@ -4082,6 +4086,19 @@ mod tests {
         assert_eq!(model.shown(), [Section::Touchpad]);
         model.query = "zzzz".into();
         assert!(model.shown().is_empty());
+    }
+
+    #[test]
+    fn the_screen_off_time_is_found_where_people_look() {
+        let mut model = model(&Config::default());
+        for query in ["monitor off", "display sleep", "screen off", "turn the screen off"] {
+            model.query = query.into();
+            let shown = model.shown();
+            assert!(shown.contains(&Section::Power) && shown.contains(&Section::Lock), "{query}: {shown:?}");
+        }
+        for section in [Section::Power, Section::Lock] {
+            assert_eq!(model.nudge(section, Id::ScreenOff, 1.0), Some(Value::Number(model.screen_off as f64 + 1.0)));
+        }
     }
 
     #[test]

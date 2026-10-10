@@ -872,6 +872,7 @@ impl Model {
         vec![Group {
             header: None,
             rows: vec![
+                self.screen_off_row(),
                 Row::new(
                     Id::SleepAfter,
                     crate::lang::t("Sleep after"),
