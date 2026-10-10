@@ -830,7 +830,7 @@ pub fn show_focus(model: &mut Model, ui: &Ui) {
     }
 }
 
-fn edit(field: &mut super::field::Field, key: &Key) -> Option<Option<String>> {
+fn edit(field: &mut super::field::Field, key: &Key, pasted: Option<&str>) -> Option<Option<String>> {
     match key.named {
         Named::Left => field.left(key.ctrl, key.shift),
         Named::Right => field.right(key.ctrl, key.shift),
@@ -841,6 +841,7 @@ fn edit(field: &mut super::field::Field, key: &Key) -> Option<Option<String>> {
         Named::Letter('a') if key.ctrl => field.pick_all(),
         Named::Letter('c') if key.ctrl => return Some(field.picked_text().map(str::to_string)),
         Named::Letter('x') if key.ctrl => return Some(field.cut()),
+        Named::Letter('v') if key.ctrl => field.put(pasted?.lines().next().unwrap_or("")),
         _ => match key.text.as_deref() {
             Some(text) if !key.ctrl && !key.alt && !text.chars().any(char::is_control) => field.put(text),
             _ => return None,
@@ -851,6 +852,7 @@ fn edit(field: &mut super::field::Field, key: &Key) -> Option<Option<String>> {
 
 pub fn key(model: &mut Model, ui: &Ui, key: &Key) {
     model.tip = None;
+    let pasted = model.clip_text.clone();
     if model.sheet.is_some() {
         return sheet_key(model, key);
     }
@@ -862,8 +864,8 @@ pub fn key(model: &mut Model, ui: &Ui, key: &Key) {
             Named::Enter | Named::Tab => model.finish_rename(),
             Named::Escape => model.renaming = None,
             _ => {
-                if let Some(Some(text)) = edit(field, key) {
-                    model.effects.push(super::model::Effect::Clip(text));
+                if let Some(Some(text)) = edit(field, key, pasted.as_deref()) {
+                    model.hold(super::clip::Held::Text(text));
                 }
             }
         }
@@ -880,8 +882,8 @@ pub fn key(model: &mut Model, ui: &Ui, key: &Key) {
             }
             _ => {
                 let before = search.field.text.clone();
-                if let Some(Some(text)) = edit(&mut search.field, key) {
-                    model.effects.push(super::model::Effect::Clip(text));
+                if let Some(Some(text)) = edit(&mut search.field, key, pasted.as_deref()) {
+                    model.hold(super::clip::Held::Text(text));
                 }
                 if model.search.as_ref().is_some_and(|search| search.field.text != before) {
                     model.search_changed();
@@ -900,8 +902,8 @@ pub fn key(model: &mut Model, ui: &Ui, key: &Key) {
                 }
             }
             _ => {
-                if let Some(Some(text)) = edit(field, key) {
-                    model.effects.push(super::model::Effect::Clip(text));
+                if let Some(Some(text)) = edit(field, key, pasted.as_deref()) {
+                    model.hold(super::clip::Held::Text(text));
                 }
             }
         }

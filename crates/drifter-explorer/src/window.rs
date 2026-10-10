@@ -5,9 +5,14 @@ use drifter_core::explorer::input::{self, Button, Key, Mods, Named, Ui};
 use drifter_core::explorer::look::{Art, Fonts, Look, Paint, Want};
 use drifter_core::explorer::model::{Act, Effect, Model};
 use drifter_core::explorer::ops::{self, Done, Job};
-use drifter_core::explorer::prefs::{Prefs, on_path};
+use drifter_core::explorer::clip::{self, Held};
+use drifter_core::explorer::prefs::Prefs;
 use drifter_core::{Config, Font, Image, Vec2};
 use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState};
+use smithay_client_toolkit::data_device_manager::data_device::{DataDevice, DataDeviceHandler};
+use smithay_client_toolkit::data_device_manager::data_offer::{DataOfferHandler, DragOffer};
+use smithay_client_toolkit::data_device_manager::data_source::{CopyPasteSource, DataSourceHandler};
+use smithay_client_toolkit::data_device_manager::{DataDeviceManagerState, WritePipe};
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
 use smithay_client_toolkit::reexports::calloop::EventLoop;
 use smithay_client_toolkit::reexports::csd_frame::WindowState;
@@ -25,10 +30,13 @@ use smithay_client_toolkit::shell::xdg::window::{Window, WindowConfigure, Window
 use smithay_client_toolkit::shm::slot::SlotPool;
 use smithay_client_toolkit::shm::{Shm, ShmHandler};
 use smithay_client_toolkit::{
-    delegate_compositor, delegate_keyboard, delegate_output, delegate_pointer, delegate_registry, delegate_seat,
+    delegate_compositor, delegate_data_device, delegate_keyboard, delegate_output, delegate_pointer, delegate_registry, delegate_seat,
     delegate_shm, delegate_xdg_shell, delegate_xdg_window, registry_handlers,
 };
 use wayland_client::globals::registry_queue_init;
+use wayland_client::protocol::wl_data_device::WlDataDevice;
+use wayland_client::protocol::wl_data_device_manager::DndAction;
+use wayland_client::protocol::wl_data_source::WlDataSource;
 use wayland_client::protocol::{wl_keyboard, wl_output, wl_pointer, wl_seat, wl_shm, wl_surface};
 use wayland_client::{Connection, QueueHandle};
 
@@ -70,6 +78,12 @@ struct Explorer {
     shown: Option<Instant>,
     look: Look,
     access: crate::access::Access,
+    data: Option<DataDeviceManagerState>,
+    device: Option<DataDevice>,
+    held: Option<(CopyPasteSource, Held)>,
+    serial: u32,
+    clip_ask: u64,
+    pasted: LoopSender<(u64, Option<Held>)>,
     fonts: (Font, Font, Font),
     model: Model,
     art: Art,
@@ -171,6 +185,18 @@ pub fn run() -> Result<(), String> {
             }
         })
         .map_err(|e| format!("cannot watch the screen reader: {e}"))?;
+    let (pasted, pasted_rx) = loop_channel::<(u64, Option<Held>)>();
+    events
+        .handle()
+        .insert_source(pasted_rx, |event, _, app: &mut Explorer| {
+            if let ChannelEvent::Msg((asked, held)) = event
+                && asked == app.clip_ask
+            {
+                app.model.heard_clip(held);
+                app.stale = true;
+            }
+        })
+        .map_err(|e| format!("cannot watch the clipboard: {e}"))?;
     let (jobs, jobs_rx) = loop_channel::<Done>();
     events
         .handle()
@@ -218,6 +244,12 @@ pub fn run() -> Result<(), String> {
         shown: None,
         look,
         access: crate::access::Access::start(heard),
+        data: DataDeviceManagerState::bind(&globals, &qh).ok(),
+        device: None,
+        held: None,
+        serial: 0,
+        clip_ask: 0,
+        pasted,
         fonts,
         model,
         art: Art::default(),
@@ -261,26 +293,6 @@ fn launch(argv: &[String], dir: &std::path::Path) -> Result<(), String> {
         let _ = child.wait();
     });
     Ok(())
-}
-
-fn clip(text: &str) -> bool {
-    use std::io::Write;
-    if !on_path("wl-copy") {
-        return false;
-    }
-    let child = std::process::Command::new("wl-copy")
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn();
-    let Ok(mut child) = child else {
-        return false;
-    };
-    let wrote = child.stdin.take().is_some_and(|mut stdin| stdin.write_all(text.as_bytes()).is_ok());
-    std::thread::spawn(move || {
-        let _ = child.wait();
-    });
-    wrote
 }
 
 fn named(keysym: Keysym) -> Named {
@@ -409,11 +421,7 @@ impl Explorer {
                         self.model.say(error, true);
                     }
                 }
-                Effect::Clip(text) => {
-                    if !clip(&text) {
-                        log!("drifter-explorer: install wl-clipboard to copy to other apps");
-                    }
-                }
+                Effect::Hold(held) => self.offer(held),
                 Effect::NewWindow(path) => {
                     let me = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("drifter-explorer"));
                     let argv = vec![me.to_string_lossy().into_owned(), path.to_string_lossy().into_owned()];
@@ -745,6 +753,9 @@ impl SeatHandler for Explorer {
                 Err(error) => log!("drifter-explorer: no pointer: {error}"),
             }
         }
+        if capability == Capability::Keyboard && self.device.is_none() {
+            self.device = self.data.as_ref().map(|data| data.get_data_device(qh, &seat));
+        }
         if capability == Capability::Keyboard && self.keyboard.is_none() {
             let repeat = Box::new(|app: &mut Explorer, _: &wl_keyboard::WlKeyboard, event: KeyEvent| app.key(&event));
             match self.seats.get_keyboard_with_repeat(qh, &seat, None, self.handle.clone(), repeat) {
@@ -780,7 +791,8 @@ impl KeyboardHandler for Explorer {
         self.access.focused(false);
     }
 
-    fn press_key(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, event: KeyEvent) {
+    fn press_key(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, serial: u32, event: KeyEvent) {
+        self.serial = serial;
         self.key(&event);
     }
 
@@ -827,7 +839,10 @@ impl PointerHandler for Explorer {
                         }
                     }
                 }
-                PointerEventKind::Press { button, .. } if matches!(button, BTN_LEFT | BTN_RIGHT | BTN_MIDDLE) => self.press(button),
+                PointerEventKind::Press { button, serial, .. } if matches!(button, BTN_LEFT | BTN_RIGHT | BTN_MIDDLE) => {
+                    self.serial = serial;
+                    self.press(button)
+                }
                 PointerEventKind::Release { button, .. } if button == BTN_LEFT => {
                     let copy = self.mods.ctrl;
                     self.with_ui(|model, ui, lines| input::release(model, ui, lines, at, copy));
@@ -892,3 +907,89 @@ delegate_keyboard!(Explorer);
 delegate_xdg_shell!(Explorer);
 delegate_xdg_window!(Explorer);
 delegate_registry!(Explorer);
+delegate_data_device!(Explorer);
+
+impl Explorer {
+    fn offer(&mut self, held: Held) {
+        let (Some(data), Some(device)) = (self.data.as_ref(), self.device.as_ref()) else {
+            return;
+        };
+        let source = data.create_copy_paste_source(&self.qh, held.kinds().iter().copied());
+        source.set_selection(device, self.serial);
+        self.held = Some((source, held));
+    }
+}
+
+impl DataDeviceHandler for Explorer {
+    fn enter(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice, _: f64, _: f64, _: &wl_surface::WlSurface) {}
+
+    fn leave(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {}
+
+    fn motion(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice, _: f64, _: f64) {}
+
+    fn selection(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {
+        if self.held.is_some() {
+            return;
+        }
+        self.clip_ask += 1;
+        let offer = self.device.as_ref().and_then(|device| device.data().selection_offer());
+        let found = offer.as_ref().and_then(|offer| offer.with_mime_types(clip::best).map(|kind| (offer, kind)));
+        let Some((offer, kind)) = found else {
+            self.model.heard_clip(None);
+            self.stale = true;
+            return;
+        };
+        let Ok((reader, writer)) = std::io::pipe() else {
+            return;
+        };
+        smithay_client_toolkit::data_device_manager::data_offer::receive_to_fd(offer.inner(), kind.to_string(), writer.into());
+        let (asked, pasted) = (self.clip_ask, self.pasted.clone());
+        std::thread::spawn(move || {
+            use std::io::Read;
+            let mut bytes = Vec::new();
+            let held = match reader.take(clip::MOST as u64).read_to_end(&mut bytes) {
+                Ok(_) => clip::read(kind, &bytes),
+                Err(_) => None,
+            };
+            let _ = pasted.send((asked, held));
+        });
+    }
+
+    fn drop_performed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice) {}
+}
+
+impl DataOfferHandler for Explorer {
+    fn source_actions(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &mut DragOffer, _: DndAction) {}
+
+    fn selected_action(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &mut DragOffer, _: DndAction) {}
+}
+
+impl DataSourceHandler for Explorer {
+    fn accept_mime(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource, _: Option<String>) {}
+
+    fn send_request(&mut self, _: &Connection, _: &QueueHandle<Self>, source: &WlDataSource, mime: String, fd: WritePipe) {
+        use std::os::fd::{FromRawFd, IntoRawFd};
+        let bytes = self.held.as_ref().filter(|(ours, _)| ours.inner() == source).and_then(|(_, held)| held.bytes(&mime));
+        let Some(bytes) = bytes else {
+            return;
+        };
+        let mut file = unsafe { std::fs::File::from_raw_fd(fd.into_raw_fd()) };
+        std::thread::spawn(move || {
+            use std::io::Write;
+            let _ = file.write_all(&bytes);
+        });
+    }
+
+    fn cancelled(&mut self, _: &Connection, _: &QueueHandle<Self>, source: &WlDataSource) {
+        match self.held.as_ref().is_some_and(|(ours, _)| ours.inner() == source) {
+            true => self.held = None,
+            false => source.destroy(),
+        }
+    }
+
+    fn dnd_dropped(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource) {}
+
+    fn dnd_finished(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource) {}
+
+    fn action(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource, _: DndAction) {}
+}

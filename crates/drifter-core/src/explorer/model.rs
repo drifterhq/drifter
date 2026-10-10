@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
+use super::clip::Held;
 use super::entry::{self, Entry, Family, Sort};
 use super::field::Field;
 use super::ops::{self, Clash, Done, Job, Progress, Undo};
@@ -290,7 +291,7 @@ pub fn time_left(seconds: f64) -> String {
 pub enum Effect {
     Job(u64, Job),
     Launch(Vec<String>),
-    Clip(String),
+    Hold(super::clip::Held),
     NewWindow(PathBuf),
     Close,
 }
@@ -323,6 +324,7 @@ pub struct Model {
     pub menu: Option<Menu>,
     pub sheet: Option<Sheet>,
     pub clip: Option<(Vec<PathBuf>, bool)>,
+    pub clip_text: Option<String>,
     pub undo: Vec<Undo>,
     pub jobs: Vec<Running>,
     pub job_ids: u64,
@@ -466,6 +468,7 @@ impl Model {
             menu: None,
             sheet: None,
             clip: None,
+            clip_text: None,
             undo: Vec::new(),
             jobs: Vec::new(),
             job_ids: 0,
@@ -739,6 +742,19 @@ impl Model {
             true => self.home.clone(),
             false => PathBuf::from("/"),
         }
+    }
+
+    pub fn hold(&mut self, held: Held) {
+        self.heard_clip(Some(held.clone()));
+        self.effects.push(Effect::Hold(held));
+    }
+
+    pub fn heard_clip(&mut self, held: Option<Held>) {
+        self.clip_text = held.as_ref().map(Held::text);
+        self.clip = match held {
+            Some(Held::Files(paths, cut)) => Some((paths, cut)),
+            _ => None,
+        };
     }
 
     pub fn say(&mut self, words: impl Into<String>, alert: bool) {
@@ -1812,9 +1828,7 @@ impl Model {
                     (true, count) => crate::lang::tf("Cut {}", &[&entry::items(count)]),
                     (false, count) => crate::lang::tf("Copied {}", &[&entry::items(count)]),
                 };
-                let text = paths.iter().map(|path| path.to_string_lossy()).collect::<Vec<_>>().join("\n");
-                self.effects.push(Effect::Clip(text));
-                self.clip = Some((paths, cut));
+                self.hold(Held::Files(paths, cut));
                 self.say(words, false);
             }
             Act::Paste => {
@@ -1843,7 +1857,7 @@ impl Model {
                     false => self.chosen_paths(),
                 };
                 let text = paths.iter().map(|path| path.to_string_lossy()).collect::<Vec<_>>().join("\n");
-                self.effects.push(Effect::Clip(text));
+                self.hold(Held::Text(text));
                 self.say(crate::lang::t("Path copied"), false);
             }
             Act::Prefs => self.sheet = Some(Sheet::Prefs(0)),
@@ -2698,6 +2712,45 @@ mod tests {
         assert!(model.jobs.is_empty());
         assert_eq!(model.single().map(|one| one.name.as_str()), Some("b.txt"));
         assert_eq!(model.undo.len(), 1);
+    }
+
+    #[test]
+    fn the_clipboard_is_shared_with_other_apps() {
+        use super::super::look::{Fonts, Look};
+        use super::super::input::{self, Key, Named, Ui};
+        let (place, mut model) = place("clip");
+        let b = place.0.join("work/b.txt");
+        model.pick_only(b.clone());
+        model.act(Act::Cut);
+        assert_eq!(model.effects, [Effect::Hold(Held::Files(vec![b.clone()], true))]);
+        assert_eq!(model.clip, Some((vec![b.clone()], true)));
+        assert_eq!(model.clip_text.as_deref(), b.to_str());
+
+        let far = place.0.join("far.txt");
+        std::fs::write(&far, "far").unwrap();
+        model.heard_clip(Some(Held::Files(vec![far.clone()], false)));
+        model.effects.clear();
+        model.act(Act::Paste);
+        assert_eq!(model.effects, [Effect::Job(1, Job::Copy { from: vec![far.clone()], into: place.0.join("work"), clash: Clash::KeepBoth })]);
+
+        model.heard_clip(Some(Held::Text("holiday\nsecond line".to_string())));
+        assert_eq!(model.clip, None);
+        model.effects.clear();
+        model.act(Act::Paste);
+        assert!(model.effects.is_empty(), "text is not pasted as files");
+
+        let (Ok(body), Ok(small), Ok(title)) = (crate::Font::find(None, 13.0), crate::Font::find(None, 11.5), crate::Font::find(None, 17.0)) else {
+            return;
+        };
+        let fonts = Fonts { body: &body, small: &small, title: &title };
+        let look = Look::themed(&crate::theme::DARK, [64, 128, 238]);
+        let ui = Ui { look: &look, fonts: &fonts, size: crate::Vec2::new(900.0, 600.0) };
+        model.pick_only(b.clone());
+        model.act(Act::Rename);
+        input::key(&mut model, &ui, &Key { named: Named::Letter('v'), text: Some("v".to_string()), ctrl: true, shift: false, alt: false });
+        assert_eq!(model.renaming.as_ref().map(|(_, field)| field.text.as_str()), Some("holiday.txt"));
+        model.heard_clip(None);
+        assert_eq!((model.clip.clone(), model.clip_text.clone()), (None, None));
     }
 
     #[test]

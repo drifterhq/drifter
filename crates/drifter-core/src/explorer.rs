@@ -1,3 +1,4 @@
+pub mod clip;
 pub mod drives;
 pub mod entry;
 pub mod field;

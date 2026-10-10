@@ -107,6 +107,7 @@ Later steps build on these.
 
 28. Clipboard: copy to other apps goes through `wl-copy`. Paste from other apps does not work. Files you copy in another file manager cannot be pasted here. Use the Wayland clipboard directly.
     Waits on: 7.
+    - Built: Explorer now owns the Wayland clipboard itself (`explorer/clip.rs`, a data device in `window.rs`); wl-copy is no longer used. Copy and Cut offer x-special/gnome-copied-files (with copy or cut), text/uri-list and plain text. Copy Path and text copied in a field offer plain text. When another app takes the clipboard, Explorer reads it: files from a gnome list or a uri list (file:// only, localhost allowed, comments skipped) become what Paste uses; plain text becomes what Ctrl+V types into the path, search and rename fields (first line only). Something Explorer cannot read clears Paste. Tests: three in `clip.rs`, `the_clipboard_is_shared_with_other_apps`. Checked on the trixie VM: Ctrl+C on note1.txt gave all five kinds to wl-paste; a uri list from wl-copy pasted "far away.txt" into the folder; text from wl-copy went into the search field.
 29. Drag and drop: it works only inside Explorer. You cannot drag to or from other apps.
     Waits on: 28 (same Wayland data device code).
 30. Open With: there is no "Other app…" picker and no "Always use this app".
