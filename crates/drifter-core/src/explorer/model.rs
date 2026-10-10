@@ -2922,7 +2922,7 @@ mod tests {
 
     #[test]
     fn tabs_come_back_next_time() {
-        let (place, mut model) = place("tabs");
+        let (place, mut model) = place("tabs-again");
         model.set(Pref::Start(Start::Last));
         let photos = place.0.join("work/Photos");
         model.new_tab(photos.clone(), true);

@@ -416,6 +416,20 @@ impl Look {
         Some(rect(status.size.x - free - ZOOM_W - 30.0, status.origin.y + 6.0, ZOOM_W, STATUS_H - 12.0))
     }
 
+    pub fn row_blank(&self, size: Vec2, model: &Model, fonts: &Fonts, index: usize, at: Vec2) -> bool {
+        if model.view.mode != Mode::List || model.renaming.is_some() {
+            return false;
+        }
+        let frame = self.frame(size, model);
+        let (Some(row), Some(entry)) = (self.entry_rect(&frame, model, index), model.entries.get(index)) else {
+            return false;
+        };
+        let (name_w, _) = self.list_widths(frame.body, model);
+        let name_x = row.origin.x + 34.0;
+        let words = fonts.body.width_of(&fit(fonts.body, &entry.name, name_w - 44.0));
+        at.x > name_x + words + 12.0 && at.x < row.origin.x + name_w - 8.0
+    }
+
     pub fn list_widths(&self, body: Rect, model: &Model) -> (f64, Vec<(Sort, f64)>) {
         let mut extra = Vec::new();
         if model.searching() {
@@ -3319,6 +3333,19 @@ mod repaint_tests {
         input::press(&mut model, &ui, &lines, start, Button::Left, 1, Mods::default());
         input::release(&mut model, &ui, &lines, start, false);
         assert!(model.picked.is_empty());
+
+        let blank = |row: usize| Vec2::new(frame.body.origin.x + 180.0, top + row as f64 * ROW_H + 10.0);
+        assert!(look.row_blank(size, &model, &fonts, 2, blank(2)), "right of the name is blank");
+        assert!(!look.row_blank(size, &model, &fonts, 2, Vec2::new(frame.body.origin.x + 60.0, blank(2).y)), "the name is not");
+        input::press(&mut model, &ui, &lines, blank(2), Button::Left, 1, Mods::default());
+        input::motion(&mut model, &ui, &lines, blank(5));
+        input::release(&mut model, &ui, &lines, blank(5), false);
+        let names: Vec<String> = model.chosen().iter().map(|one| one.name.clone()).collect();
+        assert_eq!(names, (12..16).map(|n| format!("file {n}.txt")).collect::<Vec<_>>(), "a lasso can start on a row");
+        input::press(&mut model, &ui, &lines, blank(7), Button::Left, 1, Mods::default());
+        input::release(&mut model, &ui, &lines, blank(7), false);
+        let names: Vec<String> = model.chosen().iter().map(|one| one.name.clone()).collect();
+        assert_eq!(names, ["file 17.txt"], "a click there still picks the row");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

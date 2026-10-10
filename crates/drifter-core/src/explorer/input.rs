@@ -245,6 +245,14 @@ pub fn press(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, button: Butto
             let rest = extra.iter().skip_while(|(each, _)| *each != sort).skip(1).map(|(_, width)| width).sum();
             model.dragging = Some(Drag::Edge { sort, rest });
         }
+        Hit::Entry(index) if !right && clicks == 1 && ui.look.row_blank(ui.size, model, ui.fonts, index, at) => {
+            let keep = match mods.ctrl || mods.shift {
+                true => model.picked.clone(),
+                false => Default::default(),
+            };
+            pick_entry(model, index, right, clicks, mods, at);
+            model.dragging = Some(Drag::Lasso { from: Vec2::new(at.x, at.y + model.scroll), at, keep });
+        }
         Hit::Entry(index) | Hit::Strip(index) => pick_entry(model, index, right, clicks, mods, at),
         Hit::Space => {
             if !mods.ctrl && !mods.shift {
