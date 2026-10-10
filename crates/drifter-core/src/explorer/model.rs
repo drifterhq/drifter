@@ -79,6 +79,11 @@ pub enum Act {
     NextTab(isize),
     CloseTab(usize),
     CloseOtherTabs(usize),
+    OtherApp,
+    PickApp(usize),
+    AlwaysApp,
+    ChooseApp,
+    CloseSheet,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -157,6 +162,19 @@ pub struct Info {
     pub target: Option<PathBuf>,
 }
 
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Chooser {
+    pub mime: &'static str,
+    pub kind: String,
+    pub name: String,
+    pub files: Vec<PathBuf>,
+    pub apps: Vec<Handler>,
+    pub suggested: usize,
+    pub at: Option<usize>,
+    pub always: bool,
+    pub scroll: f64,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Sheet {
     Prefs(usize),
@@ -165,6 +183,7 @@ pub enum Sheet {
     Clash { from: Vec<PathBuf>, into: PathBuf, cut: bool, names: Vec<String> },
     Keys,
     About,
+    Apps(Chooser),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -325,6 +344,7 @@ pub struct Model {
     pub sheet: Option<Sheet>,
     pub clip: Option<(Vec<PathBuf>, bool)>,
     pub clip_text: Option<String>,
+    pub mime_list: PathBuf,
     pub undo: Vec<Undo>,
     pub jobs: Vec<Running>,
     pub job_ids: u64,
@@ -470,6 +490,7 @@ impl Model {
             sheet: None,
             clip: None,
             clip_text: None,
+            mime_list: crate::desktop::user_mime_list(),
             undo: Vec::new(),
             jobs: Vec::new(),
             job_ids: 0,
@@ -1458,7 +1479,7 @@ impl Model {
         for (mime, files) in by_mime {
             let handler = self.handlers_for(mime).into_iter().next();
             let refs: Vec<&Path> = files.iter().map(PathBuf::as_path).collect();
-            match handler.and_then(|handler| open::argv(&handler, &refs)) {
+            match handler.and_then(|handler| self.app_argv(&handler, &refs)) {
                 Some(argv) => self.effects.push(Effect::Launch(argv)),
                 None => {
                     for file in &files {
@@ -1476,9 +1497,18 @@ impl Model {
         };
         let handler = self.handlers_for(mime).into_iter().find(|each| each.id == id);
         let refs: Vec<&Path> = files.iter().map(PathBuf::as_path).collect();
-        if let Some(argv) = handler.and_then(|handler| open::argv(&handler, &refs)) {
+        if let Some(argv) = handler.and_then(|handler| self.app_argv(&handler, &refs)) {
             self.effects.push(Effect::Launch(argv));
         }
+    }
+
+    fn app_argv(&self, handler: &Handler, files: &[&Path]) -> Option<Vec<String>> {
+        let argv = open::argv(handler, files)?;
+        if !handler.terminal {
+            return Some(argv);
+        }
+        let program = self.prefs.terminal.clone().or_else(|| self.terminals.first().map(|(program, _)| program.to_string()))?;
+        Some(prefs::terminal_run(&program, argv))
     }
 
     pub fn start_job(&mut self, job: Job) {
@@ -1638,6 +1668,20 @@ impl Model {
                 self.open_paths(paths);
             }
             Act::OpenWith(id) => self.open_with(&id),
+            Act::OtherApp => self.choose_app(open::all_apps()),
+            Act::PickApp(at) => {
+                if let Some(Sheet::Apps(chooser)) = self.sheet.as_mut()
+                    && at < chooser.apps.len()
+                {
+                    chooser.at = Some(at);
+                }
+            }
+            Act::AlwaysApp => {
+                if let Some(Sheet::Apps(chooser)) = self.sheet.as_mut() {
+                    chooser.always = !chooser.always;
+                }
+            }
+            Act::ChooseApp => self.chose_app(),
             Act::NewWindow => self.effects.push(Effect::NewWindow(self.dir.clone())),
             Act::Window(path) => self.effects.push(Effect::NewWindow(path)),
             Act::NewTab => self.new_tab(self.dir.clone(), true),
@@ -1887,6 +1931,10 @@ impl Model {
             Act::Dismiss => {
                 self.alerts.pop();
             }
+            Act::CloseSheet => {
+                self.sheet = None;
+                self.save();
+            }
             Act::Stop(id) => {
                 if let Some(job) = self.jobs.iter().find(|each| each.id == id) {
                     job.progress.stop.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -2065,7 +2113,55 @@ impl Model {
         let Some(one) = self.chosen().into_iter().find(|each| !each.folder).cloned() else {
             return Vec::new();
         };
-        self.handlers_for(one.mime).into_iter().map(|handler| Item::new(&handler.name, "", Act::OpenWith(handler.id))).collect()
+        let mut items: Vec<Item> = self.handlers_for(one.mime).into_iter().map(|handler| Item::new(&handler.name, "", Act::OpenWith(handler.id))).collect();
+        if !items.is_empty() {
+            items.push(Item::rule());
+        }
+        items.push(Item::new(crate::lang::t("Other App…"), "", Act::OtherApp));
+        items
+    }
+
+    pub fn choose_app(&mut self, all: Vec<Handler>) {
+        let files: Vec<Entry> = self.chosen().into_iter().filter(|each| !each.folder).cloned().collect();
+        let Some(one) = files.first().cloned() else {
+            return;
+        };
+        let mut apps = self.handlers_for(one.mime);
+        let suggested = apps.len();
+        let mut rest: Vec<Handler> = all.into_iter().filter(|app| !apps.iter().any(|each| each.id == app.id)).collect();
+        rest.sort_by(|a, b| entry::natural(&a.name, &b.name));
+        apps.extend(rest);
+        let name = match files.as_slice() {
+            [only] => only.name.clone(),
+            many => entry::items(many.len()),
+        };
+        let files = files.into_iter().map(|each| each.path).collect();
+        let at = (!apps.is_empty()).then_some(0);
+        self.sheet = Some(Sheet::Apps(Chooser { mime: one.mime, kind: one.kind_words(), name, files, apps, suggested, at, always: false, scroll: 0.0 }));
+    }
+
+    fn chose_app(&mut self) {
+        let Some(Sheet::Apps(chooser)) = self.sheet.take() else {
+            return;
+        };
+        let Some(app) = chooser.at.and_then(|at| chooser.apps.get(at)).cloned() else {
+            return;
+        };
+        if chooser.always {
+            let text = std::fs::read_to_string(&self.mime_list).unwrap_or_default();
+            let written = self.mime_list.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|_| std::fs::write(&self.mime_list, crate::desktop::set_defaults(&text, &[chooser.mime], &app.id)));
+            match written {
+                Ok(()) => {
+                    self.handlers.remove(chooser.mime);
+                    self.say(crate::lang::tf("{} files now open with {}", &[&chooser.kind, &app.name]), false);
+                }
+                Err(error) => self.say(crate::lang::tf("Cannot change the default app: {}", &[&error]), true),
+            }
+        }
+        let refs: Vec<&Path> = chooser.files.iter().map(PathBuf::as_path).collect();
+        if let Some(argv) = self.app_argv(&app, &refs) {
+            self.effects.push(Effect::Launch(argv));
+        }
     }
 
     pub fn item_menu(&mut self) -> Vec<Item> {
@@ -2713,6 +2809,40 @@ mod tests {
         assert!(model.jobs.is_empty());
         assert_eq!(model.single().map(|one| one.name.as_str()), Some("b.txt"));
         assert_eq!(model.undo.len(), 1);
+    }
+
+    #[test]
+    fn another_app_can_open_a_file_and_become_the_default() {
+        let (place, mut model) = place("apps");
+        model.mime_list = place.0.join("config/mimeapps.list");
+        let b = place.0.join("work/b.txt");
+        model.pick_only(b.clone());
+        let mime = model.single().unwrap().mime;
+        let app = |id: &str, name: &str| Handler { id: id.to_string(), name: name.to_string(), exec: format!("{id} %F"), icon: None, terminal: false };
+        model.handlers.insert(mime, vec![app("edit", "Edit")]);
+        let menu = model.open_with_items();
+        assert_eq!(menu.last().map(|item| item.act.clone()), Some(Some(Act::OtherApp)));
+        model.choose_app(vec![app("zed", "Zed"), app("edit", "Edit"), app("art", "Art")]);
+        let Some(Sheet::Apps(chooser)) = &model.sheet else {
+            panic!("the chooser opens");
+        };
+        assert_eq!(chooser.apps.iter().map(|each| each.name.as_str()).collect::<Vec<_>>(), ["Edit", "Art", "Zed"]);
+        assert_eq!((chooser.at, chooser.suggested, chooser.name.as_str()), (Some(0), 1, "b.txt"));
+        model.act(Act::PickApp(2));
+        model.act(Act::AlwaysApp);
+        model.effects.clear();
+        model.act(Act::ChooseApp);
+        assert_eq!(model.sheet, None);
+        assert_eq!(model.effects, [Effect::Launch(vec!["zed".to_string(), b.to_string_lossy().into_owned()])]);
+        let list = std::fs::read_to_string(&model.mime_list).unwrap();
+        assert!(list.contains(&format!("{mime}=zed.desktop;")), "{list}");
+        assert!(!model.handlers.contains_key(mime), "the old list is forgotten");
+
+        model.prefs.terminal = Some("foot".to_string());
+        let vim = Handler { terminal: true, ..app("vim", "Vim") };
+        assert_eq!(model.app_argv(&vim, &[b.as_path()]), Some(vec!["foot".to_string(), "vim".to_string(), b.to_string_lossy().into_owned()]));
+        model.prefs.terminal = Some("alacritty".to_string());
+        assert_eq!(model.app_argv(&vim, &[b.as_path()]).unwrap()[..3], ["alacritty", "-e", "vim"]);
     }
 
     #[test]

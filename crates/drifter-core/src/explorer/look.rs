@@ -132,7 +132,11 @@ pub enum SheetHit {
     Inside,
     Outside,
     Clash(super::ops::Clash),
+    App(usize),
+    Always,
 }
+
+pub const APP_ROW: f64 = 34.0;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Drop {
@@ -2295,6 +2299,7 @@ impl Look {
             Sheet::Clash { names, .. } => Vec2::new(540.0, if names.len() == 1 { 190.0 } else { 236.0 }),
             Sheet::Keys => Vec2::new(520.0, 640.0),
             Sheet::About => Vec2::new(380.0, 260.0),
+            Sheet::Apps(_) => Vec2::new(480.0, 560.0),
         };
         let fitted = Vec2::new(want.x.min(size.x - 24.0), want.y.min(size.y - 24.0));
         Rect::from_center(size / 2.0, fitted).round_out()
@@ -2303,7 +2308,7 @@ impl Look {
     fn sheet_buttons(&self, area: Rect, sheet: &Sheet) -> Vec<(SheetHit, Rect)> {
         let y = area.max().y - 20.0 - 32.0;
         match sheet {
-            Sheet::Confirm { .. } => vec![
+            Sheet::Confirm { .. } | Sheet::Apps(_) => vec![
                 (SheetHit::No, rect(area.max().x - 20.0 - 120.0 * 2.0 - 10.0, y, 120.0, 32.0)),
                 (SheetHit::Yes, rect(area.max().x - 20.0 - 120.0, y, 120.0, 32.0)),
             ],
@@ -2378,6 +2383,14 @@ impl Look {
         if let Some((hit, _)) = self.sheet_buttons(area, sheet).into_iter().find(|(_, button)| button.contains(at)) {
             return Some(hit);
         }
+        if let Sheet::Apps(chooser) = sheet {
+            if let Some((found, _)) = self.app_rows(area, chooser).into_iter().find(|(_, row)| row.contains(at)) {
+                return Some(SheetHit::App(found));
+            }
+            if self.always_rect(area).contains(at) {
+                return Some(SheetHit::Always);
+            }
+        }
         if let Sheet::Prefs(tab) = sheet {
             if let Some(found) = self.tab_rects(area).iter().position(|each| each.contains(at)) {
                 return Some(SheetHit::Tab(found));
@@ -2433,6 +2446,67 @@ impl Look {
         Some(((at.x - zoom.origin.x) / zoom.size.x).clamp(0.0, 1.0))
     }
 
+    pub fn app_list(&self, area: Rect) -> Rect {
+        rect(area.origin.x + 20.0, area.origin.y + 62.0, area.size.x - 40.0, area.size.y - 62.0 - 112.0)
+    }
+
+    pub fn apps_shown(&self, size: Vec2) -> usize {
+        let area = self.sheet_rect(size, &Sheet::Apps(super::model::Chooser::default()));
+        ((self.app_list(area).size.y - 8.0) / APP_ROW).floor().max(1.0) as usize
+    }
+
+    fn always_rect(&self, area: Rect) -> Rect {
+        let list = self.app_list(area);
+        rect(list.origin.x, list.max().y + 14.0, list.size.x, 24.0)
+    }
+
+    fn app_rows(&self, area: Rect, chooser: &super::model::Chooser) -> Vec<(usize, Rect)> {
+        let list = self.app_list(area);
+        let first = chooser.scroll.max(0.0) as usize;
+        let room = ((list.size.y - 8.0) / APP_ROW).floor().max(1.0) as usize;
+        (first..chooser.apps.len().min(first + room))
+            .map(|at| (at, rect(list.origin.x + 4.0, list.origin.y + 4.0 + (at - first) as f64 * APP_ROW, list.size.x - 8.0, APP_ROW)))
+            .collect()
+    }
+
+    fn paint_apps(&self, canvas: &mut Canvas, area: Rect, chooser: &super::model::Chooser, job: &Paint) {
+        let fonts = job.fonts;
+        let title = crate::lang::tf("Open “{}” with", &[&chooser.name]);
+        let head = fonts.title.paint_weight(&fit(fonts.title, &title, area.size.x - 48.0), self.ink, 620.0);
+        canvas.stamp(&head, Vec2::new(area.origin.x + 24.0, area.origin.y + 24.0).round(), 1.0);
+        let list = self.app_list(area);
+        canvas.round_rect(list, 8.0, self.back, 1.0);
+        canvas.ring(list, 8.0, 1.0, self.rule, 1.0);
+        for (at, row) in self.app_rows(area, chooser) {
+            let app = &chooser.apps[at];
+            let picked = chooser.at == Some(at);
+            if picked {
+                canvas.round_rect(row, 6.0, self.accent, 1.0);
+            }
+            let icon = rect(row.origin.x + 8.0, row.center().y - 11.0, 22.0, 22.0);
+            self.icon_or_glyph(canvas, job.art, app.icon.as_deref().unwrap_or("application-x-executable"), Family::Program, icon);
+            let ink = if picked { self.on_accent } else { self.ink };
+            self.text(canvas, fonts.body, &app.name, ink, Vec2::new(row.origin.x + 40.0, row.center().y), row.size.x - 48.0);
+            if at + 1 == chooser.suggested && at + 1 < chooser.apps.len() {
+                canvas.line(Vec2::new(row.origin.x + 8.0, row.max().y), Vec2::new(row.max().x - 8.0, row.max().y), 1.0, self.rule, 1.0);
+            }
+        }
+        if chooser.apps.is_empty() {
+            self.text_center(canvas, fonts.body, crate::lang::t("No apps found"), self.dim, list.center(), list.size.x - 20.0);
+        }
+        let always = self.always_rect(area);
+        let tick = rect(always.origin.x + 2.0, always.center().y - 8.0, 16.0, 16.0);
+        canvas.round_rect(tick, 4.0, if chooser.always { self.accent } else { self.raised }, 1.0);
+        canvas.ring(tick, 4.0, 1.0, self.rule, 1.0);
+        if chooser.always {
+            let (a, b, c) = (Vec2::new(tick.origin.x + 4.0, tick.center().y), Vec2::new(tick.origin.x + 7.0, tick.max().y - 4.5), Vec2::new(tick.max().x - 3.5, tick.origin.y + 4.0));
+            canvas.line(a, b, 2.0, self.on_accent, 1.0);
+            canvas.line(b, c, 2.0, self.on_accent, 1.0);
+        }
+        let words = crate::lang::tf("Always use this app for {} files", &[&chooser.kind]);
+        self.text(canvas, fonts.body, &words, self.ink, Vec2::new(tick.max().x + 10.0, always.center().y), always.size.x - 30.0);
+    }
+
     fn paint_sheet(&self, canvas: &mut Canvas, size: Vec2, sheet: &Sheet, job: &Paint) {
         let fonts = job.fonts;
         canvas.round_rect(rect(0.0, 0.0, size.x, size.y), 0.0, [0, 0, 0], if self.dark { 0.42 } else { 0.24 });
@@ -2483,6 +2557,7 @@ impl Look {
                 }
             }
             Sheet::Keys => self.paint_keys(canvas, area, fonts),
+            Sheet::Apps(chooser) => self.paint_apps(canvas, area, chooser, job),
             Sheet::About => {
                 let c = Vec2::new(area.center().x, area.origin.y + 70.0);
                 self.glyph(canvas, Family::Folder, Rect::from_center(c, Vec2::splat(72.0)));
@@ -2495,6 +2570,7 @@ impl Look {
         for (hit, button) in self.sheet_buttons(area, sheet) {
             let (words, strong, danger) = match (&hit, sheet) {
                 (SheetHit::Yes, Sheet::Confirm { yes, .. }) => (yes.clone(), true, yes == crate::lang::t("Delete") || yes == crate::lang::t("Empty Trash")),
+                (SheetHit::Yes, Sheet::Apps(_)) => (crate::lang::t("Open").to_string(), true, false),
                 (SheetHit::No, _) => (crate::lang::t("Cancel").to_string(), false, false),
                 (SheetHit::Clash(super::ops::Clash::Skip), _) => (crate::lang::t("Skip").to_string(), false, false),
                 (SheetHit::Clash(super::ops::Clash::Replace), _) => (crate::lang::t("Replace").to_string(), false, false),

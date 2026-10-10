@@ -6,6 +6,7 @@ pub struct Handler {
     pub name: String,
     pub exec: String,
     pub icon: Option<String>,
+    pub terminal: bool,
 }
 
 fn parse(id: &str, text: &str) -> Option<(Handler, Vec<String>)> {
@@ -23,7 +24,7 @@ fn parse(id: &str, text: &str) -> Option<(Handler, Vec<String>)> {
             mimes.extend(list.split(';').map(str::trim).filter(|mime| !mime.is_empty()).map(str::to_string));
         }
     }
-    Some((Handler { id: app.id, name: app.name, exec, icon: app.icon }, mimes))
+    Some((Handler { id: app.id, name: app.name, exec, icon: app.icon, terminal: app.terminal }, mimes))
 }
 
 fn wanted(mime: &str) -> Vec<String> {
@@ -83,6 +84,13 @@ pub fn handlers_in(mime: &str, roots: &[PathBuf], lists: &[PathBuf]) -> Vec<Hand
 
 pub fn handlers(mime: &str) -> Vec<Handler> {
     handlers_in(mime, &crate::desktop::roots(), &crate::desktop::mime_lists())
+}
+
+pub fn all_apps() -> Vec<Handler> {
+    crate::desktop::installed()
+        .into_iter()
+        .filter_map(|app| Some(Handler { exec: app.exec?, id: app.id, name: app.name, icon: app.icon, terminal: app.terminal }))
+        .collect()
 }
 
 pub fn argv(handler: &Handler, paths: &[&Path]) -> Option<Vec<String>> {

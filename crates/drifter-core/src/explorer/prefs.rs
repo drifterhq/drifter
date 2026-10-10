@@ -266,6 +266,20 @@ pub fn terminals() -> Vec<(&'static str, &'static str)> {
     TERMINALS.iter().copied().filter(|(program, _)| on_path(program)).collect()
 }
 
+pub fn terminal_run(program: &str, argv: Vec<String>) -> Vec<String> {
+    let lead: &[&str] = match program {
+        "foot" | "kitty" => &[],
+        "gnome-terminal" | "ptyxis" | "kgx" => &["--"],
+        "xfce4-terminal" => &["-x"],
+        "wezterm" => &["start", "--"],
+        _ => &["-e"],
+    };
+    let mut out = vec![program.to_string()];
+    out.extend(lead.iter().map(|word| word.to_string()));
+    out.extend(argv);
+    out
+}
+
 pub fn terminal_argv(program: &str, dir: &Path) -> Vec<String> {
     let dir = dir.to_string_lossy().into_owned();
     match program {

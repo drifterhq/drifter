@@ -1740,6 +1740,7 @@ mod tests {
                 exec: Some(format!("app{n}")),
                 words: String::new(),
                 categories: Vec::new(),
+                terminal: false,
             })
             .collect()
     }

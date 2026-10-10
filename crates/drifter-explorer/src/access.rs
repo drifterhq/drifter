@@ -338,16 +338,17 @@ fn sheet_node(tree: &mut Tree, sheet: &Sheet, focus: &mut Option<NodeId>) -> Nod
         },
         Sheet::Keys => t("Keyboard Shortcuts").to_string(),
         Sheet::About => t("About Explorer").to_string(),
+        Sheet::Apps(chooser) => tf("Open “{}” with", &[&chooser.name]),
     };
     match sheet {
         Sheet::Confirm { words, yes, act, .. } => {
             kids.push(tree.label("sheet words", words));
-            kids.push(tree.button("sheet no", t("Cancel"), Act::Dismiss, true));
+            kids.push(tree.button("sheet no", t("Cancel"), Act::CloseSheet, true));
             kids.push(tree.button("sheet yes", yes, act.clone(), true));
         }
         Sheet::Clash { names, .. } => {
             kids.push(tree.label("sheet words", &names.join(", ")));
-            kids.push(tree.button("sheet no", t("Cancel"), Act::Dismiss, true));
+            kids.push(tree.button("sheet no", t("Cancel"), Act::CloseSheet, true));
             kids.push(tree.button("sheet skip", t("Skip"), Act::Clash(Clash::Skip), true));
             kids.push(tree.button("sheet replace", t("Replace"), Act::Clash(Clash::Replace), true));
             kids.push(tree.button("sheet both", t("Keep Both"), Act::Clash(Clash::KeepBoth), true));
@@ -359,9 +360,31 @@ fn sheet_node(tree: &mut Tree, sheet: &Sheet, focus: &mut Option<NodeId>) -> Nod
                 kids.push(tree.label("sheet size", &drifter_core::explorer::entry::size_words(entry.size)));
             }
             kids.push(tree.label("sheet where", &entry.path.to_string_lossy()));
-            kids.push(tree.button("sheet close", t("Done"), Act::Dismiss, true));
+            kids.push(tree.button("sheet close", t("Done"), Act::CloseSheet, true));
         }
-        _ => kids.push(tree.button("sheet close", t("Done"), Act::Dismiss, true)),
+        Sheet::Apps(chooser) => {
+            let mut rows = Vec::new();
+            for (at, app) in chooser.apps.iter().enumerate() {
+                let mut node = clickable(Role::ListItem, &app.name);
+                node.set_selected(chooser.at == Some(at));
+                let id = tree.put(&format!("app {}", app.id), node);
+                tree.aims.insert(id, (Order::Act(Act::PickApp(at)), Some(Order::Act(Act::PickApp(at)))));
+                if chooser.at == Some(at) {
+                    *focus = Some(id);
+                }
+                rows.push(id);
+            }
+            kids.push(tree.group("sheet apps", Role::ListBox, t("Apps"), rows));
+            let mut always = clickable(Role::CheckBox, &tf("Always use this app for {} files", &[&chooser.kind]));
+            always.set_toggled(if chooser.always { Toggled::True } else { Toggled::False });
+            let id = tree.put("sheet always", always);
+            tree.aims.insert(id, (Order::Act(Act::AlwaysApp), None));
+            kids.push(id);
+            kids.push(tree.button("sheet no", t("Cancel"), Act::CloseSheet, true));
+            kids.push(tree.button("sheet open", t("Open"), Act::ChooseApp, chooser.at.is_some()));
+            return tree.group("sheet", Role::Dialog, &title, kids);
+        }
+        _ => kids.push(tree.button("sheet close", t("Done"), Act::CloseSheet, true)),
     }
     if let Some(&last) = kids.last() {
         *focus = Some(last);
@@ -473,7 +496,7 @@ mod tests {
         let (update, aims) = build(&mut model);
         let (close, _) = named(&update, "Done").expect("the sheet has a Done button");
         assert_eq!(update.focus, close);
-        assert_eq!(aims[&close].0, Order::Act(Act::Dismiss));
+        assert_eq!(aims[&close].0, Order::Act(Act::CloseSheet));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

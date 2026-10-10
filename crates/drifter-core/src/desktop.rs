@@ -8,6 +8,7 @@ pub struct App {
     pub exec: Option<String>,
     pub words: String,
     pub categories: Vec<String>,
+    pub terminal: bool,
 }
 
 pub fn roots() -> Vec<PathBuf> {
@@ -27,6 +28,7 @@ pub fn read(id: &str, text: &str) -> Option<App> {
     let mut exec = None;
     let mut kind = None;
     let mut hidden = false;
+    let mut terminal = false;
     let mut words: Vec<String> = Vec::new();
     let mut categories: Vec<String> = Vec::new();
     for line in text.lines() {
@@ -47,6 +49,7 @@ pub fn read(id: &str, text: &str) -> Option<App> {
             "Icon" if icon.is_none() => icon = Some(value),
             "Exec" if exec.is_none() => exec = Some(value),
             "Type" => kind = Some(value),
+            "Terminal" => terminal = value == "true",
             "Categories" => {
                 categories.extend(
                     value
@@ -83,6 +86,7 @@ pub fn read(id: &str, text: &str) -> Option<App> {
         exec,
         words: words.join(" "),
         categories,
+        terminal,
     })
 }
 
@@ -471,7 +475,20 @@ pub fn clear_default(text: &str, role: Role) -> String {
     text
 }
 
+pub fn user_mime_list() -> PathBuf {
+    let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/"));
+    std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .unwrap_or_else(|| home.join(".config"))
+        .join("mimeapps.list")
+}
+
 pub fn set_default(text: &str, role: Role, id: &str) -> String {
+    set_defaults(text, role.mimes(), id)
+}
+
+pub fn set_defaults(text: &str, mimes: &[&str], id: &str) -> String {
     let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
     let header = "[Default Applications]";
     let start = match lines.iter().position(|line| line.trim() == header) {
@@ -493,14 +510,14 @@ pub fn set_default(text: &str, role: Role, id: &str) -> String {
         .iter()
         .filter(|line| {
             let key = line.split_once('=').map(|(key, _)| key.trim());
-            !key.is_some_and(|key| role.mimes().contains(&key))
+            !key.is_some_and(|key| mimes.contains(&key))
         })
         .cloned()
         .collect();
     while kept.last().is_some_and(|line| line.trim().is_empty()) {
         kept.pop();
     }
-    for mime in role.mimes() {
+    for mime in mimes {
         kept.push(format!("{mime}={id}.desktop;"));
     }
     let mut out: Vec<String> = lines[..=start].to_vec();

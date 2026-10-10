@@ -1069,6 +1069,7 @@ impl State {
                     exec: None,
                     words: String::new(),
                     categories: Vec::new(),
+                    terminal: false,
                 })
                 .collect();
             for offer in drifter_core::desktop::offers(role, &apps) {

@@ -89,7 +89,7 @@ pub fn press(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, button: Butto
         return press_menu(model, ui, lines, at);
     }
     if model.sheet.is_some() {
-        return press_sheet(model, ui, at);
+        return press_sheet(model, ui, at, clicks);
     }
     let hit = ui.look.hit(ui.size, model, lines, ui.fonts, at);
     if model.renaming.is_some() {
@@ -437,7 +437,7 @@ fn press_menu(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2) {
     }
 }
 
-fn press_sheet(model: &mut Model, ui: &Ui, at: Vec2) {
+fn press_sheet(model: &mut Model, ui: &Ui, at: Vec2, clicks: u32) {
     let Some(hit) = ui.look.sheet_hit(ui.size, model, ui.fonts, at) else {
         return;
     };
@@ -452,12 +452,21 @@ fn press_sheet(model: &mut Model, ui: &Ui, at: Vec2) {
             model.sheet = None;
             model.save();
         }
-        SheetHit::Yes => {
-            if let Some(Sheet::Confirm { act, .. }) = model.sheet.clone() {
+        SheetHit::Yes => match model.sheet.clone() {
+            Some(Sheet::Confirm { act, .. }) => {
                 model.act(act);
                 model.sheet = None;
             }
+            Some(Sheet::Apps(_)) => model.act(Act::ChooseApp),
+            _ => {}
+        },
+        SheetHit::App(found) => {
+            model.act(Act::PickApp(found));
+            if clicks >= 2 {
+                model.act(Act::ChooseApp);
+            }
         }
+        SheetHit::Always => model.act(Act::AlwaysApp),
         SheetHit::Clash(clash) => model.act(Act::Clash(clash)),
         SheetHit::Tab(tab) => model.sheet = Some(Sheet::Prefs(tab)),
         SheetHit::Pref(pref) => model.set(pref),
@@ -642,6 +651,12 @@ fn snap(wanted: f64, most: f64) -> (f64, f64) {
 
 pub fn scroll(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, dx: f64, dy: f64, ctrl: bool) -> bool {
     model.tip = None;
+    if let Some(Sheet::Apps(chooser)) = model.sheet.as_mut() {
+        let most = chooser.apps.len().saturating_sub(ui.look.apps_shown(ui.size)) as f64;
+        let before = chooser.scroll;
+        chooser.scroll = (chooser.scroll + (dy / super::look::APP_ROW).round().clamp(-3.0, 3.0)).clamp(0.0, most);
+        return chooser.scroll != before;
+    }
     if model.menu.is_some() || model.sheet.is_some() {
         return false;
     }
@@ -855,7 +870,7 @@ pub fn key(model: &mut Model, ui: &Ui, key: &Key) {
     model.tip = None;
     let pasted = model.clip_text.clone();
     if model.sheet.is_some() {
-        return sheet_key(model, key);
+        return sheet_key(model, ui, key);
     }
     if model.menu.is_some() {
         return menu_key(model, ui, key);
@@ -1043,7 +1058,37 @@ pub fn key(model: &mut Model, ui: &Ui, key: &Key) {
     show_focus(model, ui);
 }
 
-fn sheet_key(model: &mut Model, key: &Key) {
+fn sheet_key(model: &mut Model, ui: &Ui, key: &Key) {
+    if let Some(Sheet::Apps(chooser)) = model.sheet.as_mut() {
+        let last = chooser.apps.len().saturating_sub(1);
+        let room = ui.look.apps_shown(ui.size);
+        let to = match key.named {
+            Named::Down => Some(chooser.at.map_or(0, |at| (at + 1).min(last))),
+            Named::Up => Some(chooser.at.map_or(0, |at| at.saturating_sub(1))),
+            Named::PageDown => Some(chooser.at.map_or(0, |at| (at + room).min(last))),
+            Named::PageUp => Some(chooser.at.map_or(0, |at| at.saturating_sub(room))),
+            Named::Home => Some(0),
+            Named::End => Some(last),
+            _ => None,
+        };
+        if let Some(to) = to.filter(|_| !chooser.apps.is_empty()) {
+            chooser.at = Some(to);
+            let first = chooser.scroll as usize;
+            if to < first {
+                chooser.scroll = to as f64;
+            } else if to >= first + room {
+                chooser.scroll = (to + 1 - room) as f64;
+            }
+            return;
+        }
+        match key.named {
+            Named::Enter => model.act(Act::ChooseApp),
+            Named::Letter(' ') => model.act(Act::AlwaysApp),
+            Named::Escape => model.sheet = None,
+            _ => {}
+        }
+        return;
+    }
     match (&model.sheet, key.named) {
         (Some(Sheet::Confirm { act, .. }), Named::Enter) => {
             let act = act.clone();

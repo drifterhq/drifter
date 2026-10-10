@@ -33,6 +33,7 @@ pub fn own_app() -> Option<App> {
         exec: Some(format!("\"{}\"", program.display())),
         words: "task manager process cpu memory monitor system".to_string(),
         categories: vec!["System".to_string(), "Monitor".to_string()],
+        terminal: false,
     })
 }
 
@@ -875,6 +876,7 @@ mod tests {
             exec: Some(exec.to_string()),
             words: String::new(),
             categories: Vec::new(),
+            terminal: false,
         }
     }
 

@@ -3329,3 +3329,21 @@ Tabs
 
 Not mounted
 = Nicht eingebunden
+
+Other App…
+= Andere App …
+
+Open “{}” with
+= „{}“ öffnen mit
+
+Always use this app for {} files
+= Diese App immer für {}-Dateien verwenden
+
+{} files now open with {}
+= {}-Dateien öffnen jetzt mit {}
+
+Cannot change the default app: {}
+= Die Standard-App lässt sich nicht ändern: {}
+
+No apps found
+= Keine Apps gefunden
