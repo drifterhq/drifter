@@ -2214,7 +2214,6 @@ impl Look {
             false => rect(area.origin.x, area.origin.y, area.size.x, gap + 1.0),
         };
         let mark = rect(area.max().x - 12.0, area.origin.y, 12.0, area.size.y);
-        let mut image = image;
         for clip in [open, mark] {
             image = self.repaint(image, size, &Paint { clip: Some(clip), ..*job });
         }
@@ -2582,10 +2581,10 @@ impl Look {
         if let Some((hit, _)) = self.sheet_buttons(area, sheet).into_iter().find(|(_, button)| button.contains(at)) {
             return Some(hit);
         }
-        if let Sheet::Names(renamer) = sheet {
-            if let Some((hit, _)) = self.names_hits(area, renamer, fonts).into_iter().find(|(_, place)| place.contains(at)) {
-                return Some(hit);
-            }
+        if let Sheet::Names(renamer) = sheet
+            && let Some((hit, _)) = self.names_hits(area, renamer, fonts).into_iter().find(|(_, place)| place.contains(at))
+        {
+            return Some(hit);
         }
         if let Sheet::Info(info) = sheet {
             if self.info_name(area).contains(at) {
@@ -3216,7 +3215,7 @@ const MOST_GROW: f64 = 4.0;
 
 fn pale(image: &Image) -> bool {
     let (mut light, mut seen) = (0u64, 0u64);
-    for pixel in image.rgba.chunks_exact(4).filter(|pixel| pixel[3] > 128) {
+    for pixel in image.rgba.as_chunks::<4>().0.iter().filter(|pixel| pixel[3] > 128) {
         seen += 1;
         light += u64::from(pixel[0].min(pixel[1]).min(pixel[2]) > 215);
     }
@@ -3224,12 +3223,12 @@ fn pale(image: &Image) -> bool {
 }
 
 fn silhouette(image: &Image) -> Image {
-    let rgba = image.rgba.chunks_exact(4).flat_map(|pixel| [0, 0, 0, pixel[3]]).collect();
+    let rgba = image.rgba.as_chunks::<4>().0.iter().flat_map(|pixel| [0, 0, 0, pixel[3]]).collect();
     Image { width: image.width, height: image.height, rgba }
 }
 
 fn solid(image: &Image) -> bool {
-    image.rgba.chunks_exact(4).all(|pixel| pixel[3] >= 250)
+    image.rgba.as_chunks::<4>().0.iter().all(|pixel| pixel[3] >= 250)
 }
 
 fn grow_fit(content: Vec2, into: Vec2, most: f64) -> Rect {

@@ -18,8 +18,8 @@ pub fn md5(data: &[u8]) -> [u8; 16] {
     }
     message.extend_from_slice(&((data.len() as u64).wrapping_mul(8)).to_le_bytes());
     let mut state: [u32; 4] = [0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476];
-    for block in message.chunks_exact(64) {
-        let words: Vec<u32> = block.chunks_exact(4).map(|word| u32::from_le_bytes([word[0], word[1], word[2], word[3]])).collect();
+    for block in message.as_chunks::<64>().0 {
+        let words: Vec<u32> = block.as_chunks::<4>().0.iter().map(|word| u32::from_le_bytes(*word)).collect();
         let [mut a, mut b, mut c, mut d] = state;
         for i in 0..64 {
             let (f, g) = match i / 16 {
@@ -90,8 +90,8 @@ fn read(file: &Path, uri: &str, mtime: u64) -> Option<Image> {
     let pixels = &buffer[..frame.buffer_size()];
     let rgba: Vec<u8> = match frame.color_type {
         png::ColorType::Rgba => pixels.to_vec(),
-        png::ColorType::Rgb => pixels.chunks_exact(3).flat_map(|p| [p[0], p[1], p[2], 255]).collect(),
-        png::ColorType::GrayscaleAlpha => pixels.chunks_exact(2).flat_map(|p| [p[0], p[0], p[0], p[1]]).collect(),
+        png::ColorType::Rgb => pixels.as_chunks::<3>().0.iter().flat_map(|p| [p[0], p[1], p[2], 255]).collect(),
+        png::ColorType::GrayscaleAlpha => pixels.as_chunks::<2>().0.iter().flat_map(|p| [p[0], p[0], p[0], p[1]]).collect(),
         png::ColorType::Grayscale => pixels.iter().flat_map(|g| [*g, *g, *g, 255]).collect(),
         png::ColorType::Indexed => return None,
     };

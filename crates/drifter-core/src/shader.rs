@@ -426,8 +426,8 @@ fn cells(x: f64, y: f64, t: f64) -> (f64, f64) {
             let (ox, oy) = (f64::from(i), f64::from(j));
             let r = hash(gx + ox, gy + oy);
             let r2 = hash(gx + ox + 7.0, gy + oy + 7.0);
-            let cx = ox + 0.5 + 0.4 * (t + 6.28 * r).sin() - fx;
-            let cy = oy + 0.5 + 0.4 * (t * 1.3 + 6.28 * r2).cos() - fy;
+            let cx = ox + 0.5 + 0.4 * (t + std::f64::consts::TAU * r).sin() - fx;
+            let cy = oy + 0.5 + 0.4 * (t * 1.3 + std::f64::consts::TAU * r2).cos() - fy;
             let d = cx * cx + cy * cy;
             if d < d1 {
                 d2 = d1;
@@ -468,7 +468,7 @@ fn film((px, py): (f64, f64), (rx, ry): (f64, f64), time: f64, sky: &Sky) -> V3 
     let th = fbm(p.0 * 1.3 + 1.5 * w.0 + t, p.1 * 1.3 + 1.5 * w.1 - t)
         + 0.5 * fbm(p.0 * 3.0 - t * 1.5, p.1 * 3.0 - t * 1.5);
     let phase = [0.0, 0.33, 0.67];
-    let irid = phase.map(|o| 0.5 + 0.5 * (6.2832 * (th * 2.2 + o)).cos());
+    let irid = phase.map(|o| 0.5 + 0.5 * (std::f64::consts::TAU * (th * 2.2 + o)).cos());
     let base = backdrop(v, sky);
     let tint = mix3(sky.a, [1.0; 3], 0.55);
     let lit = mix(0.45, 1.0, sky.light);

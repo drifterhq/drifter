@@ -1034,9 +1034,7 @@ impl Model {
                     self.reader.ask(Ask::Drives);
                 }
                 for dir in dirs {
-                    if self.loading.is_none() && dir == self.dir {
-                        self.ask_list(&dir);
-                    } else if self.columns.iter().any(|column| column.dir == dir) {
+                    if (self.loading.is_none() && dir == self.dir) || self.columns.iter().any(|column| column.dir == dir) {
                         self.ask_list(&dir);
                     }
                     if self.kids.contains_key(&dir) {

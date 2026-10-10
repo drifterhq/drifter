@@ -59,6 +59,8 @@ fn scale() -> u32 {
     SCALE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+type DragIcon = (wl_surface::WlSurface, smithay_client_toolkit::shm::slot::Buffer);
+
 struct Glide {
     side: bool,
     from: f64,
@@ -134,7 +136,7 @@ struct Explorer {
     clip_ask: u64,
     pasted: LoopSender<(u64, Option<Held>)>,
     press_serial: u32,
-    drag_out: Option<(DragSource, Held, Option<(wl_surface::WlSurface, smithay_client_toolkit::shm::slot::Buffer)>)>,
+    drag_out: Option<(DragSource, Held, Option<DragIcon>)>,
     compositor: CompositorState,
     drop_offer: Option<DragOffer>,
     dropped: LoopSender<(Drop, Option<Held>, bool)>,
@@ -502,7 +504,7 @@ impl Explorer {
             }
         }
         self.theme_checks += 1;
-        if self.theme_checks % 120 == 0 {
+        if self.theme_checks.is_multiple_of(120) {
             let again = themed(&Config::load_from(&path).unwrap_or_default());
             if again != self.look {
                 self.look = again;
@@ -1199,7 +1201,7 @@ impl Explorer {
         self.drag_out = Some((source, Held::Files(paths, false), icon));
     }
 
-    fn drag_icon(&mut self, paths: &[PathBuf]) -> Option<(wl_surface::WlSurface, smithay_client_toolkit::shm::slot::Buffer)> {
+    fn drag_icon(&mut self, paths: &[PathBuf]) -> Option<DragIcon> {
         drifter_core::paint::set_density(scale());
         let lines = self.model.lines();
         let fonts = Fonts { body: &self.fonts.0, small: &self.fonts.1, title: &self.fonts.2 };
@@ -1207,8 +1209,8 @@ impl Explorer {
         let card = self.look.drag_card(&job, paths);
         let (width, height) = (card.width, card.height);
         let (buffer, canvas) = self.pool.create_buffer(width as i32, height as i32, width as i32 * 4, wl_shm::Format::Argb8888).ok()?;
-        for (to, from) in canvas.chunks_exact_mut(4).zip(card.rgba.chunks_exact(4)) {
-            to.copy_from_slice(&[from[2], from[1], from[0], from[3]]);
+        for (to, from) in canvas.as_chunks_mut::<4>().0.iter_mut().zip(card.rgba.as_chunks::<4>().0) {
+            *to = [from[2], from[1], from[0], from[3]];
         }
         let surface = self.compositor.create_surface(&self.qh);
         surface.set_buffer_scale(scale() as i32);
