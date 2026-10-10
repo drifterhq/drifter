@@ -3377,3 +3377,6 @@ Things you move to the Trash wait here until you empty it
 
 Drop files here, or press Shift+Ctrl+N for a new folder
 = Lege Dateien hier ab oder drücke Umschalt+Strg+N für einen neuen Ordner
+
+Explorer
+= Explorer

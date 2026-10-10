@@ -59,6 +59,8 @@ pub enum Dates {
 pub struct Prefs {
     pub start: Start,
     pub last: Option<PathBuf>,
+    pub tabs: Vec<PathBuf>,
+    pub tab: usize,
     pub click: Click,
     #[serde(rename = "ask_before_trash")]
     pub confirm_trash: bool,
@@ -178,6 +180,8 @@ impl Default for Prefs {
         Prefs {
             start: Start::Home,
             last: None,
+            tabs: Vec::new(),
+            tab: 0,
             click: Click::Double,
             confirm_trash: true,
             hidden: false,

@@ -8,8 +8,9 @@ pub struct Entry {
 
 pub fn find(app_id: &str) -> Option<Entry> {
     let Some(file) = desktop_file(app_id) else {
-        return drifter_core::activity::own_app()
-            .filter(|app| app.id == app_id)
+        return drifter_core::desktop::own_apps()
+            .into_iter()
+            .find(|app| app.id == app_id)
             .map(|app| Entry {
                 name: Some(app.name),
                 icon: app.icon.as_deref().and_then(icon_file),

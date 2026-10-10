@@ -561,6 +561,9 @@ impl Model {
             model.load(home, None);
         }
         model.tabs = vec![model.tab_now()];
+        if from_last && model.trouble.is_none() {
+            model.reopen_tabs();
+        }
         model
     }
 
@@ -602,6 +605,37 @@ impl Model {
         if show {
             self.show_tab(at);
         }
+        self.remember_tabs();
+    }
+
+    fn remember_tabs(&mut self) {
+        if self.tabs.is_empty() {
+            return;
+        }
+        let dirs = self.tab_dirs();
+        if self.prefs.tabs != dirs || self.prefs.tab != self.tab {
+            self.prefs.tabs = dirs;
+            self.prefs.tab = self.tab;
+            self.saved = false;
+        }
+    }
+
+    fn reopen_tabs(&mut self) {
+        let saved: Vec<PathBuf> = self.prefs.tabs.iter().filter(|dir| dir.is_dir()).cloned().collect();
+        if saved.len() < 2 {
+            return;
+        }
+        let here = match saved.get(self.prefs.tab) {
+            Some(dir) if *dir == self.dir => self.prefs.tab,
+            _ => match saved.iter().position(|dir| *dir == self.dir) {
+                Some(at) => at,
+                None => return,
+            },
+        };
+        self.tabs = saved.iter().map(|dir| Tab::at(dir.clone(), self.view_for(dir))).collect();
+        self.tab = here;
+        self.tabs[here] = self.tab_now();
+        self.remember_tabs();
     }
 
     pub fn show_tab(&mut self, to: usize) {
@@ -631,6 +665,7 @@ impl Model {
             self.after_pick();
         }
         self.tabs[self.tab] = self.tab_now();
+        self.remember_tabs();
     }
 
     pub fn close_tab(&mut self, at: usize) {
@@ -648,6 +683,7 @@ impl Model {
         if self.tab > at {
             self.tab -= 1;
         }
+        self.remember_tabs();
     }
 
     pub fn tab_menu(&self, at: usize) -> Vec<Item> {
@@ -1042,6 +1078,7 @@ impl Model {
             self.prefs.last = Some(self.dir.clone());
             self.saved = false;
         }
+        self.remember_tabs();
         self.sync_watches();
         true
     }
@@ -1716,6 +1753,7 @@ impl Model {
                     self.show_tab(at);
                     self.tabs = vec![self.tab_now()];
                     self.tab = 0;
+                    self.remember_tabs();
                 }
             }
             Act::NewFolder | Act::NewFile if in_trash => {}
@@ -2880,6 +2918,25 @@ mod tests {
         assert!(model.jobs.is_empty());
         assert_eq!(model.single().map(|one| one.name.as_str()), Some("b.txt"));
         assert_eq!(model.undo.len(), 1);
+    }
+
+    #[test]
+    fn tabs_come_back_next_time() {
+        let (place, mut model) = place("tabs");
+        model.set(Pref::Start(Start::Last));
+        let photos = place.0.join("work/Photos");
+        model.new_tab(photos.clone(), true);
+        model.new_tab(place.0.join("work/Photos/2026"), false);
+        model.close_tab(2);
+        model.save();
+        let again = Model::new(place.0.join("explorer.toml"), None);
+        assert_eq!(again.tab_dirs(), [place.0.join("work"), photos.clone()]);
+        assert_eq!((again.tab, again.dir.clone()), (1, photos.clone()));
+        let asked = Model::new(place.0.join("explorer.toml"), Some(place.0.join("work")));
+        assert_eq!(asked.tab_dirs(), [place.0.join("work")], "a folder asked for opens alone");
+        std::fs::remove_dir_all(&photos).unwrap();
+        let gone = Model::new(place.0.join("explorer.toml"), None);
+        assert_eq!(gone.tabs.len(), 1, "tabs whose folder is gone are left out");
     }
 
     #[test]

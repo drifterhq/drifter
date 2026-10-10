@@ -178,15 +178,41 @@ pub fn grouped(apps: &[App]) -> Vec<(&'static str, Vec<App>)> {
     out
 }
 
-pub fn installed() -> Vec<App> {
-    let mut apps = installed_in(&roots());
-    if let Some(own) = crate::activity::own_app()
-        && !apps.iter().any(|app| app.id == own.id)
-    {
-        apps.push(own);
+pub const EXPLORER_APP: &str = "drifter-explorer";
+
+pub fn explorer_app() -> Option<App> {
+    let program = std::env::current_exe().ok()?.with_file_name(EXPLORER_APP);
+    program.is_file().then(|| App {
+        id: EXPLORER_APP.to_string(),
+        name: crate::lang::t("Explorer").to_string(),
+        icon: Some("system-file-manager".to_string()),
+        exec: Some(format!("\"{}\" %U", program.display())),
+        words: "files folders file manager browse explorer".to_string(),
+        categories: vec!["System".to_string(), "FileManager".to_string()],
+        terminal: false,
+    })
+}
+
+pub fn own_apps() -> Vec<App> {
+    crate::activity::own_app().into_iter().chain(explorer_app()).collect()
+}
+
+pub fn with_own(mut apps: Vec<App>, own: Vec<App>) -> Vec<App> {
+    let mut added = false;
+    for app in own {
+        if !apps.iter().any(|each| each.id == app.id) {
+            apps.push(app);
+            added = true;
+        }
+    }
+    if added {
         apps.sort_by_key(|app| app.name.to_lowercase());
     }
     apps
+}
+
+pub fn installed() -> Vec<App> {
+    with_own(installed_in(&roots()), own_apps())
 }
 
 fn desktop_id(path: &Path) -> Option<String> {
@@ -410,7 +436,19 @@ pub fn serving_in(role: Role, roots: &[PathBuf]) -> Vec<App> {
 }
 
 pub fn serving(role: Role) -> Vec<App> {
-    serving_in(role, &roots())
+    let own = match role {
+        Role::Files => explorer_app().into_iter().collect(),
+        _ => Vec::new(),
+    };
+    ours_first(serving_in(role, &roots()), own)
+}
+
+pub fn ours_first(mut apps: Vec<App>, own: Vec<App>) -> Vec<App> {
+    for app in own.into_iter().rev() {
+        apps.retain(|each| each.id != app.id);
+        apps.insert(0, app);
+    }
+    apps
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -534,6 +572,17 @@ pub fn set_defaults(text: &str, mimes: &[&str], id: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn drifter_apps_join_the_lists_and_explorer_leads_the_file_managers() {
+        let app = |id: &str, name: &str| App { id: id.into(), name: name.into(), icon: None, exec: Some(id.into()), words: String::new(), categories: Vec::new(), terminal: false };
+        let found = vec![app("thunar", "Thunar"), app("nautilus", "Files")];
+        let mixed = with_own(found.clone(), vec![app(EXPLORER_APP, "Explorer"), app("thunar", "Thunar")]);
+        assert_eq!(mixed.iter().map(|each| each.name.as_str()).collect::<Vec<_>>(), ["Explorer", "Files", "Thunar"]);
+        let first = ours_first(vec![app("thunar", "Thunar"), app(EXPLORER_APP, "Explorer (installed)")], vec![app(EXPLORER_APP, "Explorer")]);
+        assert_eq!(first.iter().map(|each| each.name.as_str()).collect::<Vec<_>>(), ["Explorer", "Thunar"]);
+        assert_eq!(ours_first(found.clone(), Vec::new()), found);
+    }
 
     #[test]
     fn apps_fall_into_their_first_matching_group() {
