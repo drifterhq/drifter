@@ -562,6 +562,14 @@ fn put_back_with(trashed: &Trashed, progress: &Progress) -> io::Result<PathBuf> 
     Ok(target)
 }
 
+pub fn deleted_at(info: &Path) -> Option<std::time::SystemTime> {
+    let text = std::fs::read_to_string(info).ok()?;
+    let when = text.lines().find_map(|line| line.strip_prefix("DeletionDate="))?.trim();
+    let naive = chrono::NaiveDateTime::parse_from_str(when, "%Y-%m-%dT%H:%M:%S").ok()?;
+    let local = naive.and_local_timezone(chrono::Local).earliest()?;
+    Some(local.into())
+}
+
 pub fn trashed_from(root: &Path, file: &Path) -> Option<Trashed> {
     let name = file.file_name()?.to_string_lossy().into_owned();
     let info = root.join("info").join(format!("{name}.trashinfo"));
@@ -985,6 +993,8 @@ mod tests {
         assert!(in_trash(&trashed.file));
         assert!(!in_trash(&file));
         assert_eq!(trashed_from(&root, &trashed.file).map(|t| t.from), Some(file.clone()));
+        let when = deleted_at(&trashed.info).unwrap();
+        assert!(when.elapsed().unwrap() < std::time::Duration::from_secs(60));
         let done = run_with(&place.trash(), Job::Restore(vec![trashed.file.clone()]), &Progress::default());
         assert_eq!(done.made, [file.clone()]);
         assert!(!trashed.info.exists());

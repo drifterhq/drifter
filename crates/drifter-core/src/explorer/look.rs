@@ -280,7 +280,10 @@ impl Look {
 
     pub fn list_widths(&self, body: Rect, model: &Model) -> (f64, Vec<(Sort, f64)>) {
         let mut extra = Vec::new();
-        if model.prefs.show_modified {
+        if model.dir == super::ops::trash_files() {
+            extra.push((Sort::Origin, 230.0));
+            extra.push((Sort::Deleted, 170.0));
+        } else if model.prefs.show_modified {
             extra.push((Sort::Modified, 170.0));
         }
         if model.prefs.show_size {
@@ -737,11 +740,7 @@ impl Look {
     }
 
     fn paint_crumbs(&self, canvas: &mut Canvas, path: Rect, model: &Model, fonts: &Fonts) {
-        let shown = match model.dir.strip_prefix(&model.home) {
-            Ok(rest) if rest.as_os_str().is_empty() => "~".to_string(),
-            Ok(rest) => format!("~/{}", rest.display()),
-            Err(_) => model.dir.display().to_string(),
-        };
+        let shown = super::entry::short_path(&model.dir, &model.home);
         let shown = match super::ops::in_trash(&model.dir) {
             true => crate::lang::t("Trash").to_string(),
             false => shown,
@@ -1069,6 +1068,8 @@ impl Look {
                     Sort::Size if entry.folder => "--".to_string(),
                     Sort::Size => super::entry::size_words(entry.size),
                     Sort::Kind => entry.kind_words(),
+                    Sort::Origin => entry.trashed.as_ref().and_then(|(from, _)| from.parent()).map(|folder| super::entry::short_path(folder, &model.home)).unwrap_or_default(),
+                    Sort::Deleted => entry.trashed.as_ref().map(|(_, when)| model.date(*when)).unwrap_or_default(),
                     Sort::Name => String::new(),
                 };
                 match sort {

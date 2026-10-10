@@ -3218,3 +3218,9 @@ Replace puts the old ones in the Trash. Keep Both gives the new ones other names
 
 A folder cannot be replaced by something inside it
 = Ein Ordner kann nicht durch etwas in ihm ersetzt werden
+
+Original Location
+= Ursprünglicher Ort
+
+Date Deleted
+= Gelöscht am

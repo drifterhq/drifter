@@ -35,6 +35,7 @@ Later steps build on these.
    - Built: a file on another disk goes to that disk's `.Trash/UID` (if it is a sticky folder) or `.Trash-UID`, with its path relative to the disk. It falls back to the home Trash only if neither can be made. The Trash view lists every mounted disk's Trash; Put Back, Delete and Empty Trash work on all of them. Tested on a mounted disk image on the Mac. Left: a test with a USB stick on the Pixelbook.
 9. Trash: the Trash view has no "original location" column and no "date deleted" column.
    Waits on: 8.
+   - Built: the Trash list shows Original Location (as ~/Music) and Date Deleted in place of Modified. Click either head to sort. Left: a test on the Pixelbook.
 10. Compress and extract.
     Waits on: 6, 7.
 

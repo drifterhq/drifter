@@ -87,6 +87,17 @@ fn main() {
         model.sheet = None;
         model.jobs.clear();
         model.effects.clear();
+        if dark {
+            std::fs::write(home.join("Music/old song.flac"), "x").unwrap();
+            std::fs::write(home.join("Desktop/draft.md"), "x").unwrap();
+            drifter_core::explorer::ops::trash(&home.join("Music/old song.flac")).unwrap();
+            drifter_core::explorer::ops::trash(&home.join("Desktop/draft.md")).unwrap();
+        }
+        let back = model.dir.clone();
+        model.go(drifter_core::explorer::ops::trash_files(), None);
+        model.settle_all(std::time::Duration::from_secs(5));
+        shot(&mut model, "trash");
+        model.go(back, None);
         model.act(Act::EditPath);
         shot(&mut model, "path");
     }

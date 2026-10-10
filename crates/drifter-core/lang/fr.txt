@@ -3215,3 +3215,9 @@ Replace puts the old ones in the Trash. Keep Both gives the new ones other names
 
 A folder cannot be replaced by something inside it
 = Un dossier ne peut pas être remplacé par un élément qu’il contient
+
+Original Location
+= Emplacement d’origine
+
+Date Deleted
+= Date de suppression

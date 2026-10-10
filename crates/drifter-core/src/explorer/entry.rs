@@ -12,6 +12,7 @@ pub struct Entry {
     pub modified: Option<SystemTime>,
     pub mime: &'static str,
     pub runs: bool,
+    pub trashed: Option<(PathBuf, Option<SystemTime>)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -21,6 +22,8 @@ pub enum Sort {
     Modified,
     Size,
     Kind,
+    Origin,
+    Deleted,
 }
 
 impl Sort {
@@ -32,6 +35,8 @@ impl Sort {
             Sort::Modified => crate::lang::t("Modified"),
             Sort::Size => crate::lang::t("Size"),
             Sort::Kind => crate::lang::t("Kind"),
+            Sort::Origin => crate::lang::t("Original Location"),
+            Sort::Deleted => crate::lang::t("Date Deleted"),
         }
     }
 }
@@ -235,6 +240,7 @@ impl Entry {
             size: if folder { 0 } else { meta.len() },
             modified: meta.modified().ok(),
             runs,
+            trashed: None,
         })
     }
 }
@@ -265,6 +271,14 @@ pub fn folders_in(dir: &Path, hidden: bool) -> Vec<PathBuf> {
         .collect();
     out.sort_by(|a, b| natural(&name_of(a), &name_of(b)));
     out
+}
+
+pub fn short_path(path: &Path, home: &Path) -> String {
+    match path.strip_prefix(home) {
+        Ok(rest) if rest.as_os_str().is_empty() => "~".to_string(),
+        Ok(rest) => format!("~/{}", rest.display()),
+        Err(_) => path.display().to_string(),
+    }
 }
 
 pub fn name_of(path: &Path) -> String {
@@ -317,6 +331,8 @@ pub fn sort(entries: &mut [Entry], by: Sort, down: bool, folders_first: bool) {
             Sort::Modified => a.modified.cmp(&b.modified).reverse(),
             Sort::Size => a.size.cmp(&b.size).reverse(),
             Sort::Kind => a.kind_words().cmp(&b.kind_words()),
+            Sort::Origin => a.trashed.as_ref().map(|(from, _)| from).cmp(&b.trashed.as_ref().map(|(from, _)| from)),
+            Sort::Deleted => a.trashed.as_ref().and_then(|(_, when)| *when).cmp(&b.trashed.as_ref().and_then(|(_, when)| *when)).reverse(),
         }
         .then_with(|| natural(&a.name, &b.name));
         grouped.then(if down { order.reverse() } else { order })
@@ -384,7 +400,23 @@ mod tests {
             modified: None,
             mime: mime_of(name, folder),
             runs: false,
+            trashed: None,
         }
+    }
+
+    #[test]
+    fn trash_columns_sort_by_place_and_date() {
+        let at = |secs| Some(SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(secs));
+        let mut list = vec![entry("a", false, 1), entry("b", false, 1), entry("c", false, 1)];
+        list[0].trashed = Some((PathBuf::from("/z/a"), at(10)));
+        list[1].trashed = Some((PathBuf::from("/m/b"), at(30)));
+        list[2].trashed = Some((PathBuf::from("/a/c"), at(20)));
+        sort(&mut list, Sort::Deleted, false, false);
+        assert_eq!(list.iter().map(|each| each.name.as_str()).collect::<Vec<_>>(), ["b", "c", "a"]);
+        sort(&mut list, Sort::Origin, false, false);
+        assert_eq!(list.iter().map(|each| each.name.as_str()).collect::<Vec<_>>(), ["c", "b", "a"]);
+        assert_eq!(short_path(Path::new("/home/me/Music"), Path::new("/home/me")), "~/Music");
+        assert_eq!(short_path(Path::new("/media/stick"), Path::new("/home/me")), "/media/stick");
     }
 
     #[test]

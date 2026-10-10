@@ -122,6 +122,13 @@ fn run(ask: &Ask, seq: u64) -> Got {
                     for other in super::ops::other_trashes() {
                         found.extend(entry::read(&other.join("files"), lens.hidden).unwrap_or_default());
                     }
+                    for each in &mut found {
+                        let root = super::ops::root_of(&each.path).unwrap_or_else(super::ops::trash_root);
+                        each.trashed = super::ops::trashed_from(&root, &each.path).map(|trashed| {
+                            let when = super::ops::deleted_at(&trashed.info);
+                            (trashed.from, when)
+                        });
+                    }
                 }
                 entry::sort(&mut found, lens.sort, lens.down, lens.folders_first);
                 found
