@@ -32,6 +32,7 @@ Later steps build on these.
    - Built: a paste or drop onto names already there opens a sheet: Cancel, Skip, Replace, Keep Both (the default, Enter). One choice covers all clashes. Replace puts the old item in the Trash, and Undo puts it back. Left: a test on the Pixelbook.
 8. Trash: on a USB stick, the file moves to the home Trash. The spec wants a `.Trash-UID` folder on that disk.
    Waits on: 6.
+   - Built: a file on another disk goes to that disk's `.Trash/UID` (if it is a sticky folder) or `.Trash-UID`, with its path relative to the disk. It falls back to the home Trash only if neither can be made. The Trash view lists every mounted disk's Trash; Put Back, Delete and Empty Trash work on all of them. Tested on a mounted disk image on the Mac. Left: a test with a USB stick on the Pixelbook.
 9. Trash: the Trash view has no "original location" column and no "date deleted" column.
    Waits on: 8.
 10. Compress and extract.

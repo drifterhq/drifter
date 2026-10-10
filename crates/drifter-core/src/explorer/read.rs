@@ -112,7 +112,17 @@ fn run(ask: &Ask, seq: u64) -> Got {
     match ask {
         Ask::List(dir, lens) => {
             let stamp = modified(dir);
-            let entries = entry::read(dir, lens.hidden).map_err(|error| error.to_string()).map(|mut found| {
+            let trash = *dir == super::ops::trash_files();
+            let read = match entry::read(dir, lens.hidden) {
+                Err(error) if trash && error.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+                other => other,
+            };
+            let entries = read.map_err(|error| error.to_string()).map(|mut found| {
+                if trash {
+                    for other in super::ops::other_trashes() {
+                        found.extend(entry::read(&other.join("files"), lens.hidden).unwrap_or_default());
+                    }
+                }
                 entry::sort(&mut found, lens.sort, lens.down, lens.folders_first);
                 found
             });

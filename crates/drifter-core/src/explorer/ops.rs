@@ -136,7 +136,101 @@ pub fn trash_files() -> PathBuf {
 }
 
 pub fn in_trash(path: &Path) -> bool {
-    path.starts_with(trash_files())
+    path.starts_with(trash_files()) || root_of(path).is_some()
+}
+
+fn uid() -> u32 {
+    unsafe { libc::getuid() }
+}
+
+fn top_of_root(root: &Path) -> Option<PathBuf> {
+    let name = root.file_name()?.to_string_lossy().into_owned();
+    if name == format!(".Trash-{}", uid()) {
+        return root.parent().map(Path::to_path_buf);
+    }
+    let shared = root.parent()?;
+    (name == uid().to_string() && shared.file_name()? == ".Trash").then(|| shared.parent().map(Path::to_path_buf)).flatten()
+}
+
+pub fn root_of(path: &Path) -> Option<PathBuf> {
+    let home = trash_root();
+    path.ancestors().filter(|at| at.file_name().is_some_and(|name| name == "files")).filter_map(Path::parent).find(|root| *root == home || top_of_root(root).is_some()).map(Path::to_path_buf)
+}
+
+fn device(path: &Path) -> Option<u64> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::symlink_metadata(path).ok().map(|meta| meta.dev())
+}
+
+fn top_of(path: &Path) -> Option<PathBuf> {
+    let dev = device(path)?;
+    let mut top = None;
+    for at in path.ancestors().skip(1) {
+        match device(at) {
+            Some(here) if here == dev => top = Some(at.to_path_buf()),
+            _ => break,
+        }
+    }
+    top
+}
+
+fn usable(root: &Path) -> bool {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+    let made = std::fs::DirBuilder::new().mode(0o700).create(root);
+    if made.as_ref().is_err_and(|error| error.kind() != io::ErrorKind::AlreadyExists) {
+        return false;
+    }
+    std::fs::symlink_metadata(root).is_ok_and(|meta| meta.is_dir() && meta.uid() == uid())
+}
+
+pub fn trash_for(home: &Path, path: &Path) -> PathBuf {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let home_dev = home.ancestors().find_map(device);
+    let (Some(dev), Some(home_dev)) = (device(path), home_dev) else {
+        return home.to_path_buf();
+    };
+    if dev == home_dev {
+        return home.to_path_buf();
+    }
+    let Some(top) = top_of(path) else {
+        return home.to_path_buf();
+    };
+    let shared = top.join(".Trash");
+    let sticky = std::fs::symlink_metadata(&shared).is_ok_and(|meta| meta.is_dir() && meta.permissions().mode() & 0o1000 != 0 && meta.dev() == dev);
+    if sticky {
+        let mine = shared.join(uid().to_string());
+        if usable(&mine) {
+            return mine;
+        }
+    }
+    let own = top.join(format!(".Trash-{}", uid()));
+    match usable(&own) {
+        true => own,
+        false => home.to_path_buf(),
+    }
+}
+
+pub fn other_trashes() -> Vec<PathBuf> {
+    let mounts = std::fs::read_to_string("/proc/self/mounts").unwrap_or_default();
+    let mut out: Vec<PathBuf> = Vec::new();
+    for line in mounts.lines() {
+        let mut parts = line.split_whitespace();
+        let (Some(_), Some(point), Some(kind)) = (parts.next(), parts.next(), parts.next()) else {
+            continue;
+        };
+        if ["proc", "sysfs", "devtmpfs", "devpts", "cgroup", "cgroup2", "securityfs", "pstore", "bpf", "debugfs", "tracefs", "mqueue", "hugetlbfs", "configfs", "fusectl", "efivarfs", "autofs", "binfmt_misc"].contains(&kind) {
+            continue;
+        }
+        let top = PathBuf::from(point.replace("\\040", " ").replace("\\011", "\t").replace("\\134", "\\"));
+        for root in [top.join(format!(".Trash-{}", uid())), top.join(".Trash").join(uid().to_string())] {
+            if root.join("files").is_dir() && !out.contains(&root) {
+                out.push(root);
+            }
+        }
+    }
+    let home = trash_root();
+    out.retain(|root| *root != home);
+    out
 }
 
 pub fn unique(dir: &Path, name: &str) -> PathBuf {
@@ -432,7 +526,11 @@ fn trash_in_with(root: &Path, path: &Path, progress: &Progress) -> io::Result<Tr
                 use std::io::Write;
                 let when = chrono::Local::now().format("%Y-%m-%dT%H:%M:%S");
                 let absolute = std::path::absolute(path)?;
-                write!(handle, "[Trash Info]\nPath={}\nDeletionDate={when}\n", encode(&absolute))?;
+                let shown = match top_of_root(root).and_then(|top| absolute.strip_prefix(top).ok().map(Path::to_path_buf)) {
+                    Some(inside) => inside,
+                    None => absolute,
+                };
+                write!(handle, "[Trash Info]\nPath={}\nDeletionDate={when}\n", encode(&shown))?;
                 break (files.join(&pick), info);
             }
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => n += 1,
@@ -468,16 +566,20 @@ pub fn trashed_from(root: &Path, file: &Path) -> Option<Trashed> {
     let name = file.file_name()?.to_string_lossy().into_owned();
     let info = root.join("info").join(format!("{name}.trashinfo"));
     let text = std::fs::read_to_string(&info).ok()?;
-    let from = text.lines().find_map(|line| line.strip_prefix("Path="))?;
-    Some(Trashed { from: PathBuf::from(decode(from.trim())), file: file.to_path_buf(), info })
+    let from = PathBuf::from(decode(text.lines().find_map(|line| line.strip_prefix("Path="))?.trim()));
+    let from = match (from.is_relative(), top_of_root(root)) {
+        (true, Some(top)) => top.join(from),
+        _ => from,
+    };
+    Some(Trashed { from, file: file.to_path_buf(), info })
 }
 
 pub fn empty_trash_in(root: &Path) -> io::Result<()> {
-    empty_trash_with(root, &Progress::default())
+    empty_trash_with(&[root.to_path_buf()], &Progress::default())
 }
 
-fn empty_trash_with(root: &Path, progress: &Progress) -> io::Result<()> {
-    let items: Vec<PathBuf> = ["files", "info"].iter().filter_map(|sub| std::fs::read_dir(root.join(sub)).ok()).flatten().flatten().map(|item| item.path()).collect();
+fn empty_trash_with(roots: &[PathBuf], progress: &Progress) -> io::Result<()> {
+    let items: Vec<PathBuf> = roots.iter().flat_map(|root| [root.join("files"), root.join("info")]).filter_map(|sub| std::fs::read_dir(sub).ok()).flatten().flatten().map(|item| item.path()).collect();
     progress.count.store(items.len() as u64, Ordering::Relaxed);
     for item in items {
         remove_with(&item, progress)?;
@@ -632,7 +734,7 @@ pub fn run_with(root: &Path, job: Job, progress: &Progress) -> Done {
         Job::Trash(paths) => {
             let mut gone = Vec::new();
             for path in &paths {
-                match trash_in_with(root, path, progress) {
+                match trash_in_with(&trash_for(root, path), path, progress) {
                     Ok(trashed) => gone.push(trashed),
                     Err(_) if progress.stopped() => break,
                     Err(error) => done.failed.push(fail(path, error)),
@@ -648,7 +750,7 @@ pub fn run_with(root: &Path, job: Job, progress: &Progress) -> Done {
                     Err(error) => done.failed.push(fail(path, error)),
                     Ok(()) => {}
                 }
-                if let Some(trashed) = trashed_from(root, path) {
+                if let Some(trashed) = trashed_from(&root_of(path).unwrap_or_else(|| root.to_path_buf()), path) {
                     let _ = std::fs::remove_file(trashed.info);
                 }
                 progress.item();
@@ -656,7 +758,7 @@ pub fn run_with(root: &Path, job: Job, progress: &Progress) -> Done {
         }
         Job::Restore(paths) => {
             for path in &paths {
-                match trashed_from(root, path).ok_or_else(|| io::Error::other(crate::lang::t("Its first place is not known"))).and_then(|t| put_back_with(&t, progress)) {
+                match trashed_from(&root_of(path).unwrap_or_else(|| root.to_path_buf()), path).ok_or_else(|| io::Error::other(crate::lang::t("Its first place is not known"))).and_then(|t| put_back_with(&t, progress)) {
                     Ok(made) => done.made.push(made),
                     Err(_) if progress.stopped() => break,
                     Err(error) => done.failed.push(fail(path, error)),
@@ -665,7 +767,8 @@ pub fn run_with(root: &Path, job: Job, progress: &Progress) -> Done {
             }
         }
         Job::EmptyTrash => {
-            if let Err(error) = empty_trash_with(root, progress)
+            let roots: Vec<PathBuf> = std::iter::once(root.to_path_buf()).chain(other_trashes()).collect();
+            if let Err(error) = empty_trash_with(&roots, progress)
                 && !progress.stopped()
             {
                 done.failed.push(fail(root, error));
@@ -682,7 +785,7 @@ fn undo_with(root: &Path, undo: Undo, progress: &Progress, done: &mut Done) {
     match undo {
         Undo::Made(paths) => {
             for path in &paths {
-                if let Err(error) = trash_in_with(root, path, progress) {
+                if let Err(error) = trash_in_with(&trash_for(root, path), path, progress) {
                     done.failed.push(fail(path, error));
                 }
             }
@@ -864,6 +967,32 @@ mod tests {
         let done = run_with(&place.trash(), Job::Move { from: vec![nested.clone()], into: place.work(), clash: Clash::Replace }, &Progress::default());
         assert_eq!(done.failed.len(), 1);
         assert!(nested.exists());
+    }
+
+    #[test]
+    fn a_disk_trash_keeps_paths_relative_to_the_disk() {
+        let place = Place::new("disktrash");
+        let top = place.work().join("stick");
+        let root = top.join(format!(".Trash-{}", uid()));
+        std::fs::create_dir_all(top.join("photos")).unwrap();
+        let file = top.join("photos/cat.png");
+        std::fs::write(&file, "meow").unwrap();
+        assert!(usable(&root));
+        let trashed = trash_in(&root, &file).unwrap();
+        let info = std::fs::read_to_string(&trashed.info).unwrap();
+        assert!(info.contains("\nPath=photos/cat.png\n"), "{info}");
+        assert_eq!(root_of(&trashed.file), Some(root.clone()));
+        assert!(in_trash(&trashed.file));
+        assert!(!in_trash(&file));
+        assert_eq!(trashed_from(&root, &trashed.file).map(|t| t.from), Some(file.clone()));
+        let done = run_with(&place.trash(), Job::Restore(vec![trashed.file.clone()]), &Progress::default());
+        assert_eq!(done.made, [file.clone()]);
+        assert!(!trashed.info.exists());
+        assert_eq!(trash_for(&place.trash(), &file), place.trash());
+        let shared = top.join(".Trash");
+        std::fs::create_dir(&shared).unwrap();
+        assert_eq!(top_of_root(&shared.join(uid().to_string())), Some(top.clone()));
+        assert_eq!(top_of_root(&place.trash()), None);
     }
 
     #[test]
