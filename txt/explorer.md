@@ -128,6 +128,7 @@ Later steps build on these.
     - Built: a menu or sheet that opens fades in over 140 ms with an ease-out; a menu drops 4 px into place and a sheet rises 10 px (`layered` paints it into its own layer and stamps it at the eased alpha, `model.pop`). A change of view or folder crossfades from the last frame over 160 ms (the window keeps the old image in `swap` and stamps it over the new full paint). The window notices the openings in `animate` and keeps drawing every 16 ms only while something moves. Look code only reads `model.pop`, which stays 1.0 in tests, so every repaint test stays exact. Test: `menus_and_sheets_fade_in`. Checked on the trixie VM: switching to Icons and back and opening the space menu all end on a clean frame.
 34. Animation: hover and selection do not fade.
     Waits on: 2, 32.
+    - Built: when the hover moves, the window keeps the old and the new pixels of the repainted area and blends them over 120 ms (`Fade` in window.rs), so a hover glows in and out without painting again. A tooltip fades in the same way. Menus and drags stay instant. Any full repaint or scroll first puts the final pixels back, so nothing is left half faded. A click that changes the picked items crossfades the frame over 120 ms; picks from the keyboard stay instant so fast arrow keys do not smear. Checked on the trixie VM: after sweeping the pointer over the rows only the row under it was lit, and a click picked Music cleanly.
 35. Animation: scrolling does not glide.
     Waits on: 2.
 36. Gallery: the strip has no names.

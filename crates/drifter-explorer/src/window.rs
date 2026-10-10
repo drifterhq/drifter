@@ -49,11 +49,46 @@ const FRAME_LATE: Duration = Duration::from_millis(100);
 const DOUBLE: Duration = Duration::from_millis(420);
 const POP: Duration = Duration::from_millis(140);
 const SWAP: Duration = Duration::from_millis(160);
+const GLOW: Duration = Duration::from_millis(120);
 
 static SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
 
 fn scale() -> u32 {
     SCALE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+struct Fade {
+    area: drifter_core::Rect,
+    at: (u32, u32),
+    old: Image,
+    new: Image,
+    since: Instant,
+}
+
+fn crop(image: &Image, area: drifter_core::Rect) -> Option<((u32, u32), Image)> {
+    let dense = f64::from(scale());
+    let x0 = ((area.origin.x * dense).floor().max(0.0) as u32).min(image.width);
+    let y0 = ((area.origin.y * dense).floor().max(0.0) as u32).min(image.height);
+    let x1 = ((area.max().x * dense).ceil().max(0.0) as u32).min(image.width);
+    let y1 = ((area.max().y * dense).ceil().max(0.0) as u32).min(image.height);
+    if x1 <= x0 || y1 <= y0 {
+        return None;
+    }
+    let (width, height) = (x1 - x0, y1 - y0);
+    let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+    for y in y0..y1 {
+        let from = ((y * image.width + x0) * 4) as usize;
+        rgba.extend_from_slice(&image.rgba[from..from + (width * 4) as usize]);
+    }
+    Some(((x0, y0), Image { width, height, rgba }))
+}
+
+fn paste(image: &mut Image, at: (u32, u32), piece: &Image) {
+    for y in 0..piece.height {
+        let to = (((at.1 + y) * image.width + at.0) * 4) as usize;
+        let from = (y * piece.width * 4) as usize;
+        image.rgba[to..to + (piece.width * 4) as usize].copy_from_slice(&piece.rgba[from..from + (piece.width * 4) as usize]);
+    }
 }
 
 struct Explorer {
@@ -94,7 +129,10 @@ struct Explorer {
     sizes: LoopSender<(PathBuf, (u64, u64))>,
     seen: (bool, bool, drifter_core::explorer::prefs::Mode, PathBuf),
     pop_at: Option<Instant>,
-    swap: Option<(Image, Instant)>,
+    swap: Option<(Image, Instant, Duration)>,
+    fade: Option<Fade>,
+    picks: usize,
+    clicked: bool,
     fonts: (Font, Font, Font),
     model: Model,
     art: Art,
@@ -288,6 +326,9 @@ pub fn run() -> Result<(), String> {
         seen: (false, false, drifter_core::explorer::prefs::Mode::List, PathBuf::new()),
         pop_at: None,
         swap: None,
+        fade: None,
+        picks: 0,
+        clicked: false,
         fonts,
         model,
         art: Art::default(),
@@ -305,10 +346,10 @@ pub fn run() -> Result<(), String> {
     };
     while !app.exit {
         events
-            .dispatch((app.stale || app.dirty.is_some() || !app.shifts.is_empty()).then_some(SETTLE), &mut app)
+            .dispatch(app.busy().then_some(SETTLE), &mut app)
             .map_err(|e| format!("event loop: {e}"))?;
         app.animate();
-        if app.configured && (std::mem::take(&mut app.resized) || ((app.stale || app.dirty.is_some() || !app.shifts.is_empty()) && app.frame_free())) {
+        if app.configured && (std::mem::take(&mut app.resized) || (app.busy() && app.frame_free())) {
             app.draw();
         }
     }
@@ -525,12 +566,32 @@ impl Explorer {
         use drifter_core::explorer::look::join;
         drifter_core::paint::set_density(scale());
         let lines = self.model.lines();
-        let hover = self.dirty.take();
+        let mut hover = self.dirty.take();
         let shifts = std::mem::take(&mut self.shifts);
         let mut before = match self.stale {
             true => None,
             false => self.last.take().filter(|image| image.width == self.size.0 * scale() && image.height == self.size.1 * scale()),
         };
+        let fading = self.fade.take();
+        if let (Some(fade), Some(image)) = (&fading, before.as_mut()) {
+            paste(image, fade.at, &fade.new);
+            if hover.is_none() && shifts.is_empty() {
+                let mut canvas = drifter_core::paint::Canvas::on(before.take().unwrap_or_else(|| Image { width: 0, height: 0, rgba: Vec::new() }));
+                let t = drifter_core::explorer::look::ease(fade.since.elapsed().as_secs_f64() / GLOW.as_secs_f64());
+                let at = Vec2::new(f64::from(fade.at.0), f64::from(fade.at.1)) / f64::from(scale());
+                canvas.stamp(&fade.old, at, 1.0 - t);
+                let image = canvas.image;
+                self.show(&image, Some(fade.area));
+                self.last = Some(image);
+                if let Some(fade) = fading.filter(|_| t < 1.0) {
+                    self.fade = Some(fade);
+                }
+                return;
+            }
+            if shifts.is_empty() {
+                hover = Some(hover.map_or(fade.area, |had| join(had, fade.area)));
+            }
+        }
         self.stale = false;
         let size = self.view();
         let fonts = Fonts { body: &self.fonts.0, small: &self.fonts.1, title: &self.fonts.2 };
@@ -558,7 +619,12 @@ impl Explorer {
             }
         }
         if let (Some(area), Some(image)) = (hover, before.take()) {
-            before = Some(self.look.repaint(image, size, &Paint { clip: Some(area), ..job }));
+            let old = crop(&image, area).filter(|_| self.model.menu.is_none() && self.model.dragging.is_none() && part.is_none());
+            let image = self.look.repaint(image, size, &Paint { clip: Some(area), ..job });
+            if let (Some((at, old)), Some((_, new))) = (old, crop(&image, area)) {
+                self.fade = Some(Fade { area, at, old, new, since: Instant::now() });
+            }
+            before = Some(image);
             part = Some(part.map_or(area, |had| join(had, area)));
         }
         let (image, part) = match (before, part) {
@@ -566,9 +632,9 @@ impl Explorer {
             _ => (self.look.paint(size, &job), None),
         };
         let image = match (&self.swap, part) {
-            (Some((old, at)), None) if old.width == image.width && old.height == image.height => {
+            (Some((old, at, long)), None) if old.width == image.width && old.height == image.height => {
                 let mut canvas = drifter_core::paint::Canvas::on(image);
-                let fade = 1.0 - drifter_core::explorer::look::ease(at.elapsed().as_secs_f64() / SWAP.as_secs_f64());
+                let fade = 1.0 - drifter_core::explorer::look::ease(at.elapsed().as_secs_f64() / long.as_secs_f64());
                 canvas.stamp(old, Vec2::ZERO, fade);
                 canvas.image
             }
@@ -585,11 +651,14 @@ impl Explorer {
             self.pop_at = Some(Instant::now());
         }
         let moved = now.2 != self.seen.2 || now.3 != self.seen.3;
-        if moved && !self.seen.3.as_os_str().is_empty()
+        let picks = self.picks_key();
+        let picked = picks != self.picks && std::mem::take(&mut self.clicked);
+        if (moved || picked) && !self.seen.3.as_os_str().is_empty()
             && let Some(last) = self.last.clone()
         {
-            self.swap = Some((last, Instant::now()));
+            self.swap = Some((last, Instant::now(), if moved { SWAP } else { GLOW }));
         }
+        self.picks = picks;
         self.seen = now;
         self.model.pop = match self.pop_at {
             Some(at) => drifter_core::explorer::look::ease(at.elapsed().as_secs_f64() / POP.as_secs_f64()),
@@ -601,12 +670,25 @@ impl Explorer {
                 self.pop_at = None;
             }
         }
-        if let Some((_, at)) = &self.swap {
+        if let Some((_, at, long)) = &self.swap {
             self.stale = true;
-            if at.elapsed() >= SWAP {
+            if at.elapsed() >= *long {
                 self.swap = None;
             }
         }
+    }
+
+    fn busy(&self) -> bool {
+        self.stale || self.dirty.is_some() || !self.shifts.is_empty() || self.fade.is_some()
+    }
+
+    fn picks_key(&self) -> usize {
+        use std::hash::{Hash, Hasher};
+        let mut hash = std::collections::hash_map::DefaultHasher::new();
+        let mut picked: Vec<&PathBuf> = self.model.picked.iter().collect();
+        picked.sort();
+        picked.hash(&mut hash);
+        hash.finish() as usize
     }
 
     fn tip_damage(&mut self) -> Option<drifter_core::Rect> {
@@ -928,6 +1010,7 @@ impl PointerHandler for Explorer {
                 PointerEventKind::Press { button, serial, .. } if matches!(button, BTN_LEFT | BTN_RIGHT | BTN_MIDDLE) => {
                     self.serial = serial;
                     self.press_serial = serial;
+                    self.clicked = true;
                     self.press(button)
                 }
                 PointerEventKind::Release { button, .. } if button == BTN_LEFT => {
