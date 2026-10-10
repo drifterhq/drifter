@@ -70,6 +70,8 @@ pub enum Job {
     Restore(Vec<PathBuf>),
     EmptyTrash,
     Undo(Undo),
+    Compress(Vec<PathBuf>),
+    Extract(Vec<PathBuf>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,7 +97,7 @@ impl Job {
     pub fn count(&self) -> usize {
         match self {
             Job::Copy { from, .. } | Job::Move { from, .. } => from.len(),
-            Job::Trash(paths) | Job::Delete(paths) | Job::Restore(paths) => paths.len(),
+            Job::Trash(paths) | Job::Delete(paths) | Job::Restore(paths) | Job::Compress(paths) | Job::Extract(paths) => paths.len(),
             Job::EmptyTrash => 0,
             Job::Undo(_) => 1,
         }
@@ -104,7 +106,7 @@ impl Job {
     pub fn doing(&self) -> String {
         use crate::explorer::entry::{items, name_of};
         let what = match self {
-            Job::Copy { from, .. } | Job::Move { from, .. } | Job::Trash(from) | Job::Delete(from) | Job::Restore(from) => match from.as_slice() {
+            Job::Copy { from, .. } | Job::Move { from, .. } | Job::Trash(from) | Job::Delete(from) | Job::Restore(from) | Job::Compress(from) | Job::Extract(from) => match from.as_slice() {
                 [one] => name_of(one),
                 many => items(many.len()),
             },
@@ -116,6 +118,8 @@ impl Job {
             Job::Trash(_) => crate::lang::tf("Moving {} to the Trash", &[&what]),
             Job::Delete(_) => crate::lang::tf("Deleting {}", &[&what]),
             Job::Restore(_) => crate::lang::tf("Putting back {}", &[&what]),
+            Job::Compress(_) => crate::lang::tf("Compressing {}", &[&what]),
+            Job::Extract(_) => crate::lang::tf("Extracting {}", &[&what]),
             Job::EmptyTrash => crate::lang::t("Emptying the Trash").to_string(),
             Job::Undo(_) => crate::lang::t("Undoing").to_string(),
         }
@@ -671,6 +675,11 @@ pub fn run_with(root: &Path, job: Job, progress: &Progress) -> Done {
             progress.count.store(paths.len() as u64, Ordering::Relaxed);
             Ok(())
         }
+        Job::Compress(_) => Ok(()),
+        Job::Extract(paths) => {
+            progress.count.store(paths.len() as u64, Ordering::Relaxed);
+            Ok(())
+        }
         Job::EmptyTrash | Job::Undo(_) => Ok(()),
     };
     if counted.is_err() && progress.stopped() {
@@ -783,6 +792,26 @@ pub fn run_with(root: &Path, job: Job, progress: &Progress) -> Done {
             }
         }
         Job::Undo(undo) => undo_with(root, undo, progress, &mut done),
+        Job::Compress(paths) => {
+            match super::pack::compress(&paths, progress) {
+                Ok(made) => done.made.push(made),
+                Err(_) if progress.stopped() => {}
+                Err(error) => done.failed.push(fail(paths.first().map_or(root, PathBuf::as_path), error)),
+            }
+            done.undo = (!done.made.is_empty()).then(|| Undo::Made(done.made.clone()));
+        }
+        Job::Extract(paths) => {
+            for path in &paths {
+                let into = path.parent().unwrap_or(root);
+                match super::pack::extract(path, into, progress) {
+                    Ok(made) => done.made.push(made),
+                    Err(_) if progress.stopped() => break,
+                    Err(error) => done.failed.push(fail(path, error)),
+                }
+                progress.item();
+            }
+            done.undo = (!done.made.is_empty()).then(|| Undo::Made(done.made.clone()));
+        }
     }
     done.stopped = progress.stopped();
     done

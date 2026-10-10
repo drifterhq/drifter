@@ -20,7 +20,7 @@ extended-description = "A file manager made for Drifter: a folder tree, a path b
 section = "utils"
 priority = "optional"
 depends = "$auto"
-recommends = "ffmpegthumbnailer, poppler-utils, wl-clipboard"
+recommends = "ffmpegthumbnailer, poppler-utils, wl-clipboard, libarchive-tools"
 assets = [
     ["target/release/drifter-explorer", "usr/bin/", "755"],
     ["../../dist/drifter-explorer.desktop", "usr/share/applications/", "644"],

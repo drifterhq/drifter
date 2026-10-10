@@ -3224,3 +3224,30 @@ Original Location
 
 Date Deleted
 = Fecha de eliminación
+
+Compress
+= Comprimir
+
+Extract Here
+= Extraer aquí
+
+Compressing {}
+= Comprimiendo {}
+
+Extracting {}
+= Extrayendo {}
+
+Nothing to compress
+= No hay nada que comprimir
+
+Items to compress must be in one folder
+= Los elementos que se comprimen deben estar en una sola carpeta
+
+Install libarchive-tools to open this kind of archive
+= Instala libarchive-tools para abrir este tipo de archivo comprimido
+
+This is not an archive Explorer can open
+= Explorer no puede abrir este archivo comprimido
+
+Install {} to open this file
+= Instala {} para abrir este archivo

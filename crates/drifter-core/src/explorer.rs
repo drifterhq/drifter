@@ -6,6 +6,7 @@ pub mod look;
 pub mod model;
 pub mod open;
 pub mod ops;
+pub mod pack;
 pub mod prefs;
 pub mod read;
 

@@ -63,6 +63,8 @@ pub enum Act {
     Stop(u64),
     StopAndClose,
     Clash(Clash),
+    Compress,
+    Extract,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1320,6 +1322,19 @@ impl Model {
                     self.confirm(crate::lang::t("Stop the work and close?"), words, crate::lang::t("Stop and Close"), Act::StopAndClose);
                 }
             },
+            Act::Compress if !in_trash => {
+                let paths = self.chosen_paths();
+                if !paths.is_empty() {
+                    self.start_job(Job::Compress(paths));
+                }
+            }
+            Act::Extract if !in_trash => {
+                let paths: Vec<PathBuf> = self.chosen_paths().into_iter().filter(|path| super::pack::can_extract(path)).collect();
+                if !paths.is_empty() {
+                    self.start_job(Job::Extract(paths));
+                }
+            }
+            Act::Compress | Act::Extract => {}
             Act::Clash(clash) => {
                 if let Some(Sheet::Clash { from, into, cut, .. }) = self.sheet.take() {
                     self.send_with(from, into, cut, clash);
@@ -1514,6 +1529,8 @@ impl Model {
                 Item::rule(),
                 Item::new(crate::lang::t("Rename"), "F2", Act::Rename).when(self.picked.len() == 1 && !in_trash),
                 Item::new(crate::lang::t("Duplicate"), "Ctrl+D", Act::Duplicate).when(any && !in_trash),
+                Item::new(crate::lang::t("Compress"), "", Act::Compress).when(any && !in_trash),
+                Item::new(crate::lang::t("Extract Here"), "", Act::Extract).when(any && !in_trash && self.chosen().iter().all(|each| !each.folder && super::pack::kind_of(&each.name).is_some())),
                 Item::new(crate::lang::t("Move to Trash"), "Delete", Act::Trash).when(any && !in_trash),
                 Item::new(crate::lang::t("Put Back"), "", Act::Restore).when(any && in_trash),
                 Item::new(crate::lang::t("Empty Trash"), "", Act::EmptyTrash),
@@ -1614,6 +1631,11 @@ impl Model {
         items.push(Item::rule());
         items.push(Item::new(crate::lang::t("Rename"), "F2", Act::Rename).when(one));
         items.push(Item::new(crate::lang::t("Duplicate"), "Ctrl+D", Act::Duplicate));
+        items.push(Item::new(crate::lang::t("Compress"), "", Act::Compress));
+        let archives = self.chosen().iter().all(|each| !each.folder && super::pack::kind_of(&each.name).is_some());
+        if archives {
+            items.push(Item::new(crate::lang::t("Extract Here"), "", Act::Extract));
+        }
         items.push(Item::new(crate::lang::t("Move to Trash"), "Delete", Act::Trash));
         items.push(Item::rule());
         items.push(Item::new(crate::lang::t("Get Info"), "Ctrl+I", Act::Info).when(one));
@@ -1950,6 +1972,29 @@ mod tests {
         model.effects.clear();
         model.drop_on(super::super::look::Drop::Into(work.join("Photos")), vec![work.join("a.png")], true);
         assert_eq!(model.effects, [Effect::Job(2, Job::Copy { from: vec![work.join("a.png")], into: work.join("Photos"), clash: Clash::KeepBoth })]);
+    }
+
+    #[test]
+    fn compress_and_extract_run_as_jobs() {
+        let (place, mut model) = place("pack");
+        let work = place.0.join("work");
+        model.pick_only(work.join("b.txt"));
+        model.act(Act::Extract);
+        assert!(model.effects.is_empty());
+        assert!(!model.item_menu().iter().any(|item| item.act == Some(Act::Extract)));
+        model.act(Act::Compress);
+        let Some(Effect::Job(id, job)) = model.effects.pop() else {
+            panic!("no job");
+        };
+        assert_eq!(job, Job::Compress(vec![work.join("b.txt")]));
+        if !crate::explorer::prefs::on_path("bsdtar") && !crate::explorer::prefs::on_path("zip") {
+            return;
+        }
+        let mut done = ops::run_with(&place.0.join("Trash"), job, &model.progress_of(id));
+        done.id = id;
+        model.finished(done);
+        assert!(model.picked.contains(&work.join("b.txt.zip")));
+        assert!(model.item_menu().iter().any(|item| item.act == Some(Act::Extract)));
     }
 
     #[test]
