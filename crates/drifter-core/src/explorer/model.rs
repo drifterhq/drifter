@@ -357,6 +357,7 @@ pub struct Model {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Drag {
     Split { from: f64, width: u32 },
+    Rail { rail: super::look::Rail, grab: f64 },
     Zoom,
     Slider,
     Files { paths: Vec<PathBuf>, from: crate::Vec2, at: crate::Vec2, live: bool, pending: Option<PathBuf> },

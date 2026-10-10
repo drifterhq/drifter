@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use super::look::{Fonts, Hit, Look, SheetHit};
+use super::look::{Fonts, Hit, Look, Rail, SheetHit};
 use super::model::{Act, Drag, Line, Menu, Model, Sheet};
 use super::prefs::{self, Click, Mode};
 use crate::geom::Vec2;
@@ -170,6 +170,18 @@ pub fn press(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, button: Butto
         Hit::Stop(id) => model.act(Act::Stop(id)),
         Hit::Banner | Hit::Jobs => {}
         Hit::Split => model.dragging = Some(Drag::Split { from: at.x, width: model.prefs.tree_width }),
+        Hit::Rail(rail) => {
+            let Some((area, content, scroll)) = ui.look.rail_place(ui.size, model, lines, rail).filter(|_| !right) else {
+                return;
+            };
+            let thumb = super::look::rail_thumb(area, content, scroll);
+            let most = content - area.size.y;
+            match (at.y < thumb.origin.y, at.y >= thumb.max().y) {
+                (true, _) => set_rail(model, rail, scroll - (area.size.y - 40.0).max(20.0), most),
+                (_, true) => set_rail(model, rail, scroll + (area.size.y - 40.0).max(20.0), most),
+                _ => model.dragging = Some(Drag::Rail { rail, grab: at.y - thumb.origin.y }),
+            }
+        }
         Hit::Eject(index) => {
             if let Some(Line::Drive { drive: Some(drive), .. }) = lines.get(index)
                 && let Some(device) = drive.device.clone()
@@ -231,6 +243,27 @@ pub fn press(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, button: Butto
                 model.act(Act::Open);
             }
         }
+    }
+}
+
+fn set_rail(model: &mut Model, rail: Rail, to: f64, most: f64) {
+    let to = to.round().clamp(0.0, most.max(0.0).ceil());
+    match rail {
+        Rail::Body => (model.scroll, model.scroll_rest) = (to, 0.0),
+        Rail::Tree => (model.tree_scroll, model.tree_rest) = (to, 0.0),
+        Rail::Column(index) => {
+            if let Some(column) = model.columns.get_mut(index) {
+                column.scroll = to;
+            }
+        }
+    }
+}
+
+fn rail_scroll(model: &Model, rail: Rail) -> f64 {
+    match rail {
+        Rail::Body => model.scroll,
+        Rail::Tree => model.tree_scroll,
+        Rail::Column(index) => model.columns.get(index).map_or(0.0, |column| column.scroll),
     }
 }
 
@@ -434,6 +467,20 @@ pub fn motion(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2) -> bool {
             model.prefs.tree_width = wide;
             model.saved = false;
             return changed;
+        }
+        Some(Drag::Rail { rail, grab }) => {
+            let Some((area, content, scroll)) = ui.look.rail_place(ui.size, model, lines, rail) else {
+                return false;
+            };
+            let thumb = super::look::rail_thumb(area, content, scroll);
+            let room = area.size.y - thumb.size.y;
+            if room <= 0.0 {
+                return false;
+            }
+            let share = ((at.y - grab - area.origin.y) / room).clamp(0.0, 1.0);
+            let before = rail_scroll(model, rail);
+            set_rail(model, rail, share * (content - area.size.y), content - area.size.y);
+            return before != rail_scroll(model, rail);
         }
         Some(Drag::Zoom) => {
             let before = model.prefs.zoom;

@@ -755,7 +755,18 @@ impl PointerHandler for Explorer {
                 PointerEventKind::Motion { .. } | PointerEventKind::Enter { .. } => {
                     let (hover, menu) = (self.model.hover.clone(), self.model.menu.clone());
                     let tip = self.tip_damage();
+                    let scrolls = (self.model.scroll, self.model.tree_scroll);
+                    let rail = matches!(self.model.dragging, Some(drifter_core::explorer::model::Drag::Rail { .. }));
                     if self.with_ui(|model, ui, lines| input::motion(model, ui, lines, at)) {
+                        if rail {
+                            let (body, side) = (self.model.scroll - scrolls.0, self.model.tree_scroll - scrolls.1);
+                            match (body != 0.0, side != 0.0) {
+                                (true, false) => self.shifts.push((body, false)),
+                                (false, true) => self.shifts.push((side, true)),
+                                _ => self.stale = true,
+                            }
+                            continue;
+                        }
                         let lines = self.model.lines();
                         let area = self.hover_damage(&hover, &menu, &lines);
                         self.damage(area);

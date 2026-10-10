@@ -72,6 +72,28 @@ pub enum Hit {
     TabClose(usize),
     TabNew,
     Tabs,
+    Rail(Rail),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rail {
+    Body,
+    Tree,
+    Column(usize),
+}
+
+pub fn rail_track(area: Rect) -> Rect {
+    rect(area.max().x - 12.0, area.origin.y, 12.0, area.size.y)
+}
+
+pub fn rail_thumb(area: Rect, content: f64, scroll: f64) -> Rect {
+    let tall = (area.size.y * area.size.y / content).max(28.0).min(area.size.y);
+    let top = area.origin.y + (area.size.y - tall) * (scroll / (content - area.size.y)).clamp(0.0, 1.0);
+    rect(area.max().x - 12.0, top, 12.0, tall)
+}
+
+pub fn rail_hot(model: &Model, rail: Rail) -> bool {
+    model.hover == Some(Hit::Rail(rail)) || matches!(model.dragging, Some(super::model::Drag::Rail { rail: held, .. }) if held == rail)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -529,6 +551,9 @@ impl Look {
         if let Some(side) = frame.side
             && side.contains(at)
         {
+            if self.rail_place(size, model, lines, Rail::Tree).is_some_and(|(area, _, _)| rail_track(area).contains(at)) {
+                return Some(Hit::Rail(Rail::Tree));
+            }
             let rects = self.line_rects(side, lines, model.tree_scroll);
             let found = rects.iter().position(|area| area.contains(at))?;
             if let Line::Folder { depth, .. } = &lines[found] {
@@ -551,6 +576,12 @@ impl Look {
         let body = frame.body;
         if !body.contains(at) {
             return None;
+        }
+        let rails = std::iter::once(Rail::Body).chain((0..model.columns.len()).map(Rail::Column).filter(|_| model.view.mode == Mode::Columns));
+        for rail in rails {
+            if self.rail_place(size, model, lines, rail).is_some_and(|(area, _, _)| rail_track(area).contains(at)) {
+                return Some(Hit::Rail(rail));
+            }
         }
         match model.view.mode {
             Mode::List => {
@@ -1245,18 +1276,34 @@ impl Look {
                 }
             }
         }
-        self.scroll_mark(&mut canvas, local, self.tree_height(job.lines), model.tree_scroll);
+        self.scroll_mark(&mut canvas, local, self.tree_height(job.lines), model.tree_scroll, rail_hot(model, Rail::Tree));
         canvas.image
     }
 
-    fn scroll_mark(&self, canvas: &mut Canvas, area: Rect, content: f64, scroll: f64) {
+    fn scroll_mark(&self, canvas: &mut Canvas, area: Rect, content: f64, scroll: f64, hot: bool) {
         if content <= area.size.y + 1.0 {
             return;
         }
-        let share = area.size.y / content;
-        let tall = (area.size.y * share).max(28.0);
-        let top = area.origin.y + (area.size.y - tall) * (scroll / (content - area.size.y)).clamp(0.0, 1.0);
-        canvas.round_rect(rect(area.max().x - 7.0, top + 2.0, 4.0, tall - 4.0), 2.0, self.dim, 0.45);
+        let thumb = rail_thumb(area, content, scroll);
+        match hot {
+            true => canvas.round_rect(rect(thumb.max().x - 10.0, thumb.origin.y + 2.0, 8.0, thumb.size.y - 4.0), 4.0, self.dim, 0.75),
+            false => canvas.round_rect(rect(thumb.max().x - 7.0, thumb.origin.y + 2.0, 4.0, thumb.size.y - 4.0), 2.0, self.dim, 0.45),
+        }
+    }
+
+    pub fn rail_place(&self, size: Vec2, model: &Model, lines: &[Line], rail: Rail) -> Option<(Rect, f64, f64)> {
+        let frame = self.frame(size, model);
+        let body = frame.body;
+        let (area, content, scroll) = match rail {
+            Rail::Tree => (frame.side?, self.tree_height(lines), model.tree_scroll),
+            Rail::Body => match model.view.mode {
+                Mode::List => (rect(body.origin.x, body.origin.y + HEAD_H, body.size.x, body.size.y - HEAD_H), self.content_height(&frame, model) - HEAD_H, model.scroll),
+                Mode::Icons => (body, self.content_height(&frame, model), model.scroll),
+                _ => return None,
+            },
+            Rail::Column(index) => (self.column_rect(body, model, index), 12.0 + model.columns.get(index)?.entries.len() as f64 * ROW_H, model.columns[index].scroll),
+        };
+        (content > area.size.y + 1.0).then_some((area, content, scroll))
     }
 
     fn paint_body(&self, canvas: &mut Canvas, frame: &Frame, job: &Paint) {
@@ -1408,7 +1455,7 @@ impl Look {
                 x += w;
             }
         }
-        self.scroll_mark(canvas, rect(0.0, top, body.size.x, body.size.y - top), self.content_height(frame, model) - top, model.scroll);
+        self.scroll_mark(canvas, rect(0.0, top, body.size.x, body.size.y - top), self.content_height(frame, model) - top, model.scroll, rail_hot(model, Rail::Body));
     }
 
     fn wrap(&self, font: &Font, words: &str, room: f64, lines: usize) -> Vec<String> {
@@ -1492,7 +1539,7 @@ impl Look {
                 canvas.stamp(&piece, Vec2::new(area.center().x - size.x / 2.0, label_top + row as f64 * line_h).round(), 1.0);
             }
         }
-        self.scroll_mark(canvas, body, self.content_height(frame, model), model.scroll);
+        self.scroll_mark(canvas, body, self.content_height(frame, model), model.scroll, rail_hot(model, Rail::Body));
     }
 
     fn paint_columns(&self, canvas: &mut Canvas, frame: &Frame, job: &Paint) {
@@ -1548,7 +1595,7 @@ impl Look {
                 self.text_center(canvas, fonts.small, crate::lang::t("Empty"), self.dim, Vec2::new(area.center().x, area.origin.y + 30.0), COLUMN_W - 20.0);
             }
             let content = 12.0 + column.entries.len() as f64 * ROW_H;
-            self.scroll_mark(canvas, area, content, column.scroll);
+            self.scroll_mark(canvas, area, content, column.scroll, rail_hot(model, Rail::Column(index)));
             canvas.round_rect(rect(area.max().x - 1.0, 0.0, 1.0, body.size.y), 0.0, self.rule, 1.0);
         }
         if let Some(one) = model.single().filter(|one| !one.folder) {
@@ -1818,6 +1865,7 @@ impl Look {
             Hit::Dismiss => self.dismiss_rect(frame.banner?),
             Hit::Tab(index) | Hit::TabClose(index) => *self.strip_tabs(frame.tabs?, model.tabs.len()).0.get(*index)?,
             Hit::TabNew => self.strip_tabs(frame.tabs?, model.tabs.len()).1,
+            Hit::Rail(rail) => rail_track(self.rail_place(size, model, lines, *rail)?.0),
             _ => return None,
         };
         Some(Rect::new(area.origin - Vec2::splat(4.0), area.size + Vec2::splat(8.0)))
@@ -2720,6 +2768,63 @@ mod repaint_tests {
         }
         assert!(blits >= 18, "only {blits} blits ran");
         crate::paint::set_density(1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_scrollbar_drags_and_pages() {
+        use super::super::input::{self, Button, Mods, Ui};
+        let dir = std::env::temp_dir().join(format!("drifter-rail-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("work")).unwrap();
+        for n in 0..80 {
+            std::fs::write(dir.join(format!("work/file {n}.txt")), "x").unwrap();
+        }
+        let mut model = Model::new(dir.join("explorer.toml"), Some(dir.join("work")));
+        model.settle_all(std::time::Duration::from_secs(5));
+        let (Ok(body), Ok(small), Ok(title)) = (crate::Font::find(None, 13.0), crate::Font::find(None, 11.5), crate::Font::find(None, 17.0)) else {
+            return;
+        };
+        let fonts = Fonts { body: &body, small: &small, title: &title };
+        let look = Look::themed(&crate::theme::DARK, [64, 128, 238]);
+        let size = Vec2::new(900.0, 600.0);
+        crate::paint::set_density(1);
+        let ui = Ui { look: &look, fonts: &fonts, size };
+        let lines = model.lines();
+        let (area, content, _) = look.rail_place(size, &model, &lines, Rail::Body).expect("a rail");
+        let most = content - area.size.y;
+        let grab = rail_thumb(area, content, model.scroll).center();
+        assert_eq!(look.hit(size, &model, &lines, &fonts, grab), Some(Hit::Rail(Rail::Body)));
+        assert_ne!(look.hit(size, &model, &lines, &fonts, grab - Vec2::new(20.0, 0.0)), Some(Hit::Rail(Rail::Body)));
+        input::press(&mut model, &ui, &lines, grab, Button::Left, 1, Mods::default());
+        assert!(rail_hot(&model, Rail::Body));
+        assert!(input::motion(&mut model, &ui, &lines, Vec2::new(grab.x, area.max().y + 80.0)));
+        assert_eq!(model.scroll, most.round().min(most.ceil()));
+        input::release(&mut model, &ui, &lines, Vec2::new(grab.x, area.max().y + 80.0), false);
+        assert!(model.dragging.is_none());
+        let before = model.scroll;
+        input::press(&mut model, &ui, &lines, Vec2::new(grab.x, area.origin.y + 3.0), Button::Left, 1, Mods::default());
+        assert_eq!(model.scroll, before - (area.size.y - 40.0).round());
+        assert!(model.dragging.is_none());
+        input::press(&mut model, &ui, &lines, Vec2::new(grab.x, area.max().y - 3.0), Button::Left, 1, Mods::default());
+        assert_eq!(model.scroll, before);
+        let art = Art::default();
+        for density in [1, 2] {
+            crate::paint::set_density(density);
+            for (was, now) in [(None, Some(Hit::Rail(Rail::Body))), (Some(Hit::Rail(Rail::Body)), Some(Hit::Entry(70))), (Some(Hit::Entry(70)), None)] {
+                model.hover = was.clone();
+                let before = look.paint(size, &Paint { model: &model, lines: &lines, fonts: &fonts, art: &art, clip: None });
+                let mut area: Option<Rect> = None;
+                for hit in [&was, &now].into_iter().flatten() {
+                    let found = look.hover_rect(size, &model, &lines, &fonts, hit).expect("a hover rect");
+                    area = Some(area.map_or(found, |had| join(had, found)));
+                }
+                model.hover = now.clone();
+                let part = look.repaint(before, size, &Paint { model: &model, lines: &lines, fonts: &fonts, art: &art, clip: area });
+                let whole = look.paint(size, &Paint { model: &model, lines: &lines, fonts: &fonts, art: &art, clip: None });
+                assert!(same(&part, &whole), "rail at {density}x: {was:?} -> {now:?}");
+            }
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -80,6 +80,7 @@ Later steps build on these.
     - Built: Back, Forward, Up, the view buttons, Settings, the search ×, path arrows, tab buttons, the banner ×, job stop and eject show a tooltip after 0.7 s, with the key in gray ("Enclosing Folder  Alt+Up"). Once one has shown, the next shows at once. A tab's tooltip shows its full path. Tips stay inside the window, flip above near the bottom, and hide on click, key, scroll or leave. Showing and hiding repaint only the tip area, checked pixel for pixel. Checked on Blue.
 20. Scrollbars: they only show your position. You cannot drag them.
     Waits on: nothing.
+    - Built: the scrollbars of the list, icons, sidebar and each column grow wider under the pointer. Drag the thumb to scroll. Click above or below it to move one page. A drag moves drawn pixels like the wheel does, and a hover repaints only the bar, checked pixel for pixel. Checked on Blue with 200 files.
 21. Lasso selection with the mouse.
     Waits on: nothing.
 22. Changing list column widths.
