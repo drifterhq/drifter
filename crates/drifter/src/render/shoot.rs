@@ -877,7 +877,7 @@ pub fn send_shot(path: &std::path::Path, mime: &str, fd: std::os::fd::OwnedFd) {
     let mime = mime.to_string();
     std::thread::spawn(move || {
         let bytes = match mime.as_str() {
-            "text/uri-list" => format!("file://{}\r\n", path.display()).into_bytes(),
+            "text/uri-list" => drifter_core::explorer::clip::uri_list(std::slice::from_ref(&path)).into_bytes(),
             _ => std::fs::read(&path).unwrap_or_default(),
         };
         let _ = std::fs::File::from(fd).write_all(&bytes);

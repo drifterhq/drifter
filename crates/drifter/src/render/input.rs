@@ -573,7 +573,9 @@ impl State {
             if let Some(at) = self.eaten.iter().position(|eaten| *eaten == code) {
                 self.eaten.swap_remove(at);
                 self.kick();
-                return;
+                if self.drag_shot.is_none() {
+                    return;
+                }
             }
         }
         if state == ButtonState::Pressed {

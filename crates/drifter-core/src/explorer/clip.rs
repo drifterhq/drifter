@@ -44,11 +44,15 @@ impl Held {
                 }
                 Some(out.into_bytes())
             }
-            (Held::Files(paths, _), URIS) => Some(paths.iter().map(|path| format!("file://{}\r\n", encode(path))).collect::<String>().into_bytes()),
+            (Held::Files(paths, _), URIS) => Some(uri_list(paths).into_bytes()),
             (_, TEXT | PLAIN | UTF8) => Some(self.text().into_bytes()),
             _ => None,
         }
     }
+}
+
+pub fn uri_list(paths: &[PathBuf]) -> String {
+    paths.iter().map(|path| format!("file://{}\r\n", encode(path))).collect()
 }
 
 pub fn best_files(offered: &[String]) -> Option<&'static str> {
@@ -98,6 +102,8 @@ mod tests {
         assert_eq!(read(FILES, &gnome), Some(held.clone()));
         let uris = held.bytes(URIS).unwrap();
         assert_eq!(read(URIS, &uris), Some(Held::Files(vec![PathBuf::from("/home/me/My Notes.txt"), PathBuf::from("/home/me/ü.png")], false)));
+        let shot = uri_list(&[PathBuf::from("/home/me/Pictures/Screenshots/Screenshot 2026-10-10 at 05.00.00.png")]);
+        assert_eq!(shot, "file:///home/me/Pictures/Screenshots/Screenshot%202026-10-10%20at%2005.00.00.png\r\n");
         assert_eq!(held.bytes(TEXT).unwrap(), b"/home/me/My Notes.txt\n/home/me/\xc3\xbc.png");
         assert_eq!(held.bytes("image/png"), None);
     }
