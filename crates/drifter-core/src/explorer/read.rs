@@ -39,20 +39,29 @@ pub enum Got {
     Folders(PathBuf, bool, Vec<PathBuf>),
     Stamp(PathBuf, Option<SystemTime>),
     Peek(PathBuf, Option<Vec<String>>),
+    Changed(Vec<PathBuf>),
 }
 
 pub struct Reader {
-    done: Sender<(Ask, Got)>,
-    back: Receiver<(Ask, Got)>,
+    done: Sender<(Option<Ask>, Got)>,
+    back: Receiver<(Option<Ask>, Got)>,
     pending: HashMap<Ask, u64>,
     next: u64,
     wake: Arc<Mutex<Option<Wake>>>,
+    watcher: Option<super::watch::Watcher>,
 }
 
 impl Default for Reader {
     fn default() -> Reader {
         let (done, back) = channel();
-        Reader { done, back, pending: HashMap::new(), next: 0, wake: Arc::default() }
+        Reader { done, back, pending: HashMap::new(), next: 0, wake: Arc::default(), watcher: None }
+    }
+}
+
+fn woken(wake: &Mutex<Option<Wake>>) {
+    let wake = wake.lock().ok().and_then(|slot| slot.clone());
+    if let Some(wake) = wake {
+        wake();
     }
 }
 
@@ -74,16 +83,28 @@ impl Reader {
         let work = ask.clone();
         let spawned = std::thread::Builder::new().name("explorer-read".to_string()).spawn(move || {
             let got = run(&work, seq);
-            let _ = done.send((work, got));
-            let wake = wake.lock().ok().and_then(|slot| slot.clone());
-            if let Some(wake) = wake {
-                wake();
-            }
+            let _ = done.send((Some(work), got));
+            woken(&wake);
         });
         if spawned.is_err() {
-            let _ = self.done.send((ask.clone(), run(&ask, seq)));
+            let _ = self.done.send((Some(ask.clone()), run(&ask, seq)));
         }
         seq
+    }
+
+    pub fn watch(&mut self, dirs: Vec<PathBuf>) {
+        let watcher = self.watcher.get_or_insert_with(|| {
+            let (done, wake) = (self.done.clone(), self.wake.clone());
+            super::watch::Watcher::start(Box::new(move |dirs| {
+                let _ = done.send((None, Got::Changed(dirs)));
+                woken(&wake);
+            }))
+        });
+        watcher.watch(dirs);
+    }
+
+    pub fn watching(&self) -> bool {
+        self.watcher.as_ref().is_some_and(super::watch::Watcher::on)
     }
 
     pub fn asked(&self, ask: &Ask) -> bool {
@@ -99,7 +120,9 @@ impl Reader {
             None => self.back.try_recv().ok()?,
             Some(at) => self.back.recv_timeout(at.saturating_duration_since(Instant::now())).ok()?,
         };
-        self.pending.remove(&ask);
+        if let Some(ask) = ask {
+            self.pending.remove(&ask);
+        }
         Some(got)
     }
 }

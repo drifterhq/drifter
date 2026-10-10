@@ -535,6 +535,19 @@ impl Model {
                 self.ask_list(&dir);
                 false
             }
+            Got::Changed(dirs) => {
+                for dir in dirs {
+                    if self.loading.is_none() && dir == self.dir {
+                        self.ask_list(&dir);
+                    } else if self.columns.iter().any(|column| column.dir == dir) {
+                        self.ask_list(&dir);
+                    }
+                    if self.kids.contains_key(&dir) {
+                        self.reader.ask(Ask::Folders(dir, self.prefs.hidden));
+                    }
+                }
+                false
+            }
             Got::Peek(path, lines) => {
                 if self.peek_for.as_ref() != Some(&path) {
                     return false;
@@ -652,6 +665,7 @@ impl Model {
             self.prefs.last = Some(self.dir.clone());
             self.saved = false;
         }
+        self.sync_watches();
         true
     }
 
@@ -700,6 +714,13 @@ impl Model {
         self.follow();
     }
 
+    pub fn sync_watches(&mut self) {
+        let mut dirs = vec![self.dir.clone()];
+        dirs.extend(self.columns.iter().map(|column| column.dir.clone()));
+        dirs.extend(self.kids.keys().filter(|dir| self.open.contains(*dir)).cloned());
+        self.reader.watch(dirs);
+    }
+
     pub fn showing_loading(&self) -> bool {
         self.loading.is_some_and(|at| at.elapsed() >= SHOW_LOADING)
     }
@@ -726,7 +747,9 @@ impl Model {
         if self.jobs.iter().any(Running::shown) {
             changed = true;
         }
-        changed | self.arrived()
+        let changed = changed | self.arrived();
+        self.sync_watches();
+        changed
     }
 
     pub fn save(&mut self) {
@@ -1995,6 +2018,22 @@ mod tests {
         model.finished(done);
         assert!(model.picked.contains(&work.join("b.txt.zip")));
         assert!(model.item_menu().iter().any(|item| item.act == Some(Act::Extract)));
+    }
+
+    #[test]
+    fn a_change_event_refreshes_the_tree_and_the_list() {
+        let (place, mut model) = place("changed");
+        let work = place.0.join("work");
+        model.fold(&work.join("Photos"));
+        model.lines();
+        model.settle_all(Duration::from_secs(5));
+        assert_eq!(model.kids.get(&work.join("Photos")), Some(&vec![work.join("Photos/2026")]));
+        std::fs::create_dir(work.join("Photos/2027")).unwrap();
+        std::fs::write(work.join("c.txt"), "c").unwrap();
+        model.absorb(Got::Changed(vec![work.join("Photos"), work.clone()]));
+        model.settle_all(Duration::from_secs(5));
+        assert_eq!(model.kids.get(&work.join("Photos")).map(Vec::len), Some(2));
+        assert!(model.index_of(&work.join("c.txt")).is_some());
     }
 
     #[test]

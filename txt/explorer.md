@@ -18,6 +18,7 @@ Later steps build on these.
    - Built: folders, the tree, columns, text previews and change checks read on worker threads. A folder that takes more than 50 ms shows "Loading…" and fills in later. A 100,000-file folder now blocks 60 ms, not 0.9 s. Left: a test on the Pixelbook.
 4. Folder watching: Explorer checks only the open folder, every half second. The tree and the other columns do not refresh when a folder changes. Watch every shown folder with inotify.
    Waits on: 3.
+   - Built: one inotify thread watches the open folder, every open folder in the tree and every column. Changes come in 120 ms after they settle, and refresh the list, tree and columns without blocking. The thread sleeps until a change or a new folder set. The half-second check stays as a backup for network drives. Left: run the Linux watcher test and try it on the Pixelbook.
 5. Errors: an error shows in the status bar for 6 seconds and then disappears. It is easy to miss. Keep it until the user closes it.
    Waits on: nothing.
    - Built: errors show in a red banner under the toolbar, even with the status bar off. The banner stays until you click × or press Escape. It counts errors behind it ("1 more"). Left: a test on the Pixelbook.
