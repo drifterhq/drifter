@@ -210,3 +210,6 @@ Later steps build on these.
     - Checked on the trixie VM: in Columns view Down picks, Right opens a folder in the next column, Left goes back a column, and typing finds a name in the column that has the focus.
     - Fixed: an empty or blank text file showed an empty page in the preview (Columns, Gallery and Quick Look); it now shows the file's icon with "TXT text · Empty". Test: `an_empty_file_shows_its_icon_not_a_blank_page`. Checked on the trixie VM.
     - Fixed: `a_slow_folder_shows_loading_and_fills_in_later` failed about one run in four, because a zero wait budget still took a listing that was already done. A spent budget now returns at once (`Model::settle`); normal budgets are unchanged. It passed 15 runs in a row.
+59. Terminal and live theme check (no change needed).
+    Waits on: nothing.
+    - Checked on the trixie VM: "Open in Terminal" on a folder in "/tmp/term test" started `foot --working-directory=/tmp/term test/inner`, and the shell sat in that folder (spaces are fine). Switching the style to Light in drifter.toml while Explorer was open turned it light within a second, and putting it back turned it dark again within a second (the config file is watched every half second; the slower check only follows Auto's time of day).
