@@ -3440,3 +3440,12 @@ Nothing changes yet
 
 Renamed {}
 = {} renommés
+
+Rule
+= Règle
+
+New names
+= Nouveaux noms
+
+Quick Look: {}
+= Coup d’œil : {}

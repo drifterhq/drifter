@@ -3443,3 +3443,12 @@ Nothing changes yet
 
 Renamed {}
 = {} renombrados
+
+Rule
+= Regla
+
+New names
+= Nombres nuevos
+
+Quick Look: {}
+= Vista rápida: {}

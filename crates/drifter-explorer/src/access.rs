@@ -301,7 +301,7 @@ fn build(model: &mut Model) -> (TreeUpdate, HashMap<NodeId, (Order, Option<Order
     }
 
     if let Some(sheet) = model.sheet.clone() {
-        let id = sheet_node(&mut tree, &sheet, &mut focus);
+        let id = sheet_node(&mut tree, model, &sheet, &mut focus);
         top.push(id);
     }
     if let Some(menu) = model.menu.clone() {
@@ -341,7 +341,7 @@ fn line_node(tree: &mut Tree, key: &str, name: &str, path: &std::path::Path, fol
     id
 }
 
-fn sheet_node(tree: &mut Tree, sheet: &Sheet, focus: &mut Option<NodeId>) -> NodeId {
+fn sheet_node(tree: &mut Tree, model: &Model, sheet: &Sheet, focus: &mut Option<NodeId>) -> NodeId {
     let mut kids = Vec::new();
     let title = match sheet {
         Sheet::Prefs(_) => t("Settings").to_string(),
@@ -354,7 +354,7 @@ fn sheet_node(tree: &mut Tree, sheet: &Sheet, focus: &mut Option<NodeId>) -> Nod
         Sheet::Keys => t("Keyboard Shortcuts").to_string(),
         Sheet::About => t("About Explorer").to_string(),
         Sheet::Apps(chooser) => tf("Open “{}” with", &[&chooser.name]),
-        Sheet::Look => t("Quick Look").to_string(),
+        Sheet::Look => model.single().map_or_else(|| t("Quick Look").to_string(), |one| tf("Quick Look: {}", &[&one.name])),
         Sheet::Names(renamer) => tf("Rename {} Items", &[&renamer.paths.len()]),
     };
     match sheet {
@@ -429,6 +429,77 @@ fn sheet_node(tree: &mut Tree, sheet: &Sheet, focus: &mut Option<NodeId>) -> Nod
             kids.push(tree.button("sheet no", t("Cancel"), Act::CloseSheet, true));
             kids.push(tree.button("sheet open", t("Open"), Act::ChooseApp, chooser.at.is_some()));
             return tree.group("sheet", Role::Dialog, &title, kids);
+        }
+        Sheet::Names(renamer) => {
+            use drifter_core::explorer::model::NameRule;
+            let mut rules = Vec::new();
+            for (rule, word) in [(NameRule::Replace, t("Replace text")), (NameRule::Add, t("Add text")), (NameRule::Number, t("Name and number"))] {
+                let mut node = clickable(Role::RadioButton, word);
+                node.set_toggled(if renamer.rule == rule { Toggled::True } else { Toggled::False });
+                let id = tree.put(&format!("rule {rule:?}"), node);
+                tree.aims.insert(id, (Order::Act(Act::NameRule(rule)), None));
+                rules.push(id);
+            }
+            kids.push(tree.group("sheet rules", Role::RadioGroup, t("Rule"), rules));
+            let labels = match renamer.rule {
+                NameRule::Replace => vec![t("Find"), t("Replace with")],
+                NameRule::Add => vec![t("Text")],
+                NameRule::Number => vec![t("Name"), t("Start at")],
+            };
+            for (at, label) in labels.into_iter().enumerate() {
+                let mut node = Node::new(Role::TextInput);
+                node.set_label(label);
+                node.set_value(if at == 0 { renamer.first.text.clone() } else { renamer.second.text.clone() });
+                let id = tree.put(&format!("sheet field {at}"), node);
+                if renamer.on == at {
+                    *focus = Some(id);
+                }
+                kids.push(id);
+            }
+            if renamer.rule == NameRule::Add {
+                for (end, word) in [(false, t("Before the name")), (true, t("After the name"))] {
+                    let mut node = clickable(Role::RadioButton, word);
+                    node.set_toggled(if renamer.at_end == end { Toggled::True } else { Toggled::False });
+                    let id = tree.put(&format!("sheet end {end}"), node);
+                    tree.aims.insert(id, (Order::Act(Act::NameEnd(end)), None));
+                    kids.push(id);
+                }
+            }
+            let rows: Vec<NodeId> = renamer
+                .new_names()
+                .iter()
+                .enumerate()
+                .map(|(at, (path, name))| tree.label(&format!("sheet preview {at}"), &format!("{} → {name}", drifter_core::explorer::entry::name_of(path))))
+                .collect();
+            kids.push(tree.group("sheet preview", Role::List, t("New names"), rows));
+            let problem = renamer.problem();
+            if let Some(words) = &problem {
+                let mut node = Node::new(Role::Label);
+                node.set_label(words.clone());
+                node.set_live(Live::Polite);
+                kids.push(tree.put("sheet problem", node));
+            }
+            kids.push(tree.button("sheet no", t("Cancel"), Act::CloseSheet, true));
+            kids.push(tree.button("sheet rename", t("Rename"), Act::RenameAll, problem.is_none()));
+            return tree.group("sheet", Role::Dialog, &title, kids);
+        }
+        Sheet::Look => {
+            if let Some(one) = model.single() {
+                let detail = match one.folder {
+                    true => one.kind_words(),
+                    false => format!("{}, {}, {}", one.kind_words(), drifter_core::explorer::entry::size_words(one.size), model.date(one.modified)),
+                };
+                kids.push(tree.label("sheet detail", &detail));
+                if let Some(lines) = &model.peek {
+                    let text: Vec<&str> = lines.iter().take(40).map(String::as_str).collect();
+                    let mut node = Node::new(Role::Document);
+                    node.set_label(one.name.clone());
+                    node.set_value(text.join("\n"));
+                    kids.push(tree.put("sheet text", node));
+                }
+                kids.push(tree.button("sheet open", t("Open"), Act::Open, true));
+            }
+            kids.push(tree.button("sheet close", t("Done"), Act::CloseSheet, true));
         }
         _ => kids.push(tree.button("sheet close", t("Done"), Act::CloseSheet, true)),
     }
@@ -544,6 +615,26 @@ mod tests {
         assert_eq!(node.position_in_set(), Some(500));
         let (_, list) = update.nodes.iter().find(|(_, node)| node.role() == Role::ListBox).unwrap();
         assert_eq!(list.size_of_set(), Some(502));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_rename_sheet_reads_out_its_rule_fields_and_preview() {
+        let dir = scratch("names");
+        std::fs::write(dir.join("files/other.txt"), "x").unwrap();
+        let mut model = model(&dir);
+        model.picked = [dir.join("files/note.txt"), dir.join("files/other.txt")].into_iter().collect();
+        model.act(Act::Rename);
+        let (update, aims) = build(&mut model);
+        let (_, dialog) = named(&update, "Rename 2 Items").expect("the sheet is a dialog");
+        assert_eq!(dialog.role(), Role::Dialog);
+        let (find, node) = named(&update, "Find").expect("the first field");
+        assert_eq!((node.role(), update.focus), (Role::TextInput, find));
+        let (number, _) = named(&update, "Name and number").expect("the rules are radio buttons");
+        assert_eq!(aims[&number].0, Order::Act(Act::NameRule(drifter_core::explorer::model::NameRule::Number)));
+        assert!(named(&update, "note.txt → note.txt").is_some(), "the preview is read out");
+        let (_, rename) = named(&update, "Rename").expect("the Rename button");
+        assert!(rename.is_disabled(), "nothing changes yet");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
