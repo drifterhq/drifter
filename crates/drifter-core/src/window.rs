@@ -373,6 +373,14 @@ pub fn cascade(wanted: Vec2, taken: &[Vec2], step: f64, room: Rect) -> Vec2 {
     place.round()
 }
 
+pub fn restored(back: Rect, full: Rect) -> Rect {
+    if back.size.x >= 1.0 && back.size.y >= 1.0 {
+        return back;
+    }
+    let size = full.size * (2.0 / 3.0);
+    Rect::new(full.center() - size / 2.0, size).round_out()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Grip {
     Button(usize),
@@ -1020,6 +1028,16 @@ mod tests {
             .collect();
         let place = cascade(Vec2::ZERO, &taken, 32.0, room);
         assert!(place.x.is_finite() && place.y.is_finite());
+    }
+
+    #[test]
+    fn a_window_maximized_before_it_showed_restores_to_two_thirds_of_the_room() {
+        let full = Rect::new(Vec2::new(4.0, 30.0), Vec2::new(1912.0, 1046.0));
+        let back = Rect::new(Vec2::new(300.0, 200.0), Vec2::new(800.0, 600.0));
+        assert_eq!(restored(back, full), back);
+        let fresh = restored(Rect::new(Vec2::ZERO, Vec2::ZERO), full);
+        assert!((fresh.size.x - 1275.0).abs() <= 1.0 && (fresh.size.y - 697.0).abs() <= 1.0, "{fresh:?}");
+        assert!((fresh.center() - full.center()).length() <= 1.0);
     }
 
     #[test]

@@ -61,6 +61,7 @@ struct Explorer {
     size: (u32, u32),
     exit: bool,
     configured: bool,
+    bound: bool,
     resized: bool,
     stale: bool,
     dirty: Option<drifter_core::Rect>,
@@ -198,6 +199,7 @@ pub fn run() -> Result<(), String> {
         size,
         exit: false,
         configured: false,
+        bound: false,
         resized: false,
         stale: true,
         dirty: None,
@@ -658,8 +660,14 @@ impl WindowHandler for Explorer {
 
     fn configure(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &Window, configure: WindowConfigure, _: u32) {
         let least = self.look.least();
-        let width = configure.new_size.0.map(|v| v.get()).unwrap_or(self.size.0);
-        let height = configure.new_size.1.map(|v| v.get()).unwrap_or(self.size.1);
+        let bound = configure.is_maximized() || configure.is_fullscreen() || configure.state.intersects(WindowState::TILED);
+        let free = match self.model.prefs.window_size {
+            Some([width, height]) if self.bound && !bound => (width, height),
+            _ => self.size,
+        };
+        self.bound = bound;
+        let width = configure.new_size.0.map(|v| v.get()).unwrap_or(free.0);
+        let height = configure.new_size.1.map(|v| v.get()).unwrap_or(free.1);
         self.size = (width.max(least.x as u32), height.max(least.y as u32));
         self.remember(&configure);
         self.configured = true;

@@ -466,19 +466,20 @@ impl State {
                 let view = Rect::new(self.in_world(zone.origin), zone.size / self.camera.zoom);
                 let room = view.size.min(zone.size);
                 let full = Rect::new(view.center() - room / 2.0, room);
+                let most = Rect::new(
+                    Vec2::new(full.origin.x + chrome.edge, full.origin.y + chrome.title),
+                    Vec2::new(
+                        full.size.x - chrome.edge * 2.0,
+                        full.size.y - chrome.title - chrome.edge,
+                    ),
+                )
+                .round_out();
                 let window = &mut self.windows[index];
                 let want = match window.restore.take() {
-                    Some(back) => back,
+                    Some(back) => drifter_core::window::restored(back, most),
                     None => {
                         window.restore = Some(window.content);
-                        Rect::new(
-                            Vec2::new(full.origin.x + chrome.edge, full.origin.y + chrome.title),
-                            Vec2::new(
-                                full.size.x - chrome.edge * 2.0,
-                                full.size.y - chrome.title - chrome.edge,
-                            ),
-                        )
-                        .round_out()
+                        most
                     }
                 };
                 let was = window.content;
