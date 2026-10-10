@@ -168,31 +168,60 @@ pub fn extract(archive: &Path, into: &Path, progress: &Progress) -> io::Result<P
     placed
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Packer {
+    Bsdtar,
+    Zip,
+    Tar,
+}
+
+fn packer() -> Option<Packer> {
+    match (on_path("bsdtar"), on_path("zip"), on_path("tar")) {
+        (true, _, _) => Some(Packer::Bsdtar),
+        (false, true, _) => Some(Packer::Zip),
+        (false, false, true) => Some(Packer::Tar),
+        _ => None,
+    }
+}
+
 pub fn compress(from: &[PathBuf], progress: &Progress) -> io::Result<PathBuf> {
+    compress_with(from, progress, packer())
+}
+
+fn compress_with(from: &[PathBuf], progress: &Progress, packer: Option<Packer>) -> io::Result<PathBuf> {
     let Some(parent) = from.first().and_then(|first| first.parent()).map(Path::to_path_buf) else {
         return Err(io::Error::other(crate::lang::t("Nothing to compress")));
     };
     if from.iter().any(|path| path.parent() != Some(parent.as_path())) {
         return Err(io::Error::other(crate::lang::t("Items to compress must be in one folder")));
     }
+    let ending = match packer {
+        Some(Packer::Tar) => "tar.gz",
+        _ => "zip",
+    };
     let name = match from {
-        [one] => format!("{}.zip", name_of(one)),
-        _ => format!("{}.zip", crate::lang::t("Archive")),
+        [one] => format!("{}.{ending}", name_of(one)),
+        _ => format!("{}.{ending}", crate::lang::t("Archive")),
     };
     let target = unique(&parent, &name);
     let names: Vec<String> = from.iter().map(|path| name_of(path)).collect();
-    let mut command = match (on_path("bsdtar"), on_path("zip")) {
-        (true, _) => {
+    let mut command = match packer {
+        Some(Packer::Bsdtar) => {
             let mut command = Command::new("bsdtar");
             command.arg("--format").arg("zip").arg("-c").arg("-f").arg(&target).arg("--").args(&names);
             command
         }
-        (false, true) => {
+        Some(Packer::Zip) => {
             let mut command = Command::new("zip");
             command.arg("-r").arg("-q").arg("-y").arg(&target).arg("--").args(&names);
             command
         }
-        (false, false) => return Err(missing()),
+        Some(Packer::Tar) => {
+            let mut command = Command::new("tar");
+            command.arg("-c").arg("-z").arg("-f").arg(&target).arg("--").args(&names);
+            command
+        }
+        None => return Err(missing()),
     };
     command.current_dir(&parent);
     let result = run(&mut command, progress, None);
@@ -245,6 +274,12 @@ mod tests {
         std::fs::write(&broken, "not a zip").unwrap();
         assert!(extract(&broken, &out, &progress).is_err());
         assert!(std::fs::read_dir(&out).unwrap().flatten().all(|item| !item.file_name().to_string_lossy().starts_with('.')));
+        if on_path("tar") && on_path("gzip") {
+            let tarred = compress_with(&[dir.join("Photos")], &progress, Some(Packer::Tar)).unwrap();
+            assert_eq!(tarred, dir.join("Photos.tar.gz"));
+            let back = extract(&tarred, &out, &progress).unwrap();
+            assert_eq!(std::fs::read_to_string(back.join("2026/cat.txt")).unwrap(), "meow");
+        }
         if on_path("gzip") {
             assert!(Command::new("gzip").arg("-k").arg("--").arg("-dash.txt").current_dir(&dir).status().unwrap().success());
             let plain = extract(&dir.join("-dash.txt.gz"), &out, &progress).unwrap();

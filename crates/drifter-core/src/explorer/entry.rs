@@ -215,6 +215,11 @@ impl Entry {
 
     pub fn kind_words(&self) -> String {
         let family = self.family();
+        let lower = self.name.to_lowercase();
+        let double = ["tar.gz", "tar.xz", "tar.bz2", "tar.zst", "tar.lz", "tar.lzma"].into_iter().find(|ending| lower.len() > ending.len() + 1 && lower.ends_with(&format!(".{ending}")));
+        if let (Some(ending), false) = (double, matches!(family, Family::Folder | Family::Program)) {
+            return format!("{} {}", ending.to_ascii_uppercase(), family.words().to_lowercase());
+        }
         match (family, self.name.rsplit_once('.')) {
             (Family::Folder | Family::Program, _) => family.words().to_string(),
             (_, Some((stem, ext))) if !stem.is_empty() && ext.len() <= 5 && !family.words().to_lowercase().contains(&ext.to_lowercase()) => format!("{} {}", ext.to_ascii_uppercase(), family.words().to_lowercase()),
@@ -444,6 +449,9 @@ mod tests {
         assert_eq!(family(mime_of("notes", false), true), Family::Program);
         assert_eq!(family(mime_of("x", true), false), Family::Folder);
         assert_eq!(entry("song.flac", false, 1).kind_words(), "FLAC audio");
+        assert_eq!(entry("album.tar.gz", false, 1).kind_words(), "TAR.GZ archive");
+        assert_eq!(entry("Backup.TAR.XZ", false, 1).kind_words(), "TAR.XZ archive");
+        assert_eq!(entry(".tar.gz", false, 1).kind_words().contains("TAR.GZ"), false);
     }
 
     #[test]
