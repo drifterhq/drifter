@@ -146,6 +146,7 @@ struct Explorer {
     swap: Option<(Image, Instant, Duration)>,
     fade: Option<Fade>,
     glide: Option<Glide>,
+    stamps: std::collections::HashMap<PathBuf, (Option<std::time::SystemTime>, u64)>,
     picks: usize,
     clicked: bool,
     fonts: (Font, Font, Font),
@@ -236,6 +237,7 @@ pub fn run() -> Result<(), String> {
         .handle()
         .insert_source(pinged, |_, _, app: &mut Explorer| {
             if app.model.arrived() {
+                app.refresh_art();
                 app.stale = true;
             }
         })
@@ -345,6 +347,7 @@ pub fn run() -> Result<(), String> {
         swap: None,
         fade: None,
         glide: None,
+        stamps: std::collections::HashMap::new(),
         picks: 0,
         clicked: false,
         fonts,
@@ -696,6 +699,25 @@ impl Explorer {
             if at.elapsed() >= *long {
                 self.swap = None;
             }
+        }
+    }
+
+    fn refresh_art(&mut self) {
+        let mut changed = Vec::new();
+        for entry in &self.model.entries {
+            let now = (entry.modified, entry.size);
+            match self.stamps.insert(entry.path.clone(), now) {
+                Some(was) if was != now => changed.push(entry.path.clone()),
+                _ => {}
+            }
+        }
+        for path in changed {
+            self.art.forget(&path);
+            self.stale = true;
+        }
+        if self.stamps.len() > 4 * self.model.entries.len() + 2000 {
+            let here: std::collections::HashSet<&PathBuf> = self.model.entries.iter().map(|entry| &entry.path).collect();
+            self.stamps.retain(|path, _| here.contains(path));
         }
     }
 

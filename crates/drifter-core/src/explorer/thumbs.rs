@@ -110,8 +110,19 @@ pub fn failed_in(root: &Path, path: &Path) -> bool {
     let (Some(mtime), uri) = (stamp(path), uri(path)) else {
         return false;
     };
-    read(&file_for(root, FAILED, &uri), &uri, mtime).is_some()
+    let marker = file_for(root, FAILED, &uri);
+    if read(&marker, &uri, mtime).is_none() {
+        return false;
+    }
+    let written = std::fs::metadata(&marker).and_then(|meta| meta.modified()).ok();
+    let changed = std::fs::metadata(path).and_then(|meta| meta.modified()).ok();
+    match (written, changed) {
+        (Some(written), Some(changed)) => written.duration_since(changed).is_ok_and(|gap| gap >= SETTLING),
+        _ => true,
+    }
 }
+
+pub const SETTLING: std::time::Duration = std::time::Duration::from_secs(30);
 
 fn write(root: &Path, folder: &str, path: &Path, image: &Image) -> Result<(), String> {
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
@@ -163,6 +174,23 @@ mod tests {
 
     fn hex(sum: [u8; 16]) -> String {
         sum.iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+
+    #[test]
+    fn a_failure_noted_while_a_file_was_still_new_is_tried_again() {
+        let dir = std::env::temp_dir().join(format!("drifter-thumb-fail-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let root = dir.join("cache");
+        let movie = dir.join("movie.mp4");
+        std::fs::write(&movie, "not really a movie").unwrap();
+        store_failed_in(&root, &movie).unwrap();
+        assert!(!failed_in(&root, &movie), "noted the same moment the file was written");
+        let file = std::fs::File::options().write(true).open(&movie).unwrap();
+        file.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(120)).unwrap();
+        store_failed_in(&root, &movie).unwrap();
+        assert!(failed_in(&root, &movie), "noted long after the file settled");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

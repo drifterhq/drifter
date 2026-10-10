@@ -78,12 +78,18 @@ fn picture(path: &Path, side: u32) -> Option<Image> {
             Some(fit(&image, side))
         }
         None => {
-            if can_make(path) {
+            if can_make(path) && settled(&meta) {
                 let _ = thumbs::store_failed_in(&root, path);
             }
             None
         }
     }
+}
+
+use thumbs::SETTLING;
+
+fn settled(meta: &std::fs::Metadata) -> bool {
+    meta.modified().ok().and_then(|when| when.elapsed().ok()).is_some_and(|age| age >= SETTLING)
 }
 
 fn can_make(path: &Path) -> bool {
