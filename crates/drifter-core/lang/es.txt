@@ -3317,3 +3317,15 @@ Stop
 
 Move between the sidebar and the files
 = Pasar entre la barra lateral y los archivos
+
+Path
+= Ruta
+
+Path: {}
+= Ruta: {}
+
+Tabs
+= Pestañas
+
+Not mounted
+= No montado

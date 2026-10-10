@@ -241,6 +241,16 @@ pub fn touches(clip: Option<Rect>, area: Rect) -> bool {
     clip.is_none_or(|clip| clip.origin.x < area.max().x && area.origin.x < clip.max().x && clip.origin.y < area.max().y && area.origin.y < clip.max().y)
 }
 
+pub fn tree_name(model: &Model, path: &Path) -> String {
+    match path == model.tree_base() {
+        true => match model.prefs.tree_root {
+            prefs::Root::Home => crate::lang::t("Home").to_string(),
+            prefs::Root::Computer => crate::lang::t("Computer").to_string(),
+        },
+        false => super::entry::name_of(path),
+    }
+}
+
 pub fn join(a: Rect, b: Rect) -> Rect {
     let low = a.origin.min(b.origin);
     let high = a.max().max(b.max());
@@ -1414,13 +1424,7 @@ impl Look {
                         false => [c + Vec2::new(-2.0, -4.0), c + Vec2::new(3.0, 0.0), c + Vec2::new(-2.0, 4.0)],
                     };
                     canvas.triangle(corners, caret_ink, 1.0);
-                    let name = match path == &model.tree_base() {
-                        true => match model.prefs.tree_root {
-                            prefs::Root::Home => crate::lang::t("Home").to_string(),
-                            prefs::Root::Computer => crate::lang::t("Computer").to_string(),
-                        },
-                        false => super::entry::name_of(path),
-                    };
+                    let name = tree_name(model, path);
                     let icon_at = rect(area.origin.x + 22.0 + indent, middle - 8.0, 16.0, 16.0);
                     self.icon_or_glyph(&mut canvas, job.art, folder_icon(path, model), Family::Folder, icon_at);
                     self.text(&mut canvas, fonts.body, &name, ink, Vec2::new(icon_at.max().x + 7.0, middle), area.max().x - icon_at.max().x - 12.0);

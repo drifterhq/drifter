@@ -3314,3 +3314,15 @@ Stop
 
 Move between the sidebar and the files
 = Passer de la barre latérale aux fichiers
+
+Path
+= Chemin
+
+Path: {}
+= Chemin : {}
+
+Tabs
+= Onglets
+
+Not mounted
+= Non monté

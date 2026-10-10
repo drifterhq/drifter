@@ -6,6 +6,8 @@ macro_rules! log {
 }
 
 #[cfg(target_os = "linux")]
+mod access;
+#[cfg(target_os = "linux")]
 mod art;
 #[cfg(target_os = "linux")]
 mod window;

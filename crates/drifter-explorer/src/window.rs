@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use drifter_core::explorer::input::{self, Button, Key, Mods, Named, Ui};
 use drifter_core::explorer::look::{Art, Fonts, Look, Paint, Want};
-use drifter_core::explorer::model::{Effect, Model};
+use drifter_core::explorer::model::{Act, Effect, Model};
 use drifter_core::explorer::ops::{self, Done, Job};
 use drifter_core::explorer::prefs::{Prefs, on_path};
 use drifter_core::{Config, Font, Image, Vec2};
@@ -69,6 +69,7 @@ struct Explorer {
     last: Option<Image>,
     shown: Option<Instant>,
     look: Look,
+    access: crate::access::Access,
     fonts: (Font, Font, Font),
     model: Model,
     art: Art,
@@ -161,6 +162,15 @@ pub fn run() -> Result<(), String> {
             }
         })
         .map_err(|e| format!("cannot watch folder reads: {e}"))?;
+    let (heard, heard_rx) = loop_channel::<crate::access::Heard>();
+    events
+        .handle()
+        .insert_source(heard_rx, |event, _, app: &mut Explorer| {
+            if let ChannelEvent::Msg(heard) = event {
+                app.heard(heard);
+            }
+        })
+        .map_err(|e| format!("cannot watch the screen reader: {e}"))?;
     let (jobs, jobs_rx) = loop_channel::<Done>();
     events
         .handle()
@@ -207,6 +217,7 @@ pub fn run() -> Result<(), String> {
         last: None,
         shown: None,
         look,
+        access: crate::access::Access::start(heard),
         fonts,
         model,
         art: Art::default(),
@@ -421,6 +432,31 @@ impl Explorer {
         self.stale = true;
     }
 
+    fn heard(&mut self, heard: crate::access::Heard) {
+        use crate::access::{Heard, Order};
+        let request = match heard {
+            Heard::Wake => {
+                self.access.update(&mut self.model);
+                return;
+            }
+            Heard::Act(request) => request,
+        };
+        match self.access.aim(&request) {
+            Some(Order::Act(act)) => self.model.act(act),
+            Some(Order::Menu(act)) => {
+                self.model.menu = None;
+                self.model.act(act);
+            }
+            Some(Order::Pick(path)) => self.model.pick_only(path),
+            Some(Order::Open(path)) => {
+                self.model.pick_only(path);
+                self.model.act(Act::Open);
+            }
+            None => return,
+        }
+        self.after();
+    }
+
     fn run_job(&mut self, id: u64, job: Job) {
         let jobs = self.jobs.clone();
         let progress = self.model.progress_of(id);
@@ -580,6 +616,7 @@ impl Explorer {
         surface.frame(&self.qh, surface.clone());
         self.shown = Some(Instant::now());
         self.window.commit();
+        self.access.update(&mut self.model);
     }
 
     fn with_ui<T>(&mut self, work: impl FnOnce(&mut Model, &Ui, &[drifter_core::explorer::model::Line]) -> T) -> T {
@@ -734,10 +771,13 @@ impl SeatHandler for Explorer {
 }
 
 impl KeyboardHandler for Explorer {
-    fn enter(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: &wl_surface::WlSurface, _: u32, _: &[u32], _: &[Keysym]) {}
+    fn enter(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: &wl_surface::WlSurface, _: u32, _: &[u32], _: &[Keysym]) {
+        self.access.focused(true);
+    }
 
     fn leave(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: &wl_surface::WlSurface, _: u32) {
         self.mods = Modifiers::default();
+        self.access.focused(false);
     }
 
     fn press_key(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_keyboard::WlKeyboard, _: u32, event: KeyEvent) {

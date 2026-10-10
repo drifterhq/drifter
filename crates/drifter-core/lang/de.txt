@@ -3317,3 +3317,15 @@ Stop
 
 Move between the sidebar and the files
 = Zwischen Seitenleiste und Dateien wechseln
+
+Path
+= Pfad
+
+Path: {}
+= Pfad: {}
+
+Tabs
+= Tabs
+
+Not mounted
+= Nicht eingebunden
