@@ -114,7 +114,7 @@ pub fn file_name(take: Take, stamp: &str, extension: &str) -> String {
 }
 
 pub fn recorder_args(output: &str, area: Option<Rect>, audio: Option<&str>, path: &Path) -> Vec<String> {
-    let mut args = vec!["-y".to_string()];
+    let mut args = vec!["-y".to_string(), "-D".to_string()];
     match area {
         Some(rect) => {
             let rect = even(rect);
@@ -523,10 +523,10 @@ mod tests {
         );
         assert_eq!(
             boxed,
-            ["-y", "-g", "10,20 300x198", "--audio=alsa_input.mic", "-f", "/home/dh/Movies/a.mp4"]
+            ["-y", "-D", "-g", "10,20 300x198", "--audio=alsa_input.mic", "-f", "/home/dh/Movies/a.mp4"]
         );
         let whole = recorder_args("DP-1", None, None, path);
-        assert_eq!(whole, ["-y", "-o", "DP-1", "-f", "/home/dh/Movies/a.mp4"]);
+        assert_eq!(whole, ["-y", "-D", "-o", "DP-1", "-f", "/home/dh/Movies/a.mp4"]);
     }
 
     #[test]
