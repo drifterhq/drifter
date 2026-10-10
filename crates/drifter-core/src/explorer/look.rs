@@ -266,6 +266,19 @@ fn info_switch_count(info: &super::model::Info) -> usize {
     usize::from(info.locked().is_some()) + usize::from(info.runs().is_some())
 }
 
+pub fn ease(t: f64) -> f64 {
+    1.0 - (1.0 - t.clamp(0.0, 1.0)).powi(3)
+}
+
+fn layered(canvas: &mut Canvas, size: Vec2, pop: f64, rise: f64, paint: impl FnOnce(&mut Canvas)) {
+    if pop >= 1.0 {
+        return paint(canvas);
+    }
+    let mut layer = Canvas::new(size.x.ceil() as u32, size.y.ceil() as u32);
+    paint(&mut layer);
+    canvas.stamp(&layer.image, Vec2::new(0.0, (rise * (1.0 - pop)).round()), pop.max(0.0));
+}
+
 fn lift(color: [u8; 3], amount: f64) -> [u8; 3] {
     match amount >= 0.0 {
         true => mix(color, [255, 255, 255], amount),
@@ -821,10 +834,10 @@ impl Look {
             _ => {}
         }
         if let Some(sheet) = &model.sheet {
-            self.paint_sheet(&mut canvas, size, sheet, job);
+            layered(&mut canvas, size, model.pop, 10.0, |layer| self.paint_sheet(layer, size, sheet, job));
         }
         if let Some(menu) = &model.menu {
-            self.paint_menu(&mut canvas, size, menu, fonts);
+            layered(&mut canvas, size, model.pop, -4.0, |layer| self.paint_menu(layer, size, menu, fonts));
         }
         if let Some((card, words, keys)) = self.tip(size, model, job.lines, fonts)
             && touches(clip, self.tip_area(card))
@@ -3334,6 +3347,36 @@ mod repaint_tests {
         input::press(&mut model, &ui, &lines, end, Button::Left, 1, Mods::default());
         input::motion(&mut model, &ui, &lines, Vec2::new(x_of(font, &text, text.len() - 4, area), area.center().y));
         assert_eq!(model.path.as_ref().unwrap().picked_text(), Some("work"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn menus_and_sheets_fade_in() {
+        let dir = std::env::temp_dir().join(format!("drifter-pop-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("work")).unwrap();
+        let mut model = Model::new(dir.join("explorer.toml"), Some(dir.join("work")));
+        model.settle_all(std::time::Duration::from_secs(5));
+        let (Ok(body), Ok(small), Ok(title)) = (crate::Font::find(None, 13.0), crate::Font::find(None, 11.5), crate::Font::find(None, 17.0)) else {
+            return;
+        };
+        let fonts = Fonts { body: &body, small: &small, title: &title };
+        let look = Look::themed(&crate::theme::DARK, [64, 128, 238]);
+        let size = Vec2::new(900.0, 600.0);
+        let art = Art::default();
+        let lines = model.lines();
+        let shot = |model: &Model| look.paint(size, &Paint { model, lines: &lines, fonts: &fonts, art: &art, clip: None }).rgba;
+        let plain = shot(&model);
+        let items = model.space_menu();
+        model.menu = Some(super::super::model::Menu { items, at: Vec2::new(300.0, 200.0), hover: None, open: None, kid_hover: None, bar: None });
+        let full = shot(&model);
+        model.pop = 0.0;
+        assert!(shot(&model) == plain, "a menu that just opened is not drawn yet");
+        model.pop = 0.5;
+        let half = shot(&model);
+        assert!(half != plain && half != full, "halfway it is see-through");
+        model.pop = 1.0;
+        assert!(shot(&model) == full);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

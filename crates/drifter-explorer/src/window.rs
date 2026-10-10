@@ -47,6 +47,8 @@ const START: (u32, u32) = (1100, 700);
 const SETTLE: Duration = Duration::from_millis(16);
 const FRAME_LATE: Duration = Duration::from_millis(100);
 const DOUBLE: Duration = Duration::from_millis(420);
+const POP: Duration = Duration::from_millis(140);
+const SWAP: Duration = Duration::from_millis(160);
 
 static SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
 
@@ -90,6 +92,9 @@ struct Explorer {
     drop_offer: Option<DragOffer>,
     dropped: LoopSender<(Drop, Option<Held>, bool)>,
     sizes: LoopSender<(PathBuf, (u64, u64))>,
+    seen: (bool, bool, drifter_core::explorer::prefs::Mode, PathBuf),
+    pop_at: Option<Instant>,
+    swap: Option<(Image, Instant)>,
     fonts: (Font, Font, Font),
     model: Model,
     art: Art,
@@ -280,6 +285,9 @@ pub fn run() -> Result<(), String> {
         drop_offer: None,
         dropped,
         sizes,
+        seen: (false, false, drifter_core::explorer::prefs::Mode::List, PathBuf::new()),
+        pop_at: None,
+        swap: None,
         fonts,
         model,
         art: Art::default(),
@@ -299,6 +307,7 @@ pub fn run() -> Result<(), String> {
         events
             .dispatch((app.stale || app.dirty.is_some() || !app.shifts.is_empty()).then_some(SETTLE), &mut app)
             .map_err(|e| format!("event loop: {e}"))?;
+        app.animate();
         if app.configured && (std::mem::take(&mut app.resized) || ((app.stale || app.dirty.is_some() || !app.shifts.is_empty()) && app.frame_free())) {
             app.draw();
         }
@@ -556,9 +565,48 @@ impl Explorer {
             (Some(image), Some(area)) => (image, Some(area)),
             _ => (self.look.paint(size, &job), None),
         };
+        let image = match (&self.swap, part) {
+            (Some((old, at)), None) if old.width == image.width && old.height == image.height => {
+                let mut canvas = drifter_core::paint::Canvas::on(image);
+                let fade = 1.0 - drifter_core::explorer::look::ease(at.elapsed().as_secs_f64() / SWAP.as_secs_f64());
+                canvas.stamp(old, Vec2::ZERO, fade);
+                canvas.image
+            }
+            _ => image,
+        };
         self.show(&image, part);
         self.last = Some(image);
         self.fetch();
+    }
+
+    fn animate(&mut self) {
+        let now = (self.model.menu.is_some(), self.model.sheet.is_some(), self.model.view.mode, self.model.dir.clone());
+        if (now.0 && !self.seen.0) || (now.1 && !self.seen.1) {
+            self.pop_at = Some(Instant::now());
+        }
+        let moved = now.2 != self.seen.2 || now.3 != self.seen.3;
+        if moved && !self.seen.3.as_os_str().is_empty()
+            && let Some(last) = self.last.clone()
+        {
+            self.swap = Some((last, Instant::now()));
+        }
+        self.seen = now;
+        self.model.pop = match self.pop_at {
+            Some(at) => drifter_core::explorer::look::ease(at.elapsed().as_secs_f64() / POP.as_secs_f64()),
+            None => 1.0,
+        };
+        if self.pop_at.is_some() {
+            self.stale = true;
+            if self.model.pop >= 1.0 {
+                self.pop_at = None;
+            }
+        }
+        if let Some((_, at)) = &self.swap {
+            self.stale = true;
+            if at.elapsed() >= SWAP {
+                self.swap = None;
+            }
+        }
     }
 
     fn tip_damage(&mut self) -> Option<drifter_core::Rect> {
