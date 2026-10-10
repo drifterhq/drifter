@@ -564,6 +564,8 @@ dependencies = [
 name = "drifter-explorer"
 version = "0.1.0"
 dependencies = [
+ "accesskit",
+ "accesskit_unix",
  "drifter-core",
  "smithay-client-toolkit",
  "wayland-client",
