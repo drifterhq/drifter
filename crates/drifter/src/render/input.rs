@@ -612,6 +612,12 @@ impl State {
         }
 
         let pointer = self.wayland.pointer.clone();
+        if state == ButtonState::Pressed && !pointer.is_grabbed() {
+            let under = self.pointer_focus().map(|(surface, _)| surface);
+            if under != pointer.current_focus() {
+                self.tell_pointer(time);
+            }
+        }
         pointer.button(
             self,
             &ButtonEvent {
