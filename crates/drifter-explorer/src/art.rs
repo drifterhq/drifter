@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use drifter_core::Image;
 use drifter_core::explorer::entry::{self, Family};
 use drifter_core::explorer::look::Want;
+use drifter_core::explorer::thumbs;
 use drifter_core::explorer::prefs::on_path;
 use smithay_client_toolkit::reexports::calloop::channel::Sender as LoopSender;
 
@@ -60,6 +61,42 @@ fn picture(path: &Path, side: u32) -> Option<Image> {
     if !meta.is_file() || meta.len() > MOST_BYTES {
         return None;
     }
+    let root = thumbs::root();
+    if !thumbs::worth_caching(path, &root) {
+        return make(path, side);
+    }
+    if let Some(image) = thumbs::cached_in(&root, path, side) {
+        return Some(fit(&image, side));
+    }
+    if thumbs::failed_in(&root, path) {
+        return None;
+    }
+    let (size, _) = thumbs::bucket(side);
+    match make(path, size) {
+        Some(image) => {
+            let _ = thumbs::store_in(&root, path, size, &image);
+            Some(fit(&image, side))
+        }
+        None => {
+            if can_make(path) {
+                let _ = thumbs::store_failed_in(&root, path);
+            }
+            None
+        }
+    }
+}
+
+fn can_make(path: &Path) -> bool {
+    let mime = entry::mime_of(&entry::name_of(path), false);
+    match entry::family(mime, false) {
+        Family::Image => true,
+        Family::Video => on_path("ffmpegthumbnailer"),
+        Family::Pdf => on_path("pdftoppm"),
+        _ => false,
+    }
+}
+
+fn make(path: &Path, side: u32) -> Option<Image> {
     let name = entry::name_of(path);
     let mime = entry::mime_of(&name, false);
     match entry::family(mime, false) {

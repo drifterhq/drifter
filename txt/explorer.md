@@ -49,6 +49,7 @@ Later steps build on these.
     - Built: the list comes from lsblk plus network mounts, leaves out system disks, and shows disks that are not mounted (faded). It refreshes when a disk is plugged in, pulled out, mounted or unmounted. Each drive has a space bar (red past 90%). Click a disk that is not mounted to mount and open it; the eject button and the right-click menu (Open, Mount, Unmount, Eject) use udisksctl. Leaving a drive you are in goes Home first. Checked on 114: Computer with its bar, no stray gvfs entry. Left: plug a USB stick into 114 or the Pixelbook to test mount and eject.
 12. Previews are not saved to disk, so each launch makes them again. Big photos are fully decoded on every launch.
     Waits on: nothing.
+    - Built: previews go to the shared freedesktop cache (~/.cache/thumbnails, normal to xx-large), named by the md5 of the file URI and stamped with the file time, so other file managers share them. A changed file makes a new one. Files no tool can read are marked in fail/drifter-explorer and not tried again; a missing tool does not count. Checked on 114: the preview was saved once and read back on the next launch.
 
 ## Phase 5: Getting around
 
