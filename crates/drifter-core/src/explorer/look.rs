@@ -1409,8 +1409,16 @@ impl Look {
     fn icon_or_glyph(&self, canvas: &mut Canvas, art: &Art, name: &str, family: Family, area: Rect) {
         match art.icon(name, area.size.y) {
             Some(image) => {
-                let size = logical(image);
-                canvas.stamp(image, (area.center() - size / 2.0).round(), 1.0);
+                let at = (area.center() - logical(image) / 2.0).round();
+                if !self.dark && pale(image) {
+                    let edge = silhouette(image);
+                    let step = 1.0 / crate::paint::density();
+                    for shift in [Vec2::new(step, 0.0), Vec2::new(-step, 0.0), Vec2::new(0.0, step), Vec2::new(0.0, -step)] {
+                        canvas.stamp(&edge, at + shift, 0.10);
+                    }
+                    canvas.stamp(&edge, at + Vec2::new(0.0, step), 0.12);
+                }
+                canvas.stamp(image, at, 1.0);
             }
             None => self.glyph(canvas, family, area),
         }
@@ -3010,6 +3018,20 @@ fn entry_date(one: &Entry, model: &Model) -> String {
 
 const MOST_GROW: f64 = 4.0;
 
+fn pale(image: &Image) -> bool {
+    let (mut light, mut seen) = (0u64, 0u64);
+    for pixel in image.rgba.chunks_exact(4).filter(|pixel| pixel[3] > 128) {
+        seen += 1;
+        light += u64::from(pixel[0].min(pixel[1]).min(pixel[2]) > 215);
+    }
+    seen > 0 && light * 10 >= seen * 6
+}
+
+fn silhouette(image: &Image) -> Image {
+    let rgba = image.rgba.chunks_exact(4).flat_map(|pixel| [0, 0, 0, pixel[3]]).collect();
+    Image { width: image.width, height: image.height, rgba }
+}
+
 fn solid(image: &Image) -> bool {
     image.rgba.chunks_exact(4).all(|pixel| pixel[3] >= 250)
 }
@@ -3478,6 +3500,9 @@ mod repaint_tests {
         assert_eq!(mid.size, Vec2::new(600.0, 600.0));
         let big = grow_fit(Vec2::new(4000.0, 1000.0), room, MOST_GROW);
         assert_eq!(big.size, Vec2::new(800.0, 200.0));
+        let paper = Image { width: 2, height: 1, rgba: vec![250, 250, 248, 255, 0, 0, 0, 0] };
+        assert!(pale(&paper) && silhouette(&paper).rgba == [0, 0, 0, 255, 0, 0, 0, 0]);
+        assert!(!pale(&Image { width: 1, height: 1, rgba: vec![60, 120, 230, 255] }), "a blue folder is not pale");
         let mut logo = Image { width: 2, height: 1, rgba: vec![9, 9, 9, 255, 0, 0, 0, 0] };
         assert!(!solid(&logo), "see-through pictures get no box shadow");
         logo.rgba[7] = 255;
