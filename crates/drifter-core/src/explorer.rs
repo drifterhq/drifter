@@ -11,6 +11,7 @@ pub mod ops;
 pub mod pack;
 pub mod prefs;
 pub mod read;
+pub mod recent;
 pub mod thumbs;
 pub mod watch;
 

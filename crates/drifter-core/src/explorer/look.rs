@@ -988,7 +988,7 @@ impl Look {
                 Line::Place { .. } if folders && ((at.y - area.origin.y) < area.size.y * 0.25 || (area.max().y - at.y) < area.size.y * 0.25) => bar.map(|bar| (Drop::Mark, bar)),
                 Line::Place { path, .. } | Line::Folder { path, .. } | Line::Drive { path: Some(path), .. } => into(path, area, true),
                 Line::Drive { path: None, .. } => None,
-                Line::Head(_) => None,
+                Line::Head(_) | Line::Recent { .. } => None,
             };
         }
         let here = || {
@@ -1547,6 +1547,11 @@ impl Look {
                 Line::Place { name, icon, path, .. } => {
                     let family = if path == &super::ops::trash_files() { Family::Other } else { Family::Folder };
                     self.icon_or_glyph(&mut canvas, job.art, icon, family, rect(area.origin.x + 8.0, middle - 9.0, 18.0, 18.0));
+                    self.text(&mut canvas, fonts.body, name, ink, Vec2::new(area.origin.x + 34.0, middle), area.size.x - 40.0);
+                }
+                Line::Recent { path, name } => {
+                    let family = Entry::at(path).map_or(Family::Other, |one| one.family());
+                    self.icon_or_glyph(&mut canvas, job.art, family.icon(), family, rect(area.origin.x + 8.0, middle - 9.0, 18.0, 18.0));
                     self.text(&mut canvas, fonts.body, name, ink, Vec2::new(area.origin.x + 34.0, middle), area.size.x - 40.0);
                 }
                 Line::Drive { name, drive, .. } => {
@@ -3207,6 +3212,7 @@ pub fn pref_rows(tab: usize, model: &Model) -> Vec<Row> {
                 detail: None,
                 options: vec![(crate::lang::t("Home").to_string(), Pref::Root(Root::Home), p.tree_root == Root::Home), (crate::lang::t("Computer").to_string(), Pref::Root(Root::Computer), p.tree_root == Root::Computer)],
             },
+            switch(crate::lang::t("Recent"), Some(crate::lang::t("The files you opened last")), Pref::Recent, p.recent),
             switch(crate::lang::t("Drives"), Some(crate::lang::t("This computer and plugged in disks")), Pref::Drives, p.drives),
             Row::Head(crate::lang::t("Window")),
             switch(crate::lang::t("Status bar"), Some(crate::lang::t("Item count and free space")), Pref::Status, p.status),

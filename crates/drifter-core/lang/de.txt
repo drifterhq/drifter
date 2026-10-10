@@ -3398,3 +3398,6 @@ Space
 
 Del
 = Entf
+
+The files you opened last
+= Die zuletzt geöffneten Dateien

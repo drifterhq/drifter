@@ -3398,3 +3398,6 @@ Space
 
 Del
 = Supr
+
+The files you opened last
+= Los últimos archivos que abriste

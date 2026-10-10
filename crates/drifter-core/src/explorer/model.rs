@@ -90,6 +90,9 @@ pub enum Act {
     NameInInfo,
     NamedInInfo,
     QuickLook,
+    OpenRecent(PathBuf),
+    Reveal(PathBuf),
+    CopyThisPath(PathBuf),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -111,6 +114,7 @@ pub enum Pref {
     Root(Root),
     Places,
     Drives,
+    Recent,
     Status,
     Terminal(usize),
 }
@@ -213,12 +217,13 @@ pub enum Line {
     Place { path: PathBuf, name: String, icon: &'static str, mark: bool },
     Folder { path: PathBuf, depth: usize, open: bool },
     Drive { path: Option<PathBuf>, name: String, drive: Option<super::drives::Drive> },
+    Recent { path: PathBuf, name: String },
 }
 
 impl Line {
     pub fn path(&self) -> Option<&Path> {
         match self {
-            Line::Head(_) => None,
+            Line::Head(_) | Line::Recent { .. } => None,
             Line::Place { path, .. } | Line::Folder { path, .. } => Some(path),
             Line::Drive { path, .. } => path.as_deref(),
         }
@@ -367,6 +372,9 @@ pub struct Model {
     pub clip: Option<(Vec<PathBuf>, bool)>,
     pub clip_text: Option<String>,
     pub mime_list: PathBuf,
+    pub recent: Vec<PathBuf>,
+    pub recent_stamp: Option<SystemTime>,
+    pub recent_list: Option<PathBuf>,
     pub pop: f64,
     pub undo: Vec<Undo>,
     pub jobs: Vec<Running>,
@@ -514,6 +522,9 @@ impl Model {
             clip: None,
             clip_text: None,
             mime_list: crate::desktop::user_mime_list(),
+            recent: Vec::new(),
+            recent_stamp: None,
+            recent_list: (!cfg!(test)).then(|| super::recent::list_path(&home)),
             pop: 1.0,
             undo: Vec::new(),
             jobs: Vec::new(),
@@ -556,6 +567,9 @@ impl Model {
             fresh_columns: false,
         };
         model.read_marks();
+        if model.prefs.recent {
+            model.read_recent();
+        }
         model.mounts_seen = std::fs::read_to_string("/proc/self/mounts").unwrap_or_default();
         model.reader.ask(Ask::Drives);
         model.open.insert(model.tree_base());
@@ -1159,6 +1173,10 @@ impl Model {
             self.read_marks();
             changed = true;
         }
+        if self.prefs.recent && self.recent_list.as_deref().map(modified).unwrap_or_default() != self.recent_stamp {
+            self.read_recent();
+            changed = true;
+        }
         if self.loading.is_none() {
             self.reader.ask(Ask::Stamp(self.dir.clone()));
         } else if self.showing_loading() {
@@ -1223,6 +1241,36 @@ impl Model {
             self.open.insert(at.clone());
             walk = at.parent().map(Path::to_path_buf);
         }
+    }
+
+    fn remember_opened(&mut self, files: &[PathBuf]) {
+        let opened: Vec<(PathBuf, &str)> = files
+            .iter()
+            .filter(|path| !ops::in_trash(path))
+            .filter_map(|path| self.entries.iter().find(|each| &each.path == path).cloned().or_else(|| Entry::at(path)))
+            .filter(|one| !one.folder)
+            .map(|one| (one.path, one.mime))
+            .collect();
+        if let Some(list) = &self.recent_list {
+            let _ = super::recent::remember(list, &opened);
+        }
+    }
+
+    pub fn read_recent(&mut self) {
+        let Some(list) = self.recent_list.clone() else {
+            return;
+        };
+        self.recent_stamp = modified(&list);
+        self.recent = super::recent::load(&list);
+    }
+
+    pub fn recent_menu(&self, path: &Path) -> Vec<Item> {
+        vec![
+            Item::new(crate::lang::t("Open"), "", Act::OpenRecent(path.to_path_buf())),
+            Item::new(crate::lang::t("Show in Folder"), "", Act::Reveal(path.to_path_buf())),
+            Item::rule(),
+            Item::new(crate::lang::t("Copy Path"), "", Act::CopyThisPath(path.to_path_buf())),
+        ]
     }
 
     pub fn read_marks(&mut self) {
@@ -1313,6 +1361,12 @@ impl Model {
             out.push(Line::Head(crate::lang::t("Folders")));
             let base = self.tree_base();
             self.walk(&base, 0, &mut out);
+        }
+        if self.prefs.recent && !self.recent.is_empty() {
+            out.push(Line::Head(crate::lang::t("Recent")));
+            for path in &self.recent {
+                out.push(Line::Recent { path: path.clone(), name: entry::name_of(path) });
+            }
         }
         if self.prefs.drives {
             out.push(Line::Head(crate::lang::t("Drives")));
@@ -1541,6 +1595,7 @@ impl Model {
         for (mime, files) in by_mime {
             let handler = self.handlers_for(mime).into_iter().next();
             let refs: Vec<&Path> = files.iter().map(PathBuf::as_path).collect();
+            self.remember_opened(&files);
             match handler.and_then(|handler| self.app_argv(&handler, &refs)) {
                 Some(argv) => self.effects.push(Effect::Launch(argv)),
                 None => {
@@ -1561,6 +1616,7 @@ impl Model {
         let refs: Vec<&Path> = files.iter().map(PathBuf::as_path).collect();
         if let Some(argv) = handler.and_then(|handler| self.app_argv(&handler, &refs)) {
             self.effects.push(Effect::Launch(argv));
+            self.remember_opened(&files);
         }
     }
 
@@ -1704,6 +1760,7 @@ impl Model {
             }
             Pref::Places => p.places = !p.places,
             Pref::Drives => p.drives = !p.drives,
+            Pref::Recent => p.recent = !p.recent,
             Pref::Status => p.status = !p.status,
             Pref::Terminal(at) => p.terminal = self.terminals.get(at).map(|(program, _)| program.to_string()),
         }
@@ -1998,6 +2055,17 @@ impl Model {
             Act::Status => self.set(Pref::Status),
             Act::Dismiss => {
                 self.alerts.pop();
+            }
+            Act::OpenRecent(path) => self.open_paths(vec![path]),
+            Act::Reveal(path) => {
+                if let Some(parent) = path.parent() {
+                    self.leave_search();
+                    self.go(parent.to_path_buf(), Some(path.clone()));
+                }
+            }
+            Act::CopyThisPath(path) => {
+                self.hold(Held::Text(path.to_string_lossy().into_owned()));
+                self.say(crate::lang::t("Path copied"), false);
             }
             Act::QuickLook => match self.sheet {
                 Some(Sheet::Look) => self.sheet = None,
@@ -2318,6 +2386,7 @@ impl Model {
         let refs: Vec<&Path> = chooser.files.iter().map(PathBuf::as_path).collect();
         if let Some(argv) = self.app_argv(&app, &refs) {
             self.effects.push(Effect::Launch(argv));
+            self.remember_opened(&chooser.files);
         }
     }
 
@@ -3043,6 +3112,32 @@ mod tests {
             panic!("Info stays open");
         };
         assert!(info.naming.is_some() && bee.exists(), "a clash keeps the field open");
+    }
+
+    #[test]
+    fn recent_files_show_in_the_sidebar_and_lead_to_their_folder() {
+        let (place, mut model) = place("recent");
+        let list = place.0.join("recently-used.xbel");
+        model.recent_list = Some(list.clone());
+        let b = place.0.join("work/b.txt");
+        let gone = place.0.join("work/gone.txt");
+        std::fs::write(&list, format!("<xbel><bookmark href=\"file://{}\" visited=\"2026-10-10T01:00:00Z\"/><bookmark href=\"file://{}\" visited=\"2026-10-10T02:00:00Z\"/></xbel>", b.display(), gone.display())).unwrap();
+        model.read_recent();
+        assert_eq!(model.recent, [b.clone()], "missing files are left out");
+        let a = place.0.join("work/a.png");
+        model.pick_only(a.clone());
+        model.effects.clear();
+        model.act(Act::Open);
+        assert!(std::fs::read_to_string(&list).unwrap().contains("/work/a.png"), "opening a file adds it to the list");
+        model.read_recent();
+        assert_eq!(model.recent.first(), Some(&a));
+        let lines = model.lines();
+        assert!(lines.iter().any(|line| matches!(line, Line::Recent { path, name } if path == &b && name == "b.txt")));
+        model.go(place.0.clone(), None);
+        model.act(Act::Reveal(b.clone()));
+        assert_eq!((model.dir.clone(), model.single().map(|one| one.path.clone())), (place.0.join("work"), Some(b.clone())));
+        model.set(Pref::Recent);
+        assert!(!model.lines().iter().any(|line| matches!(line, Line::Recent { .. })));
     }
 
     #[test]

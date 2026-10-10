@@ -221,6 +221,11 @@ fn build(model: &mut Model) -> (TreeUpdate, HashMap<NodeId, (Order, Option<Order
                 let name = drifter_core::explorer::look::tree_name(model, path);
                 line_node(&mut tree, &key, &name, path, Some((*depth, *open)))
             }
+            Line::Recent { path, name } => {
+                let id = tree.put(&key, clickable(Role::TreeItem, name));
+                tree.aims.insert(id, (Order::Act(Act::OpenRecent(path.clone())), None));
+                id
+            }
             Line::Drive { path, name, drive } => match (path, drive.as_ref().and_then(|drive| drive.device.clone())) {
                 (Some(path), _) => line_node(&mut tree, &key, name, path, None),
                 (None, Some(device)) => {

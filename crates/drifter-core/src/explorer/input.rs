@@ -201,6 +201,19 @@ pub fn press(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, button: Butto
                 model.act(Act::Eject(device));
             }
         }
+        Hit::Line(index) if matches!(lines.get(index), Some(Line::Recent { .. })) => {
+            let Some(Line::Recent { path, .. }) = lines.get(index).cloned() else {
+                return;
+            };
+            match (right, clicks) {
+                (true, _) => {
+                    let items = model.recent_menu(&path);
+                    model.menu = Some(menu_at(items, at));
+                }
+                (false, 2..) => model.act(Act::OpenRecent(path)),
+                (false, _) => model.act(Act::Reveal(path)),
+            }
+        }
         Hit::Line(index) if matches!(lines.get(index), Some(Line::Drive { drive: Some(_), .. })) => {
             let Some(Line::Drive { drive: Some(drive), .. }) = lines.get(index).cloned() else {
                 return;
@@ -773,6 +786,7 @@ fn side_key(model: &mut Model, ui: &Ui, key: &Key) -> bool {
                         model.act(Act::Mount(device));
                     }
                 }
+                Line::Recent { path, .. } => model.act(Act::OpenRecent(path)),
                 line => {
                     if let Some(path) = line.path() {
                         model.go(path.to_path_buf(), None);
@@ -789,6 +803,7 @@ fn side_key(model: &mut Model, ui: &Ui, key: &Key) -> bool {
             let spot = rects.get(at).map_or(Vec2::new(40.0, 120.0), |area| Vec2::new(area.origin.x + 20.0, area.max().y));
             let items = match lines[at].clone() {
                 Line::Drive { drive: Some(drive), .. } => model.drive_menu(&drive),
+                Line::Recent { path, .. } => model.recent_menu(&path),
                 line => match line.path() {
                     Some(path) => model.line_menu(path, matches!(line, Line::Place { mark: true, .. })),
                     None => return true,
