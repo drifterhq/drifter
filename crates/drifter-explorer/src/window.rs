@@ -118,6 +118,7 @@ struct Explorer {
     exit: bool,
     configured: bool,
     bound: bool,
+    room: Option<(u32, u32)>,
     resized: bool,
     stale: bool,
     dirty: Option<drifter_core::Rect>,
@@ -317,6 +318,7 @@ pub fn run() -> Result<(), String> {
         exit: false,
         configured: false,
         bound: false,
+        room: None,
         resized: false,
         stale: true,
         dirty: None,
@@ -923,22 +925,34 @@ impl WindowHandler for Explorer {
             _ => self.size,
         };
         self.bound = bound;
-        let width = configure.new_size.0.map(|v| v.get()).unwrap_or(free.0);
-        let height = configure.new_size.1.map(|v| v.get()).unwrap_or(free.1);
+        let fit = |want: u32, most: Option<u32>| match most.filter(|most| *most > 0) {
+            Some(most) => want.min(most),
+            None => want,
+        };
+        if let Some(room) = configure.suggested_bounds.filter(|room| room.0 > 0 && room.1 > 0) {
+            self.room = Some(room);
+        }
+        let bounds = self.room;
+        let width = configure.new_size.0.map(|v| v.get()).unwrap_or_else(|| fit(free.0, bounds.map(|b| b.0)));
+        let height = configure.new_size.1.map(|v| v.get()).unwrap_or_else(|| fit(free.1, bounds.map(|b| b.1)));
+        let squeezed = match (self.room, self.model.prefs.window_size) {
+            (Some(room), Some([want_w, want_h])) => want_w > room.0 || want_h > room.1,
+            _ => false,
+        };
         self.size = (width.max(least.x as u32), height.max(least.y as u32));
-        self.remember(&configure);
+        self.remember(&configure, squeezed);
         self.configured = true;
         self.resized = true;
     }
 }
 
 impl Explorer {
-    fn remember(&mut self, configure: &WindowConfigure) {
+    fn remember(&mut self, configure: &WindowConfigure, squeezed: bool) {
         if configure.is_fullscreen() {
             return;
         }
         let prefs = &mut self.model.prefs;
-        let free = !configure.is_maximized() && !configure.state.intersects(WindowState::TILED);
+        let free = !configure.is_maximized() && !configure.state.intersects(WindowState::TILED) && !squeezed;
         let size = Some([self.size.0, self.size.1]);
         if free && prefs.window_size != size {
             prefs.window_size = size;

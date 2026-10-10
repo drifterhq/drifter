@@ -224,6 +224,8 @@ impl XdgShellHandler for State {
     }
 
     fn new_toplevel(&mut self, surface: ToplevelSurface) {
+        let room = self.window_room();
+        surface.with_pending_state(|state| state.bounds = Some(room));
         surface.send_configure();
         let start = self.opening_motion();
         let id = self.next_window_id();

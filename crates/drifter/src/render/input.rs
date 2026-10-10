@@ -381,6 +381,15 @@ impl State {
         };
     }
 
+    pub(crate) fn window_room(&self) -> smithay::utils::Size<i32, smithay::utils::Logical> {
+        let zone = self.work_zone();
+        let chrome = self.chrome;
+        let room = zone.size.min(zone.size / self.camera.zoom);
+        let width = (room.x - chrome.edge * 2.0).floor().max(1.0) as i32;
+        let height = (room.y - chrome.title - chrome.edge).floor().max(1.0) as i32;
+        (width, height).into()
+    }
+
     pub(super) fn work_zone(&self) -> Rect {
         let zone = smithay::desktop::layer_map_for_output(&self.output).non_exclusive_zone();
         let mut top = f64::from(zone.loc.y);
