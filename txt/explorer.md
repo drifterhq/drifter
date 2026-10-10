@@ -213,3 +213,6 @@ Later steps build on these.
 59. Terminal and live theme check (no change needed).
     Waits on: nothing.
     - Checked on the trixie VM: "Open in Terminal" on a folder in "/tmp/term test" started `foot --working-directory=/tmp/term test/inner`, and the shell sat in that folder (spaces are fine). Switching the style to Light in drifter.toml while Explorer was open turned it light within a second, and putting it back turned it dark again within a second (the config file is watched every half second; the slower check only follows Auto's time of day).
+60. Language changes needed a restart.
+    Waits on: 44.
+    - Built: when drifter.toml changes, Explorer now sets the language again (`lang::use_config`), and when the words change it rebuilds the place names and the window title and repaints. Menus, columns, dates and the sidebar all read the new words from then on. Checked on the trixie VM: adding `language = "de"` while Explorer was open turned it German within a second (Datei, Persönlicher Ordner, Papierkorb, Heute), and removing it turned it back to English.

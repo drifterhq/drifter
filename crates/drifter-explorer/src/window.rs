@@ -500,6 +500,12 @@ impl Explorer {
             self.config_seen = seen;
             if let Ok(config) = Config::load_from(&path) {
                 drifter_core::icon::set_theme(config.appearance.icons.clone());
+                let before = drifter_core::lang::t("Home").to_string();
+                drifter_core::lang::use_config(config.appearance.language.as_deref());
+                if drifter_core::lang::t("Home") != before {
+                    self.model.refresh_places();
+                    self.after();
+                }
                 self.look = themed(&config);
                 self.art.icons.clear();
                 self.art.missing.retain(|want| matches!(want, Want::Thumb(..)));
