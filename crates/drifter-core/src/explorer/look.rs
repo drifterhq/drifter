@@ -964,11 +964,15 @@ impl Look {
                 Mode::Gallery => self.paint_gallery(&mut piece, &shifted, job),
             }
             if model.entries.is_empty() && model.prefs.mode != Mode::Columns {
-                let words = match super::ops::in_trash(&model.dir) {
-                    true => crate::lang::t("The Trash is empty"),
-                    false => crate::lang::t("This folder is empty"),
+                let words = match (model.loading.is_some(), super::ops::in_trash(&model.dir)) {
+                    (true, _) if model.showing_loading() => Some(crate::lang::t("Loading…")),
+                    (true, _) => None,
+                    (false, true) => Some(crate::lang::t("The Trash is empty")),
+                    (false, false) => Some(crate::lang::t("This folder is empty")),
                 };
-                self.text_center(&mut piece, job.fonts.body, words, self.dim, local.center(), local.size.x - 40.0);
+                if let Some(words) = words {
+                    self.text_center(&mut piece, job.fonts.body, words, self.dim, local.center(), local.size.x - 40.0);
+                }
             }
         }
         canvas.stamp(&piece.image, body.origin, 1.0);

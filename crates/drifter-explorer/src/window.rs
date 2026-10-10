@@ -11,6 +11,7 @@ use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState};
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
 use smithay_client_toolkit::reexports::calloop::EventLoop;
 use smithay_client_toolkit::reexports::calloop::channel::{Event as ChannelEvent, Sender as LoopSender, channel as loop_channel};
+use smithay_client_toolkit::reexports::calloop::ping::make_ping;
 use smithay_client_toolkit::reexports::calloop::timer::{TimeoutAction, Timer};
 use smithay_client_toolkit::reexports::calloop_wayland_source::WaylandSource;
 use smithay_client_toolkit::registry::{ProvidesRegistryState, RegistryState};
@@ -113,7 +114,9 @@ pub fn run() -> Result<(), String> {
     let shell = XdgShell::bind(&globals, &qh).map_err(|e| format!("no xdg shell: {e}"))?;
     let shm = Shm::bind(&globals, &qh).map_err(|e| format!("no wl_shm: {e}"))?;
 
-    let model = Model::new(Prefs::path(), asked_path());
+    let (ping, pinged) = make_ping().map_err(|e| format!("no wake-up pipe: {e}"))?;
+    let mut model = Model::new(Prefs::path(), asked_path());
+    model.reader.set_wake(std::sync::Arc::new(move || ping.ping()));
     let surface = compositor.create_surface(&qh);
     let window = shell.create_window(surface, WindowDecorations::RequestServer, &qh);
     let title = drifter_core::explorer::entry::name_of(&model.dir);
@@ -138,6 +141,14 @@ pub fn run() -> Result<(), String> {
             }
         })
         .map_err(|e| format!("cannot watch the previews: {e}"))?;
+    events
+        .handle()
+        .insert_source(pinged, |_, _, app: &mut Explorer| {
+            if app.model.arrived() {
+                app.stale = true;
+            }
+        })
+        .map_err(|e| format!("cannot watch folder reads: {e}"))?;
     let (jobs, jobs_rx) = loop_channel::<Done>();
     events
         .handle()

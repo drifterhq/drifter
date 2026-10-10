@@ -7,5 +7,6 @@ pub mod model;
 pub mod open;
 pub mod ops;
 pub mod prefs;
+pub mod read;
 
 pub const APP: &str = "drifter-explorer";

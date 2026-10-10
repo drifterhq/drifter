@@ -1,12 +1,19 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::time::{Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use super::entry::{self, Entry, Family, Sort};
 use super::field::Field;
 use super::ops::{self, Done, Job, Undo};
 use super::open::{self, Handler};
 use super::prefs::{self, Click, Dates, Mode, Prefs, Root, Start};
+use super::read::{Ask, Got, Lens, Listing, Reader};
+
+const BUDGET: Duration = match cfg!(test) {
+    true => Duration::from_secs(5),
+    false => Duration::from_millis(50),
+};
+const SHOW_LOADING: Duration = Duration::from_millis(250);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Act {
@@ -211,6 +218,14 @@ pub struct Model {
     pub marks: Vec<super::marks::Mark>,
     pub marks_path: PathBuf,
     pub marks_stamp: Option<SystemTime>,
+    pub reader: Reader,
+    pub listed: HashMap<PathBuf, Listing>,
+    pub loading: Option<Instant>,
+    pub wanted: Option<PathBuf>,
+    pub budget: Duration,
+    pub peek_for: Option<PathBuf>,
+    fresh_dir: bool,
+    fresh_columns: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -344,6 +359,14 @@ impl Model {
             marks: Vec::new(),
             marks_path: super::marks::file(),
             marks_stamp: None,
+            reader: Reader::default(),
+            listed: HashMap::new(),
+            loading: None,
+            wanted: None,
+            budget: BUDGET,
+            peek_for: None,
+            fresh_dir: false,
+            fresh_columns: false,
         };
         model.read_marks();
         model.drives = drives_in(&std::fs::read_to_string("/proc/mounts").unwrap_or_default());
@@ -370,28 +393,163 @@ impl Model {
         self.note = Some((words.into(), alert, Instant::now()));
     }
 
-    fn read_dir(&self, dir: &Path) -> std::io::Result<Vec<Entry>> {
-        let mut found = entry::read(dir, self.prefs.hidden)?;
-        entry::sort(&mut found, self.prefs.sort, self.prefs.down, self.prefs.folders_first);
-        Ok(found)
+    pub fn lens(&self) -> Lens {
+        Lens { hidden: self.prefs.hidden, sort: self.prefs.sort, down: self.prefs.down, folders_first: self.prefs.folders_first }
     }
 
-    fn load(&mut self, dir: PathBuf, pick: Option<PathBuf>) -> bool {
-        match self.read_dir(&dir) {
+    pub fn listing(&self, dir: &Path) -> Option<&Listing> {
+        self.listed.get(dir).filter(|listing| listing.lens == self.lens())
+    }
+
+    fn ask_list(&mut self, dir: &Path) -> u64 {
+        self.reader.ask(Ask::List(dir.to_path_buf(), self.lens()))
+    }
+
+    fn listed_since(&self, dir: &Path, seq: u64) -> bool {
+        self.listing(dir).is_some_and(|listing| listing.seq >= seq)
+    }
+
+    fn settle(&mut self, until: Instant, done: impl Fn(&Model) -> bool) {
+        while !done(self) {
+            match self.reader.next(Some(until)) {
+                Some(got) => {
+                    self.absorb(got);
+                }
+                None => break,
+            }
+        }
+    }
+
+    pub fn settle_all(&mut self, most: Duration) {
+        let until = Instant::now() + most;
+        while self.reader.busy() {
+            match self.reader.next(Some(until)) {
+                Some(got) => {
+                    self.absorb(got);
+                }
+                None => break,
+            }
+        }
+        self.follow();
+    }
+
+    fn absorb(&mut self, got: Got) -> bool {
+        match got {
+            Got::List(dir, listing) => {
+                if listing.lens != self.lens() {
+                    return false;
+                }
+                if dir == self.dir {
+                    self.fresh_dir = true;
+                } else if self.columns.iter().any(|column| column.dir == dir) {
+                    self.fresh_columns = true;
+                }
+                self.listed.insert(dir, listing);
+                true
+            }
+            Got::Folders(dir, hidden, kids) => {
+                if hidden != self.prefs.hidden {
+                    return false;
+                }
+                self.kids.insert(dir, kids);
+                true
+            }
+            Got::Stamp(dir, stamp) => {
+                if dir != self.dir || stamp == self.stamp || self.loading.is_some() {
+                    return false;
+                }
+                self.ask_list(&dir);
+                false
+            }
+            Got::Peek(path, lines) => {
+                if self.peek_for.as_ref() != Some(&path) {
+                    return false;
+                }
+                self.peek = lines;
+                true
+            }
+        }
+    }
+
+    fn follow(&mut self) {
+        if std::mem::take(&mut self.fresh_dir) {
+            self.apply();
+        } else if std::mem::take(&mut self.fresh_columns) {
+            self.rebuild_columns();
+        }
+    }
+
+    pub fn arrived(&mut self) -> bool {
+        let mut changed = self.fresh_dir || self.fresh_columns;
+        while let Some(got) = self.reader.next(None) {
+            changed |= self.absorb(got);
+        }
+        self.follow();
+        changed
+    }
+
+    fn apply(&mut self) {
+        self.fresh_dir = false;
+        let Some(listing) = self.listing(&self.dir).cloned() else {
+            return;
+        };
+        let still = self.reader.asked(&Ask::List(self.dir.clone(), self.lens()));
+        self.loading = match still {
+            true => Some(self.loading.unwrap_or_else(Instant::now)),
+            false => None,
+        };
+        match listing.entries {
             Ok(found) => {
                 self.entries = found;
                 self.trouble = None;
             }
             Err(error) => {
-                if self.entries.is_empty() || self.dir == dir {
-                    self.entries.clear();
-                    self.trouble = Some(error.to_string());
-                    self.dir = dir.clone();
-                } else {
-                    self.say(crate::lang::tf("Cannot open {}: {}", &[&entry::name_of(&dir), &error]), true);
-                    return false;
+                self.entries.clear();
+                self.trouble = Some(error);
+            }
+        }
+        let here: HashSet<&PathBuf> = self.entries.iter().map(|each| &each.path).collect();
+        self.picked.retain(|path| here.contains(path));
+        self.focus = self.focus.take().filter(|path| here.contains(path));
+        self.anchor = self.anchor.take().filter(|path| here.contains(path));
+        if let Some((path, _)) = &self.renaming
+            && !here.contains(path)
+        {
+            self.renaming = None;
+        }
+        let wanted = self.wanted.clone().filter(|path| here.contains(path));
+        self.peek_for = None;
+        self.stamp = listing.stamp;
+        self.free = listing.free;
+        match wanted {
+            Some(pick) => {
+                self.wanted = None;
+                self.pick_only(pick);
+                if self.prefs.mode != Mode::Columns {
+                    self.rebuild_columns();
                 }
             }
+            None => {
+                if !still {
+                    self.wanted = None;
+                }
+                self.rebuild_columns();
+                self.refresh_peek();
+            }
+        }
+    }
+
+    fn load(&mut self, dir: PathBuf, pick: Option<PathBuf>) -> bool {
+        let seq = self.ask_list(&dir);
+        let until = Instant::now() + self.budget;
+        self.settle(until, |model| model.listed_since(&dir, seq));
+        if let Some(Listing { entries: Err(error), .. }) = self.listing(&dir).filter(|listing| listing.seq >= seq)
+            && !self.entries.is_empty()
+            && self.dir != dir
+        {
+            let words = crate::lang::tf("Cannot open {}: {}", &[&entry::name_of(&dir), error]);
+            self.say(words, true);
+            return false;
         }
         self.dir = dir;
         self.picked.clear();
@@ -400,19 +558,37 @@ impl Model {
         self.scroll = 0.0;
         self.renaming = None;
         self.typed = (String::new(), None);
-        if let Some(pick) = pick.filter(|pick| self.entries.iter().any(|each| &each.path == pick)) {
-            self.pick_only(pick);
-        }
-        self.stamp = modified(&self.dir);
-        self.free = entry::free_space(&self.dir);
+        self.wanted = pick;
+        self.peek = None;
+        self.peek_for = None;
         self.reveal();
-        self.rebuild_columns();
-        self.refresh_peek();
+        self.fill_tree(until);
+        match self.listing(&self.dir).is_some() {
+            true => self.apply(),
+            false => {
+                self.entries.clear();
+                self.trouble = None;
+                self.loading = Some(Instant::now());
+                self.stamp = None;
+                self.free = None;
+                self.rebuild_columns();
+            }
+        }
         if self.prefs.last.as_ref() != Some(&self.dir) {
             self.prefs.last = Some(self.dir.clone());
             self.saved = false;
         }
         true
+    }
+
+    fn fill_tree(&mut self, until: Instant) {
+        let hidden = self.prefs.hidden;
+        let base = self.tree_base();
+        let wanted: Vec<PathBuf> = self.dir.ancestors().take_while(|at| at.starts_with(&base)).filter(|at| self.open.contains(*at) && !self.kids.contains_key(*at)).map(Path::to_path_buf).collect();
+        for dir in &wanted {
+            self.reader.ask(Ask::Folders(dir.clone(), hidden));
+        }
+        self.settle(until, |model| wanted.iter().all(|dir| model.kids.contains_key(dir)));
     }
 
     pub fn go(&mut self, dir: PathBuf, pick: Option<PathBuf>) {
@@ -430,33 +606,28 @@ impl Model {
     }
 
     pub fn reload(&mut self) {
-        let keep: HashSet<PathBuf> = self.picked.clone();
-        let (focus, anchor, scroll) = (self.focus.clone(), self.anchor.clone(), self.scroll);
-        match self.read_dir(&self.dir.clone()) {
-            Ok(found) => {
-                self.entries = found;
-                self.trouble = None;
-            }
-            Err(error) => {
-                self.entries.clear();
-                self.trouble = Some(error.to_string());
-            }
+        let dir = self.dir.clone();
+        let seq = self.ask_list(&dir);
+        let hidden = self.prefs.hidden;
+        let open = self.open.clone();
+        self.kids.retain(|path, _| open.contains(path));
+        for path in self.kids.keys().cloned().collect::<Vec<_>>() {
+            self.reader.ask(Ask::Folders(path, hidden));
         }
-        let here: HashSet<&PathBuf> = self.entries.iter().map(|each| &each.path).collect();
-        self.picked = keep.into_iter().filter(|path| here.contains(path)).collect();
-        self.focus = focus.filter(|path| here.contains(path));
-        self.anchor = anchor.filter(|path| here.contains(path));
-        self.scroll = scroll;
-        if let Some((path, _)) = &self.renaming
-            && !here.contains(path)
-        {
-            self.renaming = None;
+        for column in self.columns.iter().map(|column| column.dir.clone()).filter(|each| each != &dir).collect::<Vec<_>>() {
+            self.ask_list(&column);
         }
-        self.stamp = modified(&self.dir);
-        self.free = entry::free_space(&self.dir);
-        self.kids.clear();
-        self.rebuild_columns();
-        self.refresh_peek();
+        let until = Instant::now() + self.budget;
+        self.settle(until, |model| model.listed_since(&dir, seq));
+        match self.listed_since(&dir, seq) {
+            true => self.apply(),
+            false => self.loading = Some(self.loading.unwrap_or_else(Instant::now)),
+        }
+        self.follow();
+    }
+
+    pub fn showing_loading(&self) -> bool {
+        self.loading.is_some_and(|at| at.elapsed() >= SHOW_LOADING)
     }
 
     pub fn tick(&mut self) -> bool {
@@ -473,12 +644,12 @@ impl Model {
             self.read_marks();
             changed = true;
         }
-        let stamp = modified(&self.dir);
-        if stamp != self.stamp {
-            self.reload();
+        if self.loading.is_none() {
+            self.reader.ask(Ask::Stamp(self.dir.clone()));
+        } else if self.showing_loading() {
             changed = true;
         }
-        changed
+        changed | self.arrived()
     }
 
     pub fn save(&mut self) {
@@ -601,42 +772,66 @@ impl Model {
         if !open || depth > 24 {
             return;
         }
-        let hidden = self.prefs.hidden;
-        let kids = self.kids.entry(at.to_path_buf()).or_insert_with(|| entry::folders_in(at, hidden)).clone();
+        let Some(kids) = self.kids.get(at).cloned() else {
+            self.reader.ask(Ask::Folders(at.to_path_buf(), self.prefs.hidden));
+            return;
+        };
         for kid in kids {
             self.walk(&kid, depth + 1, out);
         }
     }
 
     pub fn fold(&mut self, path: &Path) {
-        if !self.open.remove(path) {
-            self.open.insert(path.to_path_buf());
+        if self.open.remove(path) {
+            return;
+        }
+        self.open.insert(path.to_path_buf());
+        if !self.kids.contains_key(path) {
+            let ask = Ask::Folders(path.to_path_buf(), self.prefs.hidden);
+            self.reader.ask(ask);
+            let until = Instant::now() + self.budget;
+            self.settle(until, |model| model.kids.contains_key(path));
         }
     }
 
     pub fn rebuild_columns(&mut self) {
+        self.fresh_columns = false;
+        if self.prefs.mode != Mode::Columns {
+            self.columns.clear();
+            let dir = self.dir.clone();
+            self.listed.retain(|each, _| *each == dir);
+            return;
+        }
         let base = self.column_base();
         let mut chain: Vec<PathBuf> = self.dir.ancestors().take_while(|at| at.starts_with(&base)).map(Path::to_path_buf).collect();
         chain.reverse();
         if chain.is_empty() {
             chain.push(self.dir.clone());
         }
+        if let Some(folder) = self.single().filter(|one| one.folder).map(|one| one.path.clone()) {
+            chain.push(folder);
+        }
+        let missing: Vec<PathBuf> = chain.iter().filter(|dir| **dir != self.dir && self.listing(dir).is_none()).cloned().collect();
+        if !missing.is_empty() {
+            for dir in &missing {
+                self.ask_list(dir);
+            }
+            let until = Instant::now() + self.budget;
+            self.settle(until, |model| missing.iter().all(|dir| model.listing(dir).is_some()));
+        }
         let old: HashMap<PathBuf, f64> = self.columns.iter().map(|column| (column.dir.clone(), column.scroll)).collect();
         let mut columns = Vec::new();
         for dir in chain {
             let entries = match dir == self.dir {
                 true => self.entries.clone(),
-                false => self.read_dir(&dir).unwrap_or_default(),
+                false => self.listing(&dir).and_then(|listing| listing.entries.clone().ok()).unwrap_or_default(),
             };
             let scroll = old.get(&dir).copied().unwrap_or(0.0);
             columns.push(Column { dir, entries, scroll });
         }
-        if let Some(folder) = self.single().filter(|one| one.folder).map(|one| one.path.clone()) {
-            let entries = self.read_dir(&folder).unwrap_or_default();
-            let scroll = old.get(&folder).copied().unwrap_or(0.0);
-            columns.push(Column { dir: folder, entries, scroll });
-        }
         self.columns = columns;
+        let keep: HashSet<&PathBuf> = self.columns.iter().map(|column| &column.dir).chain(std::iter::once(&self.dir)).collect();
+        self.listed.retain(|dir, _| keep.contains(dir));
     }
 
     pub fn single(&self) -> Option<&Entry> {
@@ -710,10 +905,18 @@ impl Model {
     }
 
     pub fn refresh_peek(&mut self) {
-        self.peek = self.single().filter(|one| !one.folder && one.size < 4 << 20).and_then(|one| match one.family() {
-            Family::Text | Family::Other => peek(&one.path),
-            _ => None,
-        });
+        let want = self.single().filter(|one| !one.folder && one.size < 4 << 20 && matches!(one.family(), Family::Text | Family::Other)).map(|one| one.path.clone());
+        if want == self.peek_for {
+            return;
+        }
+        self.peek = None;
+        self.peek_for = want.clone();
+        let Some(path) = want else {
+            return;
+        };
+        self.reader.ask(Ask::Peek(path.clone()));
+        let until = Instant::now() + self.budget;
+        self.settle(until, |model| !model.reader.asked(&Ask::Peek(path.clone())));
     }
 
     pub fn step(&mut self, by: isize, keep: bool) {
@@ -1356,6 +1559,9 @@ impl Model {
     }
 
     pub fn summary(&self) -> String {
+        if self.entries.is_empty() && self.loading.is_some() {
+            return crate::lang::t("Loading…").to_string();
+        }
         let all = entry::items(self.entries.len());
         match self.picked.len() {
             0 => all,
@@ -1422,22 +1628,6 @@ pub fn mode_words(mode: u32) -> String {
         parts.push(format!("{name}: {can}"));
     }
     parts.join(", ")
-}
-
-fn peek(path: &Path) -> Option<Vec<String>> {
-    use std::io::Read;
-    let mut bytes = vec![0u8; 16 * 1024];
-    let read = std::fs::File::open(path).ok()?.read(&mut bytes).ok()?;
-    bytes.truncate(read);
-    if bytes.contains(&0) {
-        return None;
-    }
-    let text = match std::str::from_utf8(&bytes) {
-        Ok(text) => text.to_string(),
-        Err(error) if error.valid_up_to() > bytes.len().saturating_sub(4) => String::from_utf8_lossy(&bytes[..error.valid_up_to()]).into_owned(),
-        Err(_) => return None,
-    };
-    Some(text.lines().take(80).map(|line| line.replace('\t', "    ")).collect())
 }
 
 #[cfg(test)]
@@ -1511,6 +1701,65 @@ mod tests {
         model.type_to_find("b");
         assert_eq!(model.single().map(|one| one.name.as_str()), Some("b.txt"));
         assert_eq!(model.peek.as_ref().map(|lines| lines.len()), Some(2));
+    }
+
+    #[test]
+    fn a_slow_folder_shows_loading_and_fills_in_later() {
+        let (place, mut model) = place("slow");
+        let work = place.0.join("work");
+        model.budget = Duration::ZERO;
+        model.go(work.join("Photos"), None);
+        assert_eq!(model.dir, work.join("Photos"));
+        assert!(model.entries.is_empty() && model.loading.is_some());
+        assert_eq!(model.summary(), crate::lang::t("Loading…"));
+        model.settle_all(Duration::from_secs(5));
+        assert!(model.loading.is_none());
+        assert_eq!(model.entries.iter().map(|each| each.name.as_str()).collect::<Vec<_>>(), ["2026"]);
+        model.act(Act::Up);
+        model.settle_all(Duration::from_secs(5));
+        assert_eq!(model.dir, work);
+        assert!(model.picked.contains(&work.join("Photos")));
+        assert_eq!(model.back, [work.clone(), work.join("Photos")]);
+    }
+
+    #[test]
+    fn a_folder_that_cannot_open_says_so() {
+        let (place, mut model) = place("gone");
+        let work = place.0.join("work");
+        model.go(work.join("nope"), None);
+        assert_eq!(model.dir, work);
+        assert!(model.note.as_ref().is_some_and(|(words, alert, _)| *alert && words.contains("nope")));
+        model.budget = Duration::ZERO;
+        model.go(work.join("nope"), None);
+        model.settle_all(Duration::from_secs(5));
+        assert_eq!(model.dir, work.join("nope"));
+        assert!(model.trouble.is_some() && model.loading.is_none());
+    }
+
+    #[test]
+    fn a_change_on_disk_comes_in_on_the_next_tick() {
+        let (place, mut model) = place("tick");
+        let work = place.0.join("work");
+        std::thread::sleep(Duration::from_millis(20));
+        std::fs::write(work.join("new.txt"), "x").unwrap();
+        model.tick();
+        model.settle_all(Duration::from_secs(5));
+        model.settle_all(Duration::from_secs(5));
+        assert!(model.index_of(&work.join("new.txt")).is_some());
+    }
+
+    #[test]
+    fn text_peeks_in_from_a_worker() {
+        let (place, mut model) = place("peek");
+        let work = place.0.join("work");
+        model.pick_only(work.join("b.txt"));
+        assert_eq!(model.peek, Some(vec!["bee".to_string(), "line two".to_string()]));
+        model.budget = Duration::ZERO;
+        model.pick_only(work.join("a.png"));
+        assert_eq!(model.peek, None);
+        model.pick_only(work.join("b.txt"));
+        model.settle_all(Duration::from_secs(5));
+        assert_eq!(model.peek.as_ref().map(Vec::len), Some(2));
     }
 
     #[test]

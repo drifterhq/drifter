@@ -15,6 +15,7 @@ Later steps build on these.
    Waits on: 1.
 3. Folders are read on the main thread, so a huge folder or a slow network drive freezes the window. Read them on a worker.
    Waits on: nothing.
+   - Built: folders, the tree, columns, text previews and change checks read on worker threads. A folder that takes more than 50 ms shows "Loading…" and fills in later. A 100,000-file folder now blocks 60 ms, not 0.9 s. Left: a test on the Pixelbook.
 4. Folder watching: Explorer checks only the open folder, every half second. The tree and the other columns do not refresh when a folder changes. Watch every shown folder with inotify.
    Waits on: 3.
 5. Errors: an error shows in the status bar for 6 seconds and then disappears. It is easy to miss. Keep it until the user closes it.
