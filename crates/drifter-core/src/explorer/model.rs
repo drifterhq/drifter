@@ -358,6 +358,7 @@ pub struct Model {
 pub enum Drag {
     Split { from: f64, width: u32 },
     Rail { rail: super::look::Rail, grab: f64 },
+    Edge { sort: Sort, rest: f64 },
     Lasso { from: crate::Vec2, at: crate::Vec2, keep: HashSet<PathBuf> },
     Zoom,
     Slider,

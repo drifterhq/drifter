@@ -86,6 +86,7 @@ Later steps build on these.
     - Built: drag from empty space in List or Icons view to draw a box. It picks every item it touches, live. Ctrl or Shift adds to what is picked. Dragging past the top or bottom scrolls. A click without a drag still clears the picks. Checked on Blue: a box over five folders picked those five. Left: in List view the box starts only below the last row, since a press on a row drags files.
 22. Changing list column widths.
     Waits on: nothing.
+    - Built: drag the line at the left of a list column (Modified, Size, Kind, Folder, Date Deleted) to set its width. The line lights up under the pointer, and Name takes the rest but keeps 200 px. A double-click on the line goes back to the normal width. Widths are saved in explorer.toml. Checked on Blue.
 23. Click-and-drag text selection in the rename and path fields.
     Waits on: 13.
 24. Keyboard: there is no visible focus ring.

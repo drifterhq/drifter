@@ -73,6 +73,7 @@ pub enum Hit {
     TabNew,
     Tabs,
     Rail(Rail),
+    Edge(Sort),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -365,12 +366,30 @@ impl Look {
         if model.prefs.show_kind {
             extra.push((Sort::Kind, 140.0));
         }
+        for (sort, width) in &mut extra {
+            if let Some(chosen) = model.prefs.widths.get(*sort) {
+                *width = f64::from(chosen);
+            }
+        }
         let mut name = body.size.x - 16.0 - extra.iter().map(|(_, w)| w).sum::<f64>();
         while name < 200.0 && !extra.is_empty() {
             let (_, w) = extra.pop().unwrap_or((Sort::Kind, 0.0));
             name += w;
         }
         (name, extra)
+    }
+
+    pub fn head_edges(&self, body: Rect, model: &Model) -> Vec<(Sort, f64)> {
+        let (name, extra) = self.list_widths(body, model);
+        let mut x = body.origin.x + 8.0 + name;
+        extra
+            .into_iter()
+            .map(|(sort, width)| {
+                let edge = (sort, x);
+                x += width;
+                edge
+            })
+            .collect()
     }
 
     pub fn grid(&self, body: Rect, model: &Model) -> (usize, Vec2, f64) {
@@ -627,6 +646,9 @@ impl Look {
             Mode::List => {
                 if at.y < body.origin.y + HEAD_H {
                     let (name, extra) = self.list_widths(body, model);
+                    if let Some((sort, _)) = self.head_edges(body, model).into_iter().find(|(_, x)| (at.x - x).abs() <= 4.0) {
+                        return Some(Hit::Edge(sort));
+                    }
                     let mut x = body.origin.x + 8.0 + name;
                     if at.x < x {
                         return Some(Hit::Head(Sort::Name));
@@ -1500,7 +1522,11 @@ impl Look {
                     canvas.triangle(corners, self.dim, 1.0);
                 }
                 if sort != Sort::Name {
-                    canvas.round_rect(rect(x, 7.0, 1.0, top - 14.0), 0.0, self.rule, 1.0);
+                    let held = matches!(model.dragging, Some(super::model::Drag::Edge { sort: edge, .. }) if edge == sort);
+                    match held || model.hover == Some(Hit::Edge(sort)) {
+                        true => canvas.round_rect(rect(x - 1.0, 4.0, 3.0, top - 8.0), 1.5, self.accent, 1.0),
+                        false => canvas.round_rect(rect(x, 7.0, 1.0, top - 14.0), 0.0, self.rule, 1.0),
+                    }
                 }
                 x += w;
             }
@@ -1916,6 +1942,7 @@ impl Look {
             Hit::Tab(index) | Hit::TabClose(index) => *self.strip_tabs(frame.tabs?, model.tabs.len()).0.get(*index)?,
             Hit::TabNew => self.strip_tabs(frame.tabs?, model.tabs.len()).1,
             Hit::Rail(rail) => rail_track(self.rail_place(size, model, lines, *rail)?.0),
+            Hit::Edge(_) => rect(frame.body.origin.x, frame.body.origin.y, frame.body.size.x, HEAD_H),
             _ => return None,
         };
         Some(Rect::new(area.origin - Vec2::splat(4.0), area.size + Vec2::splat(8.0)))
@@ -2922,6 +2949,46 @@ mod repaint_tests {
         input::press(&mut model, &ui, &lines, start, Button::Left, 1, Mods::default());
         input::release(&mut model, &ui, &lines, start, false);
         assert!(model.picked.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn list_columns_resize_from_their_left_edge() {
+        use super::super::input::{self, Button, Mods, Ui};
+        let dir = std::env::temp_dir().join(format!("drifter-edges-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("work")).unwrap();
+        std::fs::write(dir.join("work/a.txt"), "x").unwrap();
+        let mut model = Model::new(dir.join("explorer.toml"), Some(dir.join("work")));
+        model.settle_all(std::time::Duration::from_secs(5));
+        let (Ok(body), Ok(small), Ok(title)) = (crate::Font::find(None, 13.0), crate::Font::find(None, 11.5), crate::Font::find(None, 17.0)) else {
+            return;
+        };
+        let fonts = Fonts { body: &body, small: &small, title: &title };
+        let look = Look::themed(&crate::theme::DARK, [64, 128, 238]);
+        let size = Vec2::new(900.0, 600.0);
+        crate::paint::set_density(1);
+        let ui = Ui { look: &look, fonts: &fonts, size };
+        let lines = model.lines();
+        let frame = look.frame(size, &model);
+        let edges = look.head_edges(frame.body, &model);
+        let (sort, x) = edges[0];
+        assert_eq!(sort, Sort::Modified);
+        let y = frame.body.origin.y + HEAD_H / 2.0;
+        assert_eq!(look.hit(size, &model, &lines, &fonts, Vec2::new(x + 2.0, y)), Some(Hit::Edge(Sort::Modified)));
+        let size_x = edges[1].1;
+        input::press(&mut model, &ui, &lines, Vec2::new(x, y), Button::Left, 1, Mods::default());
+        assert!(input::motion(&mut model, &ui, &lines, Vec2::new(x - 50.0, y)));
+        assert_eq!(model.prefs.widths.get(Sort::Modified), Some(220));
+        let moved = look.head_edges(frame.body, &model);
+        assert_eq!((moved[0].1, moved[1].1), (x - 50.0, size_x));
+        input::motion(&mut model, &ui, &lines, Vec2::new(frame.body.origin.x, y));
+        let (name, _) = look.list_widths(frame.body, &model);
+        assert!(name >= 200.0, "the name column keeps room");
+        input::release(&mut model, &ui, &lines, Vec2::new(x, y), false);
+        let edge = look.head_edges(frame.body, &model)[0].1;
+        input::press(&mut model, &ui, &lines, Vec2::new(edge, y), Button::Left, 2, Mods::default());
+        assert_eq!(model.prefs.widths.get(Sort::Modified), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

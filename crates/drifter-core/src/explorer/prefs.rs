@@ -82,6 +82,44 @@ pub struct Prefs {
     pub terminal: Option<String>,
     pub window_size: Option<[u32; 2]>,
     pub maximized: bool,
+    pub widths: Widths,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Widths {
+    pub folder: u32,
+    pub deleted: u32,
+    pub modified: u32,
+    pub size: u32,
+    pub kind: u32,
+}
+
+pub const LEAST_COLUMN: u32 = 60;
+pub const MOST_COLUMN: u32 = 600;
+
+impl Widths {
+    fn slot(&mut self, sort: Sort) -> Option<&mut u32> {
+        match sort {
+            Sort::Origin => Some(&mut self.folder),
+            Sort::Deleted => Some(&mut self.deleted),
+            Sort::Modified => Some(&mut self.modified),
+            Sort::Size => Some(&mut self.size),
+            Sort::Kind => Some(&mut self.kind),
+            Sort::Name => None,
+        }
+    }
+
+    pub fn get(&self, sort: Sort) -> Option<u32> {
+        let mut copy = *self;
+        copy.slot(sort).map(|width| *width).filter(|width| *width > 0)
+    }
+
+    pub fn set(&mut self, sort: Sort, width: Option<u32>) {
+        if let Some(slot) = self.slot(sort) {
+            *slot = width.map_or(0, |width| width.clamp(LEAST_COLUMN, MOST_COLUMN));
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -162,6 +200,7 @@ impl Default for Prefs {
             terminal: None,
             window_size: None,
             maximized: false,
+            widths: Widths::default(),
         }
     }
 }
@@ -196,6 +235,10 @@ impl Prefs {
     pub fn tidy(mut self) -> Prefs {
         self.zoom = self.zoom.clamp(LEAST_ZOOM, MOST_ZOOM);
         self.tree_width = self.tree_width.clamp(LEAST_TREE, MOST_TREE);
+        for sort in [Sort::Origin, Sort::Deleted, Sort::Modified, Sort::Size, Sort::Kind] {
+            let width = self.widths.get(sort);
+            self.widths.set(sort, width);
+        }
         self.window_size = self.window_size.filter(|[width, height]| (200..=16384).contains(width) && (200..=16384).contains(height));
         self
     }

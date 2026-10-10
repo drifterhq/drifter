@@ -223,6 +223,16 @@ pub fn press(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, button: Butto
             }
         }
         Hit::Head(sort) => model.act(Act::SortBy(sort)),
+        Hit::Edge(sort) if clicks >= 2 => {
+            model.prefs.widths.set(sort, None);
+            model.saved = false;
+        }
+        Hit::Edge(sort) => {
+            let body = ui.look.frame(ui.size, model).body;
+            let (_, extra) = ui.look.list_widths(body, model);
+            let rest = extra.iter().skip_while(|(each, _)| *each != sort).skip(1).map(|(_, width)| width).sum();
+            model.dragging = Some(Drag::Edge { sort, rest });
+        }
         Hit::Entry(index) | Hit::Strip(index) => pick_entry(model, index, right, clicks, mods, at),
         Hit::Space => {
             if !mods.ctrl && !mods.shift {
@@ -507,6 +517,18 @@ pub fn motion(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2) -> bool {
                 model.refresh_peek();
             }
             return true;
+        }
+        Some(Drag::Edge { sort, rest }) => {
+            let body = ui.look.frame(ui.size, model).body;
+            let (name, extra) = ui.look.list_widths(body, model);
+            let now = extra.iter().find(|(each, _)| *each == sort).map_or(0.0, |(_, width)| *width);
+            let room = (name - 200.0).max(0.0) + now;
+            let wanted = (body.max().x - 8.0 - rest - at.x).min(room).round();
+            let before = model.prefs.widths;
+            model.prefs.widths.set(sort, Some(wanted.max(0.0) as u32));
+            let changed = before != model.prefs.widths;
+            model.saved = model.saved && !changed;
+            return changed;
         }
         Some(Drag::Rail { rail, grab }) => {
             let Some((area, content, scroll)) = ui.look.rail_place(ui.size, model, lines, rail) else {
