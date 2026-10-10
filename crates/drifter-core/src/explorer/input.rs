@@ -231,6 +231,12 @@ pub fn press(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, button: Butto
             if right {
                 let items = model.space_menu();
                 model.menu = Some(menu_at(items, at));
+            } else if matches!(model.view.mode, Mode::List | Mode::Icons) && clicks == 1 {
+                let keep = match mods.ctrl || mods.shift {
+                    true => model.picked.clone(),
+                    false => Default::default(),
+                };
+                model.dragging = Some(Drag::Lasso { from: Vec2::new(at.x, at.y + model.scroll), at, keep });
             }
         }
         Hit::Column(column, row) => press_column(model, column, row, right, clicks, mods, at),
@@ -467,6 +473,40 @@ pub fn motion(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2) -> bool {
             model.prefs.tree_width = wide;
             model.saved = false;
             return changed;
+        }
+        Some(Drag::Lasso { from, keep, .. }) => {
+            let frame = ui.look.frame(ui.size, model);
+            let top = frame.body.origin.y + if model.view.mode == Mode::List { super::look::HEAD_H } else { 0.0 };
+            let most = ui.look.most_scroll(&frame, model).ceil();
+            let push = match (at.y < top, at.y > frame.body.max().y) {
+                (true, _) => at.y - top,
+                (_, true) => at.y - frame.body.max().y,
+                _ => 0.0,
+            };
+            if push != 0.0 {
+                (model.scroll, model.scroll_rest) = ((model.scroll + push.clamp(-40.0, 40.0)).round().clamp(0.0, most), 0.0);
+            }
+            let at = Vec2::new(at.x.clamp(frame.body.origin.x, frame.body.max().x), at.y);
+            model.dragging = Some(Drag::Lasso { from, at, keep: keep.clone() });
+            let Some(area) = ui.look.lasso_box(model) else {
+                return true;
+            };
+            let mut picked = keep;
+            let mut last = None;
+            for index in ui.look.lasso_hits(&frame, model, area) {
+                let path = model.entries[index].path.clone();
+                picked.insert(path.clone());
+                last = Some(path);
+            }
+            if picked != model.picked {
+                model.picked = picked;
+                if let Some(last) = last {
+                    model.focus = Some(last.clone());
+                    model.anchor = Some(last);
+                }
+                model.refresh_peek();
+            }
+            return true;
         }
         Some(Drag::Rail { rail, grab }) => {
             let Some((area, content, scroll)) = ui.look.rail_place(ui.size, model, lines, rail) else {

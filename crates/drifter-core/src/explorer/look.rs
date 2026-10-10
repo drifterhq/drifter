@@ -399,6 +399,46 @@ impl Look {
         }
     }
 
+    pub fn lasso_box(&self, model: &Model) -> Option<Rect> {
+        let Some(super::model::Drag::Lasso { from, at, .. }) = &model.dragging else {
+            return None;
+        };
+        let start = Vec2::new(from.x, from.y - model.scroll);
+        let low = start.min(*at);
+        Some(Rect::new(low, start.max(*at) - low))
+    }
+
+    pub fn lasso_hits(&self, frame: &Frame, model: &Model, area: Rect) -> Vec<usize> {
+        let body = frame.body;
+        let count = model.entries.len();
+        let (first, last) = match model.view.mode {
+            Mode::List => {
+                let top = body.origin.y + HEAD_H - model.scroll;
+                (((area.origin.y - top) / ROW_H).floor(), ((area.max().y - top) / ROW_H).floor())
+            }
+            Mode::Icons => {
+                let (cols, cell, _) = self.grid(body, model);
+                let top = body.origin.y + 12.0 - model.scroll;
+                let rows = (((area.origin.y - top) / cell.y).floor(), ((area.max().y - top) / cell.y).floor());
+                (rows.0 * cols as f64, (rows.1 + 1.0) * cols as f64 - 1.0)
+            }
+            _ => return Vec::new(),
+        };
+        let first = first.max(0.0) as usize;
+        let last = (last.max(-1.0) + 1.0).min(count as f64) as usize;
+        (first..last.max(first))
+            .filter(|index| {
+                self.entry_rect(frame, model, *index).is_some_and(|cell| {
+                    let cell = match model.view.mode {
+                        Mode::Icons => rect(cell.origin.x + 10.0, cell.origin.y + 4.0, cell.size.x - 20.0, cell.size.y - 8.0),
+                        _ => cell,
+                    };
+                    cell.origin.x < area.max().x && area.origin.x < cell.max().x && cell.origin.y < area.max().y && area.origin.y < cell.max().y
+                })
+            })
+            .collect()
+    }
+
     pub fn content_height(&self, frame: &Frame, model: &Model) -> f64 {
         let count = model.entries.len();
         match model.view.mode {
@@ -666,6 +706,16 @@ impl Look {
         canvas.round_rect(rect(0.0, 0.0, size.x, size.y), 0.0, self.back, 1.0);
         if touches(clip, frame.body) {
             self.paint_body(&mut canvas, &frame, job);
+        }
+        if let Some(lasso) = self.lasso_box(model) {
+            let top = frame.body.origin.y + if model.view.mode == Mode::List { HEAD_H } else { 0.0 };
+            let low = lasso.origin.max(Vec2::new(frame.body.origin.x, top));
+            let high = lasso.max().min(frame.body.max());
+            if high.x > low.x && high.y > low.y {
+                let shown = Rect::new(low, high - low);
+                canvas.round_rect(shown, 2.0, self.accent, 0.16);
+                canvas.ring(shown, 2.0, 1.0, self.accent, 0.9);
+            }
         }
         if let Some(side) = frame.side
             && touches(clip, side)
@@ -2825,6 +2875,53 @@ mod repaint_tests {
                 assert!(same(&part, &whole), "rail at {density}x: {was:?} -> {now:?}");
             }
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_lasso_picks_what_it_touches() {
+        use super::super::input::{self, Button, Mods, Ui};
+        let dir = std::env::temp_dir().join(format!("drifter-lasso-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("work")).unwrap();
+        for n in 10..22 {
+            std::fs::write(dir.join(format!("work/file {n}.txt")), "x").unwrap();
+        }
+        let mut model = Model::new(dir.join("explorer.toml"), Some(dir.join("work")));
+        model.settle_all(std::time::Duration::from_secs(5));
+        let (Ok(body), Ok(small), Ok(title)) = (crate::Font::find(None, 13.0), crate::Font::find(None, 11.5), crate::Font::find(None, 17.0)) else {
+            return;
+        };
+        let fonts = Fonts { body: &body, small: &small, title: &title };
+        let look = Look::themed(&crate::theme::DARK, [64, 128, 238]);
+        let size = Vec2::new(900.0, 600.0);
+        crate::paint::set_density(1);
+        let ui = Ui { look: &look, fonts: &fonts, size };
+        let lines = model.lines();
+        let frame = look.frame(size, &model);
+        let top = frame.body.origin.y + HEAD_H;
+        let start = Vec2::new(frame.body.origin.x + 300.0, top + 12.0 * ROW_H + 40.0);
+        assert_eq!(look.hit(size, &model, &lines, &fonts, start), Some(Hit::Space));
+        input::press(&mut model, &ui, &lines, start, Button::Left, 1, Mods::default());
+        input::motion(&mut model, &ui, &lines, Vec2::new(start.x + 40.0, top + 3.0 * ROW_H + 5.0));
+        let names: Vec<String> = model.chosen().iter().map(|one| one.name.clone()).collect();
+        assert_eq!(names, (13..22).map(|n| format!("file {n}.txt")).collect::<Vec<_>>());
+        let art = Art::default();
+        let drawn = look.paint(size, &Paint { model: &model, lines: &lines, fonts: &fonts, art: &art, clip: None });
+        input::release(&mut model, &ui, &lines, Vec2::new(start.x + 40.0, top + 3.0 * ROW_H + 5.0), false);
+        assert!(model.dragging.is_none());
+        let after = look.paint(size, &Paint { model: &model, lines: &lines, fonts: &fonts, art: &art, clip: None });
+        assert!(!same(&drawn, &after), "the lasso box shows while dragging");
+        let ctrl = Mods { ctrl: true, shift: false };
+        input::press(&mut model, &ui, &lines, start, Button::Left, 1, ctrl);
+        input::motion(&mut model, &ui, &lines, Vec2::new(start.x, top + 1.0));
+        assert_eq!(model.picked.len(), 12);
+        input::motion(&mut model, &ui, &lines, Vec2::new(start.x, top + 11.0 * ROW_H + 2.0));
+        assert_eq!(model.picked.len(), 9);
+        input::release(&mut model, &ui, &lines, start, false);
+        input::press(&mut model, &ui, &lines, start, Button::Left, 1, Mods::default());
+        input::release(&mut model, &ui, &lines, start, false);
+        assert!(model.picked.is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -83,6 +83,7 @@ Later steps build on these.
     - Built: the scrollbars of the list, icons, sidebar and each column grow wider under the pointer. Drag the thumb to scroll. Click above or below it to move one page. A drag moves drawn pixels like the wheel does, and a hover repaints only the bar, checked pixel for pixel. Checked on Blue with 200 files.
 21. Lasso selection with the mouse.
     Waits on: nothing.
+    - Built: drag from empty space in List or Icons view to draw a box. It picks every item it touches, live. Ctrl or Shift adds to what is picked. Dragging past the top or bottom scrolls. A click without a drag still clears the picks. Checked on Blue: a box over five folders picked those five. Left: in List view the box starts only below the last row, since a press on a row drags files.
 22. Changing list column widths.
     Waits on: nothing.
 23. Click-and-drag text selection in the rename and path fields.
