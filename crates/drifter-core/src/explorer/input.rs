@@ -117,6 +117,27 @@ pub fn press(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, button: Butto
         Hit::Stop(id) => model.act(Act::Stop(id)),
         Hit::Banner | Hit::Jobs => {}
         Hit::Split => model.dragging = Some(Drag::Split { from: at.x, width: model.prefs.tree_width }),
+        Hit::Eject(index) => {
+            if let Some(Line::Drive { drive: Some(drive), .. }) = lines.get(index)
+                && let Some(device) = drive.device.clone()
+            {
+                model.act(Act::Eject(device));
+            }
+        }
+        Hit::Line(index) if matches!(lines.get(index), Some(Line::Drive { drive: Some(_), .. })) => {
+            let Some(Line::Drive { drive: Some(drive), .. }) = lines.get(index).cloned() else {
+                return;
+            };
+            match (right, &drive.mount, &drive.device) {
+                (true, _, _) => {
+                    let items = model.drive_menu(&drive);
+                    model.menu = Some(menu_at(items, at));
+                }
+                (false, Some(point), _) => model.go(point.clone(), None),
+                (false, None, Some(device)) => model.act(Act::Mount(device.clone())),
+                (false, None, None) => {}
+            }
+        }
         Hit::Line(index) => {
             if let Some(path) = lines.get(index).and_then(Line::path) {
                 let path = path.to_path_buf();

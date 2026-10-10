@@ -62,6 +62,7 @@ pub enum Hit {
     Banner,
     Stop(u64),
     Jobs,
+    Eject(usize),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -454,6 +455,12 @@ impl Look {
                     return Some(Hit::Caret(found));
                 }
             }
+            if let Line::Drive { drive: Some(drive), .. } = &lines[found]
+                && drive.ejectable()
+                && self.eject_rect(rects[found]).contains(at)
+            {
+                return Some(Hit::Eject(found));
+            }
             return match lines[found] {
                 Line::Head(_) => None,
                 _ => Some(Hit::Line(found)),
@@ -585,7 +592,8 @@ impl Look {
                 Line::Head(_) if folders && matches!(lines.get(found + 1), Some(Line::Place { .. })) => bar.map(|bar| (Drop::Mark, bar)),
                 Line::Place { path, .. } if path == &trash => Some((Drop::Trash, area)),
                 Line::Place { .. } if folders && ((at.y - area.origin.y) < area.size.y * 0.25 || (area.max().y - at.y) < area.size.y * 0.25) => bar.map(|bar| (Drop::Mark, bar)),
-                Line::Place { path, .. } | Line::Folder { path, .. } | Line::Drive { path, .. } => into(path, area, true),
+                Line::Place { path, .. } | Line::Folder { path, .. } | Line::Drive { path: Some(path), .. } => into(path, area, true),
+                Line::Drive { path: None, .. } => None,
                 Line::Head(_) => None,
             };
         }
@@ -938,10 +946,40 @@ impl Look {
                     self.icon_or_glyph(&mut canvas, job.art, icon, family, rect(area.origin.x + 8.0, middle - 9.0, 18.0, 18.0));
                     self.text(&mut canvas, fonts.body, name, ink, Vec2::new(area.origin.x + 34.0, middle), area.size.x - 40.0);
                 }
-                Line::Drive { name, path } => {
-                    let icon = if path == Path::new("/") { "drive-harddisk" } else { "drive-removable-media" };
+                Line::Drive { name, drive, .. } => {
+                    let icon = match drive {
+                        None => "drive-harddisk",
+                        Some(drive) if drive.mount.as_deref() == Some(Path::new("/")) => "drive-harddisk",
+                        Some(drive) if drive.device.is_none() => "folder-remote",
+                        Some(drive) if drive.removable => "drive-removable-media",
+                        Some(_) => "drive-harddisk",
+                    };
+                    let mounted = drive.as_ref().is_none_or(|drive| drive.mount.is_some());
+                    let eject = drive.as_ref().filter(|drive| drive.ejectable()).map(|_| self.eject_rect(area));
+                    let right = eject.map_or(area.max().x - 8.0, |eject| eject.origin.x - 4.0);
+                    let share = drive.as_ref().and_then(|drive| drive.share_used());
+                    let lift = if share.is_some() { 3.0 } else { 0.0 };
+                    let faded = if mounted { ink } else { mix(ink, self.side, 0.4) };
                     self.icon_or_glyph(&mut canvas, job.art, icon, Family::Archive, rect(area.origin.x + 8.0, middle - 9.0, 18.0, 18.0));
-                    self.text(&mut canvas, fonts.body, name, ink, Vec2::new(area.origin.x + 34.0, middle), area.size.x - 40.0);
+                    self.text(&mut canvas, fonts.body, name, faded, Vec2::new(area.origin.x + 34.0, middle - lift), right - area.origin.x - 34.0);
+                    if let Some(share) = share {
+                        let track = rect(area.origin.x + 34.0, area.max().y - 6.0, (right - area.origin.x - 34.0).max(0.0), 3.0);
+                        let (back, fill) = match here {
+                            true => (mix(self.accent, self.on_accent, 0.35), self.on_accent),
+                            false => (self.raised, if share > 0.9 { self.alert } else { self.accent }),
+                        };
+                        canvas.round_rect(track, 1.5, back, 1.0);
+                        canvas.round_rect(rect(track.origin.x, track.origin.y, (track.size.x * share).max(3.0), track.size.y), 1.5, fill, 1.0);
+                    }
+                    if let Some(eject) = eject {
+                        let hot = model.hover == Some(Hit::Eject(index));
+                        if hot && !here {
+                            canvas.round_rect(eject, 5.0, self.hover, 1.0);
+                        }
+                        let c = eject.center();
+                        canvas.triangle([c + Vec2::new(-5.0, 1.5), c + Vec2::new(5.0, 1.5), c + Vec2::new(0.0, -4.5)], ink, 1.0);
+                        canvas.round_rect(rect(c.x - 5.0, c.y + 3.0, 10.0, 2.0), 0.5, ink, 1.0);
+                    }
                 }
                 Line::Folder { path, open, .. } => {
                     let c = Vec2::new(area.origin.x + 12.0 + indent, middle);
@@ -1375,6 +1413,10 @@ impl Look {
 
     pub fn dismiss_rect(&self, banner: Rect) -> Rect {
         rect(banner.max().x - 10.0 - BUTTON, banner.origin.y + (banner.size.y - BUTTON) / 2.0, BUTTON, BUTTON)
+    }
+
+    pub fn eject_rect(&self, line: Rect) -> Rect {
+        rect(line.max().x - 28.0, line.center().y - 10.0, 22.0, 20.0)
     }
 
     pub fn job_rows(&self, area: Rect, model: &Model) -> Vec<(u64, Rect)> {

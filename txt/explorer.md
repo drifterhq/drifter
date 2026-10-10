@@ -6,6 +6,7 @@ Work left on Explorer (`drifter-explorer`). Do the steps in number order. Done s
 
 1. Run it under Drifter itself: the window frame, scale 1.5 and 2, theme changes. Fix what breaks.
    Waits on: nothing.
+   - Ran on 114 under Drifter (4K, scale 1): the frame, title, menus, list and sidebar look right, and the Trash on other disks, jobs and drives all load. Left: scale 1.5 and 2, and a theme change, without changing your live session by hand.
 
 ## Phase 2: Groundwork
 
@@ -45,6 +46,7 @@ Later steps build on these.
 
 11. Drives: the list is read once at start. It has no mount, unmount or eject, no space bars, and it does not show disks that are not mounted.
     Waits on: 4.
+    - Built: the list comes from lsblk plus network mounts, leaves out system disks, and shows disks that are not mounted (faded). It refreshes when a disk is plugged in, pulled out, mounted or unmounted. Each drive has a space bar (red past 90%). Click a disk that is not mounted to mount and open it; the eject button and the right-click menu (Open, Mount, Unmount, Eject) use udisksctl. Leaving a drive you are in goes Home first. Checked on 114: Computer with its bar, no stray gvfs entry. Left: plug a USB stick into 114 or the Pixelbook to test mount and eject.
 12. Previews are not saved to disk, so each launch makes them again. Big photos are fully decoded on every launch.
     Waits on: nothing.
 

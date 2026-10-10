@@ -67,6 +67,9 @@ pub enum Act {
     Extract,
     TrashThese(Vec<PathBuf>),
     DeleteThese(Vec<PathBuf>),
+    Mount(String),
+    Unmount(String),
+    Eject(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -160,14 +163,15 @@ pub enum Line {
     Head(&'static str),
     Place { path: PathBuf, name: String, icon: &'static str, mark: bool },
     Folder { path: PathBuf, depth: usize, open: bool },
-    Drive { path: PathBuf, name: String },
+    Drive { path: Option<PathBuf>, name: String, drive: Option<super::drives::Drive> },
 }
 
 impl Line {
     pub fn path(&self) -> Option<&Path> {
         match self {
             Line::Head(_) => None,
-            Line::Place { path, .. } | Line::Folder { path, .. } | Line::Drive { path, .. } => Some(path),
+            Line::Place { path, .. } | Line::Folder { path, .. } => Some(path),
+            Line::Drive { path, .. } => path.as_deref(),
         }
     }
 }
@@ -275,7 +279,9 @@ pub struct Model {
     pub stamp: Option<SystemTime>,
     pub handlers: HashMap<&'static str, Vec<Handler>>,
     pub terminals: Vec<(&'static str, &'static str)>,
-    pub drives: Vec<(PathBuf, String)>,
+    pub drives: Vec<super::drives::Drive>,
+    pub mounts_seen: String,
+    pub drive_watch: Vec<PathBuf>,
     pub effects: Vec<Effect>,
     pub dragging: Option<Drag>,
     pub hover: Option<super::look::Hit>,
@@ -353,27 +359,6 @@ pub fn complete(typed: &str, dir: &Path, home: &Path, hidden: bool) -> Option<St
     Some(format!("{head}{common}{}", if finished { "/" } else { "" }))
 }
 
-fn decode_mount(field: &str) -> String {
-    field.replace("\\040", " ").replace("\\011", "\t").replace("\\134", "\\")
-}
-
-pub fn drives_in(mounts: &str) -> Vec<(PathBuf, String)> {
-    let mut out = Vec::new();
-    for line in mounts.lines() {
-        let mut parts = line.split_whitespace();
-        let (Some(_), Some(point)) = (parts.next(), parts.next()) else {
-            continue;
-        };
-        let point = decode_mount(point);
-        let removable = ["/media/", "/run/media/", "/mnt/"].iter().any(|root| point.starts_with(root));
-        if removable && !out.iter().any(|(path, _): &(PathBuf, String)| path.as_os_str() == point.as_str()) {
-            let path = PathBuf::from(&point);
-            out.push((path.clone(), entry::name_of(&path)));
-        }
-    }
-    out
-}
-
 impl Model {
     pub fn new(prefs_path: PathBuf, asked: Option<PathBuf>) -> Model {
         let prefs = Prefs::load_from(&prefs_path);
@@ -420,6 +405,8 @@ impl Model {
             handlers: HashMap::new(),
             terminals: prefs::terminals(),
             drives: Vec::new(),
+            mounts_seen: String::new(),
+            drive_watch: super::drives::watch_dirs(),
             effects: Vec::new(),
             dragging: None,
             hover: None,
@@ -438,7 +425,8 @@ impl Model {
             fresh_columns: false,
         };
         model.read_marks();
-        model.drives = drives_in(&std::fs::read_to_string("/proc/mounts").unwrap_or_default());
+        model.mounts_seen = std::fs::read_to_string("/proc/self/mounts").unwrap_or_default();
+        model.reader.ask(Ask::Drives);
         model.open.insert(model.tree_base());
         model.refresh_places();
         model.load(start, None);
@@ -447,6 +435,45 @@ impl Model {
             model.load(home, None);
         }
         model
+    }
+
+    pub fn drive_of(&self, device: &str) -> Option<super::drives::Drive> {
+        self.drives.iter().find(|drive| drive.device.as_deref() == Some(device)).cloned()
+    }
+
+    fn leave_drive(&mut self, device: &str) -> Option<super::drives::Drive> {
+        let drive = self.drive_of(device)?;
+        if let Some(point) = &drive.mount
+            && self.dir.starts_with(point)
+        {
+            let home = self.home.clone();
+            self.go(home, None);
+        }
+        Some(drive)
+    }
+
+    pub fn drive_menu(&self, drive: &super::drives::Drive) -> Vec<Item> {
+        let mut items = Vec::new();
+        let Some(device) = drive.device.clone() else {
+            if let Some(point) = &drive.mount {
+                items.push(Item::new(crate::lang::t("Open"), "", Act::Go(point.clone())));
+                items.push(Item::new(crate::lang::t("Open in New Window"), "", Act::Window(point.clone())));
+            }
+            return items;
+        };
+        match &drive.mount {
+            Some(point) => {
+                items.push(Item::new(crate::lang::t("Open"), "", Act::Go(point.clone())));
+                items.push(Item::new(crate::lang::t("Open in New Window"), "", Act::Window(point.clone())));
+                items.push(Item::rule());
+                items.push(Item::new(crate::lang::t("Unmount"), "", Act::Unmount(device.clone())));
+            }
+            None => items.push(Item::new(crate::lang::t("Mount"), "", Act::Mount(device.clone()))),
+        }
+        if drive.removable {
+            items.push(Item::new(crate::lang::t("Eject"), "", Act::Eject(device)));
+        }
+        items
     }
 
     pub fn known_folder(&self, path: &Path) -> bool {
@@ -552,7 +579,15 @@ impl Model {
                 self.ask_list(&dir);
                 false
             }
+            Got::Drives(drives) => {
+                let changed = drives != self.drives;
+                self.drives = drives;
+                changed
+            }
             Got::Changed(dirs) => {
+                if dirs.iter().any(|dir| self.drive_watch.contains(dir)) {
+                    self.reader.ask(Ask::Drives);
+                }
                 for dir in dirs {
                     if self.loading.is_none() && dir == self.dir {
                         self.ask_list(&dir);
@@ -735,6 +770,7 @@ impl Model {
         let mut dirs = vec![self.dir.clone()];
         dirs.extend(self.columns.iter().map(|column| column.dir.clone()));
         dirs.extend(self.kids.keys().filter(|dir| self.open.contains(*dir)).cloned());
+        dirs.extend(self.drive_watch.iter().cloned());
         self.reader.watch(dirs);
     }
 
@@ -763,6 +799,11 @@ impl Model {
         }
         if self.jobs.iter().any(Running::shown) {
             changed = true;
+        }
+        let mounts = std::fs::read_to_string("/proc/self/mounts").unwrap_or_default();
+        if mounts != self.mounts_seen {
+            self.mounts_seen = mounts;
+            self.reader.ask(Ask::Drives);
         }
         let changed = changed | self.arrived();
         self.sync_watches();
@@ -885,9 +926,11 @@ impl Model {
         }
         if self.prefs.drives {
             out.push(Line::Head(crate::lang::t("Drives")));
-            out.push(Line::Drive { path: PathBuf::from("/"), name: crate::lang::t("Computer").to_string() });
-            for (path, name) in &self.drives {
-                out.push(Line::Drive { path: path.clone(), name: name.clone() });
+            if self.drives.first().is_none_or(|first| first.mount.as_deref() != Some(Path::new("/"))) {
+                out.push(Line::Drive { path: Some(PathBuf::from("/")), name: crate::lang::t("Computer").to_string(), drive: None });
+            }
+            for drive in &self.drives {
+                out.push(Line::Drive { path: drive.mount.clone(), name: drive.name.clone(), drive: Some(drive.clone()) });
             }
         }
         out
@@ -1144,6 +1187,10 @@ impl Model {
 
     pub fn finished(&mut self, done: Done) {
         self.jobs.retain(|each| each.id != done.id);
+        self.reader.ask(Ask::Drives);
+        if let Some(point) = done.go.clone() {
+            self.go(point, None);
+        }
         if self.closing && self.jobs.is_empty() {
             self.effects.push(Effect::Close);
         }
@@ -1320,6 +1367,25 @@ impl Model {
                     false => self.start_job(Job::Trash(paths)),
                 }
             }
+            Act::Mount(device) => {
+                if let Some(drive) = self.drive_of(&device) {
+                    match &drive.mount {
+                        Some(point) => self.go(point.clone(), None),
+                        None => self.start_job(Job::Mount { device, name: drive.name }),
+                    }
+                }
+            }
+            Act::Unmount(device) => {
+                if let Some(drive) = self.leave_drive(&device) {
+                    self.start_job(Job::Unmount { device, name: drive.name });
+                }
+            }
+            Act::Eject(device) => {
+                if let Some(drive) = self.leave_drive(&device) {
+                    let mounted = drive.mount.is_some();
+                    self.start_job(Job::Eject { device, disk: drive.disk, name: drive.name, mounted });
+                }
+            }
             Act::TrashThese(paths) => {
                 self.sheet = None;
                 self.start_job(Job::Trash(paths));
@@ -1475,7 +1541,7 @@ impl Model {
             }
             Act::Reload => {
                 self.refresh_places();
-                self.drives = drives_in(&std::fs::read_to_string("/proc/mounts").unwrap_or_default());
+                self.reader.ask(Ask::Drives);
                 self.handlers.clear();
                 self.reload();
             }
@@ -1996,7 +2062,7 @@ mod tests {
         model.act(Act::StopAndClose);
         assert!(model.jobs[0].progress.stopped() && model.effects.is_empty());
         let id = model.jobs[0].id;
-        model.finished(Done { id, stopped: true, undo: None, made: Vec::new(), failed: Vec::new(), words: String::new() });
+        model.finished(Done { id, stopped: true, undo: None, made: Vec::new(), failed: Vec::new(), words: String::new(), go: None });
         assert_eq!(model.effects, [Effect::Close]);
         assert_eq!(time_left(42.2), "about 43 s left");
         assert_eq!(time_left(61.0), "about 2 min left");
@@ -2169,14 +2235,6 @@ mod tests {
         assert!(model.effects.is_empty());
         model.act(Act::Unmark(photos.clone()));
         assert!(!model.marked(&photos));
-    }
-
-    #[test]
-    fn drives_come_from_the_mount_table() {
-        let mounts = "/dev/sda1 / ext4 rw 0 0\n/dev/sdb1 /run/media/me/My\\040Stick vfat rw 0 0\n/dev/sdc1 /mnt/backup ext4 rw 0 0\n";
-        let found = drives_in(mounts);
-        assert_eq!(found.len(), 2);
-        assert_eq!(found[0].1, "My Stick");
     }
 
     #[test]

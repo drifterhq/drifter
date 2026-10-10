@@ -72,6 +72,9 @@ pub enum Job {
     Undo(Undo),
     Compress(Vec<PathBuf>),
     Extract(Vec<PathBuf>),
+    Mount { device: String, name: String },
+    Unmount { device: String, name: String },
+    Eject { device: String, disk: Option<String>, name: String, mounted: bool },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,6 +94,7 @@ pub struct Done {
     pub made: Vec<PathBuf>,
     pub failed: Vec<String>,
     pub words: String,
+    pub go: Option<PathBuf>,
 }
 
 impl Job {
@@ -99,7 +103,7 @@ impl Job {
             Job::Copy { from, .. } | Job::Move { from, .. } => from.len(),
             Job::Trash(paths) | Job::Delete(paths) | Job::Restore(paths) | Job::Compress(paths) | Job::Extract(paths) => paths.len(),
             Job::EmptyTrash => 0,
-            Job::Undo(_) => 1,
+            Job::Undo(_) | Job::Mount { .. } | Job::Unmount { .. } | Job::Eject { .. } => 1,
         }
     }
 
@@ -110,6 +114,7 @@ impl Job {
                 [one] => name_of(one),
                 many => items(many.len()),
             },
+            Job::Mount { name, .. } | Job::Unmount { name, .. } | Job::Eject { name, .. } => name.clone(),
             Job::EmptyTrash | Job::Undo(_) => String::new(),
         };
         match self {
@@ -120,6 +125,9 @@ impl Job {
             Job::Restore(_) => crate::lang::tf("Putting back {}", &[&what]),
             Job::Compress(_) => crate::lang::tf("Compressing {}", &[&what]),
             Job::Extract(_) => crate::lang::tf("Extracting {}", &[&what]),
+            Job::Mount { .. } => crate::lang::tf("Opening {}", &[&what]),
+            Job::Unmount { .. } => crate::lang::tf("Unmounting {}", &[&what]),
+            Job::Eject { .. } => crate::lang::tf("Ejecting {}", &[&what]),
             Job::EmptyTrash => crate::lang::t("Emptying the Trash").to_string(),
             Job::Undo(_) => crate::lang::t("Undoing").to_string(),
         }
@@ -748,7 +756,7 @@ fn each_moved(progress: &Progress, far: bool) {
 
 pub fn run_with(root: &Path, job: Job, progress: &Progress) -> Done {
     let words = job.doing();
-    let mut done = Done { id: 0, stopped: false, undo: None, made: Vec::new(), failed: Vec::new(), words };
+    let mut done = Done { id: 0, stopped: false, undo: None, made: Vec::new(), failed: Vec::new(), words, go: None };
     let fail = |path: &Path, error: io::Error| format!("{}: {error}", crate::explorer::entry::name_of(path));
     let counted = match &job {
         Job::Copy { from, .. } => {
@@ -763,7 +771,7 @@ pub fn run_with(root: &Path, job: Job, progress: &Progress) -> Done {
             progress.count.store(paths.len() as u64, Ordering::Relaxed);
             Ok(())
         }
-        Job::Compress(_) => Ok(()),
+        Job::Compress(_) | Job::Mount { .. } | Job::Unmount { .. } | Job::Eject { .. } => Ok(()),
         Job::Extract(paths) => {
             progress.count.store(paths.len() as u64, Ordering::Relaxed);
             Ok(())
@@ -887,6 +895,20 @@ pub fn run_with(root: &Path, job: Job, progress: &Progress) -> Done {
                 Err(error) => done.failed.push(fail(paths.first().map_or(root, PathBuf::as_path), error)),
             }
             done.undo = (!done.made.is_empty()).then(|| Undo::Made(done.made.clone()));
+        }
+        Job::Mount { device, name } => match super::drives::mount(&device) {
+            Ok(point) => done.go = Some(point),
+            Err(error) => done.failed.push(format!("{name}: {error}")),
+        },
+        Job::Unmount { device, name } => {
+            if let Err(error) = super::drives::unmount(&device) {
+                done.failed.push(format!("{name}: {error}"));
+            }
+        }
+        Job::Eject { device, disk, name, mounted } => {
+            if let Err(error) = super::drives::eject(&device, disk.as_deref(), mounted) {
+                done.failed.push(format!("{name}: {error}"));
+            }
         }
         Job::Extract(paths) => {
             for path in &paths {

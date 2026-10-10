@@ -3248,3 +3248,24 @@ This is not an archive Explorer can open
 
 Install {} to open this file
 = Installez {} pour ouvrir ce fichier
+
+Opening {}
+= Ouverture de {}
+
+Unmounting {}
+= Démontage de {}
+
+Ejecting {}
+= Éjection de {}
+
+Mount
+= Monter
+
+Unmount
+= Démonter
+
+Eject
+= Éjecter
+
+Install udisks2 to mount and eject disks
+= Installez udisks2 pour monter et éjecter les disques

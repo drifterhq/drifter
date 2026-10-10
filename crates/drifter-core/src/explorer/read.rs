@@ -22,6 +22,7 @@ pub enum Ask {
     Folders(PathBuf, bool),
     Stamp(PathBuf),
     Peek(PathBuf),
+    Drives,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -40,6 +41,7 @@ pub enum Got {
     Stamp(PathBuf, Option<SystemTime>),
     Peek(PathBuf, Option<Vec<String>>),
     Changed(Vec<PathBuf>),
+    Drives(Vec<super::drives::Drive>),
 }
 
 pub struct Reader {
@@ -162,6 +164,7 @@ fn run(ask: &Ask, seq: u64) -> Got {
         Ask::Folders(dir, hidden) => Got::Folders(dir.clone(), *hidden, entry::folders_in(dir, *hidden)),
         Ask::Stamp(dir) => Got::Stamp(dir.clone(), modified(dir)),
         Ask::Peek(path) => Got::Peek(path.clone(), peek(path)),
+        Ask::Drives => Got::Drives(super::drives::list()),
     }
 }
 

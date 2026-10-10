@@ -3251,3 +3251,24 @@ This is not an archive Explorer can open
 
 Install {} to open this file
 = Installiere {}, um diese Datei zu öffnen
+
+Opening {}
+= Öffne {}
+
+Unmounting {}
+= Hänge {} aus
+
+Ejecting {}
+= Werfe {} aus
+
+Mount
+= Einhängen
+
+Unmount
+= Aushängen
+
+Eject
+= Auswerfen
+
+Install udisks2 to mount and eject disks
+= Installiere udisks2, um Laufwerke einzuhängen und auszuwerfen
