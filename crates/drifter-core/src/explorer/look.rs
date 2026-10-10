@@ -15,6 +15,7 @@ use crate::text::Font;
 pub const MENU_H: f64 = 30.0;
 pub const BAR_H: f64 = 50.0;
 pub const STATUS_H: f64 = 28.0;
+pub const BANNER_H: f64 = 40.0;
 pub const SPLIT_W: f64 = 6.0;
 pub const ROW_H: f64 = 26.0;
 pub const HEAD_H: f64 = 28.0;
@@ -56,6 +57,8 @@ pub enum Hit {
     Strip(usize),
     Zoom(f64),
     Picture,
+    Dismiss,
+    Banner,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -135,6 +138,7 @@ impl Art {
 pub struct Frame {
     pub menu: Rect,
     pub bar: Rect,
+    pub banner: Option<Rect>,
     pub side: Option<Rect>,
     pub split: Option<Rect>,
     pub body: Rect,
@@ -207,7 +211,8 @@ impl Look {
     pub fn frame(&self, size: Vec2, model: &Model) -> Frame {
         let menu = rect(0.0, 0.0, size.x, MENU_H);
         let bar = rect(0.0, MENU_H, size.x, BAR_H);
-        let top = MENU_H + BAR_H;
+        let banner = (!model.alerts.is_empty()).then(|| rect(0.0, MENU_H + BAR_H, size.x, BANNER_H));
+        let top = MENU_H + BAR_H + banner.map_or(0.0, |banner| banner.size.y);
         let status_h = if model.prefs.status { STATUS_H } else { 0.0 };
         let tall = (size.y - top - status_h).max(0.0);
         let side_on = model.prefs.tree || model.prefs.places || model.prefs.drives;
@@ -219,7 +224,7 @@ impl Look {
         let split = side_on.then(|| rect(side_w - SPLIT_W / 2.0, top, SPLIT_W, tall));
         let body = rect(side_w, top, size.x - side_w, tall);
         let status = model.prefs.status.then(|| rect(0.0, size.y - STATUS_H, size.x, STATUS_H));
-        Frame { menu, bar, side, split, body, status }
+        Frame { menu, bar, banner, side, split, body, status }
     }
 
     pub fn bar_titles(&self, fonts: &Fonts) -> Vec<(Rect, &'static str)> {
@@ -401,6 +406,14 @@ impl Look {
             }
             return None;
         }
+        if let Some(banner) = frame.banner
+            && banner.contains(at)
+        {
+            return Some(match self.dismiss_rect(banner).contains(at) {
+                true => Hit::Dismiss,
+                false => Hit::Banner,
+            });
+        }
         if let Some(status) = frame.status
             && status.contains(at)
         {
@@ -511,6 +524,9 @@ impl Look {
         }
         self.paint_menu_bar(&mut canvas, &frame, job);
         self.paint_bar(&mut canvas, &frame, job);
+        if let Some(banner) = frame.banner {
+            self.paint_banner(&mut canvas, banner, model, fonts);
+        }
         if let Some(status) = frame.status {
             self.paint_status(&mut canvas, status, model, fonts);
         }
@@ -1339,13 +1355,44 @@ impl Look {
         }
     }
 
+    pub fn dismiss_rect(&self, banner: Rect) -> Rect {
+        rect(banner.max().x - 10.0 - BUTTON, banner.origin.y + (banner.size.y - BUTTON) / 2.0, BUTTON, BUTTON)
+    }
+
+    fn paint_banner(&self, canvas: &mut Canvas, banner: Rect, model: &Model, fonts: &Fonts) {
+        let Some(words) = model.alerts.last() else {
+            return;
+        };
+        canvas.round_rect(banner, 0.0, mix(self.back, self.alert, if self.dark { 0.22 } else { 0.12 }), 1.0);
+        canvas.round_rect(rect(0.0, banner.max().y - 1.0, banner.size.x, 1.0), 0.0, mix(self.rule, self.alert, 0.35), 1.0);
+        let middle = banner.center().y;
+        let sign = Vec2::new(banner.origin.x + 22.0, middle);
+        canvas.circle(sign, 9.0, self.alert, 1.0);
+        canvas.line(sign + Vec2::new(0.0, -4.5), sign + Vec2::new(0.0, 1.0), 2.0, self.on_accent, 1.0);
+        canvas.circle(sign + Vec2::new(0.0, 4.5), 1.2, self.on_accent, 1.0);
+        let close = self.dismiss_rect(banner);
+        self.button(canvas, close, model.hover == Some(Hit::Dismiss), false);
+        let c = close.center();
+        canvas.line(c + Vec2::new(-5.0, -5.0), c + Vec2::new(5.0, 5.0), 2.0, self.ink, 1.0);
+        canvas.line(c + Vec2::new(5.0, -5.0), c + Vec2::new(-5.0, 5.0), 2.0, self.ink, 1.0);
+        let mut right = close.origin.x - 10.0;
+        if model.alerts.len() > 1 {
+            let more = crate::lang::tf("{} more", &[&(model.alerts.len() - 1)]);
+            let width = fonts.small.width_of(&more);
+            self.text_right(canvas, fonts.small, &more, self.dim, right, middle);
+            right -= width + 16.0;
+        }
+        let left = sign.x + 18.0;
+        self.text(canvas, fonts.body, words, self.ink, Vec2::new(left, middle), right - left);
+    }
+
     fn paint_status(&self, canvas: &mut Canvas, status: Rect, model: &Model, fonts: &Fonts) {
         canvas.round_rect(status, 0.0, self.bar, 1.0);
         canvas.round_rect(rect(0.0, status.origin.y, status.size.x, 1.0), 0.0, self.rule, 1.0);
         let middle = status.center().y;
         let (words, ink) = match (&model.note, model.busy.last()) {
             (_, Some(busy)) => (format!("{busy}…"), self.ink),
-            (Some((words, alert, _)), None) => (words.clone(), if *alert { self.alert } else { self.ink }),
+            (Some((words, _)), None) => (words.clone(), self.ink),
             (None, None) => (model.summary(), self.dim),
         };
         let free = model.free_words();

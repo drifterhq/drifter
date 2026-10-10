@@ -113,6 +113,8 @@ pub fn press(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, button: Butto
         },
         Hit::Show(mode) => model.act(Act::Show(mode)),
         Hit::Gear => model.act(Act::Prefs),
+        Hit::Dismiss => model.act(Act::Dismiss),
+        Hit::Banner => {}
         Hit::Split => model.dragging = Some(Drag::Split { from: at.x, width: model.prefs.tree_width }),
         Hit::Line(index) => {
             if let Some(path) = lines.get(index).and_then(Line::path) {
@@ -388,7 +390,7 @@ pub fn motion(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2) -> bool {
     if model.sheet.is_some() {
         return false;
     }
-    let hover = ui.look.hit(ui.size, model, lines, ui.fonts, at).filter(|hit| !matches!(hit, Hit::Space | Hit::Picture | Hit::Path | Hit::Split | Hit::Zoom(_)));
+    let hover = ui.look.hit(ui.size, model, lines, ui.fonts, at).filter(|hit| !matches!(hit, Hit::Space | Hit::Picture | Hit::Path | Hit::Split | Hit::Zoom(_) | Hit::Banner));
     let changed = hover != model.hover;
     model.hover = hover;
     changed
@@ -614,6 +616,7 @@ pub fn key(model: &mut Model, ui: &Ui, key: &Key) {
         Named::PageUp => model.step(-page, key.shift),
         Named::PageDown => model.step(page, key.shift),
         Named::Enter => model.act(Act::Open),
+        Named::Escape if !model.alerts.is_empty() => model.act(Act::Dismiss),
         Named::Escape => {
             model.pick_none();
             model.clip = model.clip.take().filter(|(_, cut)| !cut);

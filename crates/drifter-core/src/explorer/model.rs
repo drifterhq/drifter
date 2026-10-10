@@ -58,6 +58,7 @@ pub enum Act {
     Keys,
     About,
     Set(Pref),
+    Dismiss,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -202,7 +203,8 @@ pub struct Model {
     pub clip: Option<(Vec<PathBuf>, bool)>,
     pub undo: Vec<Undo>,
     pub busy: Vec<String>,
-    pub note: Option<(String, bool, Instant)>,
+    pub note: Option<(String, Instant)>,
+    pub alerts: Vec<String>,
     pub peek: Option<Vec<String>>,
     pub typed: (String, Option<Instant>),
     pub now: SystemTime,
@@ -344,6 +346,7 @@ impl Model {
             undo: Vec::new(),
             busy: Vec::new(),
             note: None,
+            alerts: Vec::new(),
             peek: None,
             typed: (String::new(), None),
             now: SystemTime::now(),
@@ -390,7 +393,16 @@ impl Model {
     }
 
     pub fn say(&mut self, words: impl Into<String>, alert: bool) {
-        self.note = Some((words.into(), alert, Instant::now()));
+        let words = words.into();
+        if !alert {
+            self.note = Some((words, Instant::now()));
+            return;
+        }
+        self.alerts.retain(|each| each != &words);
+        self.alerts.push(words);
+        if self.alerts.len() > 20 {
+            self.alerts.remove(0);
+        }
     }
 
     pub fn lens(&self) -> Lens {
@@ -633,7 +645,7 @@ impl Model {
     pub fn tick(&mut self) -> bool {
         self.now = SystemTime::now();
         let mut changed = false;
-        if self.note.as_ref().is_some_and(|(_, _, at)| at.elapsed().as_secs() >= 6) {
+        if self.note.as_ref().is_some_and(|(_, at)| at.elapsed().as_secs() >= 6) {
             self.note = None;
             changed = true;
         }
@@ -1294,6 +1306,9 @@ impl Model {
                 self.saved = false;
             }
             Act::Status => self.set(Pref::Status),
+            Act::Dismiss => {
+                self.alerts.pop();
+            }
             Act::Reload => {
                 self.drives = drives_in(&std::fs::read_to_string("/proc/mounts").unwrap_or_default());
                 self.handlers.clear();
@@ -1728,7 +1743,7 @@ mod tests {
         let work = place.0.join("work");
         model.go(work.join("nope"), None);
         assert_eq!(model.dir, work);
-        assert!(model.note.as_ref().is_some_and(|(words, alert, _)| *alert && words.contains("nope")));
+        assert!(model.alerts.last().is_some_and(|words| words.contains("nope")));
         model.budget = Duration::ZERO;
         model.go(work.join("nope"), None);
         model.settle_all(Duration::from_secs(5));
@@ -1760,6 +1775,24 @@ mod tests {
         model.pick_only(work.join("b.txt"));
         model.settle_all(Duration::from_secs(5));
         assert_eq!(model.peek.as_ref().map(Vec::len), Some(2));
+    }
+
+    #[test]
+    fn errors_stay_until_they_are_closed() {
+        let (_place, mut model) = place("alerts");
+        model.say("Path copied", false);
+        model.say("first went wrong", true);
+        model.say("second went wrong", true);
+        model.say("first went wrong", true);
+        assert_eq!(model.alerts, ["second went wrong", "first went wrong"]);
+        model.note = model.note.take().map(|(words, at)| (words, at - Duration::from_secs(7)));
+        model.tick();
+        assert!(model.note.is_none());
+        assert_eq!(model.alerts.len(), 2);
+        model.act(Act::Dismiss);
+        assert_eq!(model.alerts, ["second went wrong"]);
+        model.act(Act::Dismiss);
+        assert!(model.alerts.is_empty());
     }
 
     #[test]

@@ -65,6 +65,12 @@ fn main() {
         model.sheet = Some(Sheet::Keys);
         shot(&mut model, "keys");
         model.sheet = None;
+        model.say("Cannot open Taxes: Permission denied (os error 13)", true);
+        model.say("clip.mkv: No space left on device (os error 28)", true);
+        model.hover = Some(drifter_core::explorer::look::Hit::Dismiss);
+        shot(&mut model, "alert");
+        model.hover = None;
+        model.alerts.clear();
         model.act(Act::EditPath);
         shot(&mut model, "path");
     }

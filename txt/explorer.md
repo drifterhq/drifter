@@ -20,6 +20,7 @@ Later steps build on these.
    Waits on: 3.
 5. Errors: an error shows in the status bar for 6 seconds and then disappears. It is easy to miss. Keep it until the user closes it.
    Waits on: nothing.
+   - Built: errors show in a red banner under the toolbar, even with the status bar off. The banner stays until you click × or press Escape. It counts errors behind it ("1 more"). Left: a test on the Pixelbook.
 
 ## Phase 3: File jobs
 
