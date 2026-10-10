@@ -44,6 +44,8 @@ pub enum Act {
     Forward,
     Up,
     Go(PathBuf),
+    Mark(PathBuf),
+    Unmark(PathBuf),
     EditPath,
     Terminal(Option<PathBuf>),
     Keys,
@@ -139,7 +141,7 @@ pub enum Sheet {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Line {
     Head(&'static str),
-    Place { path: PathBuf, name: String, icon: &'static str },
+    Place { path: PathBuf, name: String, icon: &'static str, mark: bool },
     Folder { path: PathBuf, depth: usize, open: bool },
     Drive { path: PathBuf, name: String },
 }
@@ -206,13 +208,17 @@ pub struct Model {
     pub dragging: Option<Drag>,
     pub hover: Option<super::look::Hit>,
     pub saved: bool,
+    pub marks: Vec<super::marks::Mark>,
+    pub marks_path: PathBuf,
+    pub marks_stamp: Option<SystemTime>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Drag {
     Split { from: f64, width: u32 },
     Zoom,
     Slider,
+    Files { paths: Vec<PathBuf>, from: crate::Vec2, at: crate::Vec2, live: bool, pending: Option<PathBuf> },
 }
 
 pub fn home() -> PathBuf {
@@ -335,7 +341,11 @@ impl Model {
             dragging: None,
             hover: None,
             saved: true,
+            marks: Vec::new(),
+            marks_path: super::marks::file(),
+            marks_stamp: None,
         };
+        model.read_marks();
         model.drives = drives_in(&std::fs::read_to_string("/proc/mounts").unwrap_or_default());
         model.open.insert(model.tree_base());
         model.load(start, None);
@@ -459,6 +469,10 @@ impl Model {
         if self.typed.1.is_some_and(|at| at.elapsed().as_millis() > 900) {
             self.typed = (String::new(), None);
         }
+        if modified(&self.marks_path) != self.marks_stamp {
+            self.read_marks();
+            changed = true;
+        }
         let stamp = modified(&self.dir);
         if stamp != self.stamp {
             self.reload();
@@ -492,6 +506,45 @@ impl Model {
         }
     }
 
+    pub fn read_marks(&mut self) {
+        self.marks = super::marks::load_from(&self.marks_path);
+        self.marks_stamp = modified(&self.marks_path);
+    }
+
+    pub fn marked(&self, path: &Path) -> bool {
+        self.marks.iter().any(|mark| mark.path == path)
+    }
+
+    pub fn mark(&mut self, paths: &[PathBuf]) {
+        let fresh: Vec<PathBuf> = paths.iter().filter(|path| path.is_dir() && !self.marked(path)).cloned().collect();
+        if fresh.is_empty() {
+            return;
+        }
+        for path in &fresh {
+            self.marks.push(super::marks::Mark { name: entry::name_of(path), path: path.clone() });
+        }
+        self.write_marks();
+        self.say(crate::lang::tf("Added {} to the sidebar", &[&match fresh.as_slice() {
+            [one] => entry::name_of(one),
+            _ => entry::items(fresh.len()),
+        }]), false);
+    }
+
+    pub fn unmark(&mut self, path: &Path) {
+        let before = self.marks.len();
+        self.marks.retain(|mark| mark.path != path);
+        if self.marks.len() != before {
+            self.write_marks();
+        }
+    }
+
+    fn write_marks(&mut self) {
+        match super::marks::save_to(&self.marks_path, &self.marks) {
+            Ok(()) => self.marks_stamp = modified(&self.marks_path),
+            Err(error) => self.say(crate::lang::tf("The sidebar was not saved: {}", &[&error]), true),
+        }
+    }
+
     pub fn places(&self) -> Vec<(PathBuf, String, &'static str)> {
         let home = &self.home;
         let mut out = vec![(home.clone(), crate::lang::t("Home").to_string(), "user-home")];
@@ -509,6 +562,11 @@ impl Model {
                 out.push((path, name.to_string(), icon));
             }
         }
+        for mark in &self.marks {
+            if !out.iter().any(|(each, _, _)| each == &mark.path) {
+                out.push((mark.path.clone(), mark.name.clone(), "folder"));
+            }
+        }
         out.push((ops::trash_files(), crate::lang::t("Trash").to_string(), "user-trash"));
         out
     }
@@ -518,7 +576,8 @@ impl Model {
         if self.prefs.places {
             out.push(Line::Head(crate::lang::t("Places")));
             for (path, name, icon) in self.places() {
-                out.push(Line::Place { path, name, icon });
+                let mark = self.marked(&path);
+                out.push(Line::Place { path, name, icon, mark });
             }
         }
         if self.prefs.tree {
@@ -1073,6 +1132,8 @@ impl Model {
                 }
             }
             Act::Go(path) => self.go(path, None),
+            Act::Mark(path) => self.mark(&[path]),
+            Act::Unmark(path) => self.unmark(&path),
             Act::EditPath => self.path = Some(Field::all(&self.dir.to_string_lossy())),
             Act::Terminal(at) => {
                 let dir = at.unwrap_or_else(|| self.dir.clone());
@@ -1206,6 +1267,9 @@ impl Model {
             Some(path) => {
                 items.push(Item::new(crate::lang::t("Open in New Window"), "", Act::Window(path.clone())));
                 items.push(Item::new(crate::lang::t("Open in Terminal"), "", Act::Terminal(Some(path.clone()))));
+                if !self.marked(path) {
+                    items.push(Item::new(crate::lang::t("Add to Sidebar"), "", Act::Mark(path.clone())));
+                }
             }
             None => items.push(Item::more(crate::lang::t("Open With"), self.open_with_items())),
         }
@@ -1223,6 +1287,50 @@ impl Model {
         items.push(Item::rule());
         items.push(Item::new(crate::lang::t("Get Info"), "Ctrl+I", Act::Info).when(one));
         items
+    }
+
+    pub fn line_menu(&mut self, path: &Path, mark: bool) -> Vec<Item> {
+        let mut items = vec![
+            Item::new(crate::lang::t("Open"), "", Act::Go(path.to_path_buf())),
+            Item::new(crate::lang::t("Open in New Window"), "", Act::Window(path.to_path_buf())),
+        ];
+        if path != ops::trash_files() {
+            items.push(Item::new(crate::lang::t("Open in Terminal"), "", Act::Terminal(Some(path.to_path_buf()))));
+        }
+        match (mark, path == ops::trash_files()) {
+            (true, _) => {
+                items.push(Item::rule());
+                items.push(Item::new(crate::lang::t("Remove from Sidebar"), "", Act::Unmark(path.to_path_buf())));
+            }
+            (false, true) => {
+                items.push(Item::rule());
+                items.push(Item::new(crate::lang::t("Empty Trash"), "", Act::EmptyTrash));
+            }
+            (false, false) if !self.marked(path) && path.is_dir() && !self.places().iter().any(|(each, _, _)| each == path) => {
+                items.push(Item::rule());
+                items.push(Item::new(crate::lang::t("Add to Sidebar"), "", Act::Mark(path.to_path_buf())));
+            }
+            _ => {}
+        }
+        items
+    }
+
+    pub fn drop_on(&mut self, target: super::look::Drop, paths: Vec<PathBuf>, copy: bool) {
+        match target {
+            super::look::Drop::Mark => self.mark(&paths),
+            super::look::Drop::Trash => self.start_job(Job::Trash(paths)),
+            super::look::Drop::Into(into) => {
+                let paths: Vec<PathBuf> = paths.into_iter().filter(|path| path != &into && !into.starts_with(path)).collect();
+                if paths.is_empty() || ops::in_trash(&into) {
+                    return;
+                }
+                let job = match copy {
+                    true => Job::Copy { from: paths, into },
+                    false => Job::Move { from: paths, into },
+                };
+                self.start_job(job);
+            }
+        }
     }
 
     pub fn space_menu(&mut self) -> Vec<Item> {
@@ -1476,6 +1584,27 @@ mod tests {
         assert!(model.busy.is_empty());
         assert_eq!(model.single().map(|one| one.name.as_str()), Some("b.txt"));
         assert_eq!(model.undo.len(), 1);
+    }
+
+    #[test]
+    fn folders_pin_to_the_sidebar_and_drops_move_files() {
+        use super::super::look::Drop;
+        let (place, mut model) = place("drop");
+        model.marks_path = place.0.join("bookmarks");
+        model.marks.clear();
+        let photos = place.0.join("work/Photos");
+        model.drop_on(Drop::Mark, vec![photos.clone(), place.0.join("work/b.txt")], false);
+        assert!(model.marked(&photos));
+        assert_eq!(super::super::marks::load_from(&model.marks_path).len(), 1);
+        assert!(model.lines().iter().any(|line| matches!(line, Line::Place { path, mark: true, .. } if path == &photos)));
+        model.effects.clear();
+        model.drop_on(Drop::Into(photos.clone()), vec![place.0.join("work/b.txt")], false);
+        assert_eq!(model.effects, [Effect::Job(Job::Move { from: vec![place.0.join("work/b.txt")], into: photos.clone() })]);
+        model.effects.clear();
+        model.drop_on(Drop::Into(photos.join("2026")), vec![photos.clone()], false);
+        assert!(model.effects.is_empty());
+        model.act(Act::Unmark(photos.clone()));
+        assert!(!model.marked(&photos));
     }
 
     #[test]

@@ -70,6 +70,13 @@ pub enum SheetHit {
     Outside,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Drop {
+    Mark,
+    Into(PathBuf),
+    Trash,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Want {
     Icon(String, u32),
@@ -507,6 +514,9 @@ impl Look {
         if let Some(status) = frame.status {
             self.paint_status(&mut canvas, status, model, fonts);
         }
+        if let Some(super::model::Drag::Files { paths, at, live: true, .. }) = &model.dragging {
+            self.paint_drag(&mut canvas, size, job, paths, *at);
+        }
         if let Some(sheet) = &model.sheet {
             self.paint_sheet(&mut canvas, size, sheet, job);
         }
@@ -514,6 +524,79 @@ impl Look {
             self.paint_menu(&mut canvas, size, menu, fonts);
         }
         canvas.image
+    }
+
+    pub fn drop_at(&self, size: Vec2, model: &Model, lines: &[Line], fonts: &Fonts, at: Vec2, paths: &[PathBuf]) -> Option<(Drop, Rect)> {
+        let frame = self.frame(size, model);
+        let folders = paths.iter().any(|path| path.is_dir());
+        let into = |path: &Path, area: Rect| -> Option<(Drop, Rect)> {
+            let bad = paths.iter().any(|each| each == path || path.starts_with(each)) || super::ops::in_trash(path);
+            (!bad && path.is_dir()).then(|| (Drop::Into(path.to_path_buf()), area))
+        };
+        if let Some(side) = frame.side
+            && side.contains(at)
+        {
+            let rects = self.line_rects(side, lines, model.tree_scroll);
+            let trash = super::ops::trash_files();
+            let bar = lines
+                .iter()
+                .zip(&rects)
+                .find(|(line, _)| matches!(line, Line::Place { path, .. } if path == &trash))
+                .map(|(_, area)| rect(area.origin.x + 4.0, area.origin.y - 1.5, area.size.x - 8.0, 3.0));
+            let found = rects.iter().position(|area| area.contains(at))?;
+            let area = rects[found];
+            return match &lines[found] {
+                Line::Head(_) if folders && matches!(lines.get(found + 1), Some(Line::Place { .. })) => bar.map(|bar| (Drop::Mark, bar)),
+                Line::Place { path, .. } if path == &trash => Some((Drop::Trash, area)),
+                Line::Place { .. } if folders && ((at.y - area.origin.y) < area.size.y * 0.25 || (area.max().y - at.y) < area.size.y * 0.25) => bar.map(|bar| (Drop::Mark, bar)),
+                Line::Place { path, .. } | Line::Folder { path, .. } | Line::Drive { path, .. } => into(path, area),
+                Line::Head(_) => None,
+            };
+        }
+        match self.hit(size, model, lines, fonts, at)? {
+            Hit::Entry(index) | Hit::Strip(index) => {
+                let one = model.entries.get(index)?;
+                into(&one.path, self.entry_rect(&frame, model, index)?)
+            }
+            Hit::Column(column, Some(row)) => {
+                let one = model.columns.get(column)?.entries.get(row)?;
+                let area = self.column_rect(frame.body, model, column);
+                let y = area.origin.y + 6.0 + row as f64 * ROW_H - model.columns[column].scroll;
+                into(&one.path, rect(area.origin.x + 6.0, y, COLUMN_W - 12.0, ROW_H))
+            }
+            _ => None,
+        }
+    }
+
+    fn paint_drag(&self, canvas: &mut Canvas, size: Vec2, job: &Paint, paths: &[PathBuf], at: Vec2) {
+        let fonts = job.fonts;
+        if let Some((drop, area)) = self.drop_at(size, job.model, job.lines, fonts, at, paths) {
+            match drop {
+                Drop::Mark => canvas.round_rect(area, 1.5, self.accent, 1.0),
+                Drop::Into(_) | Drop::Trash => {
+                    canvas.round_rect(area, 7.0, self.accent, 0.18);
+                    canvas.ring(area, 7.0, 2.0, self.accent, 1.0);
+                }
+            }
+        }
+        let words = match paths {
+            [one] => super::entry::name_of(one),
+            _ => super::entry::items(paths.len()),
+        };
+        let shown = fit(fonts.body, &words, 260.0);
+        let card = rect(at.x + 14.0, at.y + 10.0, fonts.body.width_of(&shown) + 46.0, 30.0);
+        canvas.shadow(card, 8.0, 12.0, self.drop);
+        canvas.round_rect(card, 8.0, if self.dark { self.raised } else { [255, 255, 255] }, 0.96);
+        let family = paths.first().and_then(|path| Entry::at(path)).map_or(Family::Other, |one| one.family());
+        let icon = rect(card.origin.x + 8.0, card.center().y - 9.0, 18.0, 18.0);
+        self.icon_or_glyph(canvas, job.art, family.icon(), family, icon);
+        self.text(canvas, fonts.body, &shown, self.ink, Vec2::new(card.origin.x + 34.0, card.center().y), card.size.x - 40.0);
+        if paths.len() > 1 {
+            let badge = Vec2::new(card.max().x - 2.0, card.origin.y + 2.0);
+            canvas.circle(badge, 9.0, self.accent, 1.0);
+            let count = fonts.small.paint_weight(&paths.len().min(99).to_string(), self.on_accent, 650.0);
+            canvas.stamp(&count, (badge - logical(&count) / 2.0).round(), 1.0);
+        }
     }
 
     fn text(&self, canvas: &mut Canvas, font: &Font, words: &str, ink: [u8; 3], at: Vec2, room: f64) {
@@ -818,7 +901,7 @@ impl Look {
                     let piece = fonts.small.paint_weight(&words.to_uppercase(), self.dim, 600.0);
                     canvas.stamp(&piece, Vec2::new(area.origin.x + 6.0, area.max().y - 7.0 - logical(&piece).y).round(), 1.0);
                 }
-                Line::Place { name, icon, path } => {
+                Line::Place { name, icon, path, .. } => {
                     let family = if path == &super::ops::trash_files() { Family::Other } else { Family::Folder };
                     self.icon_or_glyph(&mut canvas, job.art, icon, family, rect(area.origin.x + 8.0, middle - 9.0, 18.0, 18.0));
                     self.text(&mut canvas, fonts.body, name, ink, Vec2::new(area.origin.x + 34.0, middle), area.size.x - 40.0);

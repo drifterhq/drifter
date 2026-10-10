@@ -3137,3 +3137,15 @@ Copied {}
 
 {} will go.
 = {} se eliminará.
+
+Add to Sidebar
+= Añadir a la barra lateral
+
+Remove from Sidebar
+= Quitar de la barra lateral
+
+Added {} to the sidebar
+= {} se añadió a la barra lateral
+
+The sidebar was not saved: {}
+= No se guardó la barra lateral: {}

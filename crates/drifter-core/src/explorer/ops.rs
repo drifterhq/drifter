@@ -158,7 +158,7 @@ fn remove(path: &Path) -> io::Result<()> {
     }
 }
 
-fn encode(path: &Path) -> String {
+pub(crate) fn encode(path: &Path) -> String {
     let mut out = String::new();
     for byte in path.to_string_lossy().bytes() {
         match byte {
@@ -169,7 +169,7 @@ fn encode(path: &Path) -> String {
     out
 }
 
-fn decode(text: &str) -> String {
+pub(crate) fn decode(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut at = 0;

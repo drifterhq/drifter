@@ -119,8 +119,8 @@ pub fn press(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, button: Butto
                 let path = path.to_path_buf();
                 match right {
                     true => {
-                        model.go(path.clone(), None);
-                        let items = model.space_menu();
+                        let mark = matches!(lines.get(index), Some(Line::Place { mark: true, .. }));
+                        let items = model.line_menu(&path, mark);
                         model.menu = Some(menu_at(items, at));
                     }
                     false => model.go(path, None),
@@ -189,19 +189,28 @@ fn pick_entry(model: &mut Model, index: usize, right: bool, clicks: u32, mods: M
         return;
     }
     match (mods.ctrl, mods.shift) {
-        (true, false) => model.pick_toggle(path),
+        (true, false) => model.pick_toggle(path.clone()),
         (_, true) => model.pick_range(index, mods.ctrl),
         _ => {
             if clicks >= 2 && model.picked.contains(&path) {
                 return model.act(Act::Open);
             }
-            if !model.picked.contains(&path) || model.picked.len() > 1 || clicks == 1 {
+            let among = model.picked.contains(&path) && model.picked.len() > 1;
+            if !model.picked.contains(&path) {
                 model.pick_only(path.clone());
             }
             if model.prefs.click == Click::Single && clicks == 1 {
-                model.act(Act::Open);
+                return model.act(Act::Open);
             }
+            if clicks == 1 {
+                let pending = among.then(|| path.clone());
+                model.dragging = Some(Drag::Files { paths: model.chosen_paths(), from: at, at, live: false, pending });
+            }
+            return;
         }
+    }
+    if model.picked.contains(&path) && clicks == 1 {
+        model.dragging = Some(Drag::Files { paths: model.chosen_paths(), from: at, at, live: false, pending: None });
     }
 }
 
@@ -304,14 +313,26 @@ fn press_sheet(model: &mut Model, ui: &Ui, at: Vec2) {
     }
 }
 
-pub fn release(model: &mut Model) {
-    if model.dragging.take().is_some() {
-        model.save();
+pub fn release(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, copy: bool) {
+    match model.dragging.take() {
+        Some(Drag::Files { paths, live: true, .. }) => {
+            if let Some((target, _)) = ui.look.drop_at(ui.size, model, lines, ui.fonts, at, &paths) {
+                model.drop_on(target, paths, copy);
+            }
+        }
+        Some(Drag::Files { pending: Some(path), .. }) => model.pick_only(path),
+        Some(Drag::Files { .. }) | None => {}
+        Some(_) => model.save(),
     }
 }
 
 pub fn motion(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2) -> bool {
-    match model.dragging {
+    match model.dragging.clone() {
+        Some(Drag::Files { paths, from, live, pending, .. }) => {
+            let live = live || (at - from).length() > 6.0;
+            model.dragging = Some(Drag::Files { paths, from, at, live, pending });
+            return live;
+        }
         Some(Drag::Split { from, width }) => {
             let wide = (f64::from(width) + at.x - from).round().clamp(f64::from(prefs::LEAST_TREE), f64::from(prefs::MOST_TREE)) as u32;
             let changed = wide != model.prefs.tree_width;

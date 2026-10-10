@@ -599,8 +599,9 @@ impl PointerHandler for Explorer {
                 }
                 PointerEventKind::Press { button, .. } if matches!(button, BTN_LEFT | BTN_RIGHT | BTN_MIDDLE) => self.press(button),
                 PointerEventKind::Release { button, .. } if button == BTN_LEFT => {
-                    input::release(&mut self.model);
-                    self.stale = true;
+                    let copy = self.mods.ctrl;
+                    self.with_ui(|model, ui, lines| input::release(model, ui, lines, at, copy));
+                    self.after();
                 }
                 PointerEventKind::Axis { horizontal, vertical, .. } => {
                     let ctrl = self.mods.ctrl;

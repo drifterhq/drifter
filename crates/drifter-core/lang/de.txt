@@ -3137,3 +3137,15 @@ Copied {}
 
 {} will go.
 = {} wird entfernt.
+
+Add to Sidebar
+= Zur Seitenleiste hinzufügen
+
+Remove from Sidebar
+= Aus der Seitenleiste entfernen
+
+Added {} to the sidebar
+= {} wurde zur Seitenleiste hinzugefügt
+
+The sidebar was not saved: {}
+= Die Seitenleiste wurde nicht gespeichert: {}
