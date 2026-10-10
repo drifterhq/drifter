@@ -202,3 +202,6 @@ Later steps build on these.
 56. Compress on a plain system: with neither bsdtar nor zip installed (a fresh Debian trixie has only tar), Compress failed.
     Waits on: nothing.
     - Built: Compress now falls back to tar and makes "name.tar.gz" when bsdtar and zip are missing; Extract already used tar for these. Double endings now read in full in the Kind column ("TAR.GZ archive", "TAR.XZ archive") instead of "GZ archive". Tests: `compress_then_extract_round_trips` forces the tar path, `kinds_come_from_the_name` grew the double endings. Checked on the trixie VM (tar only): Compress on the album folder made album.tar.gz holding all three files, and Extract Here on it, after the folder was deleted, brought album back with every file.
+57. Trash check across disks (no change needed).
+    Waits on: 11.
+    - Checked on the trixie VM in /tmp, which is its own disk: Delete asked "Move to Trash?" and put gone.txt in /tmp/.Trash-1000 with its .trashinfo (not in the home Trash); the Trash view listed it with /tmp/bin-test as Original Location and the date; Put Back returned it and emptied that trash folder; after trashing both files, right-click on empty space offered Empty Trash, the red-button sheet asked first, and both the files and their info entries were gone, leaving "The Trash is empty".
