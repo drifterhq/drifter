@@ -62,6 +62,9 @@ struct Explorer {
     configured: bool,
     resized: bool,
     stale: bool,
+    dirty: Option<drifter_core::Rect>,
+    shifts: Vec<(f64, bool)>,
+    last: Option<Image>,
     shown: Option<Instant>,
     look: Look,
     fonts: (Font, Font, Font),
@@ -190,6 +193,9 @@ pub fn run() -> Result<(), String> {
         configured: false,
         resized: false,
         stale: true,
+        dirty: None,
+        shifts: Vec::new(),
+        last: None,
         shown: None,
         look,
         fonts,
@@ -207,9 +213,9 @@ pub fn run() -> Result<(), String> {
     };
     while !app.exit {
         events
-            .dispatch(app.stale.then_some(SETTLE), &mut app)
+            .dispatch((app.stale || app.dirty.is_some() || !app.shifts.is_empty()).then_some(SETTLE), &mut app)
             .map_err(|e| format!("event loop: {e}"))?;
-        if app.configured && (std::mem::take(&mut app.resized) || (app.stale && app.frame_free())) {
+        if app.configured && (std::mem::take(&mut app.resized) || ((app.stale || app.dirty.is_some() || !app.shifts.is_empty()) && app.frame_free())) {
             app.draw();
         }
     }
@@ -418,19 +424,85 @@ impl Explorer {
     }
 
     fn draw(&mut self) {
-        self.stale = false;
+        use drifter_core::explorer::look::join;
         drifter_core::paint::set_density(scale());
         let lines = self.model.lines();
-        let image = {
-            let fonts = Fonts { body: &self.fonts.0, small: &self.fonts.1, title: &self.fonts.2 };
-            let job = Paint { model: &self.model, lines: &lines, fonts: &fonts, art: &self.art };
-            self.look.paint(self.view(), &job)
+        let hover = self.dirty.take();
+        let shifts = std::mem::take(&mut self.shifts);
+        let mut before = match self.stale {
+            true => None,
+            false => self.last.take().filter(|image| image.width == self.size.0 * scale() && image.height == self.size.1 * scale()),
         };
-        self.show(&image);
+        self.stale = false;
+        let size = self.view();
+        let fonts = Fonts { body: &self.fonts.0, small: &self.fonts.1, title: &self.fonts.2 };
+        let job = Paint { model: &self.model, lines: &lines, fonts: &fonts, art: &self.art, clip: None };
+        let frame = self.look.frame(size, &self.model);
+        let mut moved: Vec<(f64, bool)> = Vec::new();
+        for (by, side) in shifts {
+            match moved.iter_mut().find(|(_, each)| *each == side) {
+                Some(had) => had.0 += by,
+                None => moved.push((by, side)),
+            }
+        }
+        let mut part: Option<drifter_core::Rect> = None;
+        for (by, side) in moved {
+            let Some(image) = before.take() else {
+                break;
+            };
+            if let Ok(image) = self.look.scrolled(image, size, &job, by, side) {
+                let area = match side {
+                    true => frame.side.unwrap_or(frame.body),
+                    false => frame.body,
+                };
+                part = Some(part.map_or(area, |had| join(had, area)));
+                before = Some(image);
+            }
+        }
+        if let (Some(area), Some(image)) = (hover, before.take()) {
+            before = Some(self.look.repaint(image, size, &Paint { clip: Some(area), ..job }));
+            part = Some(part.map_or(area, |had| join(had, area)));
+        }
+        let (image, part) = match (before, part) {
+            (Some(image), Some(area)) => (image, Some(area)),
+            _ => (self.look.paint(size, &job), None),
+        };
+        self.show(&image, part);
+        self.last = Some(image);
         self.fetch();
     }
 
-    fn show(&mut self, image: &Image) {
+    fn damage(&mut self, area: Option<drifter_core::Rect>) {
+        match area {
+            Some(area) => self.dirty = Some(self.dirty.map_or(area, |had| drifter_core::explorer::look::join(had, area))),
+            None => self.stale = true,
+        }
+    }
+
+    fn hover_damage(&self, hover: &Option<drifter_core::explorer::look::Hit>, menu: &Option<drifter_core::explorer::model::Menu>, lines: &[drifter_core::explorer::model::Line]) -> Option<drifter_core::Rect> {
+        let model = &self.model;
+        if model.dragging.is_some() {
+            return None;
+        }
+        let fonts = Fonts { body: &self.fonts.0, small: &self.fonts.1, title: &self.fonts.2 };
+        let size = self.view();
+        match (menu, &model.menu) {
+            (Some(was), Some(now)) => {
+                let same = was.items == now.items && was.at == now.at && was.bar == now.bar;
+                return same.then(|| drifter_core::explorer::look::join(self.look.menu_area(size, was, &fonts), self.look.menu_area(size, now, &fonts)));
+            }
+            (None, None) => {}
+            _ => return None,
+        }
+        let mut area: Option<drifter_core::Rect> = None;
+        for hit in [hover, &model.hover].into_iter().flatten() {
+            let found = self.look.hover_rect(size, model, lines, &fonts, hit)?;
+            area = Some(area.map_or(found, |had| drifter_core::explorer::look::join(had, found)));
+        }
+        area
+    }
+
+    fn show(&mut self, image: &Image, part: Option<drifter_core::Rect>) {
         let (width, height) = (image.width, image.height);
         let stride = width as i32 * 4;
         let (buffer, canvas) = match self.pool.create_buffer(width as i32, height as i32, stride, wl_shm::Format::Argb8888) {
@@ -446,7 +518,18 @@ impl Explorer {
         }
         let surface = self.window.wl_surface();
         surface.set_buffer_scale(scale() as i32);
-        surface.damage_buffer(0, 0, width as i32, height as i32);
+        match part {
+            Some(area) => {
+                let dense = f64::from(scale());
+                surface.damage_buffer(
+                    (area.origin.x * dense).floor() as i32,
+                    (area.origin.y * dense).floor() as i32,
+                    (area.size.x * dense).ceil() as i32 + 2,
+                    (area.size.y * dense).ceil() as i32 + 2,
+                );
+            }
+            None => surface.damage_buffer(0, 0, width as i32, height as i32),
+        }
         if let Err(error) = buffer.attach_to(surface) {
             log!("drifter-explorer: {error}");
             return;
@@ -609,8 +692,11 @@ impl PointerHandler for Explorer {
             let at = self.at;
             match event.kind {
                 PointerEventKind::Motion { .. } | PointerEventKind::Enter { .. } => {
+                    let (hover, menu) = (self.model.hover.clone(), self.model.menu.clone());
                     if self.with_ui(|model, ui, lines| input::motion(model, ui, lines, at)) {
-                        self.stale = true;
+                        let lines = self.model.lines();
+                        let area = self.hover_damage(&hover, &menu, &lines);
+                        self.damage(area);
                     }
                 }
                 PointerEventKind::Press { button, .. } if matches!(button, BTN_LEFT | BTN_RIGHT | BTN_MIDDLE) => self.press(button),
@@ -622,13 +708,23 @@ impl PointerHandler for Explorer {
                 PointerEventKind::Axis { horizontal, vertical, .. } => {
                     let ctrl = self.mods.ctrl;
                     let (dx, dy) = (horizontal.absolute, vertical.absolute);
+                    let before = (self.model.scroll, self.model.tree_scroll, self.model.prefs.zoom, self.model.prefs.mode);
                     if self.with_ui(|model, ui, lines| input::scroll(model, ui, lines, at, dx, dy, ctrl)) {
-                        self.stale = true;
+                        let (body, side) = (self.model.scroll - before.0, self.model.tree_scroll - before.1);
+                        let plain = self.model.prefs.zoom == before.2 && self.model.prefs.mode == before.3;
+                        match (plain, body != 0.0, side != 0.0) {
+                            (true, true, false) => self.shifts.push((body, false)),
+                            (true, false, true) => self.shifts.push((side, true)),
+                            _ => self.stale = true,
+                        }
                     }
                 }
                 PointerEventKind::Leave { .. } => {
+                    let (hover, menu) = (self.model.hover.clone(), self.model.menu.clone());
                     if input::leave(&mut self.model) {
-                        self.stale = true;
+                        let lines = self.model.lines();
+                        let area = self.hover_damage(&hover, &menu, &lines);
+                        self.damage(area);
                     }
                 }
                 _ => {}

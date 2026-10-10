@@ -6,7 +6,7 @@ Work left on Explorer (`drifter-explorer`). Do the steps in number order. Done s
 
 1. Run it under Drifter itself: the window frame, scale 1.5 and 2, theme changes. Fix what breaks.
    Waits on: nothing.
-   - Ran on 114 under Drifter (4K, scale 1): the frame, title, menus, list and sidebar look right, and the Trash on other disks, jobs and drives all load. Left: scale 1.5 and 2, and a theme change, without changing your live session by hand.
+   - Ran on 114 under Drifter (4K, scale 1): the frame, title, menus, list and sidebar look right. On Blue's headless sway at scale 2 and 1.5 Explorer is sharp and lays out right, and a light/dark change in the config switches it live both ways within 1.5 s. Left: Drifter's own frame at scale 1.5 and 2.
 
 ## Phase 2: Groundwork
 
@@ -14,6 +14,7 @@ Later steps build on these.
 
 2. Drawing cost: every hover redraws the whole window on the CPU, on the main thread. On the Pi it is slow. At 4K and scale 2 it will cost too much. Paint on a worker and redraw only what changed.
    Waits on: 1.
+   - Built: a hover repaints only the old and new hover areas (rows, cells, tree lines, buttons, menus) inside a clip, and sends only that area to the compositor. A scroll moves the pixels already drawn and paints only the strip that comes into view. Tests check every case pixel for pixel against a full paint, at 1x and 2x. Hover cost on 114: 1.0 ms at 1x and 5.1 ms at 2x (was 9 and 38 ms); on Blue: 3.9 ms at 1x (was 41 ms). Full repaints (opening a folder, typing) still run on the main thread: 9 ms at 1x and 38 ms at 2x on 114. Left: move those to a worker if they feel slow on the Pixelbook.
 3. Folders are read on the main thread, so a huge folder or a slow network drive freezes the window. Read them on a worker.
    Waits on: nothing.
    - Built: folders, the tree, columns, text previews and change checks read on worker threads. A folder that takes more than 50 ms shows "Loading…" and fills in later. A 100,000-file folder now blocks 60 ms, not 0.9 s. The last-folder check at start, the sidebar and drag targets no longer touch the disk. Still on the main thread: single-path checks when you act (a typed path, paste name checks, rename, new folder, Get Info). Left: a test on the Pixelbook.

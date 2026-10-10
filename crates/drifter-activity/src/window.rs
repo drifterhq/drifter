@@ -403,7 +403,7 @@ impl Activity {
             self.stale = true;
             return;
         };
-        let mut canvas = drifter_core::paint::Canvas { image };
+        let mut canvas = drifter_core::paint::Canvas::on(image);
         canvas.stamp(&piece, rect.origin, 1.0);
         image = canvas.image;
         self.show(&image, Some(rect));

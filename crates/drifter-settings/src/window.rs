@@ -888,7 +888,7 @@ impl Settings {
                         Some((_, _, base)) => base.clone(),
                         None => plain(this, this.scroll),
                     };
-                    let mut canvas = drifter_core::paint::Canvas { image: base };
+                    let mut canvas = drifter_core::paint::Canvas::on(base);
                     sheet.paint(&mut canvas, &this.look, &fonts, &this.icons);
                     canvas.image
                 };
@@ -983,7 +983,7 @@ impl Settings {
             self.show(image);
             return;
         };
-        let mut canvas = drifter_core::paint::Canvas { image: image.clone() };
+        let mut canvas = drifter_core::paint::Canvas::on(image.clone());
         let outer = drifter_core::Rect::new(ring.origin - Vec2::splat(3.0), ring.size + Vec2::splat(6.0));
         canvas.ring(outer, 9.0, 2.5, self.look.accent, 0.95);
         self.show(&canvas.image);

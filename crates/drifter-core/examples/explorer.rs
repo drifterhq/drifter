@@ -27,7 +27,7 @@ fn main() {
         let tag = if dark { "dark" } else { "light" };
         let shot = |model: &mut Model, name: &str| {
             let lines = model.lines();
-            let image = look.paint(size, &Paint { model, lines: &lines, fonts: &fonts, art: &art });
+            let image = look.paint(size, &Paint { model, lines: &lines, fonts: &fonts, art: &art, clip: None });
             drifter_core::image::save_png(&image, &out.join(format!("{tag}-{name}.png"))).unwrap();
         };
         let mut model = Model::new(out.join("explorer.toml"), Some(home.join("Documents")));

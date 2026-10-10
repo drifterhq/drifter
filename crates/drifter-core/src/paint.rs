@@ -36,6 +36,7 @@ fn up(rect: Rect) -> Rect {
 
 pub struct Canvas {
     pub image: Image,
+    pub clip: Option<[u32; 4]>,
 }
 
 impl Canvas {
@@ -48,6 +49,31 @@ impl Canvas {
                 height,
                 rgba: vec![0; (width as usize) * (height as usize) * 4],
             },
+            clip: None,
+        }
+    }
+
+    pub fn on(image: Image) -> Canvas {
+        Canvas { image, clip: None }
+    }
+
+    pub fn clip_to(&mut self, area: Option<Rect>) {
+        self.clip = area.map(|area| {
+            let area = up(area);
+            let (w, h) = (self.image.width, self.image.height);
+            [
+                (area.origin.x.floor().max(0.0) as u32).min(w),
+                (area.origin.y.floor().max(0.0) as u32).min(h),
+                (area.max().x.ceil().max(0.0) as u32).min(w),
+                (area.max().y.ceil().max(0.0) as u32).min(h),
+            ]
+        });
+    }
+
+    fn bounds(&self, from_x: u32, from_y: u32, to_x: u32, to_y: u32) -> (u32, u32, u32, u32) {
+        match self.clip {
+            Some([x0, y0, x1, y1]) => (from_x.max(x0), from_y.max(y0), to_x.min(x1), to_y.min(y1)),
+            None => (from_x, from_y, to_x, to_y),
         }
     }
 
@@ -109,18 +135,18 @@ impl Canvas {
 
     pub fn stamp(&mut self, piece: &Image, at: Vec2, alpha: f64) {
         let at = at * density();
-        let left = at.x.round() as i64;
-        let top = at.y.round() as i64;
-        for y in 0..piece.height {
+        let left = (at.x + 0.5).floor() as i64;
+        let top = (at.y + 0.5).floor() as i64;
+        let (low_x, low_y, high_x, high_y) = self.bounds(0, 0, self.image.width, self.image.height);
+        let (low_x, low_y, high_x, high_y) = (i64::from(low_x), i64::from(low_y), i64::from(high_x), i64::from(high_y));
+        let first_y = (low_y - top).clamp(0, i64::from(piece.height)) as u32;
+        let last_y = (high_y - top).clamp(0, i64::from(piece.height)) as u32;
+        let first_x = (low_x - left).clamp(0, i64::from(piece.width)) as u32;
+        let last_x = (high_x - left).clamp(0, i64::from(piece.width)) as u32;
+        for y in first_y..last_y {
             let ty = top + i64::from(y);
-            if ty < 0 || ty >= i64::from(self.image.height) {
-                continue;
-            }
-            for x in 0..piece.width {
+            for x in first_x..last_x {
                 let tx = left + i64::from(x);
-                if tx < 0 || tx >= i64::from(self.image.width) {
-                    continue;
-                }
                 let from = ((y * piece.width + x) * 4) as usize;
                 let a = f64::from(piece.rgba[from + 3]) / 255.0 * alpha;
                 if a <= 0.0 {
@@ -216,6 +242,7 @@ impl Canvas {
         let from_y = rect.origin.y.floor().max(0.0) as u32;
         let to_x = (rect.max().x.ceil().max(0.0) as u32).min(self.image.width);
         let to_y = (rect.max().y.ceil().max(0.0) as u32).min(self.image.height);
+        let (from_x, from_y, to_x, to_y) = self.bounds(from_x, from_y, to_x, to_y);
         for y in from_y..to_y {
             for x in from_x..to_x {
                 let a = cover(Vec2::new(f64::from(x) + 0.5, f64::from(y) + 0.5));
@@ -309,6 +336,21 @@ mod tests {
         let mut flipped = Canvas::new(20, 20);
         flipped.triangle([up[0], up[2], up[1]], [255, 255, 255], 1.0);
         assert_eq!(flipped.image.rgba, canvas.image.rgba);
+    }
+
+    #[test]
+    fn a_clip_keeps_paint_inside_it() {
+        let mut canvas = Canvas::new(20, 20);
+        canvas.clip_to(Some(Rect::new(Vec2::new(5.0, 5.0), Vec2::splat(10.0))));
+        canvas.round_rect(Rect::new(Vec2::ZERO, Vec2::splat(20.0)), 0.0, [255, 255, 255], 1.0);
+        let mut piece = Canvas::new(20, 20);
+        piece.round_rect(Rect::new(Vec2::ZERO, Vec2::splat(20.0)), 0.0, [9, 9, 9], 1.0);
+        canvas.stamp(&piece.image, Vec2::new(-3.0, 2.0), 1.0);
+        assert_eq!(alpha(&canvas, 2, 2), 0);
+        assert_eq!(alpha(&canvas, 17, 17), 0);
+        assert_eq!(alpha(&canvas, 6, 6), 255);
+        assert_eq!(canvas.image.rgba[((10 * 20 + 10) * 4) as usize], 9);
+        assert_eq!(alpha(&canvas, 16, 10), 0);
     }
 
     #[test]

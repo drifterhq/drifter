@@ -178,7 +178,7 @@ impl Look {
         big: &Font,
     ) -> Image {
         let size = crate::paint::logical(&base);
-        let mut canvas = Canvas { image: base.clone() };
+        let mut canvas = Canvas::on(base.clone());
         let field = self.field_rect(size);
         let glass = Vec2::new(self.pad + 10.0, field.center().y - 2.0);
         canvas.circle(glass, 8.0, self.dim, 1.0);

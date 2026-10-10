@@ -664,7 +664,7 @@ impl Look {
 
     pub fn scroll_into(&self, frame: &mut Image, size: Vec2, model: &Model, tall: &Image) {
         let shown = self.visible_body(size, model.view);
-        let mut canvas = Canvas { image: std::mem::replace(frame, Image { width: 0, height: 0, rgba: Vec::new() }) };
+        let mut canvas = Canvas::on(std::mem::replace(frame, Image { width: 0, height: 0, rgba: Vec::new() }));
         canvas.round_rect(shown, 0.0, self.card, 1.0);
         stamp_rows(&mut canvas, tall, shown, model.scroll);
         *frame = canvas.image;

@@ -30,7 +30,7 @@ impl Vec2 {
     }
 
     pub fn round(self) -> Vec2 {
-        Vec2::new(self.x.round(), self.y.round())
+        Vec2::new((self.x + 0.5).floor(), (self.y + 0.5).floor())
     }
 
     pub fn clamp(self, lo: Vec2, hi: Vec2) -> Vec2 {

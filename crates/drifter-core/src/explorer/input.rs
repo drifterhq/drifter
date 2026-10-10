@@ -423,6 +423,15 @@ pub fn leave(model: &mut Model) -> bool {
     model.hover.take().is_some()
 }
 
+fn snap(wanted: f64, most: f64) -> (f64, f64) {
+    let to = wanted.round().clamp(0.0, most);
+    let rest = match to == wanted.round() {
+        true => wanted - to,
+        false => 0.0,
+    };
+    (to, rest)
+}
+
 pub fn scroll(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, dx: f64, dy: f64, ctrl: bool) -> bool {
     if model.menu.is_some() || model.sheet.is_some() {
         return false;
@@ -431,9 +440,10 @@ pub fn scroll(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, dx: f64, dy:
     if let Some(side) = frame.side
         && side.contains(at)
     {
-        let most = (ui.look.tree_height(lines) - side.size.y).max(0.0);
+        let most = (ui.look.tree_height(lines) - side.size.y).max(0.0).ceil();
         let before = model.tree_scroll;
-        model.tree_scroll = (model.tree_scroll + dy).clamp(0.0, most);
+        let (to, rest) = snap(model.tree_scroll + dy + model.tree_rest, most);
+        (model.tree_scroll, model.tree_rest) = (to, rest);
         return before != model.tree_scroll;
     }
     if !frame.body.contains(at) {
@@ -449,9 +459,10 @@ pub fn scroll(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, dx: f64, dy:
     }
     match model.prefs.mode {
         Mode::List | Mode::Icons => {
-            let most = ui.look.most_scroll(&frame, model);
+            let most = ui.look.most_scroll(&frame, model).ceil();
             let before = model.scroll;
-            model.scroll = (model.scroll + dy).clamp(0.0, most);
+            let (to, rest) = snap(model.scroll + dy + model.scroll_rest, most);
+            (model.scroll, model.scroll_rest) = (to, rest);
             before != model.scroll
         }
         Mode::Columns => {

@@ -149,6 +149,7 @@ pub struct Frame {
     pub split: Option<Rect>,
     pub body: Rect,
     pub status: Option<Rect>,
+    pub clip: Option<Rect>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -176,6 +177,21 @@ pub struct Paint<'a> {
     pub lines: &'a [Line],
     pub fonts: &'a Fonts<'a>,
     pub art: &'a Art,
+    pub clip: Option<Rect>,
+}
+
+pub fn touches(clip: Option<Rect>, area: Rect) -> bool {
+    clip.is_none_or(|clip| clip.origin.x < area.max().x && area.origin.x < clip.max().x && clip.origin.y < area.max().y && area.origin.y < clip.max().y)
+}
+
+pub fn join(a: Rect, b: Rect) -> Rect {
+    let low = a.origin.min(b.origin);
+    let high = a.max().max(b.max());
+    Rect::new(low, high - low)
+}
+
+fn moved(clip: Option<Rect>, by: Vec2) -> Option<Rect> {
+    clip.map(|clip| Rect::new(clip.origin - by, clip.size))
 }
 
 fn rect(x: f64, y: f64, w: f64, h: f64) -> Rect {
@@ -233,7 +249,7 @@ impl Look {
         let split = side_on.then(|| rect(side_w - SPLIT_W / 2.0, top, SPLIT_W, tall));
         let body = rect(side_w, top, size.x - side_w, tall);
         let status = model.prefs.status.then(|| rect(0.0, size.y - STATUS_H, size.x, STATUS_H));
-        Frame { menu, bar, banner, jobs, side, split, body, status }
+        Frame { menu, bar, banner, jobs, side, split, body, status, clip: None }
     }
 
     pub fn bar_titles(&self, fonts: &Fonts) -> Vec<(Rect, &'static str)> {
@@ -535,26 +551,45 @@ impl Look {
     }
 
     pub fn paint(&self, size: Vec2, job: &Paint) -> Image {
+        let canvas = Canvas::new(size.x.round() as u32, size.y.round() as u32);
+        self.paint_on(canvas, size, &Paint { clip: None, ..*job })
+    }
+
+    pub fn repaint(&self, before: Image, size: Vec2, job: &Paint) -> Image {
+        let mut canvas = Canvas::on(before);
+        canvas.clip_to(job.clip);
+        self.paint_on(canvas, size, job)
+    }
+
+    fn paint_on(&self, mut canvas: Canvas, size: Vec2, job: &Paint) -> Image {
         let model = job.model;
         let fonts = job.fonts;
-        let mut canvas = Canvas::new(size.x.round() as u32, size.y.round() as u32);
-        let frame = self.frame(size, model);
+        let clip = job.clip;
+        let frame = Frame { clip, ..self.frame(size, model) };
         canvas.round_rect(rect(0.0, 0.0, size.x, size.y), 0.0, self.back, 1.0);
-        self.paint_body(&mut canvas, &frame, job);
-        if let Some(side) = frame.side {
-            let piece = self.paint_side(side, job);
+        if touches(clip, frame.body) {
+            self.paint_body(&mut canvas, &frame, job);
+        }
+        if let Some(side) = frame.side
+            && touches(clip, side)
+        {
+            let piece = self.paint_side(side, job, moved(clip, side.origin));
             canvas.stamp(&piece, side.origin, 1.0);
             canvas.round_rect(rect(side.max().x - 1.0, side.origin.y, 1.0, side.size.y), 0.0, self.rule, 1.0);
         }
-        self.paint_menu_bar(&mut canvas, &frame, job);
-        self.paint_bar(&mut canvas, &frame, job);
-        if let Some(banner) = frame.banner {
+        if touches(clip, frame.menu) {
+            self.paint_menu_bar(&mut canvas, &frame, job);
+        }
+        if touches(clip, frame.bar) {
+            self.paint_bar(&mut canvas, &frame, job);
+        }
+        if let Some(banner) = frame.banner.filter(|banner| touches(clip, *banner)) {
             self.paint_banner(&mut canvas, banner, model, fonts);
         }
-        if let Some(jobs) = frame.jobs {
+        if let Some(jobs) = frame.jobs.filter(|jobs| touches(clip, *jobs)) {
             self.paint_jobs(&mut canvas, jobs, model, fonts);
         }
-        if let Some(status) = frame.status {
+        if let Some(status) = frame.status.filter(|status| touches(clip, *status)) {
             self.paint_status(&mut canvas, status, model, fonts);
         }
         if let Some(super::model::Drag::Files { paths, at, live: true, .. }) = &model.dragging {
@@ -912,15 +947,16 @@ impl Look {
         }
     }
 
-    fn paint_side(&self, side: Rect, job: &Paint) -> Image {
+    fn paint_side(&self, side: Rect, job: &Paint, clip: Option<Rect>) -> Image {
         let model = job.model;
         let fonts = job.fonts;
         let mut canvas = Canvas::new(side.size.x.round() as u32, side.size.y.round() as u32);
+        canvas.clip_to(clip);
         let local = rect(0.0, 0.0, side.size.x, side.size.y);
         canvas.round_rect(local, 0.0, self.side, 1.0);
         let rects = self.line_rects(local, job.lines, model.tree_scroll);
         for (index, (line, area)) in job.lines.iter().zip(rects).enumerate() {
-            if area.max().y < 0.0 || area.origin.y > local.size.y {
+            if area.max().y < 0.0 || area.origin.y > local.size.y || !touches(clip, area) {
                 continue;
             }
             let here = line.path().is_some_and(|path| path == model.dir);
@@ -1019,9 +1055,11 @@ impl Look {
     fn paint_body(&self, canvas: &mut Canvas, frame: &Frame, job: &Paint) {
         let body = frame.body;
         let mut piece = Canvas::new(body.size.x.round().max(1.0) as u32, body.size.y.round().max(1.0) as u32);
+        let clip = moved(frame.clip, body.origin);
+        piece.clip_to(clip);
         let local = rect(0.0, 0.0, body.size.x, body.size.y);
         piece.round_rect(local, 0.0, self.back, 1.0);
-        let shifted = Frame { body: local, ..*frame };
+        let shifted = Frame { body: local, clip, ..*frame };
         let model = job.model;
         if let Some(trouble) = &model.trouble {
             self.text_center(&mut piece, job.fonts.title, crate::lang::t("This folder cannot be opened"), self.ink, local.center() - Vec2::new(0.0, 14.0), local.size.x - 40.0);
@@ -1074,7 +1112,7 @@ impl Look {
             let Some(area) = self.entry_rect(frame, model, at) else {
                 continue;
             };
-            if area.max().y < top || area.origin.y > body.size.y {
+            if area.max().y < top || area.origin.y > body.size.y || !touches(frame.clip, area) {
                 continue;
             }
             let picked = model.picked.contains(&entry.path);
@@ -1117,39 +1155,41 @@ impl Look {
                 x += w;
             }
         }
-        canvas.round_rect(rect(0.0, 0.0, body.size.x, top), 0.0, self.back, 1.0);
-        canvas.round_rect(rect(8.0, top - 1.0, body.size.x - 16.0, 1.0), 0.0, self.rule, 1.0);
-        let mut x = 8.0;
-        let mut heads = vec![(Sort::Name, name_w)];
-        heads.extend(extra.iter().copied());
-        for (sort, w) in heads {
-            let on = model.prefs.sort == sort;
-            let hot = model.hover == Some(Hit::Head(sort));
-            if hot {
-                canvas.round_rect(rect(x + 2.0, 3.0, w - 4.0, top - 7.0), 5.0, self.hover, 0.6);
-            }
-            let ink = if on { self.ink } else { self.dim };
-            let label = fonts.small.paint_weight(sort.name(), ink, if on { 620.0 } else { 500.0 });
-            let size = logical(&label);
-            let lx = match sort {
-                Sort::Name => x + 34.0,
-                Sort::Size => x + w - 16.0 - size.x,
-                _ => x + 8.0,
-            };
-            canvas.stamp(&label, Vec2::new(lx, top / 2.0 - size.y / 2.0).round(), 1.0);
-            if on {
-                let ax = if sort == Sort::Size { lx - 10.0 } else { lx + size.x + 8.0 };
-                let c = Vec2::new(ax, top / 2.0);
-                let corners = match model.prefs.down {
-                    false => [c + Vec2::new(-3.5, 2.0), c + Vec2::new(3.5, 2.0), c + Vec2::new(0.0, -2.5)],
-                    true => [c + Vec2::new(-3.5, -2.0), c + Vec2::new(3.5, -2.0), c + Vec2::new(0.0, 2.5)],
+        if touches(frame.clip, rect(0.0, 0.0, body.size.x, top)) {
+            canvas.round_rect(rect(0.0, 0.0, body.size.x, top), 0.0, self.back, 1.0);
+            canvas.round_rect(rect(8.0, top - 1.0, body.size.x - 16.0, 1.0), 0.0, self.rule, 1.0);
+            let mut x = 8.0;
+            let mut heads = vec![(Sort::Name, name_w)];
+            heads.extend(extra.iter().copied());
+            for (sort, w) in heads {
+                let on = model.prefs.sort == sort;
+                let hot = model.hover == Some(Hit::Head(sort));
+                if hot {
+                    canvas.round_rect(rect(x + 2.0, 3.0, w - 4.0, top - 7.0), 5.0, self.hover, 0.6);
+                }
+                let ink = if on { self.ink } else { self.dim };
+                let label = fonts.small.paint_weight(sort.name(), ink, if on { 620.0 } else { 500.0 });
+                let size = logical(&label);
+                let lx = match sort {
+                    Sort::Name => x + 34.0,
+                    Sort::Size => x + w - 16.0 - size.x,
+                    _ => x + 8.0,
                 };
-                canvas.triangle(corners, self.dim, 1.0);
+                canvas.stamp(&label, Vec2::new(lx, top / 2.0 - size.y / 2.0).round(), 1.0);
+                if on {
+                    let ax = if sort == Sort::Size { lx - 10.0 } else { lx + size.x + 8.0 };
+                    let c = Vec2::new(ax, top / 2.0);
+                    let corners = match model.prefs.down {
+                        false => [c + Vec2::new(-3.5, 2.0), c + Vec2::new(3.5, 2.0), c + Vec2::new(0.0, -2.5)],
+                        true => [c + Vec2::new(-3.5, -2.0), c + Vec2::new(3.5, -2.0), c + Vec2::new(0.0, 2.5)],
+                    };
+                    canvas.triangle(corners, self.dim, 1.0);
+                }
+                if sort != Sort::Name {
+                    canvas.round_rect(rect(x, 7.0, 1.0, top - 14.0), 0.0, self.rule, 1.0);
+                }
+                x += w;
             }
-            if sort != Sort::Name {
-                canvas.round_rect(rect(x, 7.0, 1.0, top - 14.0), 0.0, self.rule, 1.0);
-            }
-            x += w;
         }
         self.scroll_mark(canvas, rect(0.0, top, body.size.x, body.size.y - top), self.content_height(frame, model) - top, model.scroll);
     }
@@ -1194,7 +1234,7 @@ impl Look {
         let label_font = if zoom >= 96.0 { fonts.body } else { fonts.small };
         for at in start..end {
             let entry = &model.entries[at];
-            let Some(area) = self.entry_rect(frame, model, at) else {
+            let Some(area) = self.entry_rect(frame, model, at).filter(|area| touches(frame.clip, *area)) else {
                 continue;
             };
             let picked = model.picked.contains(&entry.path);
@@ -1256,6 +1296,9 @@ impl Look {
                     continue;
                 }
                 let line = rect(area.origin.x + 6.0, y, COLUMN_W - 12.0, ROW_H);
+                if !touches(frame.clip, line) {
+                    continue;
+                }
                 let picked = match current {
                     true => model.picked.contains(&entry.path),
                     false => chosen_next.as_ref() == Some(&entry.path),
@@ -1413,6 +1456,90 @@ impl Look {
 
     pub fn dismiss_rect(&self, banner: Rect) -> Rect {
         rect(banner.max().x - 10.0 - BUTTON, banner.origin.y + (banner.size.y - BUTTON) / 2.0, BUTTON, BUTTON)
+    }
+
+    pub fn scrolled(&self, before: Image, size: Vec2, job: &Paint, by: f64, side: bool) -> Result<Image, Image> {
+        let model = job.model;
+        let frame = self.frame(size, model);
+        let area = match side {
+            true => match frame.side {
+                Some(side) => side,
+                None => return Err(before),
+            },
+            false => match model.prefs.mode {
+                Mode::List => rect(frame.body.origin.x, frame.body.origin.y + HEAD_H, frame.body.size.x, frame.body.size.y - HEAD_H),
+                Mode::Icons => frame.body,
+                _ => return Err(before),
+            },
+        };
+        let density = crate::paint::density();
+        let step = by * density;
+        if by.fract() != 0.0 || step.abs() >= area.size.y * density - 1.0 || before.width != crate::paint::dense(size.x) || before.height != crate::paint::dense(size.y) {
+            return Err(before);
+        }
+        let mut image = before;
+        let width = image.width as usize;
+        let x0 = (area.origin.x * density).round().max(0.0) as usize;
+        let x1 = ((area.max().x * density).round() as usize).min(width);
+        let y0 = (area.origin.y * density).round().max(0.0) as usize;
+        let y1 = ((area.max().y * density).round() as usize).min(image.height as usize);
+        let shift = step.round() as isize;
+        let rows: Box<dyn Iterator<Item = usize>> = match shift > 0 {
+            true => Box::new(y0..y1),
+            false => Box::new((y0..y1).rev()),
+        };
+        for y in rows {
+            let from = y as isize + shift;
+            if from < y0 as isize || from >= y1 as isize {
+                continue;
+            }
+            let (src, dst) = ((from as usize * width + x0) * 4, (y * width + x0) * 4);
+            image.rgba.copy_within(src..src + (x1 - x0) * 4, dst);
+        }
+        let gap = by.abs();
+        let open = match by > 0.0 {
+            true => rect(area.origin.x, area.max().y - gap - 1.0, area.size.x, gap + 1.0),
+            false => rect(area.origin.x, area.origin.y, area.size.x, gap + 1.0),
+        };
+        let mark = rect(area.max().x - 12.0, area.origin.y, 12.0, area.size.y);
+        let mut image = image;
+        for clip in [open, mark] {
+            image = self.repaint(image, size, &Paint { clip: Some(clip), ..*job });
+        }
+        Ok(image)
+    }
+
+    pub fn hover_rect(&self, size: Vec2, model: &Model, lines: &[Line], fonts: &Fonts, hit: &Hit) -> Option<Rect> {
+        let frame = self.frame(size, model);
+        let area = match hit {
+            Hit::Bar(index) => self.bar_titles(fonts).get(*index)?.0,
+            Hit::Back => self.nav_rects(frame.bar)[0],
+            Hit::Forward => self.nav_rects(frame.bar)[1],
+            Hit::Up => self.nav_rects(frame.bar)[2],
+            Hit::Show(mode) => self.view_rects(frame.bar).into_iter().find(|(each, _)| each == mode)?.1,
+            Hit::Gear => self.gear_rect(frame.bar),
+            Hit::Line(index) | Hit::Caret(index) | Hit::Eject(index) => *self.line_rects(frame.side?, lines, model.tree_scroll).get(*index)?,
+            Hit::Head(_) => rect(frame.body.origin.x, frame.body.origin.y, frame.body.size.x, HEAD_H),
+            Hit::Entry(index) | Hit::Strip(index) => self.entry_rect(&frame, model, *index)?,
+            Hit::Column(index, Some(row)) => {
+                let area = self.column_rect(frame.body, model, *index);
+                let column = model.columns.get(*index)?;
+                rect(area.origin.x + 6.0, area.origin.y + 6.0 + *row as f64 * ROW_H - column.scroll, COLUMN_W - 12.0, ROW_H)
+            }
+            Hit::Stop(id) => self.job_rows(frame.jobs?, model).into_iter().find(|(each, _)| each == id)?.1,
+            Hit::Dismiss => self.dismiss_rect(frame.banner?),
+            _ => return None,
+        };
+        Some(Rect::new(area.origin - Vec2::splat(4.0), area.size + Vec2::splat(8.0)))
+    }
+
+    pub fn menu_area(&self, size: Vec2, menu: &Menu, fonts: &Fonts) -> Rect {
+        let main = self.menu_rect(size, menu.at, &menu.items, fonts);
+        let whole = match self.kid_rect(size, menu, fonts) {
+            Some(kid) => join(main, kid),
+            None => main,
+        };
+        Rect::new(whole.origin - Vec2::splat(24.0), whole.size + Vec2::splat(48.0))
     }
 
     pub fn eject_rect(&self, line: Rect) -> Rect {
@@ -2179,5 +2306,84 @@ pub fn pref_rows(tab: usize, model: &Model) -> Vec<Row> {
             }
             rows
         }
+    }
+}
+
+#[cfg(test)]
+mod repaint_tests {
+    use super::*;
+
+    fn same(a: &Image, b: &Image) -> bool {
+        a.width == b.width && a.height == b.height && a.rgba == b.rgba
+    }
+
+    #[test]
+    fn a_hover_repaint_matches_a_full_paint() {
+        let dir = std::env::temp_dir().join(format!("drifter-repaint-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("work/inner")).unwrap();
+        for n in 0..60 {
+            std::fs::write(dir.join(format!("work/file {n}.txt")), "x").unwrap();
+        }
+        let mut model = Model::new(dir.join("explorer.toml"), Some(dir.join("work")));
+        model.settle_all(std::time::Duration::from_secs(5));
+        let (Ok(body), Ok(small), Ok(title)) = (crate::Font::find(None, 13.0), crate::Font::find(None, 11.5), crate::Font::find(None, 17.0)) else {
+            return;
+        };
+        let fonts = Fonts { body: &body, small: &small, title: &title };
+        let art = Art::default();
+        let look = Look::themed(&crate::theme::DARK, [64, 128, 238]);
+        let size = Vec2::new(900.0, 600.0);
+        for density in [1, 2] {
+            crate::paint::set_density(density);
+            for mode in [Mode::List, Mode::Icons] {
+                model.prefs.mode = mode;
+                let pairs = [(None, Some(Hit::Entry(3))), (Some(Hit::Entry(3)), Some(Hit::Entry(4))), (Some(Hit::Entry(4)), Some(Hit::Line(2))), (Some(Hit::Line(2)), Some(Hit::Head(Sort::Name))), (Some(Hit::Head(Sort::Name)), Some(Hit::Gear)), (Some(Hit::Gear), None)];
+                for (was, now) in pairs {
+                    model.hover = was.clone();
+                    let lines = model.lines();
+                    let before = look.paint(size, &Paint { model: &model, lines: &lines, fonts: &fonts, art: &art, clip: None });
+                    let mut area: Option<Rect> = None;
+                    for hit in [&was, &now].into_iter().flatten() {
+                        let found = look.hover_rect(size, &model, &lines, &fonts, hit).expect("a hover rect");
+                        area = Some(area.map_or(found, |had| join(had, found)));
+                    }
+                    model.hover = now.clone();
+                    let part = look.repaint(before, size, &Paint { model: &model, lines: &lines, fonts: &fonts, art: &art, clip: area });
+                    let whole = look.paint(size, &Paint { model: &model, lines: &lines, fonts: &fonts, art: &art, clip: None });
+                    assert!(same(&part, &whole), "{mode:?} at {density}x: {was:?} -> {now:?}");
+                }
+            }
+        }
+        let mut blits = 0;
+        for density in [1, 2] {
+            crate::paint::set_density(density);
+            for (mode, side) in [(Mode::List, false), (Mode::Icons, false), (Mode::List, true)] {
+                model.prefs.mode = mode;
+                model.hover = None;
+                for (from, to) in [(0.0, 26.0), (26.0, 13.0), (13.0, 200.0), (200.0, 0.0)] {
+                    let set = |model: &mut Model, at: f64| match side {
+                        true => model.tree_scroll = at,
+                        false => model.scroll = at,
+                    };
+                    set(&mut model, from);
+                    let lines = model.lines();
+                    let before = look.paint(size, &Paint { model: &model, lines: &lines, fonts: &fonts, art: &art, clip: None });
+                    set(&mut model, to);
+                    let whole = look.paint(size, &Paint { model: &model, lines: &lines, fonts: &fonts, art: &art, clip: None });
+                    if let Ok(part) = look.scrolled(before, size, &Paint { model: &model, lines: &lines, fonts: &fonts, art: &art, clip: None }, to - from, side) {
+                        let first = part.rgba.iter().zip(&whole.rgba).position(|(a, b)| a != b).map(|at| (at / 4 % part.width as usize, at / 4 / part.width as usize));
+                        let count = part.rgba.chunks(4).zip(whole.rgba.chunks(4)).filter(|(a, b)| a != b).count();
+                        assert!(same(&part, &whole), "{mode:?} side {side} at {density}x: {from} -> {to}: first {first:?}, {count} pixels");
+                        blits += 1;
+                    }
+                }
+                model.scroll = 0.0;
+                model.tree_scroll = 0.0;
+            }
+        }
+        assert!(blits >= 18, "only {blits} blits ran");
+        crate::paint::set_density(1);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
