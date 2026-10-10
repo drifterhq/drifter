@@ -59,6 +59,7 @@ Later steps build on these.
     - Built: each part of the path is a button with a hover look. A click opens that folder and selects the folder you came from. Clicking the current folder's name or the empty part of the bar starts edit mode, and right-click on a part does too. "…" stands for the hidden parts when the path is long. You can drop files onto a part. Checked on Blue: clicking "demo" opened it with Pictures selected.
 14. Path bar: it has no folder dropdown.
     Waits on: 13.
+    - Built: an arrow after each part of the path opens a menu of the folders inside it (up to 40, then "N more"), with the folder on your path checked. Pick one to open it. Checked on Blue.
 15. A search box. There is only type-to-find.
     Waits on: 3.
 16. Tabs.

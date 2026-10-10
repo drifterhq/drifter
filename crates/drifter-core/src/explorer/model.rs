@@ -480,6 +480,30 @@ impl Model {
         items
     }
 
+    pub fn folders_of(&mut self, dir: &Path) -> Vec<PathBuf> {
+        let hidden = self.prefs.hidden;
+        let fresh = Ask::Folders(dir.to_path_buf(), hidden);
+        if !self.kids.contains_key(dir) || !self.open.contains(dir) {
+            self.reader.ask(fresh.clone());
+            let until = Instant::now() + self.budget;
+            self.settle(until, |model| !model.reader.asked(&fresh));
+        }
+        self.kids.get(dir).cloned().unwrap_or_default()
+    }
+
+    pub fn folder_menu(&mut self, dir: &Path) -> Vec<Item> {
+        const MOST: usize = 40;
+        let kids = self.folders_of(dir);
+        let here = self.dir.clone();
+        let mut items: Vec<Item> = kids.iter().take(MOST).map(|kid| Item::new(&entry::name_of(kid), "", Act::Go(kid.clone())).checked(here.starts_with(kid))).collect();
+        match kids.len() {
+            0 => items.push(Item::new(crate::lang::t("No folders inside"), "", Act::Go(dir.to_path_buf())).when(false)),
+            more if more > MOST => items.push(Item::new(&crate::lang::tf("{} more", &[&(more - MOST)]), "", Act::Go(dir.to_path_buf()))),
+            _ => {}
+        }
+        items
+    }
+
     pub fn known_folder(&self, path: &Path) -> bool {
         let listed = self.entries.iter().chain(self.columns.iter().flat_map(|column| column.entries.iter())).find(|each| each.path == path);
         match listed {
@@ -2162,6 +2186,11 @@ mod tests {
         assert!(last.last && last.words == "2026" && last.path == work.join("Photos/2026"));
         assert_eq!(crumbs[crumbs.len() - 2].path, work.join("Photos"));
         assert!(crumbs.windows(2).all(|pair| pair[0].area.max().x <= pair[1].area.origin.x + 1.0));
+        let menu = model.folder_menu(&work);
+        assert_eq!(menu.iter().map(|item| item.label.as_str()).collect::<Vec<_>>(), ["Photos"]);
+        assert_eq!(menu[0].act, Some(Act::Go(work.join("Photos"))));
+        let empty = model.folder_menu(&work.join("Photos/2026"));
+        assert!(empty.len() == 1 && !empty[0].on);
         let narrow = crate::Rect::new(crate::Vec2::new(100.0, 40.0), crate::Vec2::new(160.0, 30.0));
         let tight = look.crumbs(narrow, &model, &fonts);
         assert_eq!(tight.first().map(|crumb| crumb.words.as_str()), Some("…"));

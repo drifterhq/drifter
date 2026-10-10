@@ -64,11 +64,13 @@ pub enum Hit {
     Jobs,
     Eject(usize),
     Crumb(usize),
+    CrumbArrow(usize),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Crumb {
     pub area: Rect,
+    pub arrow: Rect,
     pub path: PathBuf,
     pub words: String,
     pub last: bool,
@@ -440,10 +442,14 @@ impl Look {
             }
             let path = self.path_rect(frame.bar);
             if path.contains(at) {
-                if model.path.is_none()
-                    && let Some(found) = self.crumbs(path, model, fonts).iter().position(|crumb| crumb.area.contains(at) && !crumb.last)
-                {
-                    return Some(Hit::Crumb(found));
+                if model.path.is_none() {
+                    let crumbs = self.crumbs(path, model, fonts);
+                    if let Some(found) = crumbs.iter().position(|crumb| crumb.arrow.contains(at)) {
+                        return Some(Hit::CrumbArrow(found));
+                    }
+                    if let Some(found) = crumbs.iter().position(|crumb| crumb.area.contains(at) && !crumb.last) {
+                        return Some(Hit::Crumb(found));
+                    }
                 }
                 return Some(Hit::Path);
             }
@@ -842,14 +848,14 @@ impl Look {
         let mut out = Vec::new();
         let mut x = start;
         if first > 0 {
-            out.push(Crumb { area: rect(x - 4.0, top, 22.0, tall), path: parts[first - 1].1.clone(), words: "…".to_string(), last: false });
+            out.push(Crumb { area: rect(x - 4.0, top, 22.0, tall), arrow: rect(x + 18.0, top, 10.0, tall), path: parts[first - 1].1.clone(), words: "…".to_string(), last: false });
             x += 14.0 + arrow - 4.0;
         }
         let count = parts.len();
         for (at, (words, place)) in parts.into_iter().enumerate().skip(first) {
-            let wide = widths[at].min((room - x).max(0.0));
-            out.push(Crumb { area: rect(x - 4.0, top, wide + 8.0, tall), path: place, words, last: at + 1 == count });
-            x += wide + if at + 1 == count { 0.0 } else { arrow };
+            let wide = widths[at].min((room - x - 14.0).max(0.0));
+            out.push(Crumb { area: rect(x - 4.0, top, wide + 8.0, tall), arrow: rect(x + wide + 4.0, top, 10.0, tall), path: place, words, last: at + 1 == count });
+            x += wide + arrow;
         }
         out
     }
@@ -871,8 +877,11 @@ impl Look {
                 }
                 false => self.text(canvas, fonts.body, &crumb.words, ink, Vec2::new(x, middle), room + 2.0),
             }
-            if !crumb.last && crumb.words != "/" {
-                self.chevron(canvas, Vec2::new(crumb.area.max().x + 5.0, middle), self.dim);
+            if model.hover == Some(Hit::CrumbArrow(index)) {
+                canvas.round_rect(crumb.arrow, 4.0, self.hover, 0.9);
+            }
+            if !crumb.last || model.hover == Some(Hit::CrumbArrow(index)) {
+                self.chevron(canvas, crumb.arrow.center(), self.dim);
             }
         }
     }
@@ -1566,6 +1575,7 @@ impl Look {
             Hit::Show(mode) => self.view_rects(frame.bar).into_iter().find(|(each, _)| each == mode)?.1,
             Hit::Gear => self.gear_rect(frame.bar),
             Hit::Crumb(index) => self.crumbs(self.path_rect(frame.bar), model, fonts).get(*index)?.area,
+            Hit::CrumbArrow(index) => self.crumbs(self.path_rect(frame.bar), model, fonts).get(*index)?.arrow,
             Hit::Line(index) | Hit::Caret(index) | Hit::Eject(index) => *self.line_rects(frame.side?, lines, model.tree_scroll).get(*index)?,
             Hit::Head(_) => rect(frame.body.origin.x, frame.body.origin.y, frame.body.size.x, HEAD_H),
             Hit::Entry(index) | Hit::Strip(index) => self.entry_rect(&frame, model, *index)?,
@@ -2386,7 +2396,7 @@ mod repaint_tests {
             crate::paint::set_density(density);
             for mode in [Mode::List, Mode::Icons] {
                 model.prefs.mode = mode;
-                let pairs = [(None, Some(Hit::Entry(3))), (Some(Hit::Entry(3)), Some(Hit::Entry(4))), (Some(Hit::Entry(4)), Some(Hit::Line(2))), (Some(Hit::Line(2)), Some(Hit::Head(Sort::Name))), (Some(Hit::Head(Sort::Name)), Some(Hit::Gear)), (Some(Hit::Gear), Some(Hit::Crumb(0))), (Some(Hit::Crumb(0)), None)];
+                let pairs = [(None, Some(Hit::Entry(3))), (Some(Hit::Entry(3)), Some(Hit::Entry(4))), (Some(Hit::Entry(4)), Some(Hit::Line(2))), (Some(Hit::Line(2)), Some(Hit::Head(Sort::Name))), (Some(Hit::Head(Sort::Name)), Some(Hit::Gear)), (Some(Hit::Gear), Some(Hit::Crumb(0))), (Some(Hit::Crumb(0)), Some(Hit::CrumbArrow(1))), (Some(Hit::CrumbArrow(1)), None)];
                 for (was, now) in pairs {
                     model.hover = was.clone();
                     let lines = model.lines();

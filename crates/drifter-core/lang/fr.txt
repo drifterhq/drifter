@@ -3269,3 +3269,6 @@ Eject
 
 Install udisks2 to mount and eject disks
 = Installez udisks2 pour monter et éjecter les disques
+
+No folders inside
+= Aucun dossier à l’intérieur

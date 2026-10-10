@@ -3272,3 +3272,6 @@ Eject
 
 Install udisks2 to mount and eject disks
 = Instala udisks2 para montar y expulsar discos
+
+No folders inside
+= No hay carpetas dentro

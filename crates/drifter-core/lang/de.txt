@@ -3272,3 +3272,6 @@ Eject
 
 Install udisks2 to mount and eject disks
 = Installiere udisks2, um Laufwerke einzuhängen und auszuwerfen
+
+No folders inside
+= Keine Ordner darin

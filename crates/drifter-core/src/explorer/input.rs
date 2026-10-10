@@ -125,6 +125,13 @@ pub fn press(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, button: Butto
                 }
             }
         }
+        Hit::CrumbArrow(index) => {
+            let area = ui.look.path_rect(ui.look.frame(ui.size, model).bar);
+            if let Some(crumb) = ui.look.crumbs(area, model, ui.fonts).get(index).cloned() {
+                let items = model.folder_menu(&crumb.path);
+                model.menu = Some(menu_at(items, Vec2::new(crumb.arrow.origin.x - 8.0, area.max().y + 4.0)));
+            }
+        }
         Hit::Show(mode) => model.act(Act::Show(mode)),
         Hit::Gear => model.act(Act::Prefs),
         Hit::Dismiss => model.act(Act::Dismiss),
