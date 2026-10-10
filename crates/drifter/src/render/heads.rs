@@ -534,7 +534,7 @@ impl State {
             let head = &mut self.heads[index];
             let resized = head.screen != rect.size;
             if head.vrr != vrr {
-                match head.compositor.use_vrr(vrr) {
+                match head.compositor.use_vrr(head.connector, vrr) {
                     Ok(()) => head.vrr = vrr,
                     Err(error) => {
                         log!("drifter: {} cannot use adaptive sync: {error}", head.name);
