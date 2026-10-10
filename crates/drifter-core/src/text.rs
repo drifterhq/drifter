@@ -1,10 +1,11 @@
 use std::path::{Path, PathBuf};
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use swash::scale::{Render, ScaleContext, Source, image::Content};
-use swash::shape::ShapeContext;
+use swash::shape::{Direction, ShapeContext};
+use swash::text::{Codepoint, Script};
 use swash::zeno::{Format, Vector};
 use swash::{FontRef, NormalizedCoord};
 
@@ -41,6 +42,7 @@ const BOLD: f32 = 650.0;
 
 #[derive(Clone, Copy)]
 struct Placed {
+    face: u16,
     id: u16,
     x: f32,
     advance: f32,
@@ -58,7 +60,84 @@ struct Kit {
     shape: ShapeContext,
     scale: ScaleContext,
     shapes: HashMap<(String, u32), Arc<Vec<Placed>>>,
-    glyphs: HashMap<(u16, u8, u32, u32), Arc<Raster>>,
+    glyphs: HashMap<(u16, u16, u8, u32, u32), Arc<Raster>>,
+}
+
+struct Face {
+    data: Arc<Vec<u8>>,
+    index: usize,
+    variable: bool,
+}
+
+#[derive(Default)]
+struct Faces {
+    list: Vec<Face>,
+    by_file: HashMap<(PathBuf, usize), Option<usize>>,
+    by_char: HashMap<char, Option<usize>>,
+}
+
+static FACES: LazyLock<Mutex<Faces>> = LazyLock::new(|| Mutex::new(Faces::default()));
+
+fn faces() -> std::sync::MutexGuard<'static, Faces> {
+    FACES.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn covers(data: &[u8], index: usize, c: char) -> bool {
+    FontRef::from_index(data, index).is_some_and(|font| font.charmap().map(c) != 0)
+}
+
+fn rides_along(c: char) -> bool {
+    c.is_whitespace()
+        || matches!(c, '\u{0300}'..='\u{036F}' | '\u{200C}'..='\u{200F}' | '\u{FE00}'..='\u{FE0F}' | '\u{E0100}'..='\u{E01EF}')
+}
+
+fn right_to_left(script: Script) -> bool {
+    matches!(script, Script::Arabic | Script::Hebrew | Script::Syriac | Script::Thaana | Script::Nko)
+}
+
+fn ask_fontconfig(c: char) -> Option<(PathBuf, usize)> {
+    let out = std::process::Command::new("fc-match")
+        .args(["-f", "%{file}\n%{index}", &format!(":charset={:x}", u32::from(c))])
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let mut lines = text.lines();
+    let file = PathBuf::from(lines.next()?.trim());
+    let index = lines.next().and_then(|line| line.trim().parse::<usize>().ok()).unwrap_or(0) & 0xFFFF;
+    file.is_file().then_some((file, index))
+}
+
+fn fallback_for(c: char) -> Option<usize> {
+    let mut faces = faces();
+    if let Some(found) = faces.by_char.get(&c) {
+        return *found;
+    }
+    let mut found = faces.list.iter().position(|face| covers(&face.data, face.index, c));
+    if found.is_none()
+        && let Some(file) = ask_fontconfig(c)
+    {
+        let known = faces.by_file.get(&file).copied();
+        let loaded = match known {
+            Some(loaded) => loaded,
+            None => {
+                let face = std::fs::read(&file.0).ok().and_then(|data| {
+                    let font = FontRef::from_index(&data, file.1)?;
+                    let variable = font.variations().any(|axis| axis.tag() == swash::tag_from_bytes(b"wght"));
+                    Some(Face { data: Arc::new(data), index: file.1, variable })
+                });
+                let at = face.map(|face| {
+                    faces.list.push(face);
+                    faces.list.len() - 1
+                });
+                faces.by_file.insert(file, at);
+                at
+            }
+        };
+        found = loaded.filter(|at| covers(&faces.list[*at].data, faces.list[*at].index, c));
+    }
+    faces.by_char.insert(c, found);
+    found
 }
 
 pub struct Font {
@@ -207,28 +286,38 @@ impl Font {
         if let Some(found) = kit.shapes.get(&key) {
             return found.clone();
         }
-        let font = self.font();
-        let coords = self.coords(weight);
         let mut out = Vec::new();
         let mut pen = 0.0f32;
-        {
+        for (face, script, run) in self.runs(text) {
+            let extra = (face > 0).then(|| faces().list.get(usize::from(face) - 1).map(|one| (one.data.clone(), one.index, one.variable))).flatten();
+            let font = match &extra {
+                Some((data, index, _)) => match FontRef::from_index(data, *index) {
+                    Some(font) => font,
+                    None => continue,
+                },
+                None => self.font(),
+            };
+            let coords: Vec<NormalizedCoord> = match &extra {
+                Some((_, _, true)) => font.variations().normalized_coords([("wght", weight)]).collect(),
+                Some(_) => Vec::new(),
+                None => self.coords(weight),
+            };
+            let flip = right_to_left(script);
             let mut shaper = kit
                 .shape
                 .builder(font)
                 .size(self.px)
+                .script(script)
+                .direction(if flip { Direction::RightToLeft } else { Direction::LeftToRight })
                 .normalized_coords(&coords)
                 .build();
-            shaper.add_str(text);
-            shaper.shape_with(|cluster| {
-                for glyph in cluster.glyphs {
-                    out.push(Placed {
-                        id: glyph.id,
-                        x: pen + glyph.x,
-                        advance: glyph.advance,
-                    });
-                    pen += glyph.advance;
-                }
-            });
+            shaper.add_str(&text[run]);
+            let mut glyphs = Vec::new();
+            shaper.shape_with(|cluster| glyphs.extend(cluster.glyphs.iter().map(|glyph| (glyph.id, glyph.x, glyph.advance))));
+            for (id, x, advance) in glyphs {
+                out.push(Placed { face, id, x: pen + x, advance });
+                pen += advance;
+            }
         }
         if let Some(last) = out.last_mut() {
             last.advance = pen - last.x;
@@ -241,8 +330,44 @@ impl Font {
         out
     }
 
-    fn raster(&self, id: u16, step: u8, weight: f32, darken: f32, density: f32) -> Arc<Raster> {
+    fn runs(&self, text: &str) -> Vec<(u16, Script, std::ops::Range<usize>)> {
+        let primary = self.font().charmap();
+        let mut runs: Vec<(u16, Script, std::ops::Range<usize>)> = Vec::new();
+        for (at, c) in text.char_indices() {
+            let end = at + c.len_utf8();
+            let script = c.script();
+            let plain = matches!(script, Script::Common | Script::Inherited | Script::Unknown);
+            if let Some(last) = runs.last_mut()
+                && (rides_along(c) || (plain && (last.0 == 0 || primary.map(c) == 0)))
+            {
+                last.2.end = end;
+                continue;
+            }
+            let face = match primary.map(c) != 0 || c.is_control() {
+                true => 0,
+                false => fallback_for(c).map_or(0, |at| at as u16 + 1),
+            };
+            match runs.last_mut() {
+                Some(last) if last.0 == face && (plain || last.1 == script || matches!(last.1, Script::Common | Script::Inherited | Script::Unknown)) => {
+                    if !plain {
+                        last.1 = script;
+                    }
+                    last.2.end = end;
+                }
+                _ => runs.push((face, script, at..end)),
+            }
+        }
+        for run in &mut runs {
+            if matches!(run.1, Script::Common | Script::Inherited | Script::Unknown) {
+                run.1 = Script::Latin;
+            }
+        }
+        runs
+    }
+
+    fn raster(&self, face: u16, id: u16, step: u8, weight: f32, darken: f32, density: f32) -> Arc<Raster> {
         let key = (
+            face,
             id,
             step,
             weight.to_bits() ^ darken.to_bits().rotate_left(16),
@@ -255,8 +380,19 @@ impl Font {
         if let Some(found) = kit.glyphs.get(&key) {
             return found.clone();
         }
-        let font = self.font();
-        let coords = self.coords(weight);
+        let extra = (face > 0).then(|| faces().list.get(usize::from(face) - 1).map(|one| (one.data.clone(), one.index, one.variable))).flatten();
+        let font = match &extra {
+            Some((data, index, _)) => match FontRef::from_index(data, *index) {
+                Some(font) => font,
+                None => self.font(),
+            },
+            None => self.font(),
+        };
+        let coords: Vec<NormalizedCoord> = match &extra {
+            Some((_, _, true)) => font.variations().normalized_coords([("wght", weight)]).collect(),
+            Some(_) => Vec::new(),
+            None => self.coords(weight),
+        };
         let mut scaler = kit
             .scale
             .builder(font)
@@ -310,7 +446,7 @@ impl Font {
                 true => (whole as i64 + 1, 0u8),
                 false => (whole as i64, step as u8),
             };
-            let raster = self.raster(glyph.id, step, weight, self.darken + extra, density);
+            let raster = self.raster(glyph.face, glyph.id, step, weight, self.darken + extra, density);
             for row in 0..raster.height as i64 {
                 let y = baseline - i64::from(raster.top) + row;
                 if y < 0 || y >= i64::from(height) {
@@ -401,6 +537,27 @@ mod tests {
             canvas.stamp(&label, Vec2::new(50.0, 20.0), 1.0);
             canvas.image
         });
+    }
+
+    #[test]
+    fn missing_letters_come_from_another_font() {
+        let font = font();
+        let latin = font.runs("plain name.txt");
+        assert_eq!(latin.len(), 1);
+        assert_eq!(latin[0].0, 0);
+        if ask_fontconfig('日').is_none() {
+            return;
+        }
+        let mixed = font.runs("日本語 file.txt");
+        assert!(mixed[0].0 > 0, "Japanese comes from a fallback font: {:?}", mixed.iter().map(|run| (run.0, run.2.clone())).collect::<Vec<_>>());
+        assert_eq!(mixed.last().map(|run| run.0), Some(0), "the Latin part stays in the main font");
+        let painted = font.paint("日本語", [255, 255, 255]);
+        let boxes = Font::find(None, 22.0).unwrap();
+        assert!(opaque(&painted) > 0);
+        assert!(boxes.width_of("日本語") > 0.0);
+        let arabic = font.runs("مرحبا.txt");
+        assert_eq!(arabic[0].1, Script::Arabic);
+        assert!(arabic[0].2.end <= "مرحبا".len(), "the dot and the extension are their own run");
     }
 
     #[test]
