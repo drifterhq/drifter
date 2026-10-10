@@ -275,6 +275,31 @@ impl Renamer {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Group {
+    pub paths: Vec<PathBuf>,
+    pub files: usize,
+    pub file_bytes: u64,
+    pub folders: Vec<PathBuf>,
+    pub counted: HashMap<PathBuf, (u64, u64)>,
+}
+
+impl Group {
+    pub fn done(&self) -> bool {
+        self.counted.len() >= self.folders.len()
+    }
+
+    pub fn total(&self) -> (u64, u64) {
+        let (bytes, inside) = self.counted.values().fold((0, 0), |(bytes, items), (more, count)| (bytes + more, items + count));
+        (self.file_bytes + bytes, self.paths.len() as u64 + inside)
+    }
+
+    pub fn place(&self) -> Option<PathBuf> {
+        let first = self.paths.first()?.parent()?;
+        first.ancestors().find(|at| self.paths.iter().all(|path| path.starts_with(at))).map(Path::to_path_buf)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Sheet {
     Prefs(usize),
@@ -286,6 +311,7 @@ pub enum Sheet {
     Apps(Chooser),
     Look,
     Names(Renamer),
+    Many(Group),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2089,6 +2115,23 @@ impl Model {
                     self.start_job(Job::EmptyTrash);
                 }
             },
+            Act::Info if self.picked.len() > 1 => {
+                let chosen: Vec<Entry> = self.chosen().into_iter().cloned().collect();
+                let mut group = Group { paths: chosen.iter().map(|each| each.path.clone()).collect(), ..Group::default() };
+                for one in &chosen {
+                    match one.folder {
+                        true => {
+                            group.folders.push(one.path.clone());
+                            self.effects.push(Effect::Measure(one.path.clone()));
+                        }
+                        false => {
+                            group.files += 1;
+                            group.file_bytes += one.size;
+                        }
+                    }
+                }
+                self.sheet = Some(Sheet::Many(group));
+            }
             Act::Info => {
                 let one = self.single().cloned().or_else(|| Entry::at(&self.dir));
                 if let Some(one) = one {
@@ -2483,10 +2526,12 @@ impl Model {
     }
 
     pub fn measured(&mut self, path: &Path, total: (u64, u64)) {
-        if let Some(Sheet::Info(info)) = self.sheet.as_mut()
-            && info.entry.path == path
-        {
-            info.total = Some(total);
+        match self.sheet.as_mut() {
+            Some(Sheet::Info(info)) if info.entry.path == path => info.total = Some(total),
+            Some(Sheet::Many(group)) if group.folders.iter().any(|each| each == path) => {
+                group.counted.insert(path.to_path_buf(), total);
+            }
+            _ => {}
         }
     }
 
@@ -2569,7 +2614,7 @@ impl Model {
             items.push(Item::new(crate::lang::t("Put Back"), "", Act::Restore));
             items.push(Item::new(crate::lang::t("Delete Forever"), "Shift+Delete", Act::DeleteForever));
             items.push(Item::rule());
-            items.push(Item::new(crate::lang::t("Get Info"), "Ctrl+I", Act::Info).when(one));
+            items.push(Item::new(crate::lang::t("Get Info"), "Ctrl+I", Act::Info));
             return items;
         }
         items.push(Item::new(crate::lang::t("Open"), "Enter", Act::Open));
@@ -2607,7 +2652,7 @@ impl Model {
         items.push(Item::new(crate::lang::t("Move to Trash"), "Delete", Act::Trash));
         items.push(Item::rule());
         items.push(Item::new(crate::lang::t("Quick Look"), "Space", Act::QuickLook).when(one));
-        items.push(Item::new(crate::lang::t("Get Info"), "Ctrl+I", Act::Info).when(one));
+        items.push(Item::new(crate::lang::t("Get Info"), "Ctrl+I", Act::Info));
         items
     }
 
@@ -3305,6 +3350,27 @@ mod tests {
         model.act(Act::Reveal(place.0.join("work/b.txt")));
         assert_eq!(model.entries.len(), 3, "every item of the same folder shows again");
         assert_eq!(model.single().map(|one| one.name.clone()), Some("b.txt".to_string()));
+    }
+
+    #[test]
+    fn get_info_sums_several_items() {
+        let (place, mut model) = place("many");
+        let work = place.0.join("work");
+        model.picked = [work.join("a.png"), work.join("b.txt"), work.join("Photos")].into_iter().collect();
+        model.effects.clear();
+        model.act(Act::Info);
+        assert_eq!(model.effects, [Effect::Measure(work.join("Photos"))]);
+        let Some(Sheet::Many(group)) = &model.sheet else {
+            panic!("a summary sheet opens");
+        };
+        assert_eq!((group.files, group.file_bytes, group.done()), (2, 10 + 12, false));
+        assert_eq!(group.place(), Some(work.clone()));
+        model.measured(&work.join("Photos"), ops::folder_size(&work.join("Photos")));
+        let Some(Sheet::Many(group)) = &model.sheet else {
+            panic!("still open");
+        };
+        assert!(group.done());
+        assert_eq!(group.total(), (22, 4), "three picked items and the 2026 folder inside");
     }
 
     #[test]

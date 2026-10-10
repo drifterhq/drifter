@@ -3461,3 +3461,21 @@ Nothing to redo
 
 Redoing
 = Wird wiederholt
+
+Undo and redo
+= Rückgängig und wiederholen
+
+1 file
+= 1 Datei
+
+{} files
+= {} Dateien
+
+1 folder
+= 1 Ordner
+
+{} folders
+= {} Ordner
+
+{} Items
+= {} Objekte

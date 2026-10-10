@@ -3461,3 +3461,21 @@ Nothing to redo
 
 Redoing
 = Rehaciendo
+
+Undo and redo
+= Deshacer y rehacer
+
+1 file
+= 1 archivo
+
+{} files
+= {} archivos
+
+1 folder
+= 1 carpeta
+
+{} folders
+= {} carpetas
+
+{} Items
+= {} elementos

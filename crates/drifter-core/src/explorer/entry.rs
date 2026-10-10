@@ -351,6 +351,20 @@ pub fn items(count: usize) -> String {
     }
 }
 
+pub fn files_words(count: usize) -> String {
+    match count {
+        1 => crate::lang::t("1 file").to_string(),
+        _ => crate::lang::tf("{} files", &[&count]),
+    }
+}
+
+pub fn folders_words(count: usize) -> String {
+    match count {
+        1 => crate::lang::t("1 folder").to_string(),
+        _ => crate::lang::tf("{} folders", &[&count]),
+    }
+}
+
 pub fn size_words(bytes: u64) -> String {
     match bytes {
         0 => crate::lang::t("Empty").to_string(),

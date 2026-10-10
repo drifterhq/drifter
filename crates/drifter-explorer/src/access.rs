@@ -356,6 +356,7 @@ fn sheet_node(tree: &mut Tree, model: &Model, sheet: &Sheet, focus: &mut Option<
         Sheet::Apps(chooser) => tf("Open “{}” with", &[&chooser.name]),
         Sheet::Look => model.single().map_or_else(|| t("Quick Look").to_string(), |one| tf("Quick Look: {}", &[&one.name])),
         Sheet::Names(renamer) => tf("Rename {} Items", &[&renamer.paths.len()]),
+        Sheet::Many(group) => tf("{} Items", &[&group.paths.len()]),
     };
     match sheet {
         Sheet::Confirm { words, yes, act, .. } => {
@@ -482,6 +483,18 @@ fn sheet_node(tree: &mut Tree, model: &Model, sheet: &Sheet, focus: &mut Option<
             kids.push(tree.button("sheet no", t("Cancel"), Act::CloseSheet, true));
             kids.push(tree.button("sheet rename", t("Rename"), Act::RenameAll, problem.is_none()));
             return tree.group("sheet", Role::Dialog, &title, kids);
+        }
+        Sheet::Many(group) => {
+            let (bytes, count) = group.total();
+            let size = match group.done() {
+                true => tf("{} in {}", &[&drifter_core::explorer::entry::size_words(bytes), &drifter_core::explorer::entry::items(count as usize)]),
+                false => tf("{}, counting…", &[&drifter_core::explorer::entry::size_words(bytes)]),
+            };
+            kids.push(tree.label("sheet size", &size));
+            if let Some(place) = group.place() {
+                kids.push(tree.label("sheet where", &place.to_string_lossy()));
+            }
+            kids.push(tree.button("sheet close", t("Done"), Act::CloseSheet, true));
         }
         Sheet::Look => {
             if let Some(one) = model.single() {

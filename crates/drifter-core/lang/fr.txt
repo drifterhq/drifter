@@ -3458,3 +3458,21 @@ Nothing to redo
 
 Redoing
 = Rétablissement
+
+Undo and redo
+= Annuler et rétablir
+
+1 file
+= 1 fichier
+
+{} files
+= {} fichiers
+
+1 folder
+= 1 dossier
+
+{} folders
+= {} dossiers
+
+{} Items
+= {} éléments

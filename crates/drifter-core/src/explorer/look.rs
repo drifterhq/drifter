@@ -2495,6 +2495,7 @@ impl Look {
             Sheet::Keys => Vec2::new(520.0, 665.0),
             Sheet::Look => Vec2::new(size.x - 80.0, size.y - 80.0).min(Vec2::new(1000.0, 760.0)),
             Sheet::Names(_) => Vec2::new(560.0, 470.0),
+            Sheet::Many(_) => Vec2::new(460.0, 330.0),
             Sheet::About => Vec2::new(380.0, 260.0),
             Sheet::Apps(_) => Vec2::new(480.0, 560.0),
         };
@@ -2830,6 +2831,43 @@ impl Look {
         }
     }
 
+    fn paint_many(&self, canvas: &mut Canvas, area: Rect, group: &super::model::Group, job: &Paint) {
+        let fonts = job.fonts;
+        let art = Rect::from_center(Vec2::new(area.center().x, area.origin.y + 62.0), Vec2::splat(72.0));
+        for (at, path) in group.paths.iter().take(3).enumerate().rev() {
+            let shift = Vec2::new(at as f64 * 10.0 - 10.0, at as f64 * -6.0 + 6.0);
+            if let Some(one) = Entry::at(path) {
+                self.entry_art(canvas, job.art, job.model, &one, Rect::new(art.origin + shift, art.size));
+            }
+        }
+        let title = crate::lang::tf("{} Items", &[&group.paths.len()]);
+        let head = fonts.title.paint_weight(&title, self.ink, 620.0);
+        canvas.stamp(&head, Vec2::new(area.center().x - logical(&head).x / 2.0, art.max().y + 14.0).round(), 1.0);
+        let kinds = match (group.folders.len(), group.files) {
+            (0, files) => super::entry::files_words(files),
+            (folders, 0) => super::entry::folders_words(folders),
+            (folders, files) => format!("{}, {}", super::entry::folders_words(folders), super::entry::files_words(files)),
+        };
+        let (bytes, count) = group.total();
+        let size = match group.done() {
+            true => crate::lang::tf("{} in {}", &[&super::entry::size_words(bytes), &super::entry::items(count as usize)]),
+            false => crate::lang::tf("{}, counting…", &[&super::entry::size_words(bytes)]),
+        };
+        let place = group.place().map(|at| at.display().to_string()).unwrap_or_else(|| "/".to_string());
+        let rows = [(crate::lang::t("Kind"), kinds), (crate::lang::t("Size"), size), (crate::lang::t("Where"), place)];
+        let card = rect(area.origin.x + 20.0, art.max().y + 50.0, area.size.x - 40.0, rows.len() as f64 * 34.0 + 6.0);
+        canvas.round_rect(card, 10.0, self.well, 1.0);
+        let mut y = card.origin.y + 8.0;
+        for (at, (label, value)) in rows.iter().enumerate() {
+            if at > 0 {
+                canvas.round_rect(rect(card.origin.x + 12.0, y - 5.0, card.size.x - 24.0, 1.0), 0.0, self.rule, 0.8);
+            }
+            self.text(canvas, fonts.small, label, self.dim, Vec2::new(card.origin.x + 14.0, y + 12.0), 90.0);
+            self.text(canvas, fonts.small, value, self.ink, Vec2::new(card.origin.x + 108.0, y + 12.0), card.size.x - 122.0);
+            y += 34.0;
+        }
+    }
+
     fn paint_look(&self, canvas: &mut Canvas, area: Rect, job: &Paint) {
         let model = job.model;
         let fonts = job.fonts;
@@ -2917,6 +2955,7 @@ impl Look {
             Sheet::Keys => self.paint_keys(canvas, area, fonts),
             Sheet::Look => self.paint_look(canvas, area, job),
             Sheet::Names(renamer) => self.paint_names(canvas, area, renamer, job),
+            Sheet::Many(group) => self.paint_many(canvas, area, group, job),
             Sheet::Apps(chooser) => self.paint_apps(canvas, area, chooser, job),
             Sheet::About => {
                 let c = Vec2::new(area.center().x, area.origin.y + 70.0);
@@ -3181,7 +3220,7 @@ impl Look {
             ("Shift+Delete", crate::lang::t("Delete Forever")),
             ("Ctrl+C / X / V", crate::lang::t("Copy, cut and paste")),
             ("Ctrl+D", crate::lang::t("Duplicate")),
-            ("Ctrl+Z", crate::lang::t("Undo")),
+            ("Ctrl+Z / Shift+Ctrl+Z", crate::lang::t("Undo and redo")),
             ("Shift+Ctrl+N", crate::lang::t("New Folder")),
             ("Ctrl+1–4", crate::lang::t("Change the view")),
             ("Ctrl++ / Ctrl+-", crate::lang::t("Zoom")),
