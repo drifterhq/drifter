@@ -464,6 +464,13 @@ fn press_sheet(model: &mut Model, ui: &Ui, at: Vec2, clicks: u32) {
     };
     match hit {
         SheetHit::Name => model.act(Act::NameInInfo),
+        SheetHit::NameRule(rule) => model.act(Act::NameRule(rule)),
+        SheetHit::NameEnd(end) => model.act(Act::NameEnd(end)),
+        SheetHit::NameField(at) => {
+            if let Some(Sheet::Names(renamer)) = model.sheet.as_mut() {
+                renamer.on = at;
+            }
+        }
         SheetHit::Outside => {
             model.act(Act::NamedInInfo);
             if !matches!(model.sheet, Some(Sheet::Confirm { .. } | Sheet::Clash { .. })) {
@@ -486,6 +493,7 @@ fn press_sheet(model: &mut Model, ui: &Ui, at: Vec2, clicks: u32) {
                 model.sheet = None;
             }
             Some(Sheet::Apps(_)) => model.act(Act::ChooseApp),
+            Some(Sheet::Names(_)) => model.act(Act::RenameAll),
             _ => {}
         },
         SheetHit::App(found) => {
@@ -1092,6 +1100,25 @@ pub fn key(model: &mut Model, ui: &Ui, key: &Key) {
 }
 
 fn sheet_key(model: &mut Model, ui: &Ui, key: &Key) {
+    if let Some(Sheet::Names(renamer)) = model.sheet.as_mut() {
+        let count = match renamer.rule {
+            super::model::NameRule::Add => 1,
+            _ => 2,
+        };
+        match key.named {
+            Named::Enter => model.act(Act::RenameAll),
+            Named::Escape => model.sheet = None,
+            Named::Tab => renamer.on = (renamer.on + if key.shift { count - 1 } else { 1 }) % count,
+            _ => {
+                let pasted = model.clip_text.clone();
+                let field = if renamer.on == 0 { &mut renamer.first } else { &mut renamer.second };
+                if let Some(Some(text)) = edit(field, key, pasted.as_deref()) {
+                    model.hold(super::clip::Held::Text(text));
+                }
+            }
+        }
+        return;
+    }
     if matches!(model.sheet, Some(Sheet::Look)) {
         match key.named {
             Named::Letter(' ') | Named::Escape => model.sheet = None,

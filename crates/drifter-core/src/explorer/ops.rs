@@ -82,6 +82,7 @@ pub enum Undo {
     Made(Vec<PathBuf>),
     Moved(Vec<(PathBuf, PathBuf)>),
     Renamed(PathBuf, PathBuf),
+    RenamedAll(Vec<(PathBuf, PathBuf)>),
     Trashed(Vec<Trashed>),
     Then(Box<Undo>, Vec<Trashed>),
 }
@@ -718,6 +719,37 @@ fn empty_trashes(roots: &[PathBuf], progress: &Progress) -> Vec<io::Error> {
     failed
 }
 
+pub fn rename_all(pairs: &[(PathBuf, PathBuf)]) -> Result<(), String> {
+    let mut parked: Vec<(PathBuf, &PathBuf, &PathBuf)> = Vec::new();
+    for (at, (from, to)) in pairs.iter().enumerate() {
+        let folder = from.parent().unwrap_or(Path::new("/"));
+        let spare = folder.join(format!(".drifter-rename-{}-{at}", std::process::id()));
+        if let Err(error) = std::fs::rename(from, &spare) {
+            for (spare, from, _) in parked.iter().rev() {
+                let _ = std::fs::rename(spare, from);
+            }
+            return Err(format!("{}: {error}", crate::explorer::entry::name_of(from)));
+        }
+        parked.push((spare, from, to));
+    }
+    let mut failed = Vec::new();
+    for (spare, from, to) in &parked {
+        let target = match std::fs::symlink_metadata(to) {
+            Ok(_) => from,
+            Err(_) => to,
+        };
+        if let Err(error) = std::fs::rename(spare, target) {
+            failed.push(format!("{}: {error}", crate::explorer::entry::name_of(from)));
+        } else if target == from {
+            failed.push(crate::lang::tf("{} already exists here", &[&crate::explorer::entry::name_of(to)]));
+        }
+    }
+    match failed.is_empty() {
+        true => Ok(()),
+        false => Err(failed.join(", ")),
+    }
+}
+
 pub fn rename(path: &Path, name: &str) -> Result<PathBuf, String> {
     let name = name.trim();
     if name.is_empty() || name == "." || name == ".." {
@@ -975,6 +1007,12 @@ fn undo_with(root: &Path, undo: Undo, progress: &Progress, done: &mut Done) {
         Undo::Renamed(was, now) => {
             if let Err(error) = std::fs::rename(&now, &was) {
                 done.failed.push(fail(&now, error));
+            }
+        }
+        Undo::RenamedAll(pairs) => {
+            let back: Vec<(PathBuf, PathBuf)> = pairs.into_iter().map(|(was, now)| (now, was)).collect();
+            if let Err(error) = rename_all(&back) {
+                done.failed.push(error);
             }
         }
         Undo::Trashed(gone) => {

@@ -138,6 +138,9 @@ pub enum SheetHit {
     Runs,
     ChangeApp,
     Name,
+    NameRule(super::model::NameRule),
+    NameEnd(bool),
+    NameField(usize),
 }
 
 pub const APP_ROW: f64 = 34.0;
@@ -2492,6 +2495,7 @@ impl Look {
             Sheet::Clash { names, .. } => Vec2::new(540.0, if names.len() == 1 { 190.0 } else { 236.0 }),
             Sheet::Keys => Vec2::new(520.0, 665.0),
             Sheet::Look => Vec2::new(size.x - 80.0, size.y - 80.0).min(Vec2::new(1000.0, 760.0)),
+            Sheet::Names(_) => Vec2::new(560.0, 470.0),
             Sheet::About => Vec2::new(380.0, 260.0),
             Sheet::Apps(_) => Vec2::new(480.0, 560.0),
         };
@@ -2502,7 +2506,7 @@ impl Look {
     fn sheet_buttons(&self, area: Rect, sheet: &Sheet) -> Vec<(SheetHit, Rect)> {
         let y = area.max().y - 20.0 - 32.0;
         match sheet {
-            Sheet::Confirm { .. } | Sheet::Apps(_) => vec![
+            Sheet::Confirm { .. } | Sheet::Apps(_) | Sheet::Names(_) => vec![
                 (SheetHit::No, rect(area.max().x - 20.0 - 120.0 * 2.0 - 10.0, y, 120.0, 32.0)),
                 (SheetHit::Yes, rect(area.max().x - 20.0 - 120.0, y, 120.0, 32.0)),
             ],
@@ -2577,6 +2581,11 @@ impl Look {
         }
         if let Some((hit, _)) = self.sheet_buttons(area, sheet).into_iter().find(|(_, button)| button.contains(at)) {
             return Some(hit);
+        }
+        if let Sheet::Names(renamer) = sheet {
+            if let Some((hit, _)) = self.names_hits(area, renamer, fonts).into_iter().find(|(_, place)| place.contains(at)) {
+                return Some(hit);
+            }
         }
         if let Sheet::Info(info) = sheet {
             if self.info_name(area).contains(at) {
@@ -2713,6 +2722,115 @@ impl Look {
         self.text(canvas, fonts.body, &words, self.ink, Vec2::new(tick.max().x + 10.0, always.center().y), always.size.x - 30.0);
     }
 
+    fn names_rules(&self, area: Rect) -> [(super::model::NameRule, Rect); 3] {
+        use super::model::NameRule;
+        let width = (area.size.x - 48.0) / 3.0;
+        let y = area.origin.y + 66.0;
+        [NameRule::Replace, NameRule::Add, NameRule::Number].map(|rule| {
+            let at = rule as usize as f64;
+            (rule, rect(area.origin.x + 24.0 + at * width, y, width, 30.0))
+        })
+    }
+
+    fn names_fields(&self, area: Rect, renamer: &super::model::Renamer) -> Vec<Rect> {
+        use super::model::NameRule;
+        let y = area.origin.y + 132.0;
+        let full = area.size.x - 48.0 - 120.0;
+        match renamer.rule {
+            NameRule::Add => vec![rect(area.origin.x + 144.0, y, full, 30.0)],
+            _ => vec![rect(area.origin.x + 144.0, y, full, 30.0), rect(area.origin.x + 144.0, y + 42.0, full, 30.0)],
+        }
+    }
+
+    fn names_ends(&self, area: Rect, fonts: &Fonts) -> Vec<(bool, Rect)> {
+        let y = area.origin.y + 132.0 + 42.0;
+        let words = [crate::lang::t("Before the name"), crate::lang::t("After the name")];
+        let mut x = area.origin.x + 144.0;
+        words
+            .iter()
+            .enumerate()
+            .map(|(at, word)| {
+                let width = fonts.body.width_of(word) + 28.0;
+                let place = rect(x, y, width, 30.0);
+                x += width + 8.0;
+                (at == 1, place)
+            })
+            .collect()
+    }
+
+    fn names_hits(&self, area: Rect, renamer: &super::model::Renamer, fonts: &Fonts) -> Vec<(SheetHit, Rect)> {
+        let mut hits: Vec<(SheetHit, Rect)> = self.names_rules(area).into_iter().map(|(rule, place)| (SheetHit::NameRule(rule), place)).collect();
+        hits.extend(self.names_fields(area, renamer).into_iter().enumerate().map(|(at, place)| (SheetHit::NameField(at), place)));
+        if renamer.rule == super::model::NameRule::Add {
+            hits.extend(self.names_ends(area, fonts).into_iter().map(|(end, place)| (SheetHit::NameEnd(end), place)));
+        }
+        hits
+    }
+
+    fn paint_names(&self, canvas: &mut Canvas, area: Rect, renamer: &super::model::Renamer, job: &Paint) {
+        use super::model::NameRule;
+        let fonts = job.fonts;
+        let title = crate::lang::tf("Rename {} Items", &[&renamer.paths.len()]);
+        let head = fonts.title.paint_weight(&title, self.ink, 620.0);
+        canvas.stamp(&head, Vec2::new(area.origin.x + 24.0, area.origin.y + 24.0).round(), 1.0);
+        let words = [crate::lang::t("Replace text"), crate::lang::t("Add text"), crate::lang::t("Name and number")];
+        let rules = self.names_rules(area);
+        let whole = rect(rules[0].1.origin.x, rules[0].1.origin.y, rules[2].1.max().x - rules[0].1.origin.x, 30.0);
+        self.raised(canvas, whole, 7.0, false);
+        for ((rule, place), word) in rules.iter().zip(words) {
+            let on = renamer.rule == *rule;
+            if on {
+                self.pressed(canvas, inset(*place, 1.0), 6.0);
+            }
+            self.text_center(canvas, fonts.body, word, if on { self.on_accent } else { self.ink }, place.center(), place.size.x - 12.0);
+        }
+        let labels = match renamer.rule {
+            NameRule::Replace => vec![crate::lang::t("Find"), crate::lang::t("Replace with")],
+            NameRule::Add => vec![crate::lang::t("Text")],
+            NameRule::Number => vec![crate::lang::t("Name"), crate::lang::t("Start at")],
+        };
+        let fields = [&renamer.first, &renamer.second];
+        for (at, place) in self.names_fields(area, renamer).into_iter().enumerate() {
+            self.text(canvas, fonts.body, labels[at], self.dim, Vec2::new(area.origin.x + 24.0, place.center().y), 116.0);
+            let on = renamer.on == at;
+            self.sunk(canvas, place, 7.0, on.then_some(2.0));
+            let inner = rect(place.origin.x + 10.0, place.origin.y, place.size.x - 20.0, place.size.y);
+            match on {
+                true => self.paint_field(canvas, fonts.body, fields[at], inner),
+                false => self.text(canvas, fonts.body, &fields[at].text, self.ink, Vec2::new(inner.origin.x, inner.center().y), inner.size.x),
+            }
+        }
+        if renamer.rule == NameRule::Add {
+            let words = [crate::lang::t("Before the name"), crate::lang::t("After the name")];
+            for ((end, place), word) in self.names_ends(area, fonts).into_iter().zip(words) {
+                let on = renamer.at_end == end;
+                match on {
+                    true => self.pressed(canvas, place, 7.0),
+                    false => self.raised(canvas, place, 7.0, false),
+                }
+                self.text_center(canvas, fonts.body, word, if on { self.on_accent } else { self.ink }, place.center(), place.size.x - 8.0);
+            }
+        }
+        let list = rect(area.origin.x + 24.0, area.origin.y + 226.0, area.size.x - 48.0, 150.0);
+        canvas.round_rect(list, 8.0, self.well, 1.0);
+        let names = renamer.new_names();
+        let half = (list.size.x - 40.0) / 2.0;
+        for (row, (path, name)) in names.iter().take(5).enumerate() {
+            let y = list.origin.y + 18.0 + row as f64 * 26.0;
+            let old = super::entry::name_of(path);
+            self.text(canvas, fonts.small, &old, self.dim, Vec2::new(list.origin.x + 12.0, y), half - 12.0);
+            self.text(canvas, fonts.small, "→", self.dim, Vec2::new(list.origin.x + 12.0 + half, y), 20.0);
+            self.text(canvas, fonts.small, name, self.ink, Vec2::new(list.origin.x + 32.0 + half, y), half - 12.0);
+        }
+        if names.len() > 5 {
+            let more = crate::lang::tf("and {} more", &[&(names.len() - 5)]);
+            self.text(canvas, fonts.small, &more, self.dim, Vec2::new(list.origin.x + 12.0, list.max().y - 12.0), list.size.x - 24.0);
+        }
+        if let Some(problem) = renamer.problem() {
+            self.text(canvas, fonts.small, &problem, self.dim, Vec2::new(area.origin.x + 24.0, area.max().y - 36.0), area.size.x - 300.0);
+        }
+    }
+
     fn paint_look(&self, canvas: &mut Canvas, area: Rect, job: &Paint) {
         let model = job.model;
         let fonts = job.fonts;
@@ -2799,6 +2917,7 @@ impl Look {
             }
             Sheet::Keys => self.paint_keys(canvas, area, fonts),
             Sheet::Look => self.paint_look(canvas, area, job),
+            Sheet::Names(renamer) => self.paint_names(canvas, area, renamer, job),
             Sheet::Apps(chooser) => self.paint_apps(canvas, area, chooser, job),
             Sheet::About => {
                 let c = Vec2::new(area.center().x, area.origin.y + 70.0);
@@ -2813,6 +2932,7 @@ impl Look {
             let (words, strong, danger) = match (&hit, sheet) {
                 (SheetHit::Yes, Sheet::Confirm { yes, .. }) => (yes.clone(), true, yes == crate::lang::t("Delete") || yes == crate::lang::t("Empty Trash")),
                 (SheetHit::Yes, Sheet::Apps(_)) => (crate::lang::t("Open").to_string(), true, false),
+                (SheetHit::Yes, Sheet::Names(_)) => (crate::lang::t("Rename").to_string(), true, false),
                 (SheetHit::No, _) => (crate::lang::t("Cancel").to_string(), false, false),
                 (SheetHit::Clash(super::ops::Clash::Skip), _) => (crate::lang::t("Skip").to_string(), false, false),
                 (SheetHit::Clash(super::ops::Clash::Replace), _) => (crate::lang::t("Replace").to_string(), false, false),

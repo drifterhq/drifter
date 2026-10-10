@@ -90,6 +90,9 @@ pub enum Act {
     NameInInfo,
     NamedInInfo,
     QuickLook,
+    RenameAll,
+    NameRule(NameRule),
+    NameEnd(bool),
     OpenRecent(PathBuf),
     Reveal(PathBuf),
     CopyThisPath(PathBuf),
@@ -199,6 +202,78 @@ pub struct Chooser {
     pub scroll: f64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NameRule {
+    #[default]
+    Replace,
+    Add,
+    Number,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Renamer {
+    pub paths: Vec<PathBuf>,
+    pub rule: NameRule,
+    pub first: Field,
+    pub second: Field,
+    pub at_end: bool,
+    pub on: usize,
+}
+
+impl Renamer {
+    pub fn new_names(&self) -> Vec<(PathBuf, String)> {
+        let first = self.first.text.as_str();
+        let width = (self.paths.len() as u64 + self.start().saturating_sub(1)).to_string().len().max(2);
+        self.paths
+            .iter()
+            .enumerate()
+            .map(|(at, path)| {
+                let name = entry::name_of(path);
+                let (stem, ext) = match name.rfind('.') {
+                    Some(dot) if dot > 0 && !path.is_dir() => (&name[..dot], &name[dot..]),
+                    _ => (name.as_str(), ""),
+                };
+                let made = match self.rule {
+                    NameRule::Replace if first.is_empty() => name.clone(),
+                    NameRule::Replace => name.replace(first, &self.second.text),
+                    NameRule::Add if self.at_end => format!("{stem}{first}{ext}"),
+                    NameRule::Add => format!("{first}{name}"),
+                    NameRule::Number => {
+                        let base = if first.trim().is_empty() { stem } else { first.trim() };
+                        format!("{base} {:0width$}{ext}", self.start() + at as u64)
+                    }
+                };
+                (path.clone(), made)
+            })
+            .collect()
+    }
+
+    pub fn start(&self) -> u64 {
+        self.second.text.trim().parse().unwrap_or(1)
+    }
+
+    pub fn problem(&self) -> Option<String> {
+        let names = self.new_names();
+        let mut seen: HashSet<&str> = HashSet::new();
+        for (path, name) in &names {
+            if name.trim().is_empty() || name == "." || name == ".." {
+                return Some(crate::lang::t("A name cannot be empty").to_string());
+            }
+            if name.contains('/') || name.contains('\0') {
+                return Some(crate::lang::t("A name cannot hold a slash").to_string());
+            }
+            if !seen.insert(name.as_str()) {
+                return Some(crate::lang::tf("Two items would be called {}", &[name]));
+            }
+            let target = path.with_file_name(name);
+            if target != *path && !self.paths.contains(&target) && std::fs::symlink_metadata(&target).is_ok() {
+                return Some(crate::lang::tf("{} already exists here", &[name]));
+            }
+        }
+        names.iter().all(|(path, name)| entry::name_of(path) == *name).then(|| crate::lang::t("Nothing changes yet").to_string())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Sheet {
     Prefs(usize),
@@ -209,6 +284,7 @@ pub enum Sheet {
     About,
     Apps(Chooser),
     Look,
+    Names(Renamer),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1264,6 +1340,13 @@ impl Model {
         self.recent = super::recent::load(&list);
     }
 
+    fn rename_item(&self) -> Item {
+        match self.picked.len() {
+            0 | 1 => Item::new(crate::lang::t("Rename"), "F2", Act::Rename),
+            many => Item::new(&crate::lang::tf("Rename {} Items…", &[&many]), "F2", Act::Rename),
+        }
+    }
+
     pub fn recent_menu(&self, path: &Path) -> Vec<Item> {
         vec![
             Item::new(crate::lang::t("Open"), "", Act::OpenRecent(path.to_path_buf())),
@@ -1838,7 +1921,41 @@ impl Model {
                 }
                 Err(error) => self.say(error.to_string(), true),
             },
+            Act::Rename if self.picked.len() > 1 && !in_trash => {
+                let paths: Vec<PathBuf> = self.entries.iter().filter(|each| self.picked.contains(&each.path)).map(|each| each.path.clone()).collect();
+                self.sheet = Some(Sheet::Names(Renamer { paths, ..Renamer::default() }));
+            }
             Act::Rename => self.start_rename(),
+            Act::NameRule(rule) => {
+                if let Some(Sheet::Names(renamer)) = self.sheet.as_mut() {
+                    renamer.rule = rule;
+                    renamer.on = 0;
+                }
+            }
+            Act::NameEnd(at_end) => {
+                if let Some(Sheet::Names(renamer)) = self.sheet.as_mut() {
+                    renamer.at_end = at_end;
+                }
+            }
+            Act::RenameAll => {
+                let Some(Sheet::Names(renamer)) = self.sheet.clone() else {
+                    return;
+                };
+                if let Some(problem) = renamer.problem() {
+                    return self.say(problem, true);
+                }
+                let pairs: Vec<(PathBuf, PathBuf)> = renamer.new_names().into_iter().filter(|(path, name)| entry::name_of(path) != *name).map(|(path, name)| (path.with_file_name(&name), path)).map(|(to, from)| (from, to)).collect();
+                self.sheet = None;
+                let result = ops::rename_all(&pairs);
+                self.undo.push(Undo::RenamedAll(pairs.clone()));
+                if let Err(words) = result {
+                    self.say(words, true);
+                }
+                self.reload();
+                self.picked = pairs.iter().map(|(_, to)| to.clone()).filter(|to| to.exists()).collect();
+                self.focus = self.picked.iter().next().cloned();
+                self.say(crate::lang::tf("Renamed {}", &[&entry::items(pairs.len())]), false);
+            }
             Act::Duplicate => {
                 let from = self.chosen_paths();
                 if !from.is_empty() && !in_trash {
@@ -2210,7 +2327,7 @@ impl Model {
                 Item::more(crate::lang::t("Open With"), self.open_with_items()),
                 Item::new(crate::lang::t("Open in Terminal"), "", Act::Terminal(None)),
                 Item::rule(),
-                Item::new(crate::lang::t("Rename"), "F2", Act::Rename).when(self.picked.len() == 1 && !in_trash),
+                self.rename_item().when(!self.picked.is_empty() && !in_trash),
                 Item::new(crate::lang::t("Duplicate"), "Ctrl+D", Act::Duplicate).when(any && !in_trash),
                 Item::new(crate::lang::t("Compress"), "", Act::Compress).when(any && !in_trash),
                 Item::new(crate::lang::t("Extract Here"), "", Act::Extract).when(any && !in_trash && self.chosen().iter().all(|each| !each.folder && super::pack::kind_of(&each.name).is_some())),
@@ -2422,7 +2539,7 @@ impl Model {
         }
         items.push(Item::new(crate::lang::t("Copy Path"), "Shift+Ctrl+C", Act::CopyPath));
         items.push(Item::rule());
-        items.push(Item::new(crate::lang::t("Rename"), "F2", Act::Rename).when(one));
+        items.push(self.rename_item());
         items.push(Item::new(crate::lang::t("Duplicate"), "Ctrl+D", Act::Duplicate));
         items.push(Item::new(crate::lang::t("Compress"), "", Act::Compress));
         let archives = self.chosen().iter().all(|each| !each.folder && super::pack::kind_of(&each.name).is_some());
@@ -3112,6 +3229,70 @@ mod tests {
             panic!("Info stays open");
         };
         assert!(info.naming.is_some() && bee.exists(), "a clash keeps the field open");
+    }
+
+    #[test]
+    fn many_items_rename_at_once_and_undo_together() {
+        let (place, mut model) = place("names");
+        let work = place.0.join("work");
+        for name in ["shot 01.png", "shot 02.png"] {
+            std::fs::write(work.join(name), "x").unwrap();
+        }
+        model.reload();
+        model.settle_all(Duration::from_secs(5));
+        let pick = |model: &mut Model, names: &[&str]| {
+            model.picked = names.iter().map(|name| work.join(name)).collect();
+            model.focus = model.picked.iter().next().cloned();
+        };
+        pick(&mut model, &["shot 01.png", "shot 02.png"]);
+        assert_eq!(model.item_menu().iter().find(|item| item.act == Some(Act::Rename)).map(|item| item.label.clone()), Some("Rename 2 Items…".to_string()));
+        model.act(Act::Rename);
+        let Some(Sheet::Names(renamer)) = model.sheet.as_mut() else {
+            panic!("the rename sheet opens");
+        };
+        assert_eq!(renamer.problem().as_deref(), Some("Nothing changes yet"));
+        renamer.first.put("shot");
+        renamer.second.put("photo");
+        let names: Vec<String> = renamer.new_names().into_iter().map(|(_, name)| name).collect();
+        assert_eq!(names, ["photo 01.png", "photo 02.png"]);
+        renamer.rule = NameRule::Add;
+        renamer.first = Field::new("-x");
+        renamer.at_end = true;
+        assert_eq!(renamer.new_names()[0].1, "shot 01-x.png");
+        renamer.at_end = false;
+        assert_eq!(renamer.new_names()[0].1, "-xshot 01.png");
+        renamer.rule = NameRule::Number;
+        renamer.first = Field::new("shot");
+        renamer.second = Field::new("2");
+        assert_eq!(renamer.new_names().iter().map(|(_, name)| name.as_str()).collect::<Vec<_>>(), ["shot 02.png", "shot 03.png"]);
+        assert_eq!(renamer.problem(), None, "a name taken by another item in the set is fine");
+        model.act(Act::RenameAll);
+        let mut now: Vec<String> = std::fs::read_dir(&work).unwrap().map(|each| each.unwrap().file_name().to_string_lossy().into_owned()).filter(|name| name.starts_with("shot")).collect();
+        now.sort();
+        assert_eq!(now, ["shot 02.png", "shot 03.png"]);
+        assert_eq!(std::fs::read_dir(&work).unwrap().filter(|each| each.as_ref().unwrap().file_name().to_string_lossy().starts_with(".drifter-rename")).count(), 0);
+        model.act(Act::Undo);
+        let job = model.effects.iter().find_map(|effect| match effect {
+            Effect::Job(_, job) => Some(job.clone()),
+            _ => None,
+        });
+        if let Some(job) = job {
+            ops::run_with(&place.0.join("Trash"), job, &Progress::default());
+        }
+        let mut back: Vec<String> = std::fs::read_dir(&work).unwrap().map(|each| each.unwrap().file_name().to_string_lossy().into_owned()).filter(|name| name.starts_with("shot")).collect();
+        back.sort();
+        assert_eq!(back, ["shot 01.png", "shot 02.png"]);
+        pick(&mut model, &["a.png", "b.txt"]);
+        model.act(Act::Rename);
+        if let Some(Sheet::Names(renamer)) = model.sheet.as_mut() {
+            renamer.rule = NameRule::Number;
+            renamer.first = Field::new("same");
+            assert_eq!(renamer.problem(), None, "the extensions keep them apart");
+            renamer.rule = NameRule::Replace;
+            renamer.first = Field::new("a.png");
+            renamer.second = Field::new("b.txt");
+            assert!(renamer.problem().is_some_and(|words| words.contains("b.txt")));
+        }
     }
 
     #[test]

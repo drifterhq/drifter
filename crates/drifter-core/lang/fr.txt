@@ -3398,3 +3398,45 @@ Del
 
 The files you opened last
 = Les derniers fichiers ouverts
+
+Rename {} Items…
+= Renommer {} éléments…
+
+Rename {} Items
+= Renommer {} éléments
+
+Replace text
+= Remplacer le texte
+
+Add text
+= Ajouter du texte
+
+Name and number
+= Nom et numéro
+
+Find
+= Rechercher
+
+Replace with
+= Remplacer par
+
+Start at
+= Commencer à
+
+Before the name
+= Avant le nom
+
+After the name
+= Après le nom
+
+and {} more
+= et {} de plus
+
+Two items would be called {}
+= Deux éléments s’appelleraient {}
+
+Nothing changes yet
+= Rien ne change encore
+
+Renamed {}
+= {} renommés

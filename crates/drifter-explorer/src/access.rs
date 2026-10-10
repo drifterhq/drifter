@@ -355,6 +355,7 @@ fn sheet_node(tree: &mut Tree, sheet: &Sheet, focus: &mut Option<NodeId>) -> Nod
         Sheet::About => t("About Explorer").to_string(),
         Sheet::Apps(chooser) => tf("Open “{}” with", &[&chooser.name]),
         Sheet::Look => t("Quick Look").to_string(),
+        Sheet::Names(renamer) => tf("Rename {} Items", &[&renamer.paths.len()]),
     };
     match sheet {
         Sheet::Confirm { words, yes, act, .. } => {
