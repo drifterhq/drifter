@@ -242,7 +242,8 @@ fn build(model: &mut Model) -> (TreeUpdate, HashMap<NodeId, (Order, Option<Order
 
     let mut rows = Vec::new();
     let renaming = model.renaming.as_ref().map(|(path, field)| (path.clone(), field.text.clone()));
-    for entry in &model.entries {
+    let shown = near(model.focus_index().unwrap_or(0), model.entries.len());
+    for (at, entry) in model.entries.iter().enumerate().skip(shown.start).take(shown.len()) {
         let key = format!("file {}", entry.path.display());
         let picked = model.picked.contains(&entry.path);
         let id = match &renaming {
@@ -263,6 +264,7 @@ fn build(model: &mut Model) -> (TreeUpdate, HashMap<NodeId, (Order, Option<Order
                 };
                 node.set_description(format!("{}{size}, {}", entry.kind_words(), model.date(entry.modified)));
                 node.set_selected(picked);
+                node.set_position_in_set(at);
                 let id = tree.put(&key, node);
                 tree.aims.insert(id, (Order::Open(entry.path.clone()), Some(Order::Pick(entry.path.clone()))));
                 id
@@ -276,6 +278,7 @@ fn build(model: &mut Model) -> (TreeUpdate, HashMap<NodeId, (Order, Option<Order
     let mut list = Node::new(Role::ListBox);
     list.set_label(title_of(&model.dir));
     list.set_children(rows);
+    list.set_size_of_set(model.entries.len());
     if let Some(trouble) = &model.trouble {
         list.set_description(trouble.clone());
     }
@@ -313,6 +316,13 @@ fn build(model: &mut Model) -> (TreeUpdate, HashMap<NodeId, (Order, Option<Order
     info.toolkit_name = Some("Drifter".to_string());
     let focus = focus.unwrap_or(files);
     (TreeUpdate { nodes: tree.nodes, tree: Some(info), tree_id: TreeId::ROOT, focus }, tree.aims)
+}
+
+const MOST_ROWS: usize = 200;
+
+fn near(focus: usize, count: usize) -> std::ops::Range<usize> {
+    let end = (focus.saturating_sub(MOST_ROWS / 2) + MOST_ROWS).min(count);
+    end.saturating_sub(MOST_ROWS)..end
 }
 
 fn line_node(tree: &mut Tree, key: &str, name: &str, path: &std::path::Path, folder: Option<(usize, bool)>) -> NodeId {
@@ -505,6 +515,29 @@ mod tests {
         assert!(!aims.contains_key(&back));
         let (_, node) = named(&update, "List").expect("the view modes are there");
         assert_eq!(node.toggled(), Some(Toggled::True));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn big_folders_send_only_the_rows_near_the_focus() {
+        assert_eq!(near(0, 20000), 0..200);
+        assert_eq!(near(5000, 20000), 4900..5100);
+        assert_eq!(near(19999, 20000), 19800..20000);
+        assert_eq!(near(3, 7), 0..7);
+        let dir = scratch("big");
+        for n in 0..500 {
+            std::fs::write(dir.join(format!("files/n{n:03}.txt")), "").unwrap();
+        }
+        let mut model = model(&dir);
+        let last = dir.join("files/n499.txt");
+        model.pick_only(last.clone());
+        let (update, _) = build(&mut model);
+        let rows = update.nodes.iter().filter(|(_, node)| node.role() == Role::ListItem).count();
+        assert_eq!(rows, MOST_ROWS);
+        let (_, node) = named(&update, "n499.txt").expect("the focused file is there");
+        assert_eq!(node.position_in_set(), Some(500));
+        let (_, list) = update.nodes.iter().find(|(_, node)| node.role() == Role::ListBox).unwrap();
+        assert_eq!(list.size_of_set(), Some(502));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -1486,6 +1486,7 @@ impl Model {
         let last = self.entries.len() as isize - 1;
         let to = match self.focus_index() {
             Some(at) => (at as isize + by).clamp(0, last) as usize,
+            None if by.abs() > 1 => (by.signum() * last).clamp(0, last) as usize,
             None if by < 0 => last as usize,
             None => 0,
         };
@@ -2966,6 +2967,23 @@ mod tests {
         assert!(model.jobs.is_empty());
         assert_eq!(model.single().map(|one| one.name.as_str()), Some("b.txt"));
         assert_eq!(model.undo.len(), 1);
+    }
+
+    #[test]
+    fn home_and_end_go_the_right_way_with_nothing_picked() {
+        let (_place, mut model) = place("ends");
+        let count = model.entries.len() as isize;
+        model.pick_none();
+        model.step(count, false);
+        assert_eq!(model.focus_index(), Some(model.entries.len() - 1));
+        model.pick_none();
+        model.focus = None;
+        model.step(-count, false);
+        assert_eq!(model.focus_index(), Some(0));
+        model.pick_none();
+        model.focus = None;
+        model.step(1, false);
+        assert_eq!(model.focus_index(), Some(0), "Down starts at the top");
     }
 
     #[test]
