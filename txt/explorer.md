@@ -159,3 +159,6 @@ Later steps build on these.
 42. Scaling: at 150% a saved 1100×700 window did not fit the 1280×720 screen, so the status bar was cut off.
     Waits on: 17.
     - Built: Drifter now sends real window bounds (`window_room`: the work zone at the current zoom, minus the frame) in the first configure instead of 0×0, so every app can fit itself. Explorer keeps the last bounds it got and shrinks its start size to them; a size squeezed this way is not saved, so the size the user chose comes back on a bigger screen. Pictures and text were already sharp at 150% (Explorer draws at 2× and Drifter scales down). Checked on the trixie VM at 150%: the window fit above the dock, and explorer.toml kept window_size = [1100, 700].
+43. Copy wording: after Ctrl+C the status bar said "Copied 1 item" before anything was pasted, which reads like a finished file copy.
+    Waits on: 28.
+    - Built: Copy now says "1 item ready to paste" and Cut "1 item ready to move" (de, es, fr too). Checked on the trixie VM with a 1.6 GB file: the progress bar showed "Copying movie.bin to into, 1.4 GB of 1.6 GB", the copy took about 2 seconds, and the status bar now read "1 item ready to paste" after Ctrl+C. Stop mid-copy is covered by `a_stopped_copy_leaves_no_half_file`; the copy was too quick to stop by hand.

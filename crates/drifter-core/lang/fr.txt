@@ -3380,3 +3380,9 @@ Explorer
 
 Quick Look
 = Coup d’œil
+
+{} ready to paste
+= {} prêt à coller
+
+{} ready to move
+= {} prêt à déplacer

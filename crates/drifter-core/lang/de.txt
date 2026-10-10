@@ -3383,3 +3383,9 @@ Explorer
 
 Quick Look
 = Übersicht
+
+{} ready to paste
+= {} bereit zum Einsetzen
+
+{} ready to move
+= {} bereit zum Verschieben

@@ -1938,8 +1938,8 @@ impl Model {
                 }
                 let cut = act == Act::Cut && !in_trash;
                 let words = match (cut, paths.len()) {
-                    (true, count) => crate::lang::tf("Cut {}", &[&entry::items(count)]),
-                    (false, count) => crate::lang::tf("Copied {}", &[&entry::items(count)]),
+                    (true, count) => crate::lang::tf("{} ready to move", &[&entry::items(count)]),
+                    (false, count) => crate::lang::tf("{} ready to paste", &[&entry::items(count)]),
                 };
                 self.hold(Held::Files(paths, cut));
                 self.say(words, false);
