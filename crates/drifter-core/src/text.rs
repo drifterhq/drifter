@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex};
 
-use swash::scale::{Render, ScaleContext, Source, image::Content};
+use swash::scale::{Render, ScaleContext, Source, StrikeWith, image::Content};
 use swash::shape::{Direction, ShapeContext};
 use swash::text::{Codepoint, Script};
 use swash::zeno::{Format, Vector};
@@ -54,6 +54,7 @@ struct Raster {
     width: u32,
     height: u32,
     coverage: Vec<u8>,
+    color: bool,
 }
 
 struct Kit {
@@ -337,11 +338,19 @@ impl Font {
             let end = at + c.len_utf8();
             let script = c.script();
             let plain = matches!(script, Script::Common | Script::Inherited | Script::Unknown);
-            if let Some(last) = runs.last_mut()
-                && (rides_along(c) || (plain && (last.0 == 0 || primary.map(c) == 0)))
-            {
-                last.2.end = end;
-                continue;
+            if let Some(last) = runs.last_mut() {
+                let has = |face: u16| match face {
+                    0 => primary.map(c) != 0,
+                    _ => faces().list.get(usize::from(face) - 1).is_some_and(|one| covers(&one.data, one.index, c)),
+                };
+                let joins = match c.is_whitespace() {
+                    true => last.0 == 0 || right_to_left(last.1),
+                    false => rides_along(c) || (plain && !right_to_left(last.1) && has(last.0)),
+                };
+                if joins {
+                    last.2.end = end;
+                    continue;
+                }
             }
             let face = match primary.map(c) != 0 || c.is_control() {
                 true => 0,
@@ -400,7 +409,7 @@ impl Font {
             .hint(false)
             .normalized_coords(&coords)
             .build();
-        let mut render = Render::new(&[Source::Outline]);
+        let mut render = Render::new(&[Source::ColorOutline(0), Source::ColorBitmap(StrikeWith::BestFit), Source::Outline]);
         render
             .format(Format::Alpha)
             .offset(Vector::new(f32::from(step) / STEPS, 0.0));
@@ -414,6 +423,15 @@ impl Font {
                 width: image.placement.width,
                 height: image.placement.height,
                 coverage: image.data,
+                color: false,
+            },
+            Some(image) if image.content == Content::Color => Raster {
+                left: image.placement.left,
+                top: image.placement.top,
+                width: image.placement.width,
+                height: image.placement.height,
+                coverage: premultiplied(image.data),
+                color: true,
             },
             _ => Raster {
                 left: 0,
@@ -421,6 +439,7 @@ impl Font {
                 width: 0,
                 height: 0,
                 coverage: Vec::new(),
+                color: false,
             },
         };
         let raster = Arc::new(raster);
@@ -457,6 +476,20 @@ impl Font {
                     if x < 0 || x >= i64::from(width) {
                         continue;
                     }
+                    if raster.color {
+                        let from = ((row * i64::from(raster.width) + column) * 4) as usize;
+                        let src = &raster.coverage[from..from + 4];
+                        if src[3] == 0 {
+                            continue;
+                        }
+                        let index = ((y as usize) * (width as usize) + x as usize) * 4;
+                        let keep = 255 - u32::from(src[3]);
+                        for channel in 0..4 {
+                            let under = u32::from(rgba[index + channel]);
+                            rgba[index + channel] = (u32::from(src[channel]) + (under * keep + 127) / 255).min(255) as u8;
+                        }
+                        continue;
+                    }
                     let ink = u32::from(
                         raster.coverage[(row * i64::from(raster.width) + column) as usize],
                     );
@@ -478,6 +511,16 @@ impl Font {
             rgba,
         }
     }
+}
+
+fn premultiplied(mut rgba: Vec<u8>) -> Vec<u8> {
+    for pixel in rgba.chunks_exact_mut(4) {
+        let alpha = u32::from(pixel[3]);
+        for channel in &mut pixel[..3] {
+            *channel = ((u32::from(*channel) * alpha + 127) / 255) as u8;
+        }
+    }
+    rgba
 }
 
 fn darken_for(px: f32) -> f32 {
@@ -555,6 +598,16 @@ mod tests {
         let boxes = Font::find(None, 22.0).unwrap();
         assert!(opaque(&painted) > 0);
         assert!(boxes.width_of("日本語") > 0.0);
+        let mixed = font.runs("🎉 party 🎈.txt");
+        assert!(mixed.len() >= 3 && mixed[0].0 > 0 && mixed.last().unwrap().0 == 0, "{:?}", mixed.iter().map(|run| (run.0, run.2.clone())).collect::<Vec<_>>());
+        assert!(mixed.iter().any(|run| run.0 == mixed[0].0 && run.2.start > 0), "the second emoji finds the emoji font too");
+        assert_eq!(&"🎉 party 🎈.txt"[mixed[1].2.clone()].chars().next(), &Some(' '), "the space stays in the main font");
+        let party = font.paint("🎉", [255, 255, 255]);
+        let colored = party.rgba.chunks_exact(4).any(|pixel| pixel[3] > 0 && (pixel[0] != pixel[1] || pixel[1] != pixel[2]));
+        let inked = opaque(&party) > 0;
+        if ask_fontconfig('🎉').is_some_and(|(file, _)| file.to_string_lossy().contains("Color")) {
+            assert!(colored || inked, "an emoji paints something");
+        }
         let arabic = font.runs("مرحبا.txt");
         assert_eq!(arabic[0].1, Script::Arabic);
         assert!(arabic[0].2.end <= "مرحبا".len(), "the dot and the extension are their own run");
