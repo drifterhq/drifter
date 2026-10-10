@@ -3389,3 +3389,12 @@ Quick Look
 
 {} ready to move
 = {} listo para mover
+
+Shift
+= Mayús
+
+Space
+= Espacio
+
+Del
+= Supr

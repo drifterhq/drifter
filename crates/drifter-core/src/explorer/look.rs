@@ -274,6 +274,35 @@ fn info_switch_count(info: &super::model::Info) -> usize {
     usize::from(info.locked().is_some()) + usize::from(info.runs().is_some())
 }
 
+pub fn key_words(keys: &str) -> String {
+    let mut out = String::new();
+    let mut word = String::new();
+    let flush = |word: &mut String, out: &mut String| {
+        let shown = match word.as_str() {
+            "Ctrl" | "Shift" | "Space" | "Enter" | "Backspace" => crate::lang::t(word),
+            "Delete" => crate::lang::t("Del"),
+            "Up" => "↑",
+            "Down" => "↓",
+            "Left" => "←",
+            "Right" => "→",
+            _ => word.as_str(),
+        };
+        out.push_str(shown);
+        word.clear();
+    };
+    for c in keys.chars() {
+        match c.is_alphanumeric() && !(c.is_ascii_digit() && word.is_empty()) {
+            true => word.push(c),
+            false => {
+                flush(&mut word, &mut out);
+                out.push(c);
+            }
+        }
+    }
+    flush(&mut word, &mut out);
+    out
+}
+
 pub fn ease(t: f64) -> f64 {
     1.0 - (1.0 - t.clamp(0.0, 1.0)).powi(3)
 }
@@ -870,7 +899,7 @@ impl Look {
             let middle = card.center().y;
             self.text(&mut canvas, fonts.small, &words, self.ink, Vec2::new(card.origin.x + 9.0, middle), card.size.x);
             if !keys.is_empty() {
-                self.text_right(&mut canvas, fonts.small, keys, self.dim, card.max().x - 9.0, middle);
+                self.text_right(&mut canvas, fonts.small, &keys, self.dim, card.max().x - 9.0, middle);
             }
         }
         canvas.image
@@ -904,7 +933,7 @@ impl Look {
         })
     }
 
-    pub fn tip(&self, size: Vec2, model: &Model, lines: &[Line], fonts: &Fonts) -> Option<(Rect, String, &'static str)> {
+    pub fn tip(&self, size: Vec2, model: &Model, lines: &[Line], fonts: &Fonts) -> Option<(Rect, String, String)> {
         if model.menu.is_some() || model.sheet.is_some() || model.dragging.is_some() {
             return None;
         }
@@ -917,7 +946,8 @@ impl Look {
             _ => self.hover_rect(size, model, lines, fonts, hit)?,
         };
         let words = fit(fonts.small, &words, 460.0);
-        let keys_w = if keys.is_empty() { 0.0 } else { fonts.small.width_of(keys) + 14.0 };
+        let keys = key_words(keys);
+        let keys_w = if keys.is_empty() { 0.0 } else { fonts.small.width_of(&keys) + 14.0 };
         let width = (fonts.small.width_of(&words) + keys_w + 18.0).ceil();
         let height = 24.0;
         let x = (anchor.center().x - width / 2.0).round().clamp(6.0, (size.x - width - 6.0).max(6.0));
@@ -2336,7 +2366,7 @@ impl Look {
 
     pub fn menu_size(&self, items: &[Item], fonts: &Fonts) -> Vec2 {
         let widest = items.iter().filter(|item| !item.rule).map(|item| fonts.body.width_of(&item.label)).fold(0.0, f64::max);
-        let keys = items.iter().map(|item| fonts.small.width_of(item.keys)).fold(0.0, f64::max);
+        let keys = items.iter().map(|item| fonts.small.width_of(&key_words(item.keys))).fold(0.0, f64::max);
         let kids = items.iter().any(|item| !item.kids.is_empty() || item.act.is_none() && !item.rule);
         let height: f64 = items.iter().map(|item| if item.rule { RULE_H } else { ITEM_H }).sum::<f64>() + MENU_PAD * 2.0;
         let width = 30.0 + widest + if keys > 0.0 { keys + 32.0 } else { 0.0 } + if kids { 20.0 } else { 0.0 } + 16.0;
@@ -2433,11 +2463,12 @@ impl Look {
                 canvas.line(c + Vec2::new(-4.0, 0.0), c + Vec2::new(-1.0, 3.5), 1.8, ink, 1.0);
                 canvas.line(c + Vec2::new(-1.0, 3.5), c + Vec2::new(5.0, -4.0), 1.8, ink, 1.0);
             }
-            let keys_w = if item.keys.is_empty() { 0.0 } else { fonts.small.width_of(item.keys) + 16.0 };
+            let keys = key_words(item.keys);
+            let keys_w = if keys.is_empty() { 0.0 } else { fonts.small.width_of(&keys) + 16.0 };
             self.text(canvas, fonts.body, &item.label, ink, Vec2::new(row.origin.x + 26.0, middle), row.size.x - 36.0 - keys_w);
-            if !item.keys.is_empty() {
+            if !keys.is_empty() {
                 let keys_ink = if lit { self.on_accent } else { self.dim };
-                self.text_right(canvas, fonts.small, item.keys, keys_ink, row.max().x - 10.0, middle);
+                self.text_right(canvas, fonts.small, &keys, keys_ink, row.max().x - 10.0, middle);
             }
             if !item.kids.is_empty() || (item.act.is_none() && !item.rule) {
                 self.chevron(canvas, Vec2::new(row.max().x - 12.0, middle), ink);
@@ -3028,7 +3059,7 @@ impl Look {
             ("Ctrl+D", crate::lang::t("Duplicate")),
             ("Ctrl+Z", crate::lang::t("Undo")),
             ("Shift+Ctrl+N", crate::lang::t("New Folder")),
-            ("Ctrl+1 to 4", crate::lang::t("Change the view")),
+            ("Ctrl+1–4", crate::lang::t("Change the view")),
             ("Ctrl++ / Ctrl+-", crate::lang::t("Zoom")),
             ("Ctrl+H", crate::lang::t("Show Hidden Files")),
             ("Space", crate::lang::t("Quick Look")),
@@ -3037,7 +3068,8 @@ impl Look {
         ];
         let mut y = area.origin.y + 70.0;
         for (keys, words) in rows {
-            let chip = fonts.small.paint_weight(keys, self.ink, 560.0);
+            let keys = key_words(keys);
+            let chip = fonts.small.paint_weight(&keys, self.ink, 560.0);
             let size = logical(&chip);
             let pill = rect(area.origin.x + 24.0, y - 10.0, size.x + 14.0, 20.0);
             canvas.round_rect(pill, 5.0, self.raised, 1.0);
@@ -3527,6 +3559,16 @@ mod repaint_tests {
         input::motion(&mut model, &ui, &lines, Vec2::new(x_of(font, &text, text.len() - 4, area), area.center().y));
         assert_eq!(model.path.as_ref().unwrap().picked_text(), Some("work"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn key_names_read_well() {
+        assert_eq!(key_words("Alt+Up / Backspace"), format!("Alt+↑ / {}", crate::lang::t("Backspace")));
+        assert_eq!(key_words("Shift+Ctrl+N"), format!("{}+{}+N", crate::lang::t("Shift"), crate::lang::t("Ctrl")));
+        assert_eq!(key_words("Ctrl+1–4"), format!("{}+1–4", crate::lang::t("Ctrl")));
+        assert_eq!(key_words("F2"), "F2");
+        assert_eq!(key_words("Shift+Delete"), format!("{}+{}", crate::lang::t("Shift"), crate::lang::t("Del")));
+        assert_eq!(key_words(""), "");
     }
 
     #[test]

@@ -162,3 +162,6 @@ Later steps build on these.
 43. Copy wording: after Ctrl+C the status bar said "Copied 1 item" before anything was pasted, which reads like a finished file copy.
     Waits on: 28.
     - Built: Copy now says "1 item ready to paste" and Cut "1 item ready to move" (de, es, fr too). Checked on the trixie VM with a 1.6 GB file: the progress bar showed "Copying movie.bin to into, 1.4 GB of 1.6 GB", the copy took about 2 seconds, and the status bar now read "1 item ready to paste" after Ctrl+C. Stop mid-copy is covered by `a_stopped_copy_leaves_no_half_file`; the copy was too quick to stop by hand.
+44. Other languages: key names stayed English (Ctrl, Shift, Delete, Space), and German read "15 Byte in 8 Objekte".
+    Waits on: nothing.
+    - Built: `key_words` turns key labels into the reader's words in menus, tooltips and the Keys sheet: Strg, Umschalt, Entf, Leertaste, Eingabe, Rücktaste in German; Mayús, Supr, Espacio in Spanish; Maj, Suppr, Espace in French. Arrow keys show as ↑ ↓ ← →, and "Ctrl+1 to 4" became "Ctrl+1–4". The Delete key has its own word ("Del") so it does not clash with the Delete action. German folder sizes now read "15 Byte (8 Objekte)". Menus widen to fit. Test: `key_names_read_well`. Checked on the trixie VM in German: the file menu, the View menu and Get Info all fit.

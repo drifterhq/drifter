@@ -3349,7 +3349,7 @@ No apps found
 = Keine Apps gefunden
 
 {} in {}
-= {} in {}
+= {} ({})
 
 {}, counting…
 = {}, wird gezählt …
@@ -3389,3 +3389,12 @@ Quick Look
 
 {} ready to move
 = {} bereit zum Verschieben
+
+Shift
+= Umschalt
+
+Space
+= Leertaste
+
+Del
+= Entf

@@ -3386,3 +3386,12 @@ Quick Look
 
 {} ready to move
 = {} prêt à déplacer
+
+Shift
+= Maj
+
+Space
+= Espace
+
+Del
+= Suppr
