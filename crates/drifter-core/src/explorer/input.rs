@@ -450,16 +450,23 @@ fn press_sheet(model: &mut Model, ui: &Ui, at: Vec2, clicks: u32) {
         return;
     };
     match hit {
+        SheetHit::Name => model.act(Act::NameInInfo),
         SheetHit::Outside => {
+            model.act(Act::NamedInInfo);
             if !matches!(model.sheet, Some(Sheet::Confirm { .. } | Sheet::Clash { .. })) {
                 model.sheet = None;
                 model.save();
             }
         }
         SheetHit::Done | SheetHit::No => {
+            model.act(Act::NamedInInfo);
+            if matches!(&model.sheet, Some(Sheet::Info(info)) if info.naming.is_some()) {
+                return;
+            }
             model.sheet = None;
             model.save();
         }
+        SheetHit::Inside => model.act(Act::NamedInInfo),
         SheetHit::Yes => match model.sheet.clone() {
             Some(Sheet::Confirm { act, .. }) => {
                 model.act(act);
@@ -485,7 +492,6 @@ fn press_sheet(model: &mut Model, ui: &Ui, at: Vec2, clicks: u32) {
             zoom_share(model, share);
             model.dragging = Some(Drag::Slider);
         }
-        SheetHit::Inside => {}
     }
 }
 
@@ -1070,6 +1076,24 @@ pub fn key(model: &mut Model, ui: &Ui, key: &Key) {
 }
 
 fn sheet_key(model: &mut Model, ui: &Ui, key: &Key) {
+    if matches!(&model.sheet, Some(Sheet::Info(info)) if info.naming.is_some()) {
+        let pasted = model.clip_text.clone();
+        let naming = match model.sheet.as_mut() {
+            Some(Sheet::Info(info)) => &mut info.naming,
+            _ => return,
+        };
+        match key.named {
+            Named::Enter => model.act(Act::NamedInInfo),
+            Named::Escape => *naming = None,
+            _ => {
+                let copied = naming.as_mut().and_then(|field| edit(field, key, pasted.as_deref()));
+                if let Some(Some(text)) = copied {
+                    model.hold(super::clip::Held::Text(text));
+                }
+            }
+        }
+        return;
+    }
     if let Some(Sheet::Apps(chooser)) = model.sheet.as_mut() {
         let last = chooser.apps.len().saturating_sub(1);
         let room = ui.look.apps_shown(ui.size);

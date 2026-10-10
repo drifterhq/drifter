@@ -137,6 +137,7 @@ pub enum SheetHit {
     Lock,
     Runs,
     ChangeApp,
+    Name,
 }
 
 pub const APP_ROW: f64 = 34.0;
@@ -2516,6 +2517,9 @@ impl Look {
             return Some(hit);
         }
         if let Sheet::Info(info) = sheet {
+            if self.info_name(area).contains(at) {
+                return Some(SheetHit::Name);
+            }
             if self.info_change(area, info).is_some_and(|button| button.contains(at)) {
                 return Some(SheetHit::ChangeApp);
             }
@@ -2856,8 +2860,17 @@ impl Look {
         let one = &info.entry;
         let art = Rect::from_center(Vec2::new(area.center().x, area.origin.y + 76.0), Vec2::splat(96.0));
         self.entry_art(canvas, job.art, model, one, art);
-        let name = fonts.title.paint_weight(&fit(fonts.title, &one.name, area.size.x - 48.0), self.ink, 620.0);
-        canvas.stamp(&name, Vec2::new(area.center().x - logical(&name).x / 2.0, art.max().y + 14.0).round(), 1.0);
+        match &info.naming {
+            Some(field) => {
+                let place = self.info_name(area);
+                self.sunk(canvas, place, 7.0, Some(2.0));
+                self.paint_field(canvas, fonts.body, field, rect(place.origin.x + 10.0, place.origin.y, place.size.x - 20.0, place.size.y));
+            }
+            None => {
+                let name = fonts.title.paint_weight(&fit(fonts.title, &one.name, area.size.x - 48.0), self.ink, 620.0);
+                canvas.stamp(&name, Vec2::new(area.center().x - logical(&name).x / 2.0, art.max().y + 14.0).round(), 1.0);
+            }
+        }
         let size = match (one.folder, info.total, info.inside) {
             (true, Some((bytes, count)), _) => crate::lang::tf("{} in {}", &[&super::entry::size_words(bytes), &super::entry::items(count as usize)]),
             (true, None, Some(count)) => crate::lang::tf("{}, counting…", &[&super::entry::items(count)]),
@@ -2906,6 +2919,10 @@ impl Look {
             canvas.circle(knob + Vec2::new(0.0, 1.0), 10.0, [0, 0, 0], 0.15);
             canvas.circle(knob, 9.5, [255, 255, 255], 1.0);
         }
+    }
+
+    pub fn info_name(&self, area: Rect) -> Rect {
+        rect(area.origin.x + 40.0, area.origin.y + 134.0, area.size.x - 80.0, 30.0)
     }
 
     fn info_card(&self, area: Rect, info: &super::model::Info) -> Rect {

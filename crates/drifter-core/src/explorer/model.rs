@@ -87,6 +87,8 @@ pub enum Act {
     Lock,
     Runs,
     ChangeApp,
+    NameInInfo,
+    NamedInInfo,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -166,6 +168,7 @@ pub struct Info {
     pub total: Option<(u64, u64)>,
     pub opens: Option<String>,
     pub writers: Option<u32>,
+    pub naming: Option<Field>,
 }
 
 impl Info {
@@ -1993,6 +1996,15 @@ impl Model {
             Act::Dismiss => {
                 self.alerts.pop();
             }
+            Act::NameInInfo => {
+                if let Some(Sheet::Info(info)) = self.sheet.as_mut()
+                    && info.naming.is_none()
+                    && !in_trash
+                {
+                    info.naming = Some(Field::stem(&info.entry.name));
+                }
+            }
+            Act::NamedInInfo => self.named_in_info(),
             Act::Lock => self.change_mode(true),
             Act::Runs => self.change_mode(false),
             Act::ChangeApp => {
@@ -2194,6 +2206,31 @@ impl Model {
         }
         items.push(Item::new(crate::lang::t("Other App…"), "", Act::OtherApp));
         items
+    }
+
+    fn named_in_info(&mut self) {
+        let Some(Sheet::Info(info)) = self.sheet.as_mut() else {
+            return;
+        };
+        let Some(field) = info.naming.take() else {
+            return;
+        };
+        let path = info.entry.path.clone();
+        match ops::rename(&path, &field.text) {
+            Ok(made) if made == path => {}
+            Ok(made) => {
+                if let Some(entry) = Entry::at(&made) {
+                    info.entry = entry;
+                }
+                self.undo.push(Undo::Renamed(path, made.clone()));
+                self.reload();
+                self.pick_only(made);
+            }
+            Err(words) => {
+                info.naming = Some(field);
+                self.say(words, true);
+            }
+        }
     }
 
     pub fn measured(&mut self, path: &Path, total: (u64, u64)) {
@@ -2442,7 +2479,7 @@ pub fn info_of(entry: Entry) -> Info {
     let inside = entry.folder.then(|| std::fs::read_dir(&entry.path).map(|items| items.count()).ok()).flatten();
     let mode = std::fs::metadata(&entry.path).ok().map(|meta| meta.permissions().mode());
     let target = entry.link.then(|| std::fs::read_link(&entry.path).ok()).flatten();
-    Info { entry, inside, mode, target, total: None, opens: None, writers: None }
+    Info { entry, inside, mode, target, total: None, opens: None, writers: None, naming: None }
 }
 
 pub fn mode_words(mode: u32) -> String {
@@ -2918,6 +2955,40 @@ mod tests {
         assert!(model.jobs.is_empty());
         assert_eq!(model.single().map(|one| one.name.as_str()), Some("b.txt"));
         assert_eq!(model.undo.len(), 1);
+    }
+
+    #[test]
+    fn get_info_can_rename() {
+        let (place, mut model) = place("info-name");
+        let b = place.0.join("work/b.txt");
+        model.pick_only(b.clone());
+        model.act(Act::Info);
+        model.act(Act::NameInInfo);
+        let Some(Sheet::Info(info)) = model.sheet.as_mut() else {
+            panic!("Info opens");
+        };
+        let field = info.naming.as_mut().expect("the name is a field");
+        assert_eq!(field.picked_text(), Some("b"));
+        field.put("bee");
+        model.act(Act::NamedInInfo);
+        let bee = place.0.join("work/bee.txt");
+        assert!(bee.exists() && !b.exists());
+        let Some(Sheet::Info(info)) = &model.sheet else {
+            panic!("Info stays open");
+        };
+        assert_eq!((info.entry.name.as_str(), info.naming.is_none()), ("bee.txt", true));
+        assert_eq!(model.undo.last(), Some(&Undo::Renamed(b.clone(), bee.clone())));
+        model.act(Act::NameInInfo);
+        if let Some(Sheet::Info(info)) = model.sheet.as_mut() {
+            let field = info.naming.as_mut().unwrap();
+            field.pick_all();
+            field.put("a.png");
+        }
+        model.act(Act::NamedInInfo);
+        let Some(Sheet::Info(info)) = &model.sheet else {
+            panic!("Info stays open");
+        };
+        assert!(info.naming.is_some() && bee.exists(), "a clash keeps the field open");
     }
 
     #[test]

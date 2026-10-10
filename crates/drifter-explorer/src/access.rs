@@ -355,6 +355,17 @@ fn sheet_node(tree: &mut Tree, sheet: &Sheet, focus: &mut Option<NodeId>) -> Nod
         }
         Sheet::Info(info) => {
             let entry = &info.entry;
+            match &info.naming {
+                Some(field) => {
+                    let mut node = Node::new(Role::TextInput);
+                    node.set_label(t("Rename"));
+                    node.set_value(field.text.clone());
+                    let id = tree.put("sheet name", node);
+                    *focus = Some(id);
+                    kids.push(id);
+                }
+                None => kids.push(tree.button("sheet rename", t("Rename"), Act::NameInInfo, true)),
+            }
             kids.push(tree.label("sheet kind", &entry.kind_words()));
             if !entry.folder {
                 kids.push(tree.label("sheet size", &drifter_core::explorer::entry::size_words(entry.size)));
