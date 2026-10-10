@@ -80,6 +80,8 @@ struct Explorer {
     config_seen: Option<std::time::SystemTime>,
     watched_at: Instant,
     theme_checks: u64,
+    tip_plan: u64,
+    tip_seen: Option<Instant>,
 }
 
 fn modified(path: &std::path::Path) -> Option<std::time::SystemTime> {
@@ -215,6 +217,8 @@ pub fn run() -> Result<(), String> {
         config_seen: modified(&path),
         watched_at: Instant::now(),
         theme_checks: 0,
+        tip_plan: 0,
+        tip_seen: None,
     };
     while !app.exit {
         events
@@ -474,6 +478,41 @@ impl Explorer {
         self.fetch();
     }
 
+    fn tip_damage(&mut self) -> Option<drifter_core::Rect> {
+        self.model.tip.as_ref()?;
+        let lines = self.model.lines();
+        let fonts = Fonts { body: &self.fonts.0, small: &self.fonts.1, title: &self.fonts.2 };
+        let (card, _, _) = self.look.tip(self.view(), &self.model, &lines, &fonts)?;
+        Some(self.look.tip_area(card))
+    }
+
+    fn plan_tip(&mut self) {
+        self.tip_plan += 1;
+        let Some(hit) = self.model.hover.clone() else {
+            return;
+        };
+        if self.look.tip_words(&hit, &self.model).is_none() {
+            return;
+        }
+        let plan = self.tip_plan;
+        let quick = self.tip_seen.is_some_and(|at| at.elapsed() < Duration::from_millis(1500));
+        let wait = Duration::from_millis(if quick { 60 } else { 700 });
+        let _ = self.handle.insert_source(Timer::from_duration(wait), move |_, _, app: &mut Explorer| {
+            if app.tip_plan == plan && app.model.hover.as_ref() == Some(&hit) && app.model.tip.is_none() {
+                app.model.tip = Some(hit.clone());
+                drifter_core::paint::set_density(scale());
+                match app.tip_damage() {
+                    Some(area) => {
+                        app.tip_seen = Some(Instant::now());
+                        app.damage(Some(area));
+                    }
+                    None => app.model.tip = None,
+                }
+            }
+            TimeoutAction::Drop
+        });
+    }
+
     fn damage(&mut self, area: Option<drifter_core::Rect>) {
         match area {
             Some(area) => self.dirty = Some(self.dirty.map_or(area, |had| drifter_core::explorer::look::join(had, area))),
@@ -715,10 +754,18 @@ impl PointerHandler for Explorer {
             match event.kind {
                 PointerEventKind::Motion { .. } | PointerEventKind::Enter { .. } => {
                     let (hover, menu) = (self.model.hover.clone(), self.model.menu.clone());
+                    let tip = self.tip_damage();
                     if self.with_ui(|model, ui, lines| input::motion(model, ui, lines, at)) {
                         let lines = self.model.lines();
                         let area = self.hover_damage(&hover, &menu, &lines);
                         self.damage(area);
+                        if let Some(tip) = tip.filter(|_| self.model.tip.is_none()) {
+                            self.tip_seen = Some(Instant::now());
+                            self.damage(Some(tip));
+                        }
+                        if self.model.hover != hover {
+                            self.plan_tip();
+                        }
                     }
                 }
                 PointerEventKind::Press { button, .. } if matches!(button, BTN_LEFT | BTN_RIGHT | BTN_MIDDLE) => self.press(button),
@@ -731,6 +778,9 @@ impl PointerHandler for Explorer {
                     let ctrl = self.mods.ctrl;
                     let (dx, dy) = (horizontal.absolute, vertical.absolute);
                     let before = (self.model.scroll, self.model.tree_scroll, self.model.prefs.zoom, self.model.view.mode);
+                    if self.model.tip.is_some() {
+                        self.stale = true;
+                    }
                     if self.with_ui(|model, ui, lines| input::scroll(model, ui, lines, at, dx, dy, ctrl)) {
                         let (body, side) = (self.model.scroll - before.0, self.model.tree_scroll - before.1);
                         let plain = self.model.prefs.zoom == before.2 && self.model.view.mode == before.3;
@@ -743,11 +793,16 @@ impl PointerHandler for Explorer {
                 }
                 PointerEventKind::Leave { .. } => {
                     let (hover, menu) = (self.model.hover.clone(), self.model.menu.clone());
+                    let tip = self.tip_damage();
                     if input::leave(&mut self.model) {
                         let lines = self.model.lines();
                         let area = self.hover_damage(&hover, &menu, &lines);
                         self.damage(area);
+                        if let Some(tip) = tip {
+                            self.damage(Some(tip));
+                        }
                     }
+                    self.tip_plan += 1;
                 }
                 _ => {}
             }

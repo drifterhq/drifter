@@ -671,7 +671,76 @@ impl Look {
         if let Some(menu) = &model.menu {
             self.paint_menu(&mut canvas, size, menu, fonts);
         }
+        if let Some((card, words, keys)) = self.tip(size, model, job.lines, fonts)
+            && touches(clip, self.tip_area(card))
+        {
+            canvas.shadow(card, 6.0, 8.0, self.drop * 0.8);
+            canvas.round_rect(card, 6.0, if self.dark { self.raised } else { [255, 255, 255] }, 1.0);
+            canvas.ring(card, 6.0, 1.0, self.rule, 1.0);
+            let middle = card.center().y;
+            self.text(&mut canvas, fonts.small, &words, self.ink, Vec2::new(card.origin.x + 9.0, middle), card.size.x);
+            if !keys.is_empty() {
+                self.text_right(&mut canvas, fonts.small, keys, self.dim, card.max().x - 9.0, middle);
+            }
+        }
         canvas.image
+    }
+
+    pub fn tip_words(&self, hit: &Hit, model: &Model) -> Option<(String, &'static str)> {
+        let t = |words: &str| crate::lang::t(words).to_string();
+        Some(match hit {
+            Hit::Back => (t("Back"), "Alt+Left"),
+            Hit::Forward => (t("Forward"), "Alt+Right"),
+            Hit::Up => (t("Enclosing Folder"), "Alt+Up"),
+            Hit::Show(mode) => (mode.name().to_string(), ["Ctrl+1", "Ctrl+2", "Ctrl+3", "Ctrl+4"][Mode::ALL.iter().position(|each| each == mode)?]),
+            Hit::Gear => (t("Settings"), "Ctrl+,"),
+            Hit::SearchClear => (t("End search"), "Esc"),
+            Hit::CrumbArrow(_) => (t("Folders inside"), ""),
+            Hit::TabNew => (t("New Tab"), "Ctrl+T"),
+            Hit::TabClose(_) => (t("Close Tab"), "Ctrl+W"),
+            Hit::Tab(index) => {
+                let dir = model.tab_dirs().get(*index)?.clone();
+                let shown = match dir.strip_prefix(&model.home) {
+                    Ok(rest) if rest.as_os_str().is_empty() => "~".to_string(),
+                    Ok(rest) => format!("~/{}", rest.display()),
+                    Err(_) => dir.display().to_string(),
+                };
+                (shown, "")
+            }
+            Hit::Dismiss => (t("Close"), "Esc"),
+            Hit::Stop(_) => (t("Stop"), ""),
+            Hit::Eject(_) => (t("Eject"), ""),
+            _ => return None,
+        })
+    }
+
+    pub fn tip(&self, size: Vec2, model: &Model, lines: &[Line], fonts: &Fonts) -> Option<(Rect, String, &'static str)> {
+        if model.menu.is_some() || model.sheet.is_some() || model.dragging.is_some() {
+            return None;
+        }
+        let hit = model.tip.as_ref()?;
+        let (words, keys) = self.tip_words(hit, model)?;
+        let frame = self.frame(size, model);
+        let anchor = match hit {
+            Hit::Eject(index) => self.eject_rect(*self.line_rects(frame.side?, lines, model.tree_scroll).get(*index)?),
+            Hit::TabClose(index) => self.tab_close_rect(*self.strip_tabs(frame.tabs?, model.tabs.len()).0.get(*index)?),
+            _ => self.hover_rect(size, model, lines, fonts, hit)?,
+        };
+        let words = fit(fonts.small, &words, 460.0);
+        let keys_w = if keys.is_empty() { 0.0 } else { fonts.small.width_of(keys) + 14.0 };
+        let width = (fonts.small.width_of(&words) + keys_w + 18.0).ceil();
+        let height = 24.0;
+        let x = (anchor.center().x - width / 2.0).round().clamp(6.0, (size.x - width - 6.0).max(6.0));
+        let below = anchor.max().y + 4.0;
+        let y = match below + height > size.y - 6.0 {
+            true => anchor.origin.y - 4.0 - height,
+            false => below,
+        };
+        Some((rect(x, y.round(), width, height), words, keys))
+    }
+
+    pub fn tip_area(&self, card: Rect) -> Rect {
+        Rect::new(card.origin - Vec2::splat(12.0), card.size + Vec2::splat(24.0))
     }
 
     pub fn drop_at(&self, size: Vec2, model: &Model, lines: &[Line], fonts: &Fonts, at: Vec2, paths: &[PathBuf]) -> Option<(Drop, Rect)> {
@@ -2600,6 +2669,27 @@ mod repaint_tests {
                 assert!(same(&part, &whole), "tabs at {density}x: {was:?} -> {now:?}");
             }
         }
+        for density in [1, 2] {
+            crate::paint::set_density(density);
+            for hit in [Hit::Back, Hit::Gear, Hit::TabClose(1), Hit::Tab(2), Hit::Show(Mode::Icons)] {
+                model.hover = Some(hit.clone());
+                model.tip = None;
+                let lines = model.lines();
+                let plain = look.paint(size, &Paint { model: &model, lines: &lines, fonts: &fonts, art: &art, clip: None });
+                model.tip = Some(hit.clone());
+                let (card, _, _) = look.tip(size, &model, &lines, &fonts).expect("a tip");
+                assert!(card.origin.x >= 6.0 && card.max().x <= size.x - 6.0, "{hit:?} tip leaves the window");
+                let area = look.tip_area(card);
+                let shown = look.repaint(plain.clone(), size, &Paint { model: &model, lines: &lines, fonts: &fonts, art: &art, clip: Some(area) });
+                let whole = look.paint(size, &Paint { model: &model, lines: &lines, fonts: &fonts, art: &art, clip: None });
+                assert!(same(&shown, &whole), "{hit:?} tip at {density}x");
+                assert!(!same(&shown, &plain), "{hit:?} tip shows");
+                model.tip = None;
+                let hidden = look.repaint(shown, size, &Paint { model: &model, lines: &lines, fonts: &fonts, art: &art, clip: Some(area) });
+                assert!(same(&hidden, &plain), "{hit:?} tip hides at {density}x");
+            }
+        }
+        model.hover = None;
         model.act(super::super::model::Act::CloseOtherTabs(0));
         let mut blits = 0;
         for density in [1, 2] {

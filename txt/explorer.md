@@ -77,6 +77,7 @@ Later steps build on these.
 
 19. Tooltips: none of the icon buttons have a tooltip.
     Waits on: nothing.
+    - Built: Back, Forward, Up, the view buttons, Settings, the search ×, path arrows, tab buttons, the banner ×, job stop and eject show a tooltip after 0.7 s, with the key in gray ("Enclosing Folder  Alt+Up"). Once one has shown, the next shows at once. A tab's tooltip shows its full path. Tips stay inside the window, flip above near the bottom, and hide on click, key, scroll or leave. Showing and hiding repaint only the tip area, checked pixel for pixel. Checked on Blue.
 20. Scrollbars: they only show your position. You cannot drag them.
     Waits on: nothing.
 21. Lasso selection with the mouse.

@@ -68,6 +68,7 @@ fn caret_from_x(font: &crate::text::Font, text: &str, x: f64) -> usize {
 }
 
 pub fn press(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, button: Button, clicks: u32, mods: Mods) {
+    model.tip = None;
     if model.menu.is_some() {
         return press_menu(model, ui, lines, at);
     }
@@ -484,12 +485,16 @@ pub fn motion(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2) -> bool {
     }
     let hover = ui.look.hit(ui.size, model, lines, ui.fonts, at).filter(|hit| !matches!(hit, Hit::Space | Hit::Picture | Hit::Path | Hit::Split | Hit::Zoom(_) | Hit::Banner | Hit::Jobs | Hit::Search | Hit::Tabs));
     let changed = hover != model.hover;
+    if changed {
+        model.tip = None;
+    }
     model.hover = hover;
     changed
 }
 
 pub fn leave(model: &mut Model) -> bool {
-    model.hover.take().is_some()
+    let tip = model.tip.take().is_some();
+    model.hover.take().is_some() || tip
 }
 
 fn snap(wanted: f64, most: f64) -> (f64, f64) {
@@ -502,6 +507,7 @@ fn snap(wanted: f64, most: f64) -> (f64, f64) {
 }
 
 pub fn scroll(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, dx: f64, dy: f64, ctrl: bool) -> bool {
+    model.tip = None;
     if model.menu.is_some() || model.sheet.is_some() {
         return false;
     }
@@ -613,6 +619,7 @@ fn edit(field: &mut super::field::Field, key: &Key) -> Option<Option<String>> {
 }
 
 pub fn key(model: &mut Model, ui: &Ui, key: &Key) {
+    model.tip = None;
     if model.sheet.is_some() {
         return sheet_key(model, key);
     }

@@ -3302,3 +3302,12 @@ New tab and close tab
 
 Next tab
 = Onglet suivant
+
+End search
+= Terminer la recherche
+
+Folders inside
+= Dossiers à l’intérieur
+
+Stop
+= Arrêter

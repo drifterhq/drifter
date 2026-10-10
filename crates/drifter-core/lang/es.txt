@@ -3305,3 +3305,12 @@ New tab and close tab
 
 Next tab
 = Pestaña siguiente
+
+End search
+= Terminar la búsqueda
+
+Folders inside
+= Carpetas dentro
+
+Stop
+= Detener

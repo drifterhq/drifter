@@ -3305,3 +3305,12 @@ New tab and close tab
 
 Next tab
 = Nächster Tab
+
+End search
+= Suche beenden
+
+Folders inside
+= Ordner darin
+
+Stop
+= Anhalten
