@@ -22,6 +22,7 @@ pub mod frost;
 pub mod geom;
 pub mod glance;
 pub mod grab;
+pub mod hdr;
 pub mod hud;
 pub mod icon;
 pub mod image;

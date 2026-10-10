@@ -188,7 +188,7 @@ struct Head {
     awaiting: bool,
     frames: u32,
     last: Instant,
-    warmth: Option<(u32, Option<String>)>,
+    warmth: Option<(u32, Option<String>, Option<u32>)>,
     feedback: Option<smithay::desktop::utils::OutputPresentationFeedback>,
 }
 

@@ -133,7 +133,7 @@ impl Section {
     pub fn words(self) -> &'static str {
         match self {
             Section::Desktop => "world workspace zoom pan hot corner camera",
-            Section::Displays => "monitor screen scale rotation flip resolution refresh rate hz mode adaptive sync vrr freesync gsync mirror duplicate brightness night light warm",
+            Section::Displays => "monitor screen scale rotation flip resolution refresh rate hz mode adaptive sync vrr freesync gsync hdr high dynamic range mirror duplicate brightness night light warm",
             Section::Wallpaper => "background picture image photo",
             Section::Appearance => "theme dark light accent color icons cursor font",
             Section::Window => "title bar buttons close minimize maximize",
@@ -239,6 +239,9 @@ pub struct Monitor {
     pub vrr: bool,
     pub mirror: Option<String>,
     pub profile: Option<String>,
+    pub hdr: bool,
+    pub hdr_white: u32,
+    pub hdr_able: bool,
 }
 
 impl Monitor {
@@ -592,6 +595,9 @@ impl Model {
                     vrr: own.is_some_and(|each| each.vrr),
                     mirror: own.and_then(|each| each.mirror.clone()),
                     profile: own.and_then(|each| each.profile.clone()),
+                    hdr: own.is_some_and(|each| each.hdr),
+                    hdr_white: own.and_then(|each| each.hdr_white).unwrap_or(crate::hdr::WHITE),
+                    hdr_able: kept.map_or_else(|| crate::hdr::screen(&head.name).is_some(), |each| each.hdr_able),
                     modes: kept.map(|each| each.modes.clone()).unwrap_or_default(),
                     current: kept.and_then(|each| each.current),
                     name: head.name,
@@ -703,6 +709,8 @@ impl Model {
                 vrr: monitor.vrr,
                 mirror: monitor.mirror.clone(),
                 profile: monitor.profile.clone(),
+                hdr: monitor.hdr,
+                hdr_white: (monitor.hdr_white != crate::hdr::WHITE).then_some(monitor.hdr_white),
             })
             .collect();
         for kept in &self.monitor_config {
@@ -813,6 +821,28 @@ impl Model {
             ),
         };
         rows.push(Row::new(Id::ColorProfile, crate::lang::t("Color profile"), Control::Buttons(marks)).detail(&shown));
+        if monitor.hdr_able {
+            rows.push(
+                Row::new(Id::Hdr, "HDR", Control::Switch(monitor.hdr))
+                    .detail(crate::lang::t("Brighter highlights and richer color on this HDR screen")),
+            );
+            if monitor.hdr {
+                rows.push(
+                    Row::new(
+                        Id::HdrWhite,
+                        crate::lang::t("Desktop brightness"),
+                        Control::Slider {
+                            least: f64::from(crate::hdr::LEAST_WHITE),
+                            most: f64::from(crate::hdr::MOST_WHITE),
+                            value: f64::from(monitor.hdr_white),
+                            unit: " nits",
+                            zero: None,
+                        },
+                    )
+                    .detail(crate::lang::t("How bright windows and the desktop look while HDR is on")),
+                );
+            }
+        }
         rows.push(
             Row::new(Id::Vrr, crate::lang::t("Adaptive sync"), Control::Switch(monitor.vrr))
                 .detail(crate::lang::t("Smoother games and video on FreeSync and G-Sync monitors")),
@@ -1793,6 +1823,16 @@ impl Model {
                     monitor.vrr = on;
                 }
             }
+            (Id::Hdr, Value::Switch(on)) => {
+                if let Some(monitor) = self.monitors.get_mut(self.picked) {
+                    monitor.hdr = on;
+                }
+            }
+            (Id::HdrWhite, Value::Number(n)) => {
+                if let Some(monitor) = self.monitors.get_mut(self.picked) {
+                    monitor.hdr_white = (n.round() as u32).clamp(crate::hdr::LEAST_WHITE, crate::hdr::MOST_WHITE);
+                }
+            }
             (Id::Turn, Value::Choice(n)) => {
                 if let Some(monitor) = self.monitors.get_mut(self.picked) {
                     monitor.rotate = screens::TURNS[n.min(3)];
@@ -2306,6 +2346,12 @@ fn put_monitors(doc: &mut toml_edit::DocumentMut, monitors: &[MonitorConfig]) {
         if let Some(profile) = monitor.profile.as_deref().filter(|path| !path.trim().is_empty()) {
             table.insert("profile", toml_edit::value(profile));
         }
+        if monitor.hdr {
+            table.insert("hdr", toml_edit::value(true));
+        }
+        if let Some(white) = monitor.hdr_white {
+            table.insert("hdr_white", toml_edit::value(i64::from(white)));
+        }
         list.push(table);
     }
     doc.remove("monitor");
@@ -2544,6 +2590,8 @@ pub enum Id {
     Refresh,
     MonitorOn,
     Vrr,
+    Hdr,
+    HdrWhite,
     Mirror,
     ColorProfile,
     Brightness,

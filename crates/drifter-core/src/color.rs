@@ -215,7 +215,7 @@ fn invert(m: [[f64; 3]; 3]) -> Option<[[f64; 3]; 3]> {
     Some(out)
 }
 
-fn times(a: [[f64; 3]; 3], b: [[f64; 3]; 3]) -> [[f64; 3]; 3] {
+pub(crate) fn times(a: [[f64; 3]; 3], b: [[f64; 3]; 3]) -> [[f64; 3]; 3] {
     let mut out = [[0.0; 3]; 3];
     for (row, line) in out.iter_mut().enumerate() {
         for (col, cell) in line.iter_mut().enumerate() {
@@ -231,14 +231,14 @@ pub struct Pipeline {
     pub gamma: Vec<[u16; 3]>,
 }
 
-fn level(len: usize, at: usize) -> f64 {
+pub(crate) fn level(len: usize, at: usize) -> f64 {
     match len {
         0 | 1 => 1.0,
         _ => at as f64 / (len - 1) as f64,
     }
 }
 
-fn word(v: f64) -> u16 {
+pub(crate) fn word(v: f64) -> u16 {
     (v.clamp(0.0, 1.0) * 65535.0).round() as u16
 }
 

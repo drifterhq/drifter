@@ -18,13 +18,12 @@ impl State {
         let white = drifter_core::night::white_point(wanted);
         for index in 0..self.heads.len() {
             let name = self.heads[index].name.clone();
-            let chosen = self
-                .monitors
-                .iter()
-                .find(|each| each.name == name)
-                .and_then(|each| each.profile.clone())
-                .filter(|path| !path.trim().is_empty());
-            let key = Some((wanted, chosen.clone()));
+            let own = self.monitors.iter().find(|each| each.name == name);
+            let chosen = own.and_then(|each| each.profile.clone()).filter(|path| !path.trim().is_empty());
+            let hdr = own
+                .filter(|each| each.hdr)
+                .map(|each| each.hdr_white.unwrap_or(drifter_core::hdr::WHITE));
+            let key = Some((wanted, chosen.clone(), hdr));
             if self.heads[index].warmth == key {
                 continue;
             }
@@ -35,6 +34,23 @@ impl State {
                     .ok()
             });
             let crtc = self.heads[index].crtc;
+            let connector = self.heads[index].connector;
+            let screen = hdr.and_then(|_| drifter_core::hdr::screen(&name));
+            if hdr.is_some() && screen.is_none() {
+                log!("drifter: {name} does not say it can show HDR, so it stays SDR");
+            }
+            if let (Some(sdr), Some(screen)) = (hdr, screen) {
+                match paint_hdr(drm, crtc, connector, screen, white, sdr) {
+                    Ok(()) => {
+                        log!("drifter: {name} shows HDR, with white at {sdr} nits");
+                        continue;
+                    }
+                    Err(error) => log!("drifter: {name} cannot show HDR: {error}"),
+                }
+            }
+            if let Err(error) = plain_signal(drm, crtc, connector) {
+                log!("drifter: {name} cannot leave HDR: {error}");
+            }
             if let Err(error) = paint_color(drm, crtc, profile.as_ref(), white, night) {
                 log!("drifter: colors on {name}: {error}");
             }
@@ -132,33 +148,142 @@ impl State {
     }
 }
 
-struct Stages {
-    degamma: Option<(smithay::reexports::drm::control::property::Handle, usize)>,
-    ctm: Option<smithay::reexports::drm::control::property::Handle>,
-    gamma: Option<(smithay::reexports::drm::control::property::Handle, usize)>,
+type Prop = smithay::reexports::drm::control::property::Handle;
+
+struct Found {
+    handle: Prop,
+    value: u64,
+    info: smithay::reexports::drm::control::property::Info,
 }
 
-fn stages(drm: &DrmDevice, crtc: crtc::Handle) -> Stages {
+impl Found {
+    fn choice(&self, name: &str) -> Option<u64> {
+        use smithay::reexports::drm::control::property::ValueType;
+        let ValueType::Enum(choices) = self.info.value_type() else {
+            return None;
+        };
+        let (_, named) = choices.values();
+        named.iter().find(|each| each.name().to_bytes() == name.as_bytes()).map(|each| each.value())
+    }
+}
+
+fn props(
+    drm: &DrmDevice,
+    handle: impl smithay::reexports::drm::control::ResourceHandle,
+) -> std::collections::HashMap<String, Found> {
     use smithay::reexports::drm::control::Device as _;
 
     let mut found = std::collections::HashMap::new();
-    if let Ok(props) = drm.get_properties(crtc) {
-        for (handle, value) in props.iter() {
-            if let Ok(info) = drm.get_property(*handle) {
-                found.insert(info.name().to_string_lossy().into_owned(), (*handle, *value));
+    if let Ok(props) = drm.get_properties(handle) {
+        for (prop, value) in props.iter() {
+            if let Ok(info) = drm.get_property(*prop) {
+                let name = info.name().to_string_lossy().into_owned();
+                found.insert(name, Found { handle: *prop, value: *value, info });
             }
         }
     }
-    let sized = |lut: &str, size: &str| -> Option<(smithay::reexports::drm::control::property::Handle, usize)> {
-        let (handle, _) = found.get(lut)?;
-        let (_, length) = found.get(size)?;
-        (*length > 1).then_some((*handle, *length as usize))
+    found
+}
+
+struct Stages {
+    degamma: Option<(Prop, usize)>,
+    ctm: Option<Prop>,
+    gamma: Option<(Prop, usize)>,
+    encoder: Option<(Prop, u64, u64)>,
+    divisor: Option<(Prop, u64)>,
+}
+
+fn stages(drm: &DrmDevice, crtc: crtc::Handle) -> Stages {
+    let found = props(drm, crtc);
+    let sized = |lut: &str, size: &str| -> Option<(Prop, usize)> {
+        let lut = found.get(lut)?;
+        let size = found.get(size)?;
+        (size.value > 1).then_some((lut.handle, size.value as usize))
     };
+    let encoder = found.get("NV_CRTC_REGAMMA_TF").and_then(|tf| {
+        let pq = tf.choice("PQ (Perceptual Quantizer)")?;
+        let plain = tf.choice("Default")?;
+        Some((tf.handle, pq, plain))
+    });
     Stages {
         degamma: sized("DEGAMMA_LUT", "DEGAMMA_LUT_SIZE"),
-        ctm: found.get("CTM").map(|(handle, _)| *handle),
+        ctm: found.get("CTM").map(|each| each.handle),
         gamma: sized("GAMMA_LUT", "GAMMA_LUT_SIZE"),
+        encoder,
+        divisor: found.get("NV_CRTC_REGAMMA_DIVISOR").map(|each| (each.handle, each.value)),
     }
+}
+
+fn paint_hdr(
+    drm: &DrmDevice,
+    crtc: crtc::Handle,
+    connector: connector::Handle,
+    screen: drifter_core::hdr::Screen,
+    white: [f64; 3],
+    sdr: u32,
+) -> Result<(), String> {
+    use smithay::reexports::drm::control::Device as _;
+
+    let wire = props(drm, connector);
+    let space = wire.get("Colorspace").ok_or("the connector has no color space setting")?;
+    let bt2020 = space.choice("BT2020_RGB").ok_or("the connector cannot send BT.2020 color")?;
+    let metadata = wire.get("HDR_OUTPUT_METADATA").ok_or("the connector cannot send HDR metadata")?;
+    let found = stages(drm, crtc);
+    let (Some((degamma, degamma_len)), Some(ctm)) = (found.degamma, found.ctm) else {
+        return Err("the graphics card has no color stages for HDR".to_string());
+    };
+    let gamma_len = found.gamma.map_or(0, |(_, len)| len);
+    let pipe = drifter_core::hdr::pipeline(white, sdr, degamma_len, gamma_len);
+    set_blob(drm, crtc, degamma, Some(&mut lut_bytes(&pipe.degamma)))?;
+    let mut words: Vec<u8> = drifter_core::color::ctm_words(pipe.ctm).iter().flat_map(|word| word.to_ne_bytes()).collect();
+    set_blob(drm, crtc, ctm, Some(&mut words))?;
+    match (found.encoder, found.divisor, found.gamma) {
+        (Some((tf, pq, _)), Some((divisor, _)), gamma) => {
+            if let Some((gamma, _)) = gamma {
+                set_blob(drm, crtc, gamma, None)?;
+            }
+            let refused = |error: std::io::Error| format!("the graphics card refused PQ: {error}");
+            drm.set_property(crtc, divisor, drifter_core::hdr::divisor(sdr)).map_err(refused)?;
+            drm.set_property(crtc, tf, pq).map_err(refused)?;
+        }
+        (_, _, Some((gamma, _))) => set_blob(drm, crtc, gamma, Some(&mut lut_bytes(&pipe.gamma)))?,
+        _ => return Err("the graphics card has no way to encode PQ".to_string()),
+    }
+    set_blob(drm, connector, metadata.handle, Some(&mut drifter_core::hdr::infoframe(screen, sdr)))?;
+    if space.value != bt2020 {
+        drm.set_property(connector, space.handle, bt2020)
+            .map_err(|error| format!("the screen refused BT.2020 color: {error}"))?;
+    }
+    Ok(())
+}
+
+fn plain_signal(drm: &DrmDevice, crtc: crtc::Handle, connector: connector::Handle) -> Result<(), String> {
+    use smithay::reexports::drm::control::Device as _;
+
+    let refused = |error: std::io::Error| format!("the screen refused SDR: {error}");
+    let wire = props(drm, connector);
+    if let Some(metadata) = wire.get("HDR_OUTPUT_METADATA").filter(|each| each.value != 0) {
+        set_blob(drm, connector, metadata.handle, None)?;
+    }
+    if let Some(space) = wire.get("Colorspace")
+        && let Some(plain) = space.choice("Default")
+        && space.value != plain
+    {
+        drm.set_property(connector, space.handle, plain).map_err(refused)?;
+    }
+    let found = stages(drm, crtc);
+    let crtc_props = props(drm, crtc);
+    if let Some((tf, _, plain)) = found.encoder
+        && crtc_props.get("NV_CRTC_REGAMMA_TF").is_some_and(|each| each.value != plain)
+    {
+        drm.set_property(crtc, tf, plain).map_err(refused)?;
+    }
+    if let Some((divisor, now)) = found.divisor
+        && now != 1 << 32
+    {
+        drm.set_property(crtc, divisor, 1 << 32).map_err(refused)?;
+    }
+    Ok(())
 }
 
 fn blob(drm: &DrmDevice, bytes: &mut [u8]) -> Result<u64, String> {
@@ -180,8 +305,8 @@ fn lut_bytes(entries: &[[u16; 3]]) -> Vec<u8> {
 
 fn set_blob(
     drm: &DrmDevice,
-    crtc: crtc::Handle,
-    prop: smithay::reexports::drm::control::property::Handle,
+    handle: impl smithay::reexports::drm::control::ResourceHandle,
+    prop: Prop,
     bytes: Option<&mut [u8]>,
 ) -> Result<(), String> {
     use smithay::reexports::drm::control::Device as _;
@@ -190,7 +315,7 @@ fn set_blob(
         Some(bytes) => blob(drm, bytes)?,
         None => 0,
     };
-    let set = drm.set_property(crtc, prop, id).map_err(|error| format!("the screen refused the colors: {error}"));
+    let set = drm.set_property(handle, prop, id).map_err(|error| format!("the screen refused the colors: {error}"));
     if id != 0 {
         let _ = drm.destroy_property_blob(id);
     }

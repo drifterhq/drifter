@@ -705,6 +705,15 @@ Adaptive sync
 Smoother games and video on FreeSync and G-Sync monitors
 = Flüssigere Spiele und Videos auf FreeSync- und G-Sync-Monitoren
 
+Brighter highlights and richer color on this HDR screen
+= Hellere Lichter und kräftigere Farben auf diesem HDR-Bildschirm
+
+Desktop brightness
+= Helligkeit des Schreibtischs
+
+How bright windows and the desktop look while HDR is on
+= Wie hell Fenster und Schreibtisch bei aktivem HDR wirken
+
 Shows the same picture as {}
 = Zeigt dasselbe Bild wie {}
 

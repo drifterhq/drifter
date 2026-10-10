@@ -31,6 +31,10 @@ pub struct MonitorConfig {
     pub mirror: Option<String>,
     #[serde(default)]
     pub profile: Option<String>,
+    #[serde(default)]
+    pub hdr: bool,
+    #[serde(default)]
+    pub hdr_white: Option<u32>,
 }
 
 fn one() -> f64 {
@@ -55,6 +59,8 @@ impl MonitorConfig {
             vrr: false,
             mirror: None,
             profile: None,
+            hdr: false,
+            hdr_white: None,
         }
     }
 
@@ -76,6 +82,16 @@ impl MonitorConfig {
         }
         if !TURNS.contains(&self.rotate) {
             return Err(format!("monitor {} rotate is 0, 90, 180 or 270", self.name));
+        }
+        if let Some(white) = self.hdr_white
+            && !(crate::hdr::LEAST_WHITE..=crate::hdr::MOST_WHITE).contains(&white)
+        {
+            return Err(format!(
+                "monitor {} hdr_white runs from {} to {} nits",
+                self.name,
+                crate::hdr::LEAST_WHITE,
+                crate::hdr::MOST_WHITE
+            ));
         }
         if self.mirror.as_deref() == Some(self.name.as_str()) {
             return Err(format!("monitor {} cannot mirror itself", self.name));
@@ -347,6 +363,8 @@ mod tests {
             vrr: false,
             mirror: None,
             profile: None,
+            hdr: false,
+            hdr_white: None,
         }
     }
 
