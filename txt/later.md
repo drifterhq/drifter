@@ -26,6 +26,18 @@ The 2026-10-05 and 2026-10-07 work ran on the VM, with fake radios, and partly o
 - Orca reads Settings, Activity, Search, the window switcher, the lock screen and notifications. The top bar, the dock, right-click menus and Control Center have no keyboard way in yet, so Orca cannot reach them.
 - An ICC profile built from lookup tables (A2B) only loads its calibration curves. Matrix and curve profiles get the full GPU color mapping.
 
+## Explorer
+
+Explorer (`drifter-explorer`) is built. It was tested under headless sway on a Raspberry Pi 4: views, menus, rename, copy, paste, trash, undo, the path bar and Settings work.
+
+- Try it under Drifter itself: the window frame, scale 1.5 and 2, theme changes.
+- Drag and drop, inside the window and to other apps.
+- Copy and paste with other apps through the Wayland clipboard. Now it uses `wl-copy` when it is installed.
+- Orca: Explorer has no screen reader support yet.
+- Big copies show only "Copying…", with no progress bar and no cancel.
+- Trash on a USB stick moves the file to the home Trash. The spec wants a `.Trash-UID` folder on that disk.
+- Offer Explorer for Files in Welcome and Default Apps.
+
 ## Reach
 
 - HDR output is built: the desktop goes out as BT.2020 PQ, with white at a chosen brightness. Check it on the workstation's LG (HDMI-A-1): white as bright as SDR, normal color, the monitor says HDR. On AMD and Intel it falls back to a PQ gamma table, untested.

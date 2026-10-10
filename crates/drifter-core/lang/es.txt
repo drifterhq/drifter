@@ -2699,3 +2699,441 @@ This computer
 
 No batteries found
 = No se encontraron baterías
+
+File
+= Archivo
+
+View
+= Ver
+
+Go
+= Ir
+
+Help
+= Ayuda
+
+Home
+= Inicio
+
+This folder cannot be opened
+= Esta carpeta no se puede abrir
+
+The Trash is empty
+= La papelera está vacía
+
+This folder is empty
+= Esta carpeta está vacía
+
+Empty
+= Vacío
+
+Modified
+= Modificado
+
+Where
+= Ubicación
+
+General
+= General
+
+Views
+= Vistas
+
+Sidebar
+= Barra lateral
+
+Advanced
+= Avanzado
+
+Files and folders, made for Drifter.
+= Archivos y carpetas, hecho para Drifter.
+
+Delete
+= Eliminar
+
+Done
+= Listo
+
+bytes
+= bytes
+
+Kind
+= Tipo
+
+Access
+= Acceso
+
+Points to
+= Apunta a
+
+Keyboard Shortcuts
+= Atajos de teclado
+
+Enclosing Folder
+= Carpeta superior
+
+Back and forward
+= Atrás y adelante
+
+Type a path
+= Escribir una ruta
+
+Move to Trash
+= Mover a la papelera
+
+Delete Forever
+= Eliminar para siempre
+
+Copy, cut and paste
+= Copiar, cortar y pegar
+
+Duplicate
+= Duplicar
+
+Undo
+= Deshacer
+
+New Folder
+= Nueva carpeta
+
+Change the view
+= Cambiar la vista
+
+Zoom
+= Zoom
+
+Show Hidden Files
+= Mostrar archivos ocultos
+
+Get Info
+= Obtener información
+
+Opening
+= Apertura
+
+New windows open
+= Las ventanas nuevas abren
+
+Last folder
+= Última carpeta
+
+Open items with
+= Abrir elementos con
+
+A single click opens at once
+= Un solo clic abre al instante
+
+Double click
+= Doble clic
+
+Single click
+= Un clic
+
+Show hidden files
+= Mostrar archivos ocultos
+
+Names that start with a dot
+= Nombres que empiezan con un punto
+
+Ask before Move to Trash
+= Preguntar antes de mover a la papelera
+
+Default view
+= Vista predeterminada
+
+Show folders as
+= Mostrar carpetas como
+
+Show previews
+= Mostrar vistas previas
+
+Pictures, videos and PDFs show what is inside
+= Imágenes, videos y PDF muestran su contenido
+
+Sort by
+= Ordenar por
+
+Folders first
+= Carpetas primero
+
+Reverse order
+= Orden inverso
+
+Home, Documents, Downloads and more
+= Inicio, Documentos, Descargas y más
+
+Folder tree
+= Árbol de carpetas
+
+Tree starts at
+= El árbol empieza en
+
+Drives
+= Unidades
+
+This computer and plugged in disks
+= Este equipo y los discos conectados
+
+Status bar
+= Barra de estado
+
+Item count and free space
+= Número de elementos y espacio libre
+
+List columns
+= Columnas de la lista
+
+Dates
+= Fechas
+
+Friendly
+= Simples
+
+Exact
+= Exactas
+
+Open in Terminal uses
+= Abrir en terminal usa
+
+Image
+= Imagen
+
+Audio
+= Audio
+
+PDF document
+= Documento PDF
+
+Archive
+= Archivo comprimido
+
+Document
+= Documento
+
+1 item
+= 1 elemento
+
+1 byte
+= 1 byte
+
+{} items
+= {} elementos
+
+{} bytes
+= {} bytes
+
+Today {}
+= Hoy {}
+
+Yesterday {}
+= Ayer {}
+
+List
+= Lista
+
+Icons
+= Iconos
+
+Columns
+= Columnas
+
+Gallery
+= Galería
+
+Emptying the Trash
+= Vaciando la papelera
+
+Undoing
+= Deshaciendo
+
+A folder cannot go inside itself
+= Una carpeta no puede ir dentro de sí misma
+
+copy
+= copia
+
+A name cannot be empty
+= Un nombre no puede estar vacío
+
+A name cannot hold a slash
+= Un nombre no puede tener una barra
+
+This item has no folder
+= Este elemento no tiene carpeta
+
+untitled folder
+= carpeta sin título
+
+untitled
+= sin título
+
+Its first place is not known
+= Su ubicación original no se conoce
+
+Copying {}
+= Copiando {}
+
+Moving {}
+= Moviendo {}
+
+Moving {} to the Trash
+= Moviendo {} a la papelera
+
+Deleting {}
+= Eliminando {}
+
+Putting back {}
+= Restaurando {}
+
+{} already exists here
+= {} ya existe aquí
+
+Documents
+= Documentos
+
+Downloads
+= Descargas
+
+Videos
+= Videos
+
+Folders
+= Carpetas
+
+Put items back before you open them
+= Restaura los elementos antes de abrirlos
+
+Move to Trash?
+= ¿Mover a la papelera?
+
+This cannot be undone.
+= Esto no se puede deshacer.
+
+Delete forever?
+= ¿Eliminar para siempre?
+
+Empty the Trash?
+= ¿Vaciar la papelera?
+
+Everything in the Trash is deleted forever.
+= Todo lo que hay en la papelera se elimina para siempre.
+
+Nothing to undo
+= Nada que deshacer
+
+Path copied
+= Ruta copiada
+
+No terminal app is installed
+= No hay ninguna terminal instalada
+
+New Text File
+= Nuevo archivo de texto
+
+Open With
+= Abrir con
+
+Open in Terminal
+= Abrir en terminal
+
+Put Back
+= Restaurar
+
+Close Window
+= Cerrar ventana
+
+Cut
+= Cortar
+
+Paste
+= Pegar
+
+Select All
+= Seleccionar todo
+
+Copy Path
+= Copiar ruta
+
+Sort By
+= Ordenar por
+
+Zoom In
+= Ampliar
+
+Zoom Out
+= Reducir
+
+Show Sidebar
+= Mostrar barra lateral
+
+Show Status Bar
+= Mostrar barra de estado
+
+Reload
+= Recargar
+
+Forward
+= Adelante
+
+Go to Folder
+= Ir a la carpeta
+
+About Explorer
+= Acerca de Explorer
+
+Open in New Window
+= Abrir en una ventana nueva
+
+Paste Into Folder
+= Pegar en la carpeta
+
+You
+= Tú
+
+Group
+= Grupo
+
+Others
+= Otros
+
+read and write
+= lectura y escritura
+
+read only
+= solo lectura
+
+write only
+= solo escritura
+
+no access
+= sin acceso
+
+Cannot open {}: {}
+= No se puede abrir {}: {}
+
+Settings were not saved: {}
+= No se guardaron los ajustes: {}
+
+{} and {} more failed
+= {} y {} más fallaron
+
+{} does not exist
+= {} no existe
+
+Cut {}
+= {} cortados
+
+Copied {}
+= {} copiados
+
+{} of {} selected
+= {} de {} seleccionados
+
+{} of {} selected, {}
+= {} de {} seleccionados, {}
+
+{} free
+= {} libres
+
+{} will go.
+= {} se eliminará.

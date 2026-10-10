@@ -2696,3 +2696,441 @@ This computer
 
 No batteries found
 = Aucune batterie trouvée
+
+File
+= Fichier
+
+View
+= Présentation
+
+Go
+= Aller
+
+Help
+= Aide
+
+Home
+= Dossier personnel
+
+This folder cannot be opened
+= Ce dossier ne peut pas être ouvert
+
+The Trash is empty
+= La corbeille est vide
+
+This folder is empty
+= Ce dossier est vide
+
+Empty
+= Vide
+
+Modified
+= Modifié
+
+Where
+= Emplacement
+
+General
+= Général
+
+Views
+= Présentations
+
+Sidebar
+= Barre latérale
+
+Advanced
+= Avancé
+
+Files and folders, made for Drifter.
+= Fichiers et dossiers, conçu pour Drifter.
+
+Delete
+= Supprimer
+
+Done
+= Terminé
+
+bytes
+= octets
+
+Kind
+= Type
+
+Access
+= Accès
+
+Points to
+= Pointe vers
+
+Keyboard Shortcuts
+= Raccourcis clavier
+
+Enclosing Folder
+= Dossier parent
+
+Back and forward
+= Précédent et suivant
+
+Type a path
+= Saisir un chemin
+
+Move to Trash
+= Mettre à la corbeille
+
+Delete Forever
+= Supprimer définitivement
+
+Copy, cut and paste
+= Copier, couper et coller
+
+Duplicate
+= Dupliquer
+
+Undo
+= Annuler
+
+New Folder
+= Nouveau dossier
+
+Change the view
+= Changer de présentation
+
+Zoom
+= Zoom
+
+Show Hidden Files
+= Afficher les fichiers cachés
+
+Get Info
+= Lire les informations
+
+Opening
+= Ouverture
+
+New windows open
+= Les nouvelles fenêtres ouvrent
+
+Last folder
+= Dernier dossier
+
+Open items with
+= Ouvrir les éléments avec
+
+A single click opens at once
+= Un seul clic ouvre aussitôt
+
+Double click
+= Double clic
+
+Single click
+= Simple clic
+
+Show hidden files
+= Afficher les fichiers cachés
+
+Names that start with a dot
+= Noms qui commencent par un point
+
+Ask before Move to Trash
+= Demander avant de mettre à la corbeille
+
+Default view
+= Présentation par défaut
+
+Show folders as
+= Afficher les dossiers en
+
+Show previews
+= Afficher les aperçus
+
+Pictures, videos and PDFs show what is inside
+= Images, vidéos et PDF montrent leur contenu
+
+Sort by
+= Trier par
+
+Folders first
+= Dossiers en premier
+
+Reverse order
+= Ordre inverse
+
+Home, Documents, Downloads and more
+= Dossier personnel, Documents, Téléchargements et plus
+
+Folder tree
+= Arborescence
+
+Tree starts at
+= L’arborescence part de
+
+Drives
+= Disques
+
+This computer and plugged in disks
+= Cet ordinateur et les disques branchés
+
+Status bar
+= Barre d’état
+
+Item count and free space
+= Nombre d’éléments et espace libre
+
+List columns
+= Colonnes de la liste
+
+Dates
+= Dates
+
+Friendly
+= Simples
+
+Exact
+= Exactes
+
+Open in Terminal uses
+= Ouvrir dans un terminal utilise
+
+Image
+= Image
+
+Audio
+= Audio
+
+PDF document
+= Document PDF
+
+Archive
+= Archive
+
+Document
+= Document
+
+1 item
+= 1 élément
+
+1 byte
+= 1 octet
+
+{} items
+= {} éléments
+
+{} bytes
+= {} octets
+
+Today {}
+= Aujourd’hui {}
+
+Yesterday {}
+= Hier {}
+
+List
+= Liste
+
+Icons
+= Icônes
+
+Columns
+= Colonnes
+
+Gallery
+= Galerie
+
+Emptying the Trash
+= Vidage de la corbeille
+
+Undoing
+= Annulation
+
+A folder cannot go inside itself
+= Un dossier ne peut pas aller dans lui-même
+
+copy
+= copie
+
+A name cannot be empty
+= Un nom ne peut pas être vide
+
+A name cannot hold a slash
+= Un nom ne peut pas contenir de barre oblique
+
+This item has no folder
+= Cet élément n’a pas de dossier
+
+untitled folder
+= dossier sans titre
+
+untitled
+= sans titre
+
+Its first place is not known
+= Son emplacement d’origine est inconnu
+
+Copying {}
+= Copie de {}
+
+Moving {}
+= Déplacement de {}
+
+Moving {} to the Trash
+= Mise à la corbeille de {}
+
+Deleting {}
+= Suppression de {}
+
+Putting back {}
+= Restauration de {}
+
+{} already exists here
+= {} existe déjà ici
+
+Documents
+= Documents
+
+Downloads
+= Téléchargements
+
+Videos
+= Vidéos
+
+Folders
+= Dossiers
+
+Put items back before you open them
+= Restaurez les éléments avant de les ouvrir
+
+Move to Trash?
+= Mettre à la corbeille ?
+
+This cannot be undone.
+= Cette action est irréversible.
+
+Delete forever?
+= Supprimer définitivement ?
+
+Empty the Trash?
+= Vider la corbeille ?
+
+Everything in the Trash is deleted forever.
+= Tout le contenu de la corbeille est supprimé définitivement.
+
+Nothing to undo
+= Rien à annuler
+
+Path copied
+= Chemin copié
+
+No terminal app is installed
+= Aucun terminal n’est installé
+
+New Text File
+= Nouveau fichier texte
+
+Open With
+= Ouvrir avec
+
+Open in Terminal
+= Ouvrir dans un terminal
+
+Put Back
+= Remettre
+
+Close Window
+= Fermer la fenêtre
+
+Cut
+= Couper
+
+Paste
+= Coller
+
+Select All
+= Tout sélectionner
+
+Copy Path
+= Copier le chemin
+
+Sort By
+= Trier par
+
+Zoom In
+= Agrandir
+
+Zoom Out
+= Réduire
+
+Show Sidebar
+= Afficher la barre latérale
+
+Show Status Bar
+= Afficher la barre d’état
+
+Reload
+= Actualiser
+
+Forward
+= Suivant
+
+Go to Folder
+= Aller au dossier
+
+About Explorer
+= À propos d’Explorer
+
+Open in New Window
+= Ouvrir dans une nouvelle fenêtre
+
+Paste Into Folder
+= Coller dans le dossier
+
+You
+= Vous
+
+Group
+= Groupe
+
+Others
+= Autres
+
+read and write
+= lecture et écriture
+
+read only
+= lecture seule
+
+write only
+= écriture seule
+
+no access
+= aucun accès
+
+Cannot open {}: {}
+= Impossible d’ouvrir {} : {}
+
+Settings were not saved: {}
+= Les réglages n’ont pas été enregistrés : {}
+
+{} and {} more failed
+= {} et {} autres ont échoué
+
+{} does not exist
+= {} n’existe pas
+
+Cut {}
+= {} coupés
+
+Copied {}
+= {} copiés
+
+{} of {} selected
+= {} sur {} sélectionnés
+
+{} of {} selected, {}
+= {} sur {} sélectionnés, {}
+
+{} free
+= {} libres
+
+{} will go.
+= {} va disparaître.

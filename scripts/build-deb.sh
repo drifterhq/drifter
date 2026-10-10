@@ -5,3 +5,4 @@ here=$(cd "$(dirname "$0")/.." && pwd)
 cd "$here"
 cargo build --release --workspace
 cargo deb -p drifter --no-build
+cargo deb -p drifter-explorer --no-build

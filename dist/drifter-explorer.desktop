@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Explorer
+GenericName=File Manager
+Comment=Browse, open and move your files and folders
+Exec=drifter-explorer %U
+Icon=system-file-manager
+Categories=System;FileTools;FileManager;Utility;
+Keywords=files;folders;file manager;browse;explorer;
+MimeType=inode/directory;
+StartupWMClass=drifter-explorer

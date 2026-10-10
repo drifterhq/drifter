@@ -16,6 +16,7 @@ pub mod dress;
 pub mod dock;
 pub mod drawer;
 pub mod exec;
+pub mod explorer;
 pub mod fnkey;
 pub mod folders;
 pub mod frost;

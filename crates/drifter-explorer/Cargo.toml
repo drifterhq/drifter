@@ -1,0 +1,27 @@
+[package]
+name = "drifter-explorer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "A file manager made for Drifter"
+
+[dependencies]
+drifter-core.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+smithay-client-toolkit = { version = "0.19", default-features = false, features = ["calloop", "xkbcommon"] }
+wayland-client = "0.31"
+
+[package.metadata.deb]
+name = "drifter-explorer"
+maintainer = "donuts-are-good <96031819+donuts-are-good@users.noreply.github.com>"
+copyright = "donuts-are-good"
+extended-description = "A file manager made for Drifter: a folder tree, a path bar, list, icon, column and gallery views, and the Trash."
+section = "utils"
+priority = "optional"
+depends = "$auto"
+recommends = "ffmpegthumbnailer, poppler-utils, wl-clipboard"
+assets = [
+    ["target/release/drifter-explorer", "usr/bin/", "755"],
+    ["../../dist/drifter-explorer.desktop", "usr/share/applications/", "644"],
+]

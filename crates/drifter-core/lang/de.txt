@@ -2699,3 +2699,441 @@ This computer
 
 No batteries found
 = Keine Akkus gefunden
+
+File
+= Datei
+
+View
+= Ansicht
+
+Go
+= Gehe zu
+
+Help
+= Hilfe
+
+Home
+= Persönlicher Ordner
+
+This folder cannot be opened
+= Dieser Ordner kann nicht geöffnet werden
+
+The Trash is empty
+= Der Papierkorb ist leer
+
+This folder is empty
+= Dieser Ordner ist leer
+
+Empty
+= Leer
+
+Modified
+= Geändert
+
+Where
+= Ort
+
+General
+= Allgemein
+
+Views
+= Ansichten
+
+Sidebar
+= Seitenleiste
+
+Advanced
+= Erweitert
+
+Files and folders, made for Drifter.
+= Dateien und Ordner, gemacht für Drifter.
+
+Delete
+= Löschen
+
+Done
+= Fertig
+
+bytes
+= Byte
+
+Kind
+= Art
+
+Access
+= Zugriff
+
+Points to
+= Zeigt auf
+
+Keyboard Shortcuts
+= Tastenkürzel
+
+Enclosing Folder
+= Übergeordneter Ordner
+
+Back and forward
+= Zurück und vor
+
+Type a path
+= Pfad eingeben
+
+Move to Trash
+= In den Papierkorb
+
+Delete Forever
+= Endgültig löschen
+
+Copy, cut and paste
+= Kopieren, ausschneiden und einfügen
+
+Duplicate
+= Duplizieren
+
+Undo
+= Rückgängig
+
+New Folder
+= Neuer Ordner
+
+Change the view
+= Ansicht wechseln
+
+Zoom
+= Zoomen
+
+Show Hidden Files
+= Versteckte Dateien zeigen
+
+Get Info
+= Informationen
+
+Opening
+= Öffnen
+
+New windows open
+= Neue Fenster öffnen
+
+Last folder
+= Letzter Ordner
+
+Open items with
+= Objekte öffnen mit
+
+A single click opens at once
+= Ein Klick öffnet sofort
+
+Double click
+= Doppelklick
+
+Single click
+= Einfachklick
+
+Show hidden files
+= Versteckte Dateien zeigen
+
+Names that start with a dot
+= Namen, die mit einem Punkt beginnen
+
+Ask before Move to Trash
+= Vor dem Papierkorb nachfragen
+
+Default view
+= Standardansicht
+
+Show folders as
+= Ordner zeigen als
+
+Show previews
+= Vorschauen zeigen
+
+Pictures, videos and PDFs show what is inside
+= Bilder, Videos und PDFs zeigen ihren Inhalt
+
+Sort by
+= Sortieren nach
+
+Folders first
+= Ordner zuerst
+
+Reverse order
+= Umgekehrte Reihenfolge
+
+Home, Documents, Downloads and more
+= Persönlicher Ordner, Dokumente, Downloads und mehr
+
+Folder tree
+= Ordnerbaum
+
+Tree starts at
+= Baum beginnt bei
+
+Drives
+= Laufwerke
+
+This computer and plugged in disks
+= Dieser Computer und angeschlossene Laufwerke
+
+Status bar
+= Statusleiste
+
+Item count and free space
+= Anzahl der Objekte und freier Speicher
+
+List columns
+= Listenspalten
+
+Dates
+= Datum
+
+Friendly
+= Einfach
+
+Exact
+= Genau
+
+Open in Terminal uses
+= Im Terminal öffnen nutzt
+
+Image
+= Bild
+
+Audio
+= Audio
+
+PDF document
+= PDF-Dokument
+
+Archive
+= Archiv
+
+Document
+= Dokument
+
+1 item
+= 1 Objekt
+
+1 byte
+= 1 Byte
+
+{} items
+= {} Objekte
+
+{} bytes
+= {} Byte
+
+Today {}
+= Heute {}
+
+Yesterday {}
+= Gestern {}
+
+List
+= Liste
+
+Icons
+= Symbole
+
+Columns
+= Spalten
+
+Gallery
+= Galerie
+
+Emptying the Trash
+= Papierkorb wird geleert
+
+Undoing
+= Wird rückgängig gemacht
+
+A folder cannot go inside itself
+= Ein Ordner kann nicht in sich selbst
+
+copy
+= Kopie
+
+A name cannot be empty
+= Ein Name darf nicht leer sein
+
+A name cannot hold a slash
+= Ein Name darf keinen Schrägstrich enthalten
+
+This item has no folder
+= Dieses Objekt hat keinen Ordner
+
+untitled folder
+= Unbenannter Ordner
+
+untitled
+= Unbenannt
+
+Its first place is not known
+= Der ursprüngliche Ort ist unbekannt
+
+Copying {}
+= {} werden kopiert
+
+Moving {}
+= {} werden verschoben
+
+Moving {} to the Trash
+= {} werden in den Papierkorb gelegt
+
+Deleting {}
+= {} werden gelöscht
+
+Putting back {}
+= {} werden zurückgelegt
+
+{} already exists here
+= {} gibt es hier schon
+
+Documents
+= Dokumente
+
+Downloads
+= Downloads
+
+Videos
+= Videos
+
+Folders
+= Ordner
+
+Put items back before you open them
+= Lege Objekte zurück, bevor du sie öffnest
+
+Move to Trash?
+= In den Papierkorb legen?
+
+This cannot be undone.
+= Das kann nicht rückgängig gemacht werden.
+
+Delete forever?
+= Endgültig löschen?
+
+Empty the Trash?
+= Papierkorb leeren?
+
+Everything in the Trash is deleted forever.
+= Alles im Papierkorb wird endgültig gelöscht.
+
+Nothing to undo
+= Nichts rückgängig zu machen
+
+Path copied
+= Pfad kopiert
+
+No terminal app is installed
+= Kein Terminal ist installiert
+
+New Text File
+= Neue Textdatei
+
+Open With
+= Öffnen mit
+
+Open in Terminal
+= Im Terminal öffnen
+
+Put Back
+= Zurücklegen
+
+Close Window
+= Fenster schließen
+
+Cut
+= Ausschneiden
+
+Paste
+= Einfügen
+
+Select All
+= Alles auswählen
+
+Copy Path
+= Pfad kopieren
+
+Sort By
+= Sortieren nach
+
+Zoom In
+= Vergrößern
+
+Zoom Out
+= Verkleinern
+
+Show Sidebar
+= Seitenleiste zeigen
+
+Show Status Bar
+= Statusleiste zeigen
+
+Reload
+= Neu laden
+
+Forward
+= Vor
+
+Go to Folder
+= Gehe zu Ordner
+
+About Explorer
+= Über Explorer
+
+Open in New Window
+= In neuem Fenster öffnen
+
+Paste Into Folder
+= In Ordner einfügen
+
+You
+= Du
+
+Group
+= Gruppe
+
+Others
+= Andere
+
+read and write
+= lesen und schreiben
+
+read only
+= nur lesen
+
+write only
+= nur schreiben
+
+no access
+= kein Zugriff
+
+Cannot open {}: {}
+= {} kann nicht geöffnet werden: {}
+
+Settings were not saved: {}
+= Einstellungen wurden nicht gespeichert: {}
+
+{} and {} more failed
+= {} und {} weitere sind fehlgeschlagen
+
+{} does not exist
+= {} gibt es nicht
+
+Cut {}
+= {} ausgeschnitten
+
+Copied {}
+= {} kopiert
+
+{} of {} selected
+= {} von {} ausgewählt
+
+{} of {} selected, {}
+= {} von {} ausgewählt, {}
+
+{} free
+= {} frei
+
+{} will go.
+= {} wird entfernt.
