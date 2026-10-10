@@ -50,11 +50,21 @@ const DOUBLE: Duration = Duration::from_millis(420);
 const POP: Duration = Duration::from_millis(140);
 const SWAP: Duration = Duration::from_millis(160);
 const GLOW: Duration = Duration::from_millis(120);
+const GLIDE: Duration = Duration::from_millis(150);
+const WHEEL_STEP: f64 = 48.0;
 
 static SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
 
 fn scale() -> u32 {
     SCALE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+struct Glide {
+    side: bool,
+    from: f64,
+    to: f64,
+    shown: f64,
+    since: Instant,
 }
 
 struct Fade {
@@ -131,6 +141,7 @@ struct Explorer {
     pop_at: Option<Instant>,
     swap: Option<(Image, Instant, Duration)>,
     fade: Option<Fade>,
+    glide: Option<Glide>,
     picks: usize,
     clicked: bool,
     fonts: (Font, Font, Font),
@@ -327,6 +338,7 @@ pub fn run() -> Result<(), String> {
         pop_at: None,
         swap: None,
         fade: None,
+        glide: None,
         picks: 0,
         clicked: false,
         fonts,
@@ -349,6 +361,9 @@ pub fn run() -> Result<(), String> {
             .dispatch(app.busy().then_some(SETTLE), &mut app)
             .map_err(|e| format!("event loop: {e}"))?;
         app.animate();
+        if app.frame_free() {
+            app.glide();
+        }
         if app.configured && (std::mem::take(&mut app.resized) || (app.busy() && app.frame_free())) {
             app.draw();
         }
@@ -679,7 +694,35 @@ impl Explorer {
     }
 
     fn busy(&self) -> bool {
-        self.stale || self.dirty.is_some() || !self.shifts.is_empty() || self.fade.is_some()
+        self.stale || self.dirty.is_some() || !self.shifts.is_empty() || self.fade.is_some() || self.glide.is_some()
+    }
+
+    fn glide(&mut self) {
+        let Some(glide) = self.glide.as_mut() else {
+            return;
+        };
+        let now = match glide.side {
+            true => self.model.tree_scroll,
+            false => self.model.scroll,
+        };
+        if now != glide.shown {
+            self.glide = None;
+            return;
+        }
+        let t = drifter_core::explorer::look::ease(glide.since.elapsed().as_secs_f64() / GLIDE.as_secs_f64());
+        let dense = f64::from(scale());
+        let next = ((glide.from + (glide.to - glide.from) * t) * dense).round() / dense;
+        if next != now {
+            match glide.side {
+                true => self.model.tree_scroll = next,
+                false => self.model.scroll = next,
+            }
+            self.shifts.push((next - now, glide.side));
+            glide.shown = next;
+        }
+        if t >= 1.0 {
+            self.glide = None;
+        }
     }
 
     fn picks_key(&self) -> usize {
@@ -1020,18 +1063,46 @@ impl PointerHandler for Explorer {
                 }
                 PointerEventKind::Axis { horizontal, vertical, .. } => {
                     let ctrl = self.mods.ctrl;
-                    let (dx, dy) = (horizontal.absolute, vertical.absolute);
+                    let wheel = vertical.discrete != 0 || horizontal.discrete != 0;
+                    let (dx, dy) = match wheel {
+                        true => (f64::from(horizontal.discrete) * WHEEL_STEP, f64::from(vertical.discrete) * WHEEL_STEP),
+                        false => (horizontal.absolute, vertical.absolute),
+                    };
+                    let shown = (self.model.scroll, self.model.tree_scroll);
+                    if let Some(glide) = &self.glide {
+                        match glide.side {
+                            true => self.model.tree_scroll = glide.to,
+                            false => self.model.scroll = glide.to,
+                        }
+                    }
                     let before = (self.model.scroll, self.model.tree_scroll, self.model.prefs.zoom, self.model.view.mode);
                     if self.model.tip.is_some() {
                         self.stale = true;
                     }
-                    if self.with_ui(|model, ui, lines| input::scroll(model, ui, lines, at, dx, dy, ctrl)) {
-                        let (body, side) = (self.model.scroll - before.0, self.model.tree_scroll - before.1);
-                        let plain = self.model.prefs.zoom == before.2 && self.model.view.mode == before.3;
-                        match (plain, body != 0.0, side != 0.0) {
-                            (true, true, false) => self.shifts.push((body, false)),
-                            (true, false, true) => self.shifts.push((side, true)),
-                            _ => self.stale = true,
+                    let moved = self.with_ui(|model, ui, lines| input::scroll(model, ui, lines, at, dx, dy, ctrl));
+                    let (body, side) = (self.model.scroll - before.0, self.model.tree_scroll - before.1);
+                    let plain = self.model.prefs.zoom == before.2 && self.model.view.mode == before.3;
+                    let side_glide = self.glide.as_ref().map(|glide| glide.side);
+                    match (moved, plain, body != 0.0, side != 0.0) {
+                        (true, true, true, false) if wheel && side_glide != Some(true) => {
+                            let to = self.model.scroll;
+                            self.model.scroll = shown.0;
+                            self.glide = Some(Glide { side: false, from: shown.0, to, shown: shown.0, since: Instant::now() });
+                        }
+                        (true, true, false, true) if wheel && side_glide != Some(false) => {
+                            let to = self.model.tree_scroll;
+                            self.model.tree_scroll = shown.1;
+                            self.glide = Some(Glide { side: true, from: shown.1, to, shown: shown.1, since: Instant::now() });
+                        }
+                        _ => {
+                            self.glide = None;
+                            let (body, side) = (self.model.scroll - shown.0, self.model.tree_scroll - shown.1);
+                            match (plain, body != 0.0, side != 0.0) {
+                                (_, false, false) => {}
+                                (true, true, false) => self.shifts.push((body, false)),
+                                (true, false, true) => self.shifts.push((side, true)),
+                                _ => self.stale = true,
+                            }
                         }
                     }
                 }

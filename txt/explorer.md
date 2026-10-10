@@ -131,6 +131,7 @@ Later steps build on these.
     - Built: when the hover moves, the window keeps the old and the new pixels of the repainted area and blends them over 120 ms (`Fade` in window.rs), so a hover glows in and out without painting again. A tooltip fades in the same way. Menus and drags stay instant. Any full repaint or scroll first puts the final pixels back, so nothing is left half faded. A click that changes the picked items crossfades the frame over 120 ms; picks from the keyboard stay instant so fast arrow keys do not smear. Checked on the trixie VM: after sweeping the pointer over the rows only the row under it was lit, and a click picked Music cleanly.
 35. Animation: scrolling does not glide.
     Waits on: 2.
+    - Built: a mouse wheel click (a discrete axis step) now moves 48 px and glides there over 150 ms with an ease-out (`Glide` in window.rs). Each frame moves the view by whole pixels through the same blit shifts as plain scrolling, so it costs no full repaint. More clicks during a glide add to its target. Touchpad scrolling stays direct. Any other change to the scroll (keys, the rail, the other pane) ends the glide at once. Checked on the trixie VM in a folder of 200 files: three clicks down showed file007 at the top, one click up file005, with clean frames.
 36. Gallery: the strip has no names.
     Waits on: nothing.
 37. Gallery: small pictures look tiny in the big preview.
