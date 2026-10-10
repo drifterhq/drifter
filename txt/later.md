@@ -4,7 +4,7 @@ Work that is not yet done, after the 2026-10-01 daily-driver list. Done items le
 
 ## Must, before daily use
 
-- Run Drifter on bare metal: the RTX 5060 box on the proprietary NVIDIA driver. Check smoothness, real input, the touchpad, monitor hotplug, VT switching and the night light, which the VM cannot show. Fix what breaks. Nothing here has run outside the VM. The card is Blackwell, so it likely needs driver 570 or newer, from trixie backports or NVIDIA's own repo.
+- Bare metal: on 2026-10-09 Drifter ran on the RTX 5060 box. It is smooth, and the touchpad and everything tried so far work. Still to check there: monitor hotplug, VT switching, the night light, and media keys (volume, brightness).
 - A signed apt repo on GitHub Pages, so `apt install drifter` and `apt upgrade` work. The `.deb` itself is done: `scripts/build-deb.sh`.
 - Ship xwayland-satellite in the repo if trixie does not have it, so X11 apps work.
 
@@ -28,7 +28,8 @@ The 2026-10-05 and 2026-10-07 work ran on the VM, with fake radios, and partly o
 
 ## Reach
 
-- HDR output. smithay 0.7 has no color management protocol, and no HDR screen is here to test on.
+- HDR output is built: the desktop goes out as BT.2020 PQ, with white at a chosen brightness. Check it on the workstation's LG (HDMI-A-1): white as bright as SDR, normal color, the monitor says HDR. On AMD and Intel it falls back to a PQ gamma table, untested.
+- HDR for apps: wp_color_management_v1, so video players and games can send HDR frames. smithay 0.7 does not have it.
 
 ## Deferred
 
