@@ -351,7 +351,7 @@ impl Explorer {
         if self.model.tick() {
             self.after();
         }
-        if !self.model.saved && self.model.dragging.is_none() && self.model.sheet.is_none() {
+        if self.model.unsaved() && self.model.dragging.is_none() && self.model.sheet.is_none() {
             self.model.save();
         }
     }
@@ -730,10 +730,10 @@ impl PointerHandler for Explorer {
                 PointerEventKind::Axis { horizontal, vertical, .. } => {
                     let ctrl = self.mods.ctrl;
                     let (dx, dy) = (horizontal.absolute, vertical.absolute);
-                    let before = (self.model.scroll, self.model.tree_scroll, self.model.prefs.zoom, self.model.prefs.mode);
+                    let before = (self.model.scroll, self.model.tree_scroll, self.model.prefs.zoom, self.model.view.mode);
                     if self.with_ui(|model, ui, lines| input::scroll(model, ui, lines, at, dx, dy, ctrl)) {
                         let (body, side) = (self.model.scroll - before.0, self.model.tree_scroll - before.1);
-                        let plain = self.model.prefs.zoom == before.2 && self.model.prefs.mode == before.3;
+                        let plain = self.model.prefs.zoom == before.2 && self.model.view.mode == before.3;
                         match (plain, body != 0.0, side != 0.0) {
                             (true, true, false) => self.shifts.push((body, false)),
                             (true, false, true) => self.shifts.push((side, true)),

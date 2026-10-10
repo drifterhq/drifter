@@ -319,7 +319,7 @@ impl Look {
     }
 
     fn zoom_rect(&self, status: Rect, model: &Model, fonts: &Fonts) -> Option<Rect> {
-        if model.prefs.mode != Mode::Icons {
+        if model.view.mode != Mode::Icons {
             return None;
         }
         let free = model.free_words().map_or(0.0, |words| fonts.small.width_of(&words) + 24.0);
@@ -361,7 +361,7 @@ impl Look {
 
     pub fn entry_rect(&self, frame: &Frame, model: &Model, at: usize) -> Option<Rect> {
         let body = frame.body;
-        match model.prefs.mode {
+        match model.view.mode {
             Mode::List => Some(rect(body.origin.x + 8.0, body.origin.y + HEAD_H + at as f64 * ROW_H - model.scroll, body.size.x - 16.0, ROW_H)),
             Mode::Icons => {
                 let (cols, cell, left) = self.grid(body, model);
@@ -379,7 +379,7 @@ impl Look {
 
     pub fn content_height(&self, frame: &Frame, model: &Model) -> f64 {
         let count = model.entries.len();
-        match model.prefs.mode {
+        match model.view.mode {
             Mode::List => HEAD_H + count as f64 * ROW_H + 8.0,
             Mode::Icons => {
                 let (cols, cell, _) = self.grid(frame.body, model);
@@ -552,7 +552,7 @@ impl Look {
         if !body.contains(at) {
             return None;
         }
-        match model.prefs.mode {
+        match model.view.mode {
             Mode::List => {
                 if at.y < body.origin.y + HEAD_H {
                     let (name, extra) = self.list_widths(body, model);
@@ -845,7 +845,7 @@ impl Look {
         }
         self.paint_search(canvas, self.search_rect(bar), model, fonts);
         for (mode, area) in self.view_rects(bar) {
-            let on = model.prefs.mode == mode;
+            let on = model.view.mode == mode;
             let hot = model.hover == Some(Hit::Show(mode));
             self.button(canvas, rect(area.origin.x + 1.0, area.origin.y, area.size.x - 2.0, area.size.y), hot, on);
             let ink = if on { self.on_accent } else { self.ink };
@@ -1203,13 +1203,13 @@ impl Look {
             self.text_center(&mut piece, job.fonts.title, crate::lang::t("This folder cannot be opened"), self.ink, local.center() - Vec2::new(0.0, 14.0), local.size.x - 40.0);
             self.text_center(&mut piece, job.fonts.body, trouble, self.dim, local.center() + Vec2::new(0.0, 14.0), local.size.x - 40.0);
         } else {
-            match model.prefs.mode {
+            match model.view.mode {
                 Mode::List => self.paint_list(&mut piece, &shifted, job),
                 Mode::Icons => self.paint_icons(&mut piece, &shifted, job),
                 Mode::Columns => self.paint_columns(&mut piece, &shifted, job),
                 Mode::Gallery => self.paint_gallery(&mut piece, &shifted, job),
             }
-            if model.entries.is_empty() && model.prefs.mode != Mode::Columns {
+            if model.entries.is_empty() && model.view.mode != Mode::Columns {
                 let hunting = model.search.as_ref().filter(|_| model.searching()).map(|search| search.done);
                 let words = match (model.loading.is_some(), super::ops::in_trash(&model.dir)) {
                     _ if hunting == Some(false) => Some(crate::lang::t("Searching…")),
@@ -1306,7 +1306,7 @@ impl Look {
             let mut heads = vec![(Sort::Name, name_w)];
             heads.extend(extra.iter().copied());
             for (sort, w) in heads {
-                let on = model.prefs.sort == sort;
+                let on = model.view.sort == sort;
                 let hot = model.hover == Some(Hit::Head(sort));
                 if hot {
                     canvas.round_rect(rect(x + 2.0, 3.0, w - 4.0, top - 7.0), 5.0, self.hover, 0.6);
@@ -1327,7 +1327,7 @@ impl Look {
                 if on {
                     let ax = if sort == Sort::Size { lx - 10.0 } else { lx + size.x + 8.0 };
                     let c = Vec2::new(ax, top / 2.0);
-                    let corners = match model.prefs.down {
+                    let corners = match model.view.down {
                         false => [c + Vec2::new(-3.5, 2.0), c + Vec2::new(3.5, 2.0), c + Vec2::new(0.0, -2.5)],
                         true => [c + Vec2::new(-3.5, -2.0), c + Vec2::new(3.5, -2.0), c + Vec2::new(0.0, 2.5)],
                     };
@@ -1682,7 +1682,7 @@ impl Look {
                 Some(side) => side,
                 None => return Err(before),
             },
-            false => match model.prefs.mode {
+            false => match model.view.mode {
                 Mode::List => rect(frame.body.origin.x, frame.body.origin.y + HEAD_H, frame.body.size.x, frame.body.size.y - HEAD_H),
                 Mode::Icons => frame.body,
                 _ => return Err(before),
@@ -1856,7 +1856,7 @@ impl Look {
             (None, None) => (model.summary(), self.dim),
         };
         let free = model.free_words();
-        let right_room = free.as_ref().map_or(0.0, |words| fonts.small.width_of(words) + 24.0) + if model.prefs.mode == Mode::Icons { ZOOM_W + 50.0 } else { 0.0 };
+        let right_room = free.as_ref().map_or(0.0, |words| fonts.small.width_of(words) + 24.0) + if model.view.mode == Mode::Icons { ZOOM_W + 50.0 } else { 0.0 };
         self.text(canvas, fonts.small, &words, ink, Vec2::new(12.0, middle), status.size.x - right_room - 24.0);
         if let Some(free) = &free {
             self.text_right(canvas, fonts.small, free, self.dim, status.size.x - 12.0, middle);
@@ -2561,7 +2561,7 @@ mod repaint_tests {
         for density in [1, 2] {
             crate::paint::set_density(density);
             for mode in [Mode::List, Mode::Icons] {
-                model.prefs.mode = mode;
+                model.view.mode = mode;
                 let pairs = [(None, Some(Hit::Entry(3))), (Some(Hit::Entry(3)), Some(Hit::Entry(4))), (Some(Hit::Entry(4)), Some(Hit::Line(2))), (Some(Hit::Line(2)), Some(Hit::Head(Sort::Name))), (Some(Hit::Head(Sort::Name)), Some(Hit::Gear)), (Some(Hit::Gear), Some(Hit::Crumb(0))), (Some(Hit::Crumb(0)), Some(Hit::CrumbArrow(1))), (Some(Hit::CrumbArrow(1)), None)];
                 for (was, now) in pairs {
                     model.hover = was.clone();
@@ -2579,11 +2579,33 @@ mod repaint_tests {
                 }
             }
         }
+        model.view.mode = Mode::List;
+        model.new_tab(dir.join("work/inner"), false);
+        model.new_tab(dir.join("work/inner"), false);
+        for density in [1, 2] {
+            crate::paint::set_density(density);
+            let pairs = [(None, Some(Hit::Tab(1))), (Some(Hit::Tab(1)), Some(Hit::TabClose(1))), (Some(Hit::TabClose(1)), Some(Hit::Tab(2))), (Some(Hit::Tab(2)), Some(Hit::TabNew)), (Some(Hit::TabNew), Some(Hit::Tab(0))), (Some(Hit::Tab(0)), Some(Hit::Entry(2))), (Some(Hit::Entry(2)), None)];
+            for (was, now) in pairs {
+                model.hover = was.clone();
+                let lines = model.lines();
+                let before = look.paint(size, &Paint { model: &model, lines: &lines, fonts: &fonts, art: &art, clip: None });
+                let mut area: Option<Rect> = None;
+                for hit in [&was, &now].into_iter().flatten() {
+                    let found = look.hover_rect(size, &model, &lines, &fonts, hit).expect("a hover rect");
+                    area = Some(area.map_or(found, |had| join(had, found)));
+                }
+                model.hover = now.clone();
+                let part = look.repaint(before, size, &Paint { model: &model, lines: &lines, fonts: &fonts, art: &art, clip: area });
+                let whole = look.paint(size, &Paint { model: &model, lines: &lines, fonts: &fonts, art: &art, clip: None });
+                assert!(same(&part, &whole), "tabs at {density}x: {was:?} -> {now:?}");
+            }
+        }
+        model.act(super::super::model::Act::CloseOtherTabs(0));
         let mut blits = 0;
         for density in [1, 2] {
             crate::paint::set_density(density);
             for (mode, side) in [(Mode::List, false), (Mode::Icons, false), (Mode::List, true)] {
-                model.prefs.mode = mode;
+                model.view.mode = mode;
                 model.hover = None;
                 for (from, to) in [(0.0, 26.0), (26.0, 13.0), (13.0, 200.0), (200.0, 0.0)] {
                     let set = |model: &mut Model, at: f64| match side {

@@ -71,6 +71,7 @@ Later steps build on these.
     - Built: the window size and the maximized state are saved (window_size, maximized in explorer.toml) and used for the next window. Sizes from tiled, maximized or full-screen windows are not saved, so the free size stays. Bad sizes in the file are ignored. Checked on Blue: a floating window resized to 896×591 opened again at 896×591. Left: check maximize under Drifter's own frame.
 18. A different view for each folder.
     Waits on: nothing.
+    - Built: each folder remembers its own view and sort (in explorer-views.toml, up to 1000 folders). Folders with none use the default view from Settings, and a change there moves them too. Columns view stays on while you browse, as in Finder. Each tab keeps its own view. Two windows saving at once merge, not overwrite. A hover on the tab bar repaints only that area, checked pixel for pixel. Checked on Blue: demo in Icons, Pictures in List, and Back brings Icons again.
 
 ## Phase 6: Mouse and keyboard
 

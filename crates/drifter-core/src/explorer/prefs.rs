@@ -84,6 +84,52 @@ pub struct Prefs {
     pub maximized: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct View {
+    pub mode: Mode,
+    pub sort: Sort,
+    pub down: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct Saved {
+    path: PathBuf,
+    #[serde(flatten)]
+    view: View,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct Views {
+    #[serde(default)]
+    folder: Vec<Saved>,
+}
+
+pub const MOST_VIEWS: usize = 1000;
+
+pub fn views_path(prefs: &Path) -> PathBuf {
+    prefs.with_file_name("explorer-views.toml")
+}
+
+pub fn load_views(path: &Path) -> Vec<(PathBuf, View)> {
+    let read = std::fs::read_to_string(path).ok().and_then(|text| toml::from_str::<Views>(&text).ok()).unwrap_or_default();
+    let mut views: Vec<(PathBuf, View)> = read.folder.into_iter().map(|saved| (saved.path, saved.view)).collect();
+    if views.len() > MOST_VIEWS {
+        views.drain(..views.len() - MOST_VIEWS);
+    }
+    views
+}
+
+pub fn save_views(path: &Path, views: &[(PathBuf, View)]) -> Result<(), String> {
+    let out = Views { folder: views.iter().map(|(path, view)| Saved { path: path.clone(), view: *view }).collect() };
+    let text = toml::to_string(&out).map_err(|error| error.to_string())?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|error| error.to_string())?;
+    }
+    let spare = path.with_extension("toml.new");
+    std::fs::write(&spare, text).map_err(|error| error.to_string())?;
+    std::fs::rename(&spare, path).map_err(|error| error.to_string())
+}
+
 pub const LEAST_ZOOM: u32 = 32;
 pub const MOST_ZOOM: u32 = 256;
 pub const LEAST_TREE: u32 = 150;
@@ -123,6 +169,10 @@ impl Default for Prefs {
 impl Prefs {
     pub fn path() -> PathBuf {
         crate::Config::config_path().with_file_name("explorer.toml")
+    }
+
+    pub fn view(&self) -> View {
+        View { mode: self.mode, sort: self.sort, down: self.down }
     }
 
     pub fn load_from(path: &Path) -> Prefs {

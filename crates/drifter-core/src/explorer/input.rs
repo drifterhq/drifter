@@ -526,7 +526,7 @@ pub fn scroll(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, dx: f64, dy:
         }
         return before != model.prefs.zoom;
     }
-    match model.prefs.mode {
+    match model.view.mode {
         Mode::List | Mode::Icons => {
             let most = ui.look.most_scroll(&frame, model).ceil();
             let before = model.scroll;
@@ -563,12 +563,12 @@ pub fn show_focus(model: &mut Model, ui: &Ui) {
     let Some(at) = model.focus_index() else {
         return;
     };
-    match model.prefs.mode {
+    match model.view.mode {
         Mode::List | Mode::Icons => {
             let Some(area) = ui.look.entry_rect(&frame, model, at) else {
                 return;
             };
-            let top = body.origin.y + if model.prefs.mode == Mode::List { super::look::HEAD_H } else { 0.0 };
+            let top = body.origin.y + if model.view.mode == Mode::List { super::look::HEAD_H } else { 0.0 };
             if area.origin.y < top {
                 model.scroll -= top - area.origin.y;
             } else if area.max().y > body.max().y {
@@ -725,7 +725,7 @@ pub fn key(model: &mut Model, ui: &Ui, key: &Key) {
         }
         return;
     }
-    let mode = model.prefs.mode;
+    let mode = model.view.mode;
     let frame = ui.look.frame(ui.size, model);
     let (cols, _, _) = ui.look.grid(frame.body, model);
     let page = match mode {

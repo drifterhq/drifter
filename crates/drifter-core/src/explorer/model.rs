@@ -6,7 +6,7 @@ use super::entry::{self, Entry, Family, Sort};
 use super::field::Field;
 use super::ops::{self, Clash, Done, Job, Progress, Undo};
 use super::open::{self, Handler};
-use super::prefs::{self, Click, Dates, Mode, Prefs, Root, Start};
+use super::prefs::{self, Click, Dates, Mode, Prefs, Root, Start, View};
 use super::read::{Ask, Got, Lens, Listing, Reader};
 
 const BUDGET: Duration = match cfg!(test) {
@@ -211,11 +211,12 @@ pub struct Tab {
     pub focus: Option<PathBuf>,
     pub anchor: Option<PathBuf>,
     pub scroll: f64,
+    pub view: View,
 }
 
 impl Tab {
-    fn at(dir: PathBuf) -> Tab {
-        Tab { dir, back: Vec::new(), ahead: Vec::new(), picked: HashSet::new(), focus: None, anchor: None, scroll: 0.0 }
+    fn at(dir: PathBuf, view: View) -> Tab {
+        Tab { dir, back: Vec::new(), ahead: Vec::new(), picked: HashSet::new(), focus: None, anchor: None, scroll: 0.0, view }
     }
 }
 
@@ -290,6 +291,10 @@ pub enum Effect {
 pub struct Model {
     pub prefs: Prefs,
     pub prefs_path: PathBuf,
+    pub view: View,
+    pub views: Vec<(PathBuf, View)>,
+    pub views_path: PathBuf,
+    views_touched: Vec<PathBuf>,
     pub home: PathBuf,
     pub dir: PathBuf,
     pub entries: Vec<Entry>,
@@ -417,7 +422,12 @@ impl Model {
         };
         let from_last = asked.is_none() && last.is_some();
         let start = asked.or(last).unwrap_or_else(|| home.clone());
+        let views_path = prefs::views_path(&prefs_path);
         let mut model = Model {
+            view: prefs.view(),
+            views: prefs::load_views(&views_path),
+            views_path,
+            views_touched: Vec::new(),
             prefs,
             prefs_path,
             home: home.clone(),
@@ -492,7 +502,29 @@ impl Model {
     }
 
     fn tab_now(&self) -> Tab {
-        Tab { dir: self.dir.clone(), back: self.back.clone(), ahead: self.ahead.clone(), picked: self.picked.clone(), focus: self.focus.clone(), anchor: self.anchor.clone(), scroll: self.scroll }
+        let view = match &self.search {
+            Some(Search { mode_before: Some(mode), .. }) => View { mode: *mode, ..self.view },
+            _ => self.view,
+        };
+        Tab { dir: self.dir.clone(), back: self.back.clone(), ahead: self.ahead.clone(), picked: self.picked.clone(), focus: self.focus.clone(), anchor: self.anchor.clone(), scroll: self.scroll, view }
+    }
+
+    pub fn view_for(&self, dir: &Path) -> View {
+        self.views.iter().rfind(|(path, _)| path == dir).map_or_else(|| self.prefs.view(), |(_, view)| *view)
+    }
+
+    fn keep_view(&mut self) {
+        let dir = self.dir.clone();
+        self.views.retain(|(path, _)| path != &dir);
+        if self.view != self.prefs.view() {
+            self.views.push((dir, self.view));
+            if self.views.len() > prefs::MOST_VIEWS {
+                self.views.remove(0);
+            }
+        }
+        if !self.views_touched.contains(&self.dir) {
+            self.views_touched.push(self.dir.clone());
+        }
     }
 
     pub fn tab_dirs(&self) -> Vec<PathBuf> {
@@ -502,7 +534,8 @@ impl Model {
     pub fn new_tab(&mut self, dir: PathBuf, show: bool) {
         self.tabs[self.tab] = self.tab_now();
         let at = self.tab + 1;
-        self.tabs.insert(at, Tab::at(dir));
+        let view = self.view_for(&dir);
+        self.tabs.insert(at, Tab::at(dir, view));
         if show {
             self.show_tab(at);
         }
@@ -516,6 +549,8 @@ impl Model {
         self.tab = to;
         let tab = self.tabs[to].clone();
         self.path = None;
+        self.leave_search();
+        self.view = tab.view;
         let dir = tab.dir.ancestors().find(|at| at.is_dir()).map_or_else(|| self.home.clone(), Path::to_path_buf);
         if !self.load(dir, None) {
             let home = self.home.clone();
@@ -659,7 +694,7 @@ impl Model {
         if let Some(search) = self.search.take() {
             self.reader.stop_search();
             if let Some(mode) = search.mode_before {
-                self.prefs.mode = mode;
+                self.view.mode = mode;
                 self.rebuild_columns();
             }
         }
@@ -701,7 +736,7 @@ impl Model {
     }
 
     pub fn lens(&self) -> Lens {
-        Lens { hidden: self.prefs.hidden, sort: self.prefs.sort, down: self.prefs.down, folders_first: self.prefs.folders_first }
+        Lens { hidden: self.prefs.hidden, sort: self.view.sort, down: self.view.down, folders_first: self.prefs.folders_first }
     }
 
     pub fn listing(&self, dir: &Path) -> Option<&Listing> {
@@ -781,7 +816,7 @@ impl Model {
                 search.done = done;
                 search.capped = capped;
                 let mut found = search.found.clone();
-                entry::sort(&mut found, self.prefs.sort, self.prefs.down, self.prefs.folders_first);
+                entry::sort(&mut found, self.view.sort, self.view.down, self.prefs.folders_first);
                 self.entries = found;
                 let here: HashSet<&PathBuf> = self.entries.iter().map(|each| &each.path).collect();
                 self.picked.retain(|path| here.contains(path));
@@ -872,7 +907,7 @@ impl Model {
             Some(pick) => {
                 self.wanted = None;
                 self.pick_only(pick);
-                if self.prefs.mode != Mode::Columns {
+                if self.view.mode != Mode::Columns {
                     self.rebuild_columns();
                 }
             }
@@ -887,6 +922,11 @@ impl Model {
     }
 
     fn load(&mut self, dir: PathBuf, pick: Option<PathBuf>) -> bool {
+        self.leave_search();
+        let before = self.view;
+        if self.view.mode != Mode::Columns {
+            self.view = self.view_for(&dir);
+        }
         let seq = self.ask_list(&dir);
         let until = Instant::now() + self.budget;
         self.settle(until, |model| model.listed_since(&dir, seq));
@@ -896,9 +936,9 @@ impl Model {
         {
             let words = crate::lang::tf("Cannot open {}: {}", &[&entry::name_of(&dir), error]);
             self.say(words, true);
+            self.view = before;
             return false;
         }
-        self.leave_search();
         self.dir = dir;
         self.picked.clear();
         self.anchor = None;
@@ -1019,7 +1059,30 @@ impl Model {
         changed
     }
 
+    pub fn unsaved(&self) -> bool {
+        !self.saved || !self.views_touched.is_empty()
+    }
+
     pub fn save(&mut self) {
+        if !self.views_touched.is_empty() {
+            let mut disk = prefs::load_views(&self.views_path);
+            for dir in &self.views_touched {
+                disk.retain(|(path, _)| path != dir);
+                if let Some(mine) = self.views.iter().rfind(|(path, _)| path == dir) {
+                    disk.push(mine.clone());
+                }
+            }
+            if disk.len() > prefs::MOST_VIEWS {
+                disk.drain(..disk.len() - prefs::MOST_VIEWS);
+            }
+            match prefs::save_views(&self.views_path, &disk) {
+                Ok(()) => {
+                    self.views_touched.clear();
+                    self.views = disk;
+                }
+                Err(error) => self.say(crate::lang::tf("Settings were not saved: {}", &[&error]), true),
+            }
+        }
         if self.saved {
             return;
         }
@@ -1175,7 +1238,7 @@ impl Model {
 
     pub fn rebuild_columns(&mut self) {
         self.fresh_columns = false;
-        if self.prefs.mode != Mode::Columns {
+        if self.view.mode != Mode::Columns {
             self.columns.clear();
             let dir = self.dir.clone();
             self.listed.retain(|each, _| *each == dir);
@@ -1277,7 +1340,7 @@ impl Model {
 
     fn after_pick(&mut self) {
         self.renaming = None;
-        if self.prefs.mode == Mode::Columns {
+        if self.view.mode == Mode::Columns {
             self.rebuild_columns();
         }
         self.refresh_peek();
@@ -1516,10 +1579,15 @@ impl Model {
             Pref::Status => p.status = !p.status,
             Pref::Terminal(at) => p.terminal = self.terminals.get(at).map(|(program, _)| program.to_string()),
         }
+        let own = self.views.iter().any(|(path, _)| path == &self.dir) || self.search.as_ref().is_some_and(|search| search.mode_before.is_some());
+        if matches!(pref, Pref::Mode(_) | Pref::Sort(_) | Pref::Down) && !own {
+            reread |= self.view.sort != self.prefs.sort || self.view.down != self.prefs.down;
+            self.view = self.prefs.view();
+        }
         if reread {
             self.reload();
         }
-        if pref == Pref::Mode(Mode::Columns) {
+        if self.view.mode == Mode::Columns {
             self.rebuild_columns();
         }
         self.saved = false;
@@ -1617,9 +1685,9 @@ impl Model {
                         search.field.pick_all();
                     }
                     None => {
-                        let mode_before = (self.prefs.mode == Mode::Columns).then_some(Mode::Columns);
+                        let mode_before = (self.view.mode == Mode::Columns).then_some(Mode::Columns);
                         if mode_before.is_some() {
-                            self.prefs.mode = Mode::List;
+                            self.view.mode = Mode::List;
                         }
                         self.search = Some(Search { field: Field::new(""), focused: true, seq: 0, found: Vec::new(), done: true, capped: false, mode_before });
                     }
@@ -1761,9 +1829,12 @@ impl Model {
             }
             Act::Prefs => self.sheet = Some(Sheet::Prefs(0)),
             Act::Show(mode) => {
-                self.prefs.mode = mode;
-                self.saved = false;
+                if let Some(search) = self.search.as_mut() {
+                    search.mode_before = None;
+                }
+                self.view.mode = mode;
                 self.scroll = 0.0;
+                self.keep_view();
                 if mode == Mode::Columns {
                     self.rebuild_columns();
                 }
@@ -1794,14 +1865,14 @@ impl Model {
                 self.reload();
             }
             Act::SortBy(sort) => {
-                match self.prefs.sort == sort {
-                    true => self.prefs.down = !self.prefs.down,
+                match self.view.sort == sort {
+                    true => self.view.down = !self.view.down,
                     false => {
-                        self.prefs.sort = sort;
-                        self.prefs.down = false;
+                        self.view.sort = sort;
+                        self.view.down = false;
                     }
                 }
-                self.saved = false;
+                self.keep_view();
                 self.reload();
             }
             Act::Back => {
@@ -1920,12 +1991,12 @@ impl Model {
                 let mut items: Vec<Item> = Mode::ALL
                     .iter()
                     .zip(["Ctrl+1", "Ctrl+2", "Ctrl+3", "Ctrl+4"])
-                    .map(|(mode, keys)| Item::new(mode.name(), keys, Act::Show(*mode)).checked(p.mode == *mode))
+                    .map(|(mode, keys)| Item::new(mode.name(), keys, Act::Show(*mode)).checked(self.view.mode == *mode))
                     .collect();
                 items.push(Item::rule());
                 items.push(Item::more(
                     crate::lang::t("Sort By"),
-                    Sort::ALL.iter().map(|sort| Item::new(sort.name(), "", Act::SortBy(*sort)).checked(p.sort == *sort)).collect(),
+                    Sort::ALL.iter().map(|sort| Item::new(sort.name(), "", Act::SortBy(*sort)).checked(self.view.sort == *sort)).collect(),
                 ));
                 items.push(Item::new(crate::lang::t("Zoom In"), "Ctrl++", Act::ZoomIn).when(p.zoom < prefs::MOST_ZOOM));
                 items.push(Item::new(crate::lang::t("Zoom Out"), "Ctrl+-", Act::ZoomOut).when(p.zoom > prefs::LEAST_ZOOM));
@@ -2061,8 +2132,8 @@ impl Model {
             Item::new(crate::lang::t("Paste"), "Ctrl+V", Act::Paste).when(self.clip.is_some()),
             Item::rule(),
             Item::new(crate::lang::t("Select All"), "Ctrl+A", Act::PickAll),
-            Item::more(crate::lang::t("View"), Mode::ALL.iter().map(|mode| Item::new(mode.name(), "", Act::Show(*mode)).checked(p.mode == *mode)).collect()),
-            Item::more(crate::lang::t("Sort By"), Sort::ALL.iter().map(|sort| Item::new(sort.name(), "", Act::SortBy(*sort)).checked(p.sort == *sort)).collect()),
+            Item::more(crate::lang::t("View"), Mode::ALL.iter().map(|mode| Item::new(mode.name(), "", Act::Show(*mode)).checked(self.view.mode == *mode)).collect()),
+            Item::more(crate::lang::t("Sort By"), Sort::ALL.iter().map(|sort| Item::new(sort.name(), "", Act::SortBy(*sort)).checked(self.view.sort == *sort)).collect()),
             Item::new(crate::lang::t("Show Hidden Files"), "Ctrl+H", Act::Hidden).checked(p.hidden),
             Item::rule(),
             Item::new(crate::lang::t("Open in Terminal"), "", Act::Terminal(None)),
@@ -2435,9 +2506,9 @@ mod tests {
         let work = place.0.join("work");
         std::fs::write(work.join("Photos/2026/beach.png"), "x").unwrap();
         std::fs::write(work.join("Photos/Beach notes.txt"), "x").unwrap();
-        model.prefs.mode = Mode::Columns;
+        model.view.mode = Mode::Columns;
         model.act(Act::Search);
-        assert_eq!(model.prefs.mode, Mode::List);
+        assert_eq!(model.view.mode, Mode::List);
         let search = model.search.as_mut().unwrap();
         search.field.put("beach");
         model.search_changed();
@@ -2453,7 +2524,7 @@ mod tests {
         assert_eq!(model.entries.len(), 2);
         model.act(Act::EndSearch);
         assert!(model.search.is_none());
-        assert_eq!(model.prefs.mode, Mode::Columns);
+        assert_eq!(model.view.mode, Mode::Columns);
         assert!(model.index_of(&work.join("b.txt")).is_some());
         model.act(Act::Search);
         model.search.as_mut().unwrap().field.put("zzz");
@@ -2497,6 +2568,46 @@ mod tests {
     }
 
     #[test]
+    fn each_folder_keeps_its_own_view() {
+        let (place, mut model) = place("views");
+        let work = place.0.join("work");
+        let photos = work.join("Photos");
+        assert_eq!(model.view, model.prefs.view());
+        model.go(photos.clone(), None);
+        model.act(Act::Show(Mode::Icons));
+        model.act(Act::SortBy(Sort::Size));
+        model.act(Act::Up);
+        assert_eq!(model.view.mode, Mode::List);
+        assert_eq!(model.view.sort, Sort::Name);
+        model.go(photos.clone(), None);
+        assert_eq!((model.view.mode, model.view.sort), (Mode::Icons, Sort::Size));
+        model.act(Act::Show(Mode::Columns));
+        model.go(photos.join("2026"), None);
+        assert_eq!(model.view.mode, Mode::Columns);
+        model.act(Act::Back);
+        model.act(Act::Show(Mode::Icons));
+        model.act(Act::Up);
+        model.set(Pref::Mode(Mode::Gallery));
+        assert_eq!(model.view.mode, Mode::Gallery);
+        model.save();
+        assert!(!model.unsaved());
+        let other = Model::new(place.0.join("explorer.toml"), Some(photos.clone()));
+        assert_eq!((other.view.mode, other.view.sort), (Mode::Icons, Sort::Size));
+        let mut both = Model::new(place.0.join("explorer.toml"), Some(work.clone()));
+        both.act(Act::Show(Mode::List));
+        both.save();
+        let saved = prefs::load_views(&model.views_path);
+        assert!(saved.iter().any(|(path, view)| path == &photos && view.mode == Mode::Icons));
+        assert!(saved.iter().any(|(path, view)| path == &work && view.mode == Mode::List));
+        model.go(photos.clone(), None);
+        model.act(Act::NewTab);
+        model.go(work.clone(), None);
+        assert_eq!(model.view.mode, Mode::Gallery);
+        model.act(Act::ShowTab(0));
+        assert_eq!(model.view.mode, Mode::Icons);
+    }
+
+    #[test]
     fn hidden_files_show_on_request() {
         let (_place, mut model) = place("hidden");
         assert_eq!(model.entries.len(), 3);
@@ -2523,7 +2634,7 @@ mod tests {
     #[test]
     fn columns_follow_the_path_and_the_picked_folder() {
         let (place, mut model) = place("columns");
-        model.prefs.mode = Mode::Columns;
+        model.view.mode = Mode::Columns;
         model.home = place.0.clone();
         model.go(place.0.join("work/Photos"), None);
         let dirs: Vec<PathBuf> = model.columns.iter().map(|column| column.dir.clone()).collect();
