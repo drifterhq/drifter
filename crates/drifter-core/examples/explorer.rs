@@ -71,7 +71,7 @@ fn main() {
         shot(&mut model, "alert");
         model.hover = None;
         model.alerts.clear();
-        model.start_job(drifter_core::explorer::ops::Job::Copy { from: vec![home.join("Documents/clip.mkv")], into: home.join("Videos") });
+        model.start_job(drifter_core::explorer::ops::Job::Copy { from: vec![home.join("Documents/clip.mkv")], into: home.join("Videos"), clash: Default::default() });
         model.start_job(drifter_core::explorer::ops::Job::EmptyTrash);
         for job in &mut model.jobs {
             job.started -= std::time::Duration::from_secs(20);
@@ -80,6 +80,11 @@ fn main() {
         first.total.store(4_700_000_000, std::sync::atomic::Ordering::Relaxed);
         first.bytes.store(1_300_000_000, std::sync::atomic::Ordering::Relaxed);
         shot(&mut model, "jobs");
+        model.sheet = Some(Sheet::Clash { from: vec![], into: home.join("Pictures"), cut: false, names: vec!["holiday.jpg".to_string()] });
+        shot(&mut model, "clash1");
+        model.sheet = Some(Sheet::Clash { from: vec![], into: home.join("Pictures"), cut: false, names: ["holiday.jpg", "notes.md", "report.pdf", "song.flac", "clip.mkv"].map(String::from).to_vec() });
+        shot(&mut model, "clash5");
+        model.sheet = None;
         model.jobs.clear();
         model.effects.clear();
         model.act(Act::EditPath);

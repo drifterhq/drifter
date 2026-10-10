@@ -53,10 +53,18 @@ pub struct Trashed {
     pub info: PathBuf,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Clash {
+    #[default]
+    KeepBoth,
+    Replace,
+    Skip,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Job {
-    Copy { from: Vec<PathBuf>, into: PathBuf },
-    Move { from: Vec<PathBuf>, into: PathBuf },
+    Copy { from: Vec<PathBuf>, into: PathBuf, clash: Clash },
+    Move { from: Vec<PathBuf>, into: PathBuf, clash: Clash },
     Trash(Vec<PathBuf>),
     Delete(Vec<PathBuf>),
     Restore(Vec<PathBuf>),
@@ -70,6 +78,7 @@ pub enum Undo {
     Moved(Vec<(PathBuf, PathBuf)>),
     Renamed(PathBuf, PathBuf),
     Trashed(Vec<Trashed>),
+    Then(Box<Undo>, Vec<Trashed>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,13 +174,60 @@ pub fn copy_into_with(from: &Path, into: &Path, progress: &Progress) -> io::Resu
         }
         false => unique(into, &name),
     };
-    if let Err(error) = copy_tree(from, &target, progress) {
+    copy_onto(from, &target, progress)?;
+    Ok(target)
+}
+
+fn copy_onto(from: &Path, target: &Path, progress: &Progress) -> io::Result<()> {
+    if let Err(error) = copy_tree(from, target, progress) {
         if error.kind() != io::ErrorKind::AlreadyExists {
-            let _ = remove(&target);
+            let _ = remove(target);
         }
         return Err(error);
     }
-    Ok(target)
+    Ok(())
+}
+
+pub fn clashes(from: &[PathBuf], into: &Path) -> Vec<PathBuf> {
+    from.iter().filter(|path| path.parent() != Some(into)).filter_map(|path| Some(into.join(path.file_name()?))).filter(|plain| std::fs::symlink_metadata(plain).is_ok()).collect()
+}
+
+enum Placed {
+    Free,
+    Skip,
+    Over(PathBuf, Trashed),
+}
+
+fn place(root: &Path, from: &Path, into: &Path, clash: Clash, progress: &Progress) -> io::Result<Placed> {
+    if clash == Clash::KeepBoth || from.parent() == Some(into) {
+        return Ok(Placed::Free);
+    }
+    let plain = into.join(from.file_name().ok_or_else(|| io::Error::other("no name"))?);
+    if std::fs::symlink_metadata(&plain).is_err() {
+        return Ok(Placed::Free);
+    }
+    if clash == Clash::Skip {
+        let skipped = Progress::default();
+        let _ = measure(from, &skipped);
+        progress.total.fetch_sub(skipped.total.load(Ordering::Relaxed).min(progress.total.load(Ordering::Relaxed)), Ordering::Relaxed);
+        return Ok(Placed::Skip);
+    }
+    if into.starts_with(from) {
+        return Err(io::Error::other(crate::lang::t("A folder cannot go inside itself")));
+    }
+    if from.starts_with(&plain) {
+        return Err(io::Error::other(crate::lang::t("A folder cannot be replaced by something inside it")));
+    }
+    let old = trash_in_with(root, &plain, &Progress::default())?;
+    Ok(Placed::Over(plain, old))
+}
+
+fn with_old(undo: Option<Undo>, replaced: Vec<Trashed>) -> Option<Undo> {
+    match (undo, replaced.is_empty()) {
+        (undo, true) => undo,
+        (Some(undo), false) => Some(Undo::Then(Box::new(undo), replaced)),
+        (None, false) => Some(Undo::Trashed(replaced)),
+    }
 }
 
 fn copy_tree(from: &Path, to: &Path, progress: &Progress) -> io::Result<()> {
@@ -499,7 +555,7 @@ pub fn run_with(root: &Path, job: Job, progress: &Progress) -> Done {
             progress.counting.store(false, Ordering::Relaxed);
             all
         }
-        Job::Move { from, into } => count_moves(from, into, progress),
+        Job::Move { from, into, .. } => count_moves(from, into, progress),
         Job::Trash(paths) => count_moves(paths, root, progress),
         Job::Delete(paths) | Job::Restore(paths) => {
             progress.count.store(paths.len() as u64, Ordering::Relaxed);
@@ -513,31 +569,65 @@ pub fn run_with(root: &Path, job: Job, progress: &Progress) -> Done {
     }
     let far = progress.total.load(Ordering::Relaxed) > 0;
     match job {
-        Job::Copy { from, into } => {
+        Job::Copy { from, into, clash } => {
+            let mut replaced = Vec::new();
             for path in &from {
-                match copy_into_with(path, &into, progress) {
-                    Ok(made) => done.made.push(made),
+                let result = match place(root, path, &into, clash, progress) {
+                    Ok(Placed::Free) => copy_into_with(path, &into, progress).map(Some),
+                    Ok(Placed::Skip) => Ok(None),
+                    Ok(Placed::Over(target, old)) => match copy_onto(path, &target, progress) {
+                        Ok(()) => {
+                            replaced.push(old);
+                            Ok(Some(target))
+                        }
+                        Err(error) => {
+                            let _ = put_back(&old);
+                            Err(error)
+                        }
+                    },
+                    Err(error) => Err(error),
+                };
+                match result {
+                    Ok(Some(made)) => done.made.push(made),
+                    Ok(None) => {}
                     Err(_) if progress.stopped() => break,
                     Err(error) => done.failed.push(fail(path, error)),
                 }
             }
-            done.undo = (!done.made.is_empty()).then(|| Undo::Made(done.made.clone()));
+            done.undo = with_old((!done.made.is_empty()).then(|| Undo::Made(done.made.clone())), replaced);
         }
-        Job::Move { from, into } => {
+        Job::Move { from, into, clash } => {
             let mut moved = Vec::new();
+            let mut replaced = Vec::new();
             for path in &from {
-                match move_into_with(path, &into, progress) {
-                    Ok(made) if &made == path => {}
-                    Ok(made) => {
+                let result = match place(root, path, &into, clash, progress) {
+                    Ok(Placed::Free) => move_into_with(path, &into, progress).map(Some),
+                    Ok(Placed::Skip) => Ok(None),
+                    Ok(Placed::Over(target, old)) => match move_to(path, &target, progress) {
+                        Ok(()) => {
+                            replaced.push(old);
+                            Ok(Some(target))
+                        }
+                        Err(error) => {
+                            let _ = put_back(&old);
+                            Err(error)
+                        }
+                    },
+                    Err(error) => Err(error),
+                };
+                match result {
+                    Ok(Some(made)) if &made == path => {}
+                    Ok(Some(made)) => {
                         moved.push((path.clone(), made.clone()));
                         done.made.push(made);
                     }
+                    Ok(None) => {}
                     Err(_) if progress.stopped() => break,
                     Err(error) => done.failed.push(fail(path, error)),
                 }
                 each_moved(progress, far);
             }
-            done.undo = (!moved.is_empty()).then_some(Undo::Moved(moved));
+            done.undo = with_old((!moved.is_empty()).then_some(Undo::Moved(moved)), replaced);
         }
         Job::Trash(paths) => {
             let mut gone = Vec::new();
@@ -581,44 +671,58 @@ pub fn run_with(root: &Path, job: Job, progress: &Progress) -> Done {
                 done.failed.push(fail(root, error));
             }
         }
-        Job::Undo(undo) => match undo {
-            Undo::Made(paths) => {
-                for path in &paths {
-                    if let Err(error) = trash_in_with(root, path, progress) {
-                        done.failed.push(fail(path, error));
-                    }
-                }
-            }
-            Undo::Moved(pairs) => {
-                for (was, now) in &pairs {
-                    let back = was.parent().map(|parent| unique(parent, &crate::explorer::entry::name_of(was)));
-                    match back {
-                        Some(back) => {
-                            if let Err(error) = move_to(now, &back, progress) {
-                                done.failed.push(fail(now, error));
-                            }
-                        }
-                        None => done.failed.push(fail(now, io::Error::other("no folder"))),
-                    }
-                }
-            }
-            Undo::Renamed(was, now) => {
-                if let Err(error) = std::fs::rename(&now, &was) {
-                    done.failed.push(fail(&now, error));
-                }
-            }
-            Undo::Trashed(gone) => {
-                for trashed in &gone {
-                    match put_back_with(trashed, progress) {
-                        Ok(made) => done.made.push(made),
-                        Err(error) => done.failed.push(fail(&trashed.file, error)),
-                    }
-                }
-            }
-        },
+        Job::Undo(undo) => undo_with(root, undo, progress, &mut done),
     }
     done.stopped = progress.stopped();
     done
+}
+
+fn undo_with(root: &Path, undo: Undo, progress: &Progress, done: &mut Done) {
+    let fail = |path: &Path, error: io::Error| format!("{}: {error}", crate::explorer::entry::name_of(path));
+    match undo {
+        Undo::Made(paths) => {
+            for path in &paths {
+                if let Err(error) = trash_in_with(root, path, progress) {
+                    done.failed.push(fail(path, error));
+                }
+            }
+        }
+        Undo::Moved(pairs) => {
+            for (was, now) in &pairs {
+                let back = was.parent().map(|parent| unique(parent, &crate::explorer::entry::name_of(was)));
+                match back {
+                    Some(back) => {
+                        if let Err(error) = move_to(now, &back, progress) {
+                            done.failed.push(fail(now, error));
+                        }
+                    }
+                    None => done.failed.push(fail(now, io::Error::other("no folder"))),
+                }
+            }
+        }
+        Undo::Renamed(was, now) => {
+            if let Err(error) = std::fs::rename(&now, &was) {
+                done.failed.push(fail(&now, error));
+            }
+        }
+        Undo::Trashed(gone) => {
+            for trashed in &gone {
+                match put_back_with(trashed, progress) {
+                    Ok(made) => done.made.push(made),
+                    Err(error) => done.failed.push(fail(&trashed.file, error)),
+                }
+            }
+        }
+        Undo::Then(first, replaced) => {
+            undo_with(root, *first, progress, done);
+            for trashed in &replaced {
+                match put_back_with(trashed, progress) {
+                    Ok(made) => done.made.push(made),
+                    Err(error) => done.failed.push(fail(&trashed.file, error)),
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -662,7 +766,7 @@ mod tests {
         let into = place.work().join("into");
         std::fs::create_dir(&into).unwrap();
         let progress = Progress::default();
-        let done = run_with(&place.trash(), Job::Copy { from: vec![from.clone()], into: into.clone() }, &progress);
+        let done = run_with(&place.trash(), Job::Copy { from: vec![from.clone()], into: into.clone(), clash: Clash::KeepBoth }, &progress);
         assert!(done.failed.is_empty() && !done.stopped);
         assert_eq!(progress.total.load(Ordering::Relaxed), (9 << 20) + 2);
         assert_eq!(progress.bytes.load(Ordering::Relaxed), (9 << 20) + 2);
@@ -681,7 +785,7 @@ mod tests {
         std::fs::create_dir(&into).unwrap();
         let progress = std::sync::Arc::new(Progress::default());
         progress.stop.store(true, Ordering::Relaxed);
-        let done = run_with(&place.trash(), Job::Copy { from: vec![from.clone()], into: into.clone() }, &progress);
+        let done = run_with(&place.trash(), Job::Copy { from: vec![from.clone()], into: into.clone(), clash: Clash::KeepBoth }, &progress);
         assert!(done.stopped && done.made.is_empty() && done.failed.is_empty());
         let progress = std::sync::Arc::new(Progress::default());
         let watching = progress.clone();
@@ -691,7 +795,7 @@ mod tests {
             }
             watching.stop.store(true, Ordering::Relaxed);
         });
-        let done = run_with(&place.trash(), Job::Copy { from: vec![from.clone(), from.clone()], into: into.clone() }, &progress);
+        let done = run_with(&place.trash(), Job::Copy { from: vec![from.clone(), from.clone()], into: into.clone(), clash: Clash::KeepBoth }, &progress);
         stopper.join().unwrap();
         assert!(done.stopped && done.failed.is_empty());
         assert!(progress.bytes.load(Ordering::Relaxed) < 128 << 20);
@@ -714,6 +818,52 @@ mod tests {
         progress.stop.store(true, Ordering::Relaxed);
         let done = run_with(&place.trash(), Job::Delete(paths[2..].to_vec()), &progress);
         assert!(done.stopped && paths[2].exists() && paths[3].exists() && !paths[0].exists());
+    }
+
+    #[test]
+    fn a_clash_can_replace_skip_or_keep_both() {
+        let place = Place::new("clash");
+        let into = place.work().join("into");
+        std::fs::create_dir(&into).unwrap();
+        let from = place.work().join("a.txt");
+        std::fs::write(&from, "new").unwrap();
+        std::fs::write(into.join("a.txt"), "old").unwrap();
+        assert_eq!(clashes(&[from.clone()], &into), [into.join("a.txt")]);
+        assert!(clashes(&[from.clone()], &place.work()).is_empty());
+        let copy = |clash| Job::Copy { from: vec![from.clone()], into: into.clone(), clash };
+        let skipped = run_with(&place.trash(), copy(Clash::Skip), &Progress::default());
+        assert!(skipped.made.is_empty() && skipped.undo.is_none());
+        assert_eq!(std::fs::read_to_string(into.join("a.txt")).unwrap(), "old");
+        let both = run_with(&place.trash(), copy(Clash::KeepBoth), &Progress::default());
+        assert_eq!(both.made, [into.join("a 2.txt")]);
+        let replaced = run_with(&place.trash(), copy(Clash::Replace), &Progress::default());
+        assert_eq!(replaced.made, [into.join("a.txt")]);
+        assert_eq!(std::fs::read_to_string(into.join("a.txt")).unwrap(), "new");
+        assert_eq!(std::fs::read_to_string(place.trash().join("files/a.txt")).unwrap(), "old");
+        run_with(&place.trash(), Job::Undo(replaced.undo.unwrap()), &Progress::default());
+        assert_eq!(std::fs::read_to_string(into.join("a.txt")).unwrap(), "old");
+        assert!(from.exists());
+    }
+
+    #[test]
+    fn a_move_can_replace_and_undo_brings_both_back() {
+        let place = Place::new("clashmove");
+        let into = place.work().join("into");
+        std::fs::create_dir_all(into.join("box")).unwrap();
+        std::fs::write(into.join("box/old.txt"), "old").unwrap();
+        let from = place.work().join("box");
+        std::fs::create_dir(&from).unwrap();
+        std::fs::write(from.join("new.txt"), "new").unwrap();
+        let done = run_with(&place.trash(), Job::Move { from: vec![from.clone()], into: into.clone(), clash: Clash::Replace }, &Progress::default());
+        assert!(done.failed.is_empty(), "{:?}", done.failed);
+        assert!(!from.exists() && into.join("box/new.txt").exists() && !into.join("box/old.txt").exists());
+        run_with(&place.trash(), Job::Undo(done.undo.unwrap()), &Progress::default());
+        assert!(from.join("new.txt").exists() && into.join("box/old.txt").exists());
+        let nested = place.work().join("nest/nest");
+        std::fs::create_dir_all(&nested).unwrap();
+        let done = run_with(&place.trash(), Job::Move { from: vec![nested.clone()], into: place.work(), clash: Clash::Replace }, &Progress::default());
+        assert_eq!(done.failed.len(), 1);
+        assert!(nested.exists());
     }
 
     #[test]
@@ -779,7 +929,7 @@ mod tests {
         std::fs::write(&file, "x").unwrap();
         let into = place.work().join("into");
         std::fs::create_dir(&into).unwrap();
-        let done = run_with(&place.trash(), Job::Move { from: vec![file.clone()], into: into.clone() }, &Progress::default());
+        let done = run_with(&place.trash(), Job::Move { from: vec![file.clone()], into: into.clone(), clash: Clash::KeepBoth }, &Progress::default());
         assert!(into.join("m.txt").exists() && !file.exists());
         run_with(&place.trash(), Job::Undo(done.undo.unwrap()), &Progress::default());
         assert!(file.exists() && !into.join("m.txt").exists());

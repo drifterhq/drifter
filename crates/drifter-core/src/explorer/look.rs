@@ -74,6 +74,7 @@ pub enum SheetHit {
     Yes,
     Inside,
     Outside,
+    Clash(super::ops::Clash),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1596,6 +1597,7 @@ impl Look {
             Sheet::Prefs(_) => Vec2::new(720.0, 520.0),
             Sheet::Info(info) => Vec2::new(460.0, 330.0 + 34.0 * (4 + usize::from(info.mode.is_some()) + usize::from(info.target.is_some())) as f64),
             Sheet::Confirm { .. } => Vec2::new(420.0, 190.0),
+            Sheet::Clash { names, .. } => Vec2::new(540.0, if names.len() == 1 { 190.0 } else { 236.0 }),
             Sheet::Keys => Vec2::new(520.0, 520.0),
             Sheet::About => Vec2::new(380.0, 260.0),
         };
@@ -1610,6 +1612,13 @@ impl Look {
                 (SheetHit::No, rect(area.max().x - 20.0 - 120.0 * 2.0 - 10.0, y, 120.0, 32.0)),
                 (SheetHit::Yes, rect(area.max().x - 20.0 - 120.0, y, 120.0, 32.0)),
             ],
+            Sheet::Clash { .. } => {
+                use super::ops::Clash;
+                let order = [SheetHit::No, SheetHit::Clash(Clash::Skip), SheetHit::Clash(Clash::Replace), SheetHit::Clash(Clash::KeepBoth)];
+                let (wide, gap) = (116.0, 8.0);
+                let left = area.max().x - 20.0 - wide * 4.0 - gap * 3.0;
+                order.into_iter().enumerate().map(|(at, hit)| (hit, rect(left + at as f64 * (wide + gap), y, wide, 32.0))).collect()
+            }
             _ => vec![(SheetHit::Done, rect(area.max().x - 20.0 - 100.0, y, 100.0, 32.0))],
         }
     }
@@ -1746,6 +1755,38 @@ impl Look {
                     self.text(canvas, fonts.body, line, self.dim, Vec2::new(area.origin.x + 24.0, area.origin.y + 70.0 + row as f64 * 20.0), area.size.x - 48.0);
                 }
             }
+            Sheet::Clash { into, names, .. } => {
+                let place = crate::explorer::entry::name_of(into);
+                let (title, list, words) = match names.as_slice() {
+                    [one] => (
+                        crate::lang::tf("“{}” is already in {}", &[one, &place]),
+                        None,
+                        crate::lang::t("Replace puts the old one in the Trash. Keep Both gives the new one another name.").to_string(),
+                    ),
+                    many => {
+                        let shown = many.iter().take(3).map(|name| format!("“{name}”")).collect::<Vec<_>>().join(", ");
+                        let list = match many.len() {
+                            0..=3 => shown,
+                            _ => crate::lang::tf("{} and {} more", &[&shown, &(many.len() - 3)]),
+                        };
+                        (
+                            crate::lang::tf("{} items are already in {}", &[&many.len(), &place]),
+                            Some(list),
+                            crate::lang::t("Replace puts the old ones in the Trash. Keep Both gives the new ones other names. Your choice counts for all of them.").to_string(),
+                        )
+                    }
+                };
+                let head = fonts.title.paint_weight(&fit(fonts.title, &title, area.size.x - 48.0), self.ink, 620.0);
+                canvas.stamp(&head, Vec2::new(area.origin.x + 24.0, area.origin.y + 24.0).round(), 1.0);
+                let mut y = area.origin.y + 70.0;
+                if let Some(list) = list {
+                    self.text(canvas, fonts.body, &list, self.ink, Vec2::new(area.origin.x + 24.0, y), area.size.x - 48.0);
+                    y += 28.0;
+                }
+                for (row, line) in self.wrap(fonts.body, &words, area.size.x - 48.0, 3).iter().enumerate() {
+                    self.text(canvas, fonts.body, line, self.dim, Vec2::new(area.origin.x + 24.0, y + row as f64 * 20.0), area.size.x - 48.0);
+                }
+            }
             Sheet::Keys => self.paint_keys(canvas, area, fonts),
             Sheet::About => {
                 let c = Vec2::new(area.center().x, area.origin.y + 70.0);
@@ -1760,6 +1801,9 @@ impl Look {
             let (words, strong, danger) = match (&hit, sheet) {
                 (SheetHit::Yes, Sheet::Confirm { yes, .. }) => (yes.clone(), true, yes == crate::lang::t("Delete") || yes == crate::lang::t("Empty Trash")),
                 (SheetHit::No, _) => (crate::lang::t("Cancel").to_string(), false, false),
+                (SheetHit::Clash(super::ops::Clash::Skip), _) => (crate::lang::t("Skip").to_string(), false, false),
+                (SheetHit::Clash(super::ops::Clash::Replace), _) => (crate::lang::t("Replace").to_string(), false, false),
+                (SheetHit::Clash(super::ops::Clash::KeepBoth), _) => (crate::lang::t("Keep Both").to_string(), true, false),
                 _ => (crate::lang::t("Done").to_string(), true, false),
             };
             let fill = match (strong, danger) {

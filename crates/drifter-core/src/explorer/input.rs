@@ -291,7 +291,7 @@ fn press_sheet(model: &mut Model, ui: &Ui, at: Vec2) {
     };
     match hit {
         SheetHit::Outside => {
-            if !matches!(model.sheet, Some(Sheet::Confirm { .. })) {
+            if !matches!(model.sheet, Some(Sheet::Confirm { .. } | Sheet::Clash { .. })) {
                 model.sheet = None;
                 model.save();
             }
@@ -306,6 +306,7 @@ fn press_sheet(model: &mut Model, ui: &Ui, at: Vec2) {
                 model.sheet = None;
             }
         }
+        SheetHit::Clash(clash) => model.act(Act::Clash(clash)),
         SheetHit::Tab(tab) => model.sheet = Some(Sheet::Prefs(tab)),
         SheetHit::Pref(pref) => model.set(pref),
         SheetHit::Slider(share) => {
@@ -652,6 +653,7 @@ fn sheet_key(model: &mut Model, key: &Key) {
             model.act(act);
             model.sheet = None;
         }
+        (Some(Sheet::Clash { .. }), Named::Enter) => model.act(Act::Clash(super::ops::Clash::KeepBoth)),
         (Some(Sheet::Prefs(tab)), Named::Down | Named::Tab) => model.sheet = Some(Sheet::Prefs((tab + 1) % 4)),
         (Some(Sheet::Prefs(tab)), Named::Up) => model.sheet = Some(Sheet::Prefs((tab + 3) % 4)),
         (_, Named::Escape | Named::Enter) => {

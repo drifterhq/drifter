@@ -3188,3 +3188,30 @@ Stop the work and close?
 
 Stop and Close
 = Arrêter et fermer
+
+Skip
+= Ignorer
+
+Replace
+= Remplacer
+
+Keep Both
+= Garder les deux
+
+{} and {} more
+= {} et {} de plus
+
+“{}” is already in {}
+= « {} » est déjà dans {}
+
+{} items are already in {}
+= {} éléments sont déjà dans {}
+
+Replace puts the old one in the Trash. Keep Both gives the new one another name.
+= Remplacer met l’ancien à la corbeille. Garder les deux donne un autre nom au nouveau.
+
+Replace puts the old ones in the Trash. Keep Both gives the new ones other names. Your choice counts for all of them.
+= Remplacer met les anciens à la corbeille. Garder les deux donne d’autres noms aux nouveaux. Votre choix vaut pour tous.
+
+A folder cannot be replaced by something inside it
+= Un dossier ne peut pas être remplacé par un élément qu’il contient

@@ -4,7 +4,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use super::entry::{self, Entry, Family, Sort};
 use super::field::Field;
-use super::ops::{self, Done, Job, Progress, Undo};
+use super::ops::{self, Clash, Done, Job, Progress, Undo};
 use super::open::{self, Handler};
 use super::prefs::{self, Click, Dates, Mode, Prefs, Root, Start};
 use super::read::{Ask, Got, Lens, Listing, Reader};
@@ -62,6 +62,7 @@ pub enum Act {
     Dismiss,
     Stop(u64),
     StopAndClose,
+    Clash(Clash),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -145,6 +146,7 @@ pub enum Sheet {
     Prefs(usize),
     Info(Info),
     Confirm { title: String, words: String, yes: String, act: Act },
+    Clash { from: Vec<PathBuf>, into: PathBuf, cut: bool, names: Vec<String> },
     Keys,
     About,
 }
@@ -1248,7 +1250,7 @@ impl Model {
             Act::Duplicate => {
                 let from = self.chosen_paths();
                 if !from.is_empty() && !in_trash {
-                    self.start_job(Job::Copy { from, into: self.dir.clone() });
+                    self.start_job(Job::Copy { from, into: self.dir.clone(), clash: Clash::KeepBoth });
                 }
             }
             Act::Trash if in_trash => self.act(Act::DeleteForever),
@@ -1318,6 +1320,11 @@ impl Model {
                     self.confirm(crate::lang::t("Stop the work and close?"), words, crate::lang::t("Stop and Close"), Act::StopAndClose);
                 }
             },
+            Act::Clash(clash) => {
+                if let Some(Sheet::Clash { from, into, cut, .. }) = self.sheet.take() {
+                    self.send_with(from, into, cut, clash);
+                }
+            }
             Act::StopAndClose => {
                 for job in &self.jobs {
                     job.progress.stop.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -1462,12 +1469,24 @@ impl Model {
     }
 
     fn paste(&mut self, paths: Vec<PathBuf>, cut: bool, into: PathBuf) {
+        if cut {
+            self.clip = None;
+        }
+        self.send(paths, into, cut);
+    }
+
+    fn send(&mut self, from: Vec<PathBuf>, into: PathBuf, cut: bool) {
+        let names: Vec<String> = ops::clashes(&from, &into).iter().map(|path| entry::name_of(path)).collect();
+        match names.is_empty() {
+            true => self.send_with(from, into, cut, Clash::KeepBoth),
+            false => self.sheet = Some(Sheet::Clash { from, into, cut, names }),
+        }
+    }
+
+    fn send_with(&mut self, from: Vec<PathBuf>, into: PathBuf, cut: bool, clash: Clash) {
         match cut {
-            true => {
-                self.clip = None;
-                self.start_job(Job::Move { from: paths, into });
-            }
-            false => self.start_job(Job::Copy { from: paths, into }),
+            true => self.start_job(Job::Move { from, into, clash }),
+            false => self.start_job(Job::Copy { from, into, clash }),
         }
     }
 
@@ -1636,11 +1655,7 @@ impl Model {
                 if paths.is_empty() || ops::in_trash(&into) {
                     return;
                 }
-                let job = match copy {
-                    true => Job::Copy { from: paths, into },
-                    false => Job::Move { from: paths, into },
-                };
-                self.start_job(job);
+                self.send(paths, into, !copy);
             }
         }
     }
@@ -1918,6 +1933,26 @@ mod tests {
     }
 
     #[test]
+    fn a_paste_over_a_name_asks_first() {
+        let (place, mut model) = place("clashsheet");
+        let work = place.0.join("work");
+        std::fs::write(work.join("Photos/b.txt"), "old").unwrap();
+        model.pick_only(work.join("b.txt"));
+        model.act(Act::Cut);
+        model.go(work.join("Photos"), None);
+        model.effects.clear();
+        model.act(Act::Paste);
+        assert!(model.effects.is_empty());
+        assert!(matches!(&model.sheet, Some(Sheet::Clash { names, cut: true, .. }) if names == &["b.txt"]));
+        model.act(Act::Clash(Clash::Skip));
+        assert!(model.sheet.is_none());
+        assert_eq!(model.effects, [Effect::Job(1, Job::Move { from: vec![work.join("b.txt")], into: work.join("Photos"), clash: Clash::Skip })]);
+        model.effects.clear();
+        model.drop_on(super::super::look::Drop::Into(work.join("Photos")), vec![work.join("a.png")], true);
+        assert_eq!(model.effects, [Effect::Job(2, Job::Copy { from: vec![work.join("a.png")], into: work.join("Photos"), clash: Clash::KeepBoth })]);
+    }
+
+    #[test]
     fn hidden_files_show_on_request() {
         let (_place, mut model) = place("hidden");
         assert_eq!(model.entries.len(), 3);
@@ -1978,7 +2013,7 @@ mod tests {
         model.go(place.0.join("work/Photos"), None);
         model.effects.clear();
         model.act(Act::Paste);
-        assert_eq!(model.effects, [Effect::Job(1, Job::Copy { from: vec![place.0.join("work/b.txt")], into: place.0.join("work/Photos") })]);
+        assert_eq!(model.effects, [Effect::Job(1, Job::Copy { from: vec![place.0.join("work/b.txt")], into: place.0.join("work/Photos"), clash: Clash::KeepBoth })]);
         let job = match model.effects.pop() {
             Some(Effect::Job(_, job)) => job,
             _ => unreachable!(),
@@ -2004,7 +2039,7 @@ mod tests {
         assert!(model.lines().iter().any(|line| matches!(line, Line::Place { path, mark: true, .. } if path == &photos)));
         model.effects.clear();
         model.drop_on(Drop::Into(photos.clone()), vec![place.0.join("work/b.txt")], false);
-        assert_eq!(model.effects, [Effect::Job(1, Job::Move { from: vec![place.0.join("work/b.txt")], into: photos.clone() })]);
+        assert_eq!(model.effects, [Effect::Job(1, Job::Move { from: vec![place.0.join("work/b.txt")], into: photos.clone(), clash: Clash::KeepBoth })]);
         model.effects.clear();
         model.drop_on(Drop::Into(photos.join("2026")), vec![photos.clone()], false);
         assert!(model.effects.is_empty());

@@ -3191,3 +3191,30 @@ Stop the work and close?
 
 Stop and Close
 = Detener y cerrar
+
+Skip
+= Omitir
+
+Replace
+= Reemplazar
+
+Keep Both
+= Conservar ambos
+
+{} and {} more
+= {} y {} más
+
+“{}” is already in {}
+= “{}” ya está en {}
+
+{} items are already in {}
+= {} elementos ya están en {}
+
+Replace puts the old one in the Trash. Keep Both gives the new one another name.
+= Reemplazar pone el antiguo en la papelera. Conservar ambos le da otro nombre al nuevo.
+
+Replace puts the old ones in the Trash. Keep Both gives the new ones other names. Your choice counts for all of them.
+= Reemplazar pone los antiguos en la papelera. Conservar ambos les da otros nombres a los nuevos. Tu elección vale para todos.
+
+A folder cannot be replaced by something inside it
+= Una carpeta no se puede reemplazar por algo que está dentro de ella
