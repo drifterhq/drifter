@@ -518,6 +518,7 @@ pub fn open(
         card_stale: false,
         dock_fit: config.dock.fit,
         drag_shot: None,
+        drag_icon: None,
         window_pace: window_pace(config),
         dock_pad: config.dock_padding(),
         fit_busy: false,

@@ -542,6 +542,7 @@ pub struct State {
     show_battery: bool,
     dock_fit: bool,
     pub drag_shot: Option<PathBuf>,
+    pub drag_icon: Option<smithay::reexports::wayland_server::protocol::wl_surface::WlSurface>,
     window_pace: f64,
     dock_pad: f64,
     fit_busy: bool,
@@ -1104,6 +1105,38 @@ impl State {
     }
 
     fn cursor_elements(&mut self) -> Vec<Skin> {
+        let mut skins = self.pointer_elements();
+        skins.extend(self.drag_icon_elements());
+        skins
+    }
+
+    fn drag_icon_elements(&mut self) -> Vec<Skin> {
+        use smithay::reexports::wayland_server::Resource;
+        let Some(icon) = self.drag_icon.clone() else {
+            return Vec::new();
+        };
+        if !icon.is_alive() {
+            self.drag_icon = None;
+            return Vec::new();
+        }
+        let anchor = smithay::utils::Point::<i32, smithay::utils::Physical>::from((
+            self.pointer.x.round() as i32,
+            self.pointer.y.round() as i32,
+        ));
+        render_elements_from_surface_tree::<_, WaylandSurfaceRenderElement<Painter>>(
+            &mut self.renderer,
+            &icon,
+            anchor,
+            1.0,
+            0.9,
+            Kind::Cursor,
+        )
+        .into_iter()
+        .map(|piece| Skin::Client(RescaleRenderElement::from_element(piece, anchor, 1.0)))
+        .collect()
+    }
+
+    fn pointer_elements(&mut self) -> Vec<Skin> {
         use smithay::input::pointer::{CursorIcon, CursorImageStatus, CursorImageSurfaceData};
         use smithay::reexports::wayland_server::Resource;
 

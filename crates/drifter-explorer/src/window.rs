@@ -133,7 +133,8 @@ struct Explorer {
     clip_ask: u64,
     pasted: LoopSender<(u64, Option<Held>)>,
     press_serial: u32,
-    drag_out: Option<(DragSource, Held)>,
+    drag_out: Option<(DragSource, Held, Option<(wl_surface::WlSurface, smithay_client_toolkit::shm::slot::Buffer)>)>,
+    compositor: CompositorState,
     drop_offer: Option<DragOffer>,
     dropped: LoopSender<(Drop, Option<Held>, bool)>,
     sizes: LoopSender<(PathBuf, (u64, u64))>,
@@ -300,6 +301,7 @@ pub fn run() -> Result<(), String> {
 
     let mut app = Explorer {
         registry: RegistryState::new(&globals),
+        compositor,
         seats: SeatState::new(&globals, &qh),
         outputs: OutputState::new(&globals, &qh),
         shm,
@@ -1166,12 +1168,45 @@ impl Explorer {
         let Some(Drag::Files { paths, live: true, .. }) = self.model.dragging.clone() else {
             return;
         };
-        let (Some(data), Some(device), None) = (self.data.as_ref(), self.device.as_ref(), self.drag_out.as_ref()) else {
+        if self.data.is_none() || self.device.is_none() || self.drag_out.is_some() {
+            return;
+        }
+        let icon = self.drag_icon(&paths);
+        let (Some(data), Some(device)) = (self.data.as_ref(), self.device.as_ref()) else {
             return;
         };
         let source = data.create_drag_and_drop_source(&self.qh, clip::FILE_KINDS.iter().copied(), DndAction::Copy | DndAction::Move);
-        source.start_drag(device, self.window.wl_surface(), None, self.press_serial);
-        self.drag_out = Some((source, Held::Files(paths, false)));
+        source.start_drag(device, self.window.wl_surface(), icon.as_ref().map(|(surface, _)| surface), self.press_serial);
+        if let Some((surface, _)) = &icon {
+            surface.commit();
+        }
+        self.model.dragging = None;
+        self.stale = true;
+        self.drag_out = Some((source, Held::Files(paths, false), icon));
+    }
+
+    fn drag_icon(&mut self, paths: &[PathBuf]) -> Option<(wl_surface::WlSurface, smithay_client_toolkit::shm::slot::Buffer)> {
+        drifter_core::paint::set_density(scale());
+        let lines = self.model.lines();
+        let fonts = Fonts { body: &self.fonts.0, small: &self.fonts.1, title: &self.fonts.2 };
+        let job = Paint { model: &self.model, lines: &lines, fonts: &fonts, art: &self.art, clip: None };
+        let card = self.look.drag_card(&job, paths);
+        let (width, height) = (card.width, card.height);
+        let (buffer, canvas) = self.pool.create_buffer(width as i32, height as i32, width as i32 * 4, wl_shm::Format::Argb8888).ok()?;
+        for (to, from) in canvas.chunks_exact_mut(4).zip(card.rgba.chunks_exact(4)) {
+            to.copy_from_slice(&[from[2], from[1], from[0], from[3]]);
+        }
+        let surface = self.compositor.create_surface(&self.qh);
+        surface.set_buffer_scale(scale() as i32);
+        buffer.attach_to(&surface).ok()?;
+        surface.damage_buffer(0, 0, width as i32, height as i32);
+        Some((surface, buffer))
+    }
+
+    fn drop_drag_out(&mut self) {
+        if let Some((_, _, Some((icon, _)))) = self.drag_out.take() {
+            icon.destroy();
+        }
     }
 
     fn landed(&mut self, target: Drop, held: Option<Held>, copy: bool) {
@@ -1195,10 +1230,11 @@ impl DataDeviceHandler for Explorer {
             Some(kind) => {
                 offer.accept_mime_type(offer.serial, Some(kind.to_string()));
                 let at = Vec2::new(x, y);
-                let (preferred, dragging) = match &self.drag_out {
-                    Some((_, Held::Files(paths, _))) => (DndAction::Move, Drag::Files { paths: paths.clone(), from: at, at, live: true, pending: None }),
-                    _ => (DndAction::Copy, Drag::Foreign { at }),
+                let (preferred, paths) = match &self.drag_out {
+                    Some((_, Held::Files(paths, _), _)) => (DndAction::Move, paths.clone()),
+                    _ => (DndAction::Copy, Vec::new()),
                 };
+                let dragging = Drag::Foreign { at, paths };
                 offer.set_actions(DndAction::Copy | DndAction::Move, preferred);
                 self.model.dragging = Some(dragging);
                 self.stale = true;
@@ -1219,7 +1255,7 @@ impl DataDeviceHandler for Explorer {
 
     fn motion(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataDevice, x: f64, y: f64) {
         match self.model.dragging.as_mut() {
-            Some(Drag::Foreign { at } | Drag::Files { at, .. }) => *at = Vec2::new(x, y),
+            Some(Drag::Foreign { at, .. } | Drag::Files { at, .. }) => *at = Vec2::new(x, y),
             _ => return,
         }
         self.stale = true;
@@ -1261,7 +1297,7 @@ impl DataDeviceHandler for Explorer {
         };
         let at = Vec2::new(offer.x, offer.y);
         let ours = match &self.drag_out {
-            Some((_, Held::Files(paths, _))) => paths.clone(),
+            Some((_, Held::Files(paths, _), _)) => paths.clone(),
             _ => Vec::new(),
         };
         let target = self.with_ui(|model, ui, lines| ui.look.drop_at(ui.size, model, lines, ui.fonts, at, &ours).map(|(target, _)| target));
@@ -1309,7 +1345,7 @@ impl DataSourceHandler for Explorer {
 
     fn send_request(&mut self, _: &Connection, _: &QueueHandle<Self>, source: &WlDataSource, mime: String, fd: WritePipe) {
         let held = self.held.as_ref().filter(|(ours, _)| ours.inner() == source).map(|(_, held)| held);
-        let dragged = self.drag_out.as_ref().filter(|(ours, _)| ours.inner() == source).map(|(_, held)| held);
+        let dragged = self.drag_out.as_ref().filter(|(ours, _, _)| ours.inner() == source).map(|(_, held, _)| held);
         let bytes = held.or(dragged).and_then(|held| held.bytes(&mime));
         let Some(bytes) = bytes else {
             return;
@@ -1324,8 +1360,8 @@ impl DataSourceHandler for Explorer {
     fn cancelled(&mut self, _: &Connection, _: &QueueHandle<Self>, source: &WlDataSource) {
         if self.held.as_ref().is_some_and(|(ours, _)| ours.inner() == source) {
             self.held = None;
-        } else if self.drag_out.as_ref().is_some_and(|(ours, _)| ours.inner() == source) {
-            self.drag_out = None;
+        } else if self.drag_out.as_ref().is_some_and(|(ours, _, _)| ours.inner() == source) {
+            self.drop_drag_out();
         } else {
             source.destroy();
         }
@@ -1334,8 +1370,8 @@ impl DataSourceHandler for Explorer {
     fn dnd_dropped(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &WlDataSource) {}
 
     fn dnd_finished(&mut self, _: &Connection, _: &QueueHandle<Self>, source: &WlDataSource) {
-        if self.drag_out.as_ref().is_some_and(|(ours, _)| ours.inner() == source) {
-            self.drag_out = None;
+        if self.drag_out.as_ref().is_some_and(|(ours, _, _)| ours.inner() == source) {
+            self.drop_drag_out();
         }
     }
 

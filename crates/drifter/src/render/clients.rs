@@ -90,6 +90,9 @@ impl State {
         if let smithay::input::pointer::CursorImageStatus::Surface(surface) = &self.cursor_status {
             roots.push(surface.clone());
         }
+        if let Some(icon) = &self.drag_icon {
+            roots.push(icon.clone());
+        }
         if let Some(held) = self.client_lock.as_ref() {
             roots.extend(held.surfaces.iter().map(|(surface, _)| surface.wl_surface().clone()));
         }

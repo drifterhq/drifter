@@ -417,7 +417,7 @@ pub enum Drag {
     Zoom,
     Slider,
     Files { paths: Vec<PathBuf>, from: crate::Vec2, at: crate::Vec2, live: bool, pending: Option<PathBuf> },
-    Foreign { at: crate::Vec2 },
+    Foreign { at: crate::Vec2, paths: Vec<PathBuf> },
 }
 
 pub fn home() -> PathBuf {

@@ -852,7 +852,7 @@ impl Look {
         }
         match &model.dragging {
             Some(super::model::Drag::Files { paths, at, live: true, .. }) => self.paint_drag(&mut canvas, size, job, paths, *at),
-            Some(super::model::Drag::Foreign { at }) => self.paint_spot(&mut canvas, size, job, &[], *at),
+            Some(super::model::Drag::Foreign { at, paths }) => self.paint_spot(&mut canvas, size, job, paths, *at),
             _ => {}
         }
         if let Some(sheet) = &model.sheet {
@@ -1003,8 +1003,24 @@ impl Look {
     }
 
     fn paint_drag(&self, canvas: &mut Canvas, size: Vec2, job: &Paint, paths: &[PathBuf], at: Vec2) {
-        let fonts = job.fonts;
         self.paint_spot(canvas, size, job, paths, at);
+        self.paint_card(canvas, job, paths, at);
+    }
+
+    pub fn drag_card(&self, job: &Paint, paths: &[PathBuf]) -> Image {
+        let words = match paths {
+            [one] => super::entry::name_of(one),
+            _ => super::entry::items(paths.len()),
+        };
+        let wide = fit(job.fonts.body, &words, 260.0);
+        let width = job.fonts.body.width_of(&wide) + 46.0 + 14.0 + 16.0;
+        let mut canvas = Canvas::new(width.ceil() as u32, 56);
+        self.paint_card(&mut canvas, job, paths, Vec2::ZERO);
+        canvas.image
+    }
+
+    fn paint_card(&self, canvas: &mut Canvas, job: &Paint, paths: &[PathBuf], at: Vec2) {
+        let fonts = job.fonts;
         let words = match paths {
             [one] => super::entry::name_of(one),
             _ => super::entry::items(paths.len()),
