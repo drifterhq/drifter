@@ -24,7 +24,7 @@ pub const HEAD_H: f64 = 28.0;
 pub const LINE_H: f64 = 26.0;
 pub const COLUMN_W: f64 = 250.0;
 pub const PREVIEW_W: f64 = 320.0;
-pub const STRIP_H: f64 = 112.0;
+pub const STRIP_H: f64 = 136.0;
 pub const STRIP_CELL: f64 = 96.0;
 pub const ITEM_H: f64 = 28.0;
 pub const RULE_H: f64 = 9.0;
@@ -1409,7 +1409,9 @@ impl Look {
             let size = logical(image);
             let fit = shrink_fit(size, area.size);
             let at = area.origin + fit.origin;
-            canvas.shadow(rect(at.x, at.y, fit.size.x, fit.size.y), 3.0, 6.0, self.drop * 0.6);
+            if solid(image) {
+                canvas.shadow(rect(at.x, at.y, fit.size.x, fit.size.y), 3.0, 6.0, self.drop * 0.6);
+            }
             let shown = match (fit.size.x - size.x).abs() < 1.0 {
                 true => image.clone(),
                 false => image.scaled(crate::paint::dense(fit.size.x), crate::paint::dense(fit.size.y)),
@@ -1934,10 +1936,12 @@ impl Look {
                     let wide = rect(picture.origin.x, picture.origin.y, picture.size.x, picture.size.y);
                     match job.art.thumb(&one.path, side) {
                         Some(image) => {
-                            let fitted = shrink_fit(logical(image), wide.size);
+                            let fitted = grow_fit(logical(image), wide.size, MOST_GROW);
                             let at = wide.origin + fitted.origin;
                             let shown = image.scaled(crate::paint::dense(fitted.size.x), crate::paint::dense(fitted.size.y));
-                            canvas.shadow(rect(at.x, at.y, fitted.size.x, fitted.size.y), 4.0, 14.0, self.drop);
+                            if solid(image) {
+                                canvas.shadow(rect(at.x, at.y, fitted.size.x, fitted.size.y), 4.0, 14.0, self.drop);
+                            }
                             canvas.stamp(&shown, at.round(), 1.0);
                         }
                         None => self.entry_art(canvas, job.art, model, one, Rect::from_center(picture.center(), Vec2::splat(side.min(160.0)))),
@@ -1975,8 +1979,10 @@ impl Look {
             if model.focus.as_ref() == Some(&entry.path) && ringed(model, super::model::Pane::Files) {
                 canvas.ring(inset(tile, 1.0), 10.0, 2.0, if picked { self.on_accent } else { self.accent }, 1.0);
             }
-            let side = tile.size.x - 16.0;
-            self.entry_art(canvas, job.art, model, entry, Rect::from_center(tile.center(), Vec2::splat(side)));
+            let side = tile.size.x - 30.0;
+            self.entry_art(canvas, job.art, model, entry, Rect::from_center(Vec2::new(tile.center().x, tile.origin.y + 8.0 + side / 2.0), Vec2::splat(side)));
+            let ink = if picked { self.on_accent } else { self.ink };
+            self.text_center(canvas, fonts.small, &entry.name, ink, Vec2::new(tile.center().x, tile.max().y - 13.0), tile.size.x - 10.0);
         }
     }
 
@@ -2920,6 +2926,23 @@ fn entry_date(one: &Entry, model: &Model) -> String {
     super::entry::date_words(one.modified, model.now, true)
 }
 
+const MOST_GROW: f64 = 4.0;
+
+fn solid(image: &Image) -> bool {
+    image.rgba.chunks_exact(4).all(|pixel| pixel[3] >= 250)
+}
+
+fn grow_fit(content: Vec2, into: Vec2, most: f64) -> Rect {
+    let fitted = Rect::fit_centered(content, into);
+    match fitted.size.x > content.x * most {
+        true => {
+            let size = content * most;
+            Rect::new((into - size) / 2.0, size)
+        }
+        false => fitted,
+    }
+}
+
 fn shrink_fit(content: Vec2, into: Vec2) -> Rect {
     let fitted = Rect::fit_centered(content, into);
     match fitted.size.x > content.x {
@@ -3348,6 +3371,22 @@ mod repaint_tests {
         input::motion(&mut model, &ui, &lines, Vec2::new(x_of(font, &text, text.len() - 4, area), area.center().y));
         assert_eq!(model.path.as_ref().unwrap().picked_text(), Some("work"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn small_pictures_grow_in_the_gallery_but_not_without_end() {
+        let room = Vec2::new(800.0, 600.0);
+        let small = grow_fit(Vec2::new(100.0, 50.0), room, MOST_GROW);
+        assert_eq!(small.size, Vec2::new(400.0, 200.0));
+        assert_eq!(small.center(), room / 2.0);
+        let mid = grow_fit(Vec2::new(300.0, 300.0), room, MOST_GROW);
+        assert_eq!(mid.size, Vec2::new(600.0, 600.0));
+        let big = grow_fit(Vec2::new(4000.0, 1000.0), room, MOST_GROW);
+        assert_eq!(big.size, Vec2::new(800.0, 200.0));
+        let mut logo = Image { width: 2, height: 1, rgba: vec![9, 9, 9, 255, 0, 0, 0, 0] };
+        assert!(!solid(&logo), "see-through pictures get no box shadow");
+        logo.rgba[7] = 255;
+        assert!(solid(&logo));
     }
 
     #[test]

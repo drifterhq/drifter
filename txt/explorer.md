@@ -134,8 +134,10 @@ Later steps build on these.
     - Built: a mouse wheel click (a discrete axis step) now moves 48 px and glides there over 150 ms with an ease-out (`Glide` in window.rs). Each frame moves the view by whole pixels through the same blit shifts as plain scrolling, so it costs no full repaint. More clicks during a glide add to its target. Touchpad scrolling stays direct. Any other change to the scroll (keys, the rail, the other pane) ends the glide at once. Checked on the trixie VM in a folder of 200 files: three clicks down showed file007 at the top, one click up file005, with clean frames.
 36. Gallery: the strip has no names.
     Waits on: nothing.
+    - Built: the strip is 136 px tall; each tile shows its picture at the top and its name under it in the small font, cut to fit, white on a picked tile. Checked on the trixie VM: blueman.p…, copyq.png and debian-log… under their pictures.
 37. Gallery: small pictures look tiny in the big preview.
     Waits on: nothing.
+    - Built: the big preview now grows a small picture to fill the space, up to 4 times its size (`grow_fit`); big pictures still shrink to fit. Pictures with see-through pixels no longer get a box shadow, in the preview or in tiles (`solid`), so logos and icons do not sit on a dark square. Test: `small_pictures_grow_in_the_gallery_but_not_without_end`. Checked on the trixie VM: a 48 px PNG showed at 192 px with no box behind it.
 38. Empty folders show gray text and nothing else.
     Waits on: 32.
 
