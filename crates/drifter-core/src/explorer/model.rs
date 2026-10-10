@@ -959,6 +959,9 @@ impl Model {
     }
 
     fn settle(&mut self, until: Instant, done: impl Fn(&Model) -> bool) {
+        if until <= Instant::now() {
+            return;
+        }
         while !done(self) {
             match self.reader.next(Some(until)) {
                 Some(got) => {

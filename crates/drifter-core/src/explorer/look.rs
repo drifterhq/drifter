@@ -1983,7 +1983,7 @@ impl Look {
         let fonts = job.fonts;
         let pad = 20.0;
         let picture = rect(area.origin.x + pad, area.origin.y + pad, area.size.x - pad * 2.0, (area.size.y * 0.5).min(area.size.x - pad * 2.0));
-        match &model.peek {
+        match model.peek.as_ref().filter(|lines| lines.iter().any(|line| !line.trim().is_empty())) {
             Some(lines) => self.paint_peek(canvas, picture, lines, fonts),
             None => {
                 let side = picture.size.x.min(picture.size.y);
@@ -2038,7 +2038,7 @@ impl Look {
         let picture = self.picture_rect(body);
         let focus = model.focus_index().and_then(|at| model.entries.get(at)).or_else(|| model.single());
         if let Some(one) = focus {
-            match (&model.peek, one.family().shows_picture() && model.prefs.thumbnails) {
+            match (model.peek.as_ref().filter(|lines| lines.iter().any(|line| !line.trim().is_empty())), one.family().shows_picture() && model.prefs.thumbnails) {
                 (Some(lines), _) => {
                     let page = Rect::from_center(picture.center(), Vec2::new(picture.size.x.min(picture.size.y * 0.8), picture.size.y));
                     self.paint_peek(canvas, page, lines, fonts);
@@ -2844,7 +2844,7 @@ impl Look {
         };
         self.text_center(canvas, fonts.small, &detail, self.dim, Vec2::new(area.center().x, area.max().y - 22.0), area.size.x - 48.0);
         let room = rect(area.origin.x + 24.0, area.origin.y + 56.0, area.size.x - 48.0, area.size.y - 56.0 - 48.0);
-        match (&model.peek, one.family().shows_picture() && model.prefs.thumbnails) {
+        match (model.peek.as_ref().filter(|lines| lines.iter().any(|line| !line.trim().is_empty())), one.family().shows_picture() && model.prefs.thumbnails) {
             (Some(lines), _) => {
                 let larger = Fonts { body: fonts.body, small: fonts.body, title: fonts.title };
                 self.paint_peek(canvas, room, lines, &larger);
@@ -3713,6 +3713,34 @@ mod repaint_tests {
         assert!(!solid(&logo), "see-through pictures get no box shadow");
         logo.rgba[7] = 255;
         assert!(solid(&logo));
+    }
+
+    #[test]
+    fn an_empty_file_shows_its_icon_not_a_blank_page() {
+        let dir = std::env::temp_dir().join(format!("drifter-blank-peek-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("work")).unwrap();
+        std::fs::write(dir.join("work/empty.txt"), "").unwrap();
+        let mut model = Model::new(dir.join("explorer.toml"), Some(dir.join("work")));
+        model.settle_all(std::time::Duration::from_secs(5));
+        let (Ok(body), Ok(small), Ok(title)) = (crate::Font::find(None, 13.0), crate::Font::find(None, 11.5), crate::Font::find(None, 17.0)) else {
+            return;
+        };
+        let fonts = Fonts { body: &body, small: &small, title: &title };
+        let look = Look::themed(&crate::theme::DARK, [64, 128, 238]);
+        let size = Vec2::new(900.0, 600.0);
+        let art = Art::default();
+        model.act(super::super::model::Act::Show(Mode::Columns));
+        model.pick_only(dir.join("work/empty.txt"));
+        let lines = model.lines();
+        let shot = |model: &Model| look.paint(size, &Paint { model, lines: &lines, fonts: &fonts, art: &art, clip: None }).rgba;
+        model.peek = None;
+        let icon = shot(&model);
+        model.peek = Some(vec![String::new()]);
+        assert!(shot(&model) == icon, "a blank peek paints like no peek");
+        model.peek = Some(vec!["words".to_string()]);
+        assert!(shot(&model) != icon, "real text still shows as a page");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

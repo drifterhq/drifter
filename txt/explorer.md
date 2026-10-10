@@ -205,3 +205,8 @@ Later steps build on these.
 57. Trash check across disks (no change needed).
     Waits on: 11.
     - Checked on the trixie VM in /tmp, which is its own disk: Delete asked "Move to Trash?" and put gone.txt in /tmp/.Trash-1000 with its .trashinfo (not in the home Trash); the Trash view listed it with /tmp/bin-test as Original Location and the date; Put Back returned it and emptied that trash folder; after trashing both files, right-click on empty space offered Empty Trash, the red-button sheet asked first, and both the files and their info entries were gone, leaving "The Trash is empty".
+58. Columns keyboard check, and two small fixes.
+    Waits on: nothing.
+    - Checked on the trixie VM: in Columns view Down picks, Right opens a folder in the next column, Left goes back a column, and typing finds a name in the column that has the focus.
+    - Fixed: an empty or blank text file showed an empty page in the preview (Columns, Gallery and Quick Look); it now shows the file's icon with "TXT text · Empty". Test: `an_empty_file_shows_its_icon_not_a_blank_page`. Checked on the trixie VM.
+    - Fixed: `a_slow_folder_shows_loading_and_fills_in_later` failed about one run in four, because a zero wait budget still took a listing that was already done. A spent budget now returns at once (`Model::settle`); normal budgets are unchanged. It passed 15 runs in a row.
