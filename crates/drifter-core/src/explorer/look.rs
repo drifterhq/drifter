@@ -266,6 +266,13 @@ fn info_switch_count(info: &super::model::Info) -> usize {
     usize::from(info.locked().is_some()) + usize::from(info.runs().is_some())
 }
 
+fn lift(color: [u8; 3], amount: f64) -> [u8; 3] {
+    match amount >= 0.0 {
+        true => mix(color, [255, 255, 255], amount),
+        false => mix(color, [0, 0, 0], -amount),
+    }
+}
+
 pub fn join(a: Rect, b: Rect) -> Rect {
     let low = a.origin.min(b.origin);
     let high = a.max().max(b.max());
@@ -1011,7 +1018,7 @@ impl Look {
         for (index, (area, name)) in self.bar_titles(fonts).into_iter().enumerate() {
             let hot = job.model.hover == Some(Hit::Bar(index));
             if open == Some(index) {
-                canvas.round_rect(area, 6.0, self.accent, 1.0);
+                self.glossy(canvas, area, 6.0);
             } else if hot {
                 canvas.round_rect(area, 6.0, self.hover, 0.7);
             }
@@ -1021,10 +1028,47 @@ impl Look {
     }
 
     fn button(&self, canvas: &mut Canvas, area: Rect, hot: bool, on: bool) {
-        match (on, hot) {
-            (true, _) => canvas.round_rect(area, 7.0, self.accent, 1.0),
-            (false, true) => canvas.round_rect(area, 7.0, self.hover, 0.8),
-            _ => {}
+        match on {
+            true => self.pressed(canvas, area, 7.0),
+            false => self.raised(canvas, area, 7.0, hot),
+        }
+    }
+
+    fn glossy(&self, canvas: &mut Canvas, area: Rect, radius: f64) {
+        canvas.shade(area, radius, lift(self.accent, 0.14), lift(self.accent, -0.10), 1.0);
+        let y = area.origin.y + 1.0;
+        canvas.line(Vec2::new(area.origin.x + radius, y), Vec2::new(area.max().x - radius, y), 1.0, [255, 255, 255], 0.22);
+    }
+
+    fn raised(&self, canvas: &mut Canvas, area: Rect, radius: f64, hot: bool) {
+        canvas.shadow(rect(area.origin.x, area.origin.y + 1.0, area.size.x, area.size.y), radius, 3.0, if self.dark { 0.35 } else { 0.16 });
+        let base = if hot { self.hover } else { self.raised };
+        let (top, bottom) = match self.dark {
+            true => (lift(base, 0.16), lift(base, -0.06)),
+            false => (lift(base, 0.7), lift(base, -0.02)),
+        };
+        canvas.shade(area, radius, top, bottom, 1.0);
+        canvas.ring(area, radius, 1.0, [0, 0, 0], if self.dark { 0.5 } else { 0.16 });
+        let y = area.origin.y + 1.5;
+        canvas.line(Vec2::new(area.origin.x + radius, y), Vec2::new(area.max().x - radius, y), 1.0, [255, 255, 255], if self.dark { 0.16 } else { 0.9 });
+    }
+
+    fn pressed(&self, canvas: &mut Canvas, area: Rect, radius: f64) {
+        canvas.shade(area, radius, lift(self.accent, -0.24), lift(self.accent, 0.06), 1.0);
+        canvas.ring(area, radius, 1.0, [0, 0, 0], 0.3);
+        let y = area.origin.y + 1.5;
+        canvas.line(Vec2::new(area.origin.x + radius, y), Vec2::new(area.max().x - radius, y), 1.0, [0, 0, 0], 0.25);
+    }
+
+    fn sunk(&self, canvas: &mut Canvas, area: Rect, radius: f64, ring: Option<f64>) {
+        canvas.round_rect(area, radius, self.well, 1.0);
+        let y = area.origin.y + 1.5;
+        canvas.line(Vec2::new(area.origin.x + radius, y), Vec2::new(area.max().x - radius, y), 1.0, [0, 0, 0], if self.dark { 0.35 } else { 0.10 });
+        let y = area.max().y + 0.5;
+        canvas.line(Vec2::new(area.origin.x + radius, y), Vec2::new(area.max().x - radius, y), 1.0, [255, 255, 255], if self.dark { 0.06 } else { 0.8 });
+        match ring {
+            Some(width) => canvas.ring(area, radius, width, self.accent, 1.0),
+            None => canvas.ring(area, radius, 1.0, self.rule, 1.0),
         }
     }
 
@@ -1032,7 +1076,7 @@ impl Look {
         let model = job.model;
         let fonts = job.fonts;
         let bar = frame.bar;
-        canvas.round_rect(bar, 0.0, self.bar, 1.0);
+        canvas.shade(bar, 0.0, lift(self.bar, if self.dark { 0.05 } else { 0.5 }), lift(self.bar, -0.03), 1.0);
         canvas.round_rect(rect(0.0, bar.max().y - 1.0, bar.size.x, 1.0), 0.0, self.rule, 1.0);
         let nav = self.nav_rects(bar);
         let able = [!model.back.is_empty(), !model.ahead.is_empty(), model.dir.parent().is_some()];
@@ -1059,22 +1103,32 @@ impl Look {
         }
         let path = self.path_rect(bar);
         let editing = model.path.as_ref();
-        canvas.round_rect(path, 8.0, self.well, 1.0);
+        self.sunk(canvas, path, 8.0, editing.map(|_| 2.0));
         match editing {
             Some(field) => {
-                canvas.ring(path, 8.0, 2.0, self.accent, 1.0);
                 self.paint_field(canvas, fonts.body, field, rect(path.origin.x + 10.0, path.origin.y, path.size.x - 20.0, path.size.y));
             }
             None => {
-                canvas.ring(path, 8.0, 1.0, self.rule, 1.0);
                 self.paint_crumbs(canvas, path, model, fonts);
             }
         }
         self.paint_search(canvas, self.search_rect(bar), model, fonts);
-        for (mode, area) in self.view_rects(bar) {
+        let views = self.view_rects(bar);
+        if let (Some((_, first)), Some((_, last))) = (views.first(), views.last()) {
+            self.raised(canvas, rect(first.origin.x, first.origin.y, last.max().x - first.origin.x, first.size.y), 7.0, false);
+        }
+        for (at, (mode, area)) in views.iter().copied().enumerate() {
             let on = model.view.mode == mode;
             let hot = model.hover == Some(Hit::Show(mode));
-            self.button(canvas, rect(area.origin.x + 1.0, area.origin.y, area.size.x - 2.0, area.size.y), hot, on);
+            if at > 0 {
+                canvas.line(Vec2::new(area.origin.x, area.origin.y + 6.0), Vec2::new(area.origin.x, area.max().y - 6.0), 1.0, self.rule, 1.0);
+            }
+            let face = rect(area.origin.x + 1.0, area.origin.y + 1.0, area.size.x - 2.0, area.size.y - 2.0);
+            match (on, hot) {
+                (true, _) => self.pressed(canvas, face, 6.0),
+                (false, true) => canvas.round_rect(face, 6.0, self.hover, 0.6),
+                _ => {}
+            }
             let ink = if on { self.on_accent } else { self.ink };
             self.view_glyph(canvas, mode, area.center(), ink);
         }
@@ -1091,11 +1145,7 @@ impl Look {
     fn paint_search(&self, canvas: &mut Canvas, area: Rect, model: &Model, fonts: &Fonts) {
         let search = model.search.as_ref();
         let focused = search.is_some_and(|search| search.focused);
-        canvas.round_rect(area, 8.0, self.well, 1.0);
-        match focused {
-            true => canvas.ring(area, 8.0, 2.0, self.accent, 1.0),
-            false => canvas.ring(area, 8.0, 1.0, self.rule, 1.0),
-        }
+        self.sunk(canvas, area, 8.0, focused.then_some(2.0));
         let c = Vec2::new(area.origin.x + 16.0, area.center().y - 1.0);
         canvas.ring(Rect::from_center(c, Vec2::splat(10.0)), 5.0, 1.6, self.dim, 1.0);
         canvas.line(c + Vec2::new(3.5, 3.5), c + Vec2::new(7.0, 7.0), 1.8, self.dim, 1.0);
@@ -1389,7 +1439,7 @@ impl Look {
                 _ => 0.0,
             };
             if here {
-                canvas.round_rect(area, 7.0, self.accent, 1.0);
+                self.glossy(&mut canvas, area, 7.0);
             } else if hot {
                 canvas.round_rect(area, 7.0, self.hover, 0.7);
             }
@@ -1527,7 +1577,7 @@ impl Look {
 
     fn row_back(&self, canvas: &mut Canvas, area: Rect, picked: bool, hot: bool, focused: bool, stripe: bool) {
         if picked {
-            canvas.round_rect(area, 6.0, self.accent, 1.0);
+            self.glossy(canvas, area, 6.0);
         } else if hot {
             canvas.round_rect(area, 6.0, self.hover, 0.6);
         } else if stripe {
@@ -1718,7 +1768,7 @@ impl Look {
             let widest = lines.iter().map(|line| label_font.width_of(line)).fold(0.0, f64::max);
             if picked {
                 let pill = rect(area.center().x - widest / 2.0 - 6.0, label_top - 2.0, widest + 12.0, line_h * lines.len() as f64 + 4.0);
-                canvas.round_rect(pill, 6.0, self.accent, 1.0);
+                self.glossy(canvas, pill, 6.0);
             }
             let faded = model.clip.as_ref().is_some_and(|(paths, cut)| *cut && paths.contains(&entry.path));
             let ink = match (picked, faded) {
@@ -1905,7 +1955,7 @@ impl Look {
             let picked = model.picked.contains(&entry.path);
             let tile = rect(cell.origin.x + 6.0, cell.origin.y, cell.size.x - 12.0, cell.size.y);
             if picked {
-                canvas.round_rect(tile, 10.0, self.accent, 1.0);
+                self.glossy(canvas, tile, 10.0);
             } else if model.hover == Some(Hit::Strip(at)) {
                 canvas.round_rect(tile, 10.0, self.hover, 0.6);
             }
@@ -2277,7 +2327,7 @@ impl Look {
             }
             let lit = item.on && (hover == Some(index) || open == Some(index));
             if lit {
-                canvas.round_rect(row, 6.0, self.accent, 1.0);
+                self.glossy(canvas, row, 6.0);
             }
             let ink = match (lit, item.on) {
                 (true, _) => self.on_accent,
@@ -2503,7 +2553,7 @@ impl Look {
             let app = &chooser.apps[at];
             let picked = chooser.at == Some(at);
             if picked {
-                canvas.round_rect(row, 6.0, self.accent, 1.0);
+                self.glossy(canvas, row, 6.0);
             }
             let icon = rect(row.origin.x + 8.0, row.center().y - 11.0, 22.0, 22.0);
             self.icon_or_glyph(canvas, job.art, app.icon.as_deref().unwrap_or("application-x-executable"), Family::Program, icon);
@@ -2624,7 +2674,7 @@ impl Look {
         for (at, (place, name)) in self.tab_rects(area).into_iter().zip(self.tabs()).enumerate() {
             let on = at == tab;
             if on {
-                canvas.round_rect(place, 8.0, self.accent, 1.0);
+                self.glossy(canvas, place, 8.0);
             }
             let dot = rect(place.origin.x + 8.0, place.center().y - 10.0, 20.0, 20.0);
             canvas.round_rect(dot, 6.0, tints[at], 1.0);

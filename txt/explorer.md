@@ -122,6 +122,7 @@ Later steps build on these.
 
 32. Flat: nothing has depth or a 3D feel, and Drifter's identity is 3D and skeuomorphic.
     Waits on: 2.
+    - Built: depth in the style of Drifter's Welcome keys (`raised`, `pressed`, `sunk`, `glossy` in look.rs). The toolbar has a soft top-to-bottom shade. Back, Forward, Up and the settings button are raised keys: a soft shadow under them, a shaded face, a dark rim and a thin top highlight; hover lightens the face. The four views are one raised segmented control with thin dividers, and the chosen view is pressed in with a darker accent at the top. The path and search fields are sunk: a dark inner line at the top and a light line under them. Every accent fill (picked rows, icons, columns, gallery tiles, the sidebar line you are in, menus, the menu bar, the Settings tabs and the app chooser) is a glossy accent gradient with a thin highlight. Partial repaints still match full paints (the repaint tests pass). Checked on the trixie VM in the dark theme.
 33. Animation: menus, sheets and view changes snap in.
     Waits on: 2, 32.
 34. Animation: hover and selection do not fade.
