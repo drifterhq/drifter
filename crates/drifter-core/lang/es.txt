@@ -3347,3 +3347,24 @@ Cannot change the default app: {}
 
 No apps found
 = No se encontraron apps
+
+{} in {}
+= {} en {}
+
+{}, counting…
+= {}, contando…
+
+Opens with
+= Se abre con
+
+Change…
+= Cambiar…
+
+Locked
+= Bloqueado
+
+Can run as a program
+= Se puede ejecutar como programa
+
+Cannot change “{}”: {}
+= No se puede cambiar «{}»: {}

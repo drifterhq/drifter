@@ -89,6 +89,7 @@ struct Explorer {
     drag_out: Option<(DragSource, Held)>,
     drop_offer: Option<DragOffer>,
     dropped: LoopSender<(Drop, Option<Held>, bool)>,
+    sizes: LoopSender<(PathBuf, (u64, u64))>,
     fonts: (Font, Font, Font),
     model: Model,
     art: Art,
@@ -211,6 +212,16 @@ pub fn run() -> Result<(), String> {
             }
         })
         .map_err(|e| format!("cannot watch drops: {e}"))?;
+    let (sizes, sizes_rx) = loop_channel::<(PathBuf, (u64, u64))>();
+    events
+        .handle()
+        .insert_source(sizes_rx, |event, _, app: &mut Explorer| {
+            if let ChannelEvent::Msg((path, total)) = event {
+                app.model.measured(&path, total);
+                app.stale = true;
+            }
+        })
+        .map_err(|e| format!("cannot watch folder sizes: {e}"))?;
     let (jobs, jobs_rx) = loop_channel::<Done>();
     events
         .handle()
@@ -268,6 +279,7 @@ pub fn run() -> Result<(), String> {
         drag_out: None,
         drop_offer: None,
         dropped,
+        sizes,
         fonts,
         model,
         art: Art::default(),
@@ -440,6 +452,13 @@ impl Explorer {
                     }
                 }
                 Effect::Hold(held) => self.offer(held),
+                Effect::Measure(path) => {
+                    let sizes = self.sizes.clone();
+                    std::thread::spawn(move || {
+                        let total = ops::folder_size(&path);
+                        let _ = sizes.send((path, total));
+                    });
+                }
                 Effect::NewWindow(path) => {
                     let me = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("drifter-explorer"));
                     let argv = vec![me.to_string_lossy().into_owned(), path.to_string_lossy().into_owned()];

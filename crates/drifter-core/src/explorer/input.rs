@@ -467,6 +467,9 @@ fn press_sheet(model: &mut Model, ui: &Ui, at: Vec2, clicks: u32) {
             }
         }
         SheetHit::Always => model.act(Act::AlwaysApp),
+        SheetHit::Lock => model.act(Act::Lock),
+        SheetHit::Runs => model.act(Act::Runs),
+        SheetHit::ChangeApp => model.act(Act::ChangeApp),
         SheetHit::Clash(clash) => model.act(Act::Clash(clash)),
         SheetHit::Tab(tab) => model.sheet = Some(Sheet::Prefs(tab)),
         SheetHit::Pref(pref) => model.set(pref),

@@ -360,6 +360,24 @@ fn sheet_node(tree: &mut Tree, sheet: &Sheet, focus: &mut Option<NodeId>) -> Nod
                 kids.push(tree.label("sheet size", &drifter_core::explorer::entry::size_words(entry.size)));
             }
             kids.push(tree.label("sheet where", &entry.path.to_string_lossy()));
+            if let Some((bytes, count)) = info.total {
+                let words = tf("{} in {}", &[&drifter_core::explorer::entry::size_words(bytes), &drifter_core::explorer::entry::items(count as usize)]);
+                kids.push(tree.label("sheet total", &words));
+            }
+            if let Some(app) = &info.opens {
+                kids.push(tree.label("sheet opens", &format!("{}: {app}", t("Opens with"))));
+                kids.push(tree.button("sheet change", t("Change…"), Act::ChangeApp, true));
+            }
+            for (key, label, on, act) in [("sheet lock", t("Locked"), info.locked(), Act::Lock), ("sheet runs", t("Can run as a program"), info.runs(), Act::Runs)] {
+                let Some(on) = on else {
+                    continue;
+                };
+                let mut node = clickable(Role::CheckBox, label);
+                node.set_toggled(if on { Toggled::True } else { Toggled::False });
+                let id = tree.put(key, node);
+                tree.aims.insert(id, (Order::Act(act), None));
+                kids.push(id);
+            }
             kids.push(tree.button("sheet close", t("Done"), Act::CloseSheet, true));
         }
         Sheet::Apps(chooser) => {

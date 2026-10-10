@@ -84,6 +84,9 @@ pub enum Act {
     AlwaysApp,
     ChooseApp,
     CloseSheet,
+    Lock,
+    Runs,
+    ChangeApp,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -160,6 +163,19 @@ pub struct Info {
     pub inside: Option<usize>,
     pub mode: Option<u32>,
     pub target: Option<PathBuf>,
+    pub total: Option<(u64, u64)>,
+    pub opens: Option<String>,
+    pub writers: Option<u32>,
+}
+
+impl Info {
+    pub fn locked(&self) -> Option<bool> {
+        self.mode.map(|mode| mode & 0o222 == 0)
+    }
+
+    pub fn runs(&self) -> Option<bool> {
+        self.mode.filter(|_| !self.entry.folder).map(|mode| mode & 0o100 != 0)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -312,6 +328,7 @@ pub enum Effect {
     Launch(Vec<String>),
     Hold(super::clip::Held),
     NewWindow(PathBuf),
+    Measure(PathBuf),
     Close,
 }
 
@@ -1819,7 +1836,12 @@ impl Model {
             Act::Info => {
                 let one = self.single().cloned().or_else(|| Entry::at(&self.dir));
                 if let Some(one) = one {
-                    self.sheet = Some(Sheet::Info(info_of(one)));
+                    let mut info = info_of(one);
+                    match info.entry.folder {
+                        true => self.effects.push(Effect::Measure(info.entry.path.clone())),
+                        false => info.opens = self.handlers_for(info.entry.mime).first().map(|app| app.name.clone()),
+                    }
+                    self.sheet = Some(Sheet::Info(info));
                 }
             }
             Act::Close => match self.jobs.as_slice() {
@@ -1930,6 +1952,19 @@ impl Model {
             Act::Status => self.set(Pref::Status),
             Act::Dismiss => {
                 self.alerts.pop();
+            }
+            Act::Lock => self.change_mode(true),
+            Act::Runs => self.change_mode(false),
+            Act::ChangeApp => {
+                if let Some(Sheet::Info(info)) = self.sheet.clone()
+                    && !info.entry.folder
+                {
+                    self.pick_only(info.entry.path.clone());
+                    self.choose_app(open::all_apps());
+                    if let Some(Sheet::Apps(chooser)) = self.sheet.as_mut() {
+                        chooser.always = true;
+                    }
+                }
             }
             Act::CloseSheet => {
                 self.sheet = None;
@@ -2119,6 +2154,40 @@ impl Model {
         }
         items.push(Item::new(crate::lang::t("Other App…"), "", Act::OtherApp));
         items
+    }
+
+    pub fn measured(&mut self, path: &Path, total: (u64, u64)) {
+        if let Some(Sheet::Info(info)) = self.sheet.as_mut()
+            && info.entry.path == path
+        {
+            info.total = Some(total);
+        }
+    }
+
+    fn change_mode(&mut self, lock: bool) {
+        use std::os::unix::fs::PermissionsExt;
+        let Some(Sheet::Info(info)) = self.sheet.as_mut() else {
+            return;
+        };
+        let Some(mode) = info.mode else {
+            return;
+        };
+        let next = match (lock, mode & 0o222 != 0, mode & 0o111 != 0) {
+            (true, true, _) => {
+                info.writers = Some(mode & 0o222);
+                mode & !0o222
+            }
+            (true, false, _) => mode | info.writers.take().unwrap_or(0o200),
+            (false, _, true) => mode & !0o111,
+            (false, _, false) => mode | ((mode & 0o444) >> 2),
+        };
+        match std::fs::set_permissions(&info.entry.path, std::fs::Permissions::from_mode(next & 0o7777)) {
+            Ok(()) => info.mode = Some(next),
+            Err(error) => {
+                let words = crate::lang::tf("Cannot change “{}”: {}", &[&info.entry.name, &error]);
+                self.say(words, true);
+            }
+        }
     }
 
     pub fn choose_app(&mut self, all: Vec<Handler>) {
@@ -2333,7 +2402,7 @@ pub fn info_of(entry: Entry) -> Info {
     let inside = entry.folder.then(|| std::fs::read_dir(&entry.path).map(|items| items.count()).ok()).flatten();
     let mode = std::fs::metadata(&entry.path).ok().map(|meta| meta.permissions().mode());
     let target = entry.link.then(|| std::fs::read_link(&entry.path).ok()).flatten();
-    Info { entry, inside, mode, target }
+    Info { entry, inside, mode, target, total: None, opens: None, writers: None }
 }
 
 pub fn mode_words(mode: u32) -> String {
@@ -2809,6 +2878,54 @@ mod tests {
         assert!(model.jobs.is_empty());
         assert_eq!(model.single().map(|one| one.name.as_str()), Some("b.txt"));
         assert_eq!(model.undo.len(), 1);
+    }
+
+    #[test]
+    fn get_info_counts_folders_and_changes_access() {
+        use std::os::unix::fs::PermissionsExt;
+        let (place, mut model) = place("info");
+        let photos = place.0.join("work/Photos");
+        model.pick_only(photos.clone());
+        model.effects.clear();
+        model.act(Act::Info);
+        assert_eq!(model.effects, [Effect::Measure(photos.clone())]);
+        assert_eq!(ops::folder_size(&photos), (0, 1));
+        assert_eq!(ops::folder_size(&place.0.join("work")), (10 + 12 + 1, 5));
+        model.measured(&place.0.join("elsewhere"), (9, 9));
+        model.measured(&photos, (0, 1));
+        let Some(Sheet::Info(info)) = &model.sheet else {
+            panic!("Info opens");
+        };
+        assert_eq!((info.total, info.runs()), (Some((0, 1)), None));
+
+        let b = place.0.join("work/b.txt");
+        std::fs::set_permissions(&b, std::fs::Permissions::from_mode(0o644)).unwrap();
+        model.pick_only(b.clone());
+        let mime = model.single().unwrap().mime;
+        model.handlers.insert(mime, vec![Handler { id: "edit".into(), name: "Edit".into(), exec: "edit %F".into(), icon: None, terminal: false }]);
+        model.act(Act::Info);
+        let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        let Some(Sheet::Info(info)) = &model.sheet else {
+            panic!("Info opens");
+        };
+        assert_eq!((info.opens.as_deref(), info.locked(), info.runs()), (Some("Edit"), Some(false), Some(false)));
+        model.act(Act::Lock);
+        assert_eq!(mode(&b), 0o444);
+        model.act(Act::Runs);
+        assert_eq!(mode(&b), 0o555);
+        model.act(Act::Lock);
+        model.act(Act::Runs);
+        assert_eq!(mode(&b), 0o644);
+        std::fs::set_permissions(&b, std::fs::Permissions::from_mode(0o664)).unwrap();
+        model.act(Act::Info);
+        model.act(Act::Lock);
+        model.act(Act::Lock);
+        assert_eq!(mode(&b), 0o664, "unlocking gives back what locking took");
+        model.act(Act::ChangeApp);
+        let Some(Sheet::Apps(chooser)) = &model.sheet else {
+            panic!("Change opens the chooser");
+        };
+        assert!(chooser.always && chooser.apps[0].id == "edit");
     }
 
     #[test]

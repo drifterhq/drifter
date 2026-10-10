@@ -322,6 +322,28 @@ fn copy_onto(from: &Path, target: &Path, progress: &Progress) -> io::Result<()> 
     Ok(())
 }
 
+pub fn folder_size(path: &Path) -> (u64, u64) {
+    let mut bytes = 0;
+    let mut count = 0;
+    let mut waiting = vec![path.to_path_buf()];
+    while let Some(dir) = waiting.pop() {
+        let Ok(items) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for item in items.flatten() {
+            let Ok(meta) = item.path().symlink_metadata() else {
+                continue;
+            };
+            count += 1;
+            match meta.is_dir() {
+                true => waiting.push(item.path()),
+                false => bytes += meta.len(),
+            }
+        }
+    }
+    (bytes, count)
+}
+
 pub fn clashes(from: &[PathBuf], into: &Path) -> Vec<PathBuf> {
     from.iter().filter(|path| path.parent() != Some(into)).filter_map(|path| Some(into.join(path.file_name()?))).filter(|plain| std::fs::symlink_metadata(plain).is_ok()).collect()
 }

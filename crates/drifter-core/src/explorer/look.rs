@@ -134,6 +134,9 @@ pub enum SheetHit {
     Clash(super::ops::Clash),
     App(usize),
     Always,
+    Lock,
+    Runs,
+    ChangeApp,
 }
 
 pub const APP_ROW: f64 = 34.0;
@@ -253,6 +256,14 @@ pub fn tree_name(model: &Model, path: &Path) -> String {
         },
         false => super::entry::name_of(path),
     }
+}
+
+fn info_row_count(info: &super::model::Info) -> usize {
+    4 + usize::from(info.mode.is_some()) + usize::from(info.target.is_some()) + usize::from(info.opens.is_some())
+}
+
+fn info_switch_count(info: &super::model::Info) -> usize {
+    usize::from(info.locked().is_some()) + usize::from(info.runs().is_some())
 }
 
 pub fn join(a: Rect, b: Rect) -> Rect {
@@ -2294,7 +2305,10 @@ impl Look {
     pub fn sheet_rect(&self, size: Vec2, sheet: &Sheet) -> Rect {
         let want = match sheet {
             Sheet::Prefs(_) => Vec2::new(720.0, 520.0),
-            Sheet::Info(info) => Vec2::new(460.0, 330.0 + 34.0 * (4 + usize::from(info.mode.is_some()) + usize::from(info.target.is_some())) as f64),
+            Sheet::Info(info) => {
+                let switches = info_switch_count(info);
+                Vec2::new(460.0, 330.0 + 34.0 * (info_row_count(info) + switches) as f64 - if switches > 0 { 30.0 } else { 0.0 })
+            }
             Sheet::Confirm { .. } => Vec2::new(420.0, 190.0),
             Sheet::Clash { names, .. } => Vec2::new(540.0, if names.len() == 1 { 190.0 } else { 236.0 }),
             Sheet::Keys => Vec2::new(520.0, 640.0),
@@ -2382,6 +2396,14 @@ impl Look {
         }
         if let Some((hit, _)) = self.sheet_buttons(area, sheet).into_iter().find(|(_, button)| button.contains(at)) {
             return Some(hit);
+        }
+        if let Sheet::Info(info) = sheet {
+            if self.info_change(area, info).is_some_and(|button| button.contains(at)) {
+                return Some(SheetHit::ChangeApp);
+            }
+            if let Some((hit, _)) = self.info_switches(area, info).into_iter().find(|(_, row)| row.contains(at)) {
+                return Some(hit);
+            }
         }
         if let Sheet::Apps(chooser) = sheet {
             if let Some((found, _)) = self.app_rows(area, chooser).into_iter().find(|(_, row)| row.contains(at)) {
@@ -2718,10 +2740,11 @@ impl Look {
         self.entry_art(canvas, job.art, model, one, art);
         let name = fonts.title.paint_weight(&fit(fonts.title, &one.name, area.size.x - 48.0), self.ink, 620.0);
         canvas.stamp(&name, Vec2::new(area.center().x - logical(&name).x / 2.0, art.max().y + 14.0).round(), 1.0);
-        let size = match (one.folder, info.inside) {
-            (true, Some(count)) => super::entry::items(count),
-            (true, None) => "--".to_string(),
-            (false, _) => format!("{} ({} {})", super::entry::size_words(one.size), one.size, crate::lang::t("bytes")),
+        let size = match (one.folder, info.total, info.inside) {
+            (true, Some((bytes, count)), _) => crate::lang::tf("{} in {}", &[&super::entry::size_words(bytes), &super::entry::items(count as usize)]),
+            (true, None, Some(count)) => crate::lang::tf("{}, counting…", &[&super::entry::items(count)]),
+            (true, None, None) => "--".to_string(),
+            (false, _, _) => format!("{} ({} {})", super::entry::size_words(one.size), one.size, crate::lang::t("bytes")),
         };
         let mut rows = vec![
             (crate::lang::t("Kind"), one.kind_words()),
@@ -2735,17 +2758,58 @@ impl Look {
         if let Some(target) = &info.target {
             rows.push((crate::lang::t("Points to"), target.display().to_string()));
         }
-        let mut y = art.max().y + 58.0;
-        let card = rect(area.origin.x + 20.0, y - 8.0, area.size.x - 40.0, rows.len() as f64 * 34.0 + 6.0);
+        if let Some(app) = &info.opens {
+            rows.push((crate::lang::t("Opens with"), app.clone()));
+        }
+        let card = self.info_card(area, info);
+        let mut y = card.origin.y + 8.0;
         canvas.round_rect(card, 10.0, self.well, 1.0);
         for (at, (label, value)) in rows.iter().enumerate() {
             if at > 0 {
                 canvas.round_rect(rect(card.origin.x + 12.0, y - 5.0, card.size.x - 24.0, 1.0), 0.0, self.rule, 0.8);
             }
             self.text(canvas, fonts.small, label, self.dim, Vec2::new(card.origin.x + 14.0, y + 12.0), 90.0);
-            self.text(canvas, fonts.small, value, self.ink, Vec2::new(card.origin.x + 108.0, y + 12.0), card.size.x - 122.0);
+            self.text(canvas, fonts.small, value, self.ink, Vec2::new(card.origin.x + 108.0, y + 12.0), card.size.x - 122.0 - if at + 1 == rows.len() && info.opens.is_some() { 90.0 } else { 0.0 });
             y += 34.0;
         }
+        if let Some(button) = self.info_change(area, info) {
+            canvas.round_rect(button, 6.0, self.raised, 1.0);
+            self.text_center(canvas, fonts.small, crate::lang::t("Change…"), self.ink, button.center(), button.size.x - 8.0);
+        }
+        for (hit, row) in self.info_switches(area, info) {
+            let (label, on) = match hit {
+                SheetHit::Lock => (crate::lang::t("Locked"), info.locked().unwrap_or(false)),
+                _ => (crate::lang::t("Can run as a program"), info.runs().unwrap_or(false)),
+            };
+            self.text(canvas, fonts.body, label, self.ink, Vec2::new(row.origin.x + 14.0, row.center().y), row.size.x - 80.0);
+            let switch = rect(row.max().x - 14.0 - 44.0, row.center().y - 12.0, 44.0, 24.0);
+            canvas.round_rect(switch, 12.0, if on { self.accent } else { self.raised }, 1.0);
+            let knob = Vec2::new(if on { switch.max().x - 12.0 } else { switch.origin.x + 12.0 }, switch.center().y);
+            canvas.circle(knob + Vec2::new(0.0, 1.0), 10.0, [0, 0, 0], 0.15);
+            canvas.circle(knob, 9.5, [255, 255, 255], 1.0);
+        }
+    }
+
+    fn info_card(&self, area: Rect, info: &super::model::Info) -> Rect {
+        let top = area.origin.y + 124.0 + 50.0;
+        rect(area.origin.x + 20.0, top, area.size.x - 40.0, info_row_count(info) as f64 * 34.0 + 6.0)
+    }
+
+    fn info_change(&self, area: Rect, info: &super::model::Info) -> Option<Rect> {
+        info.opens.as_ref()?;
+        let card = self.info_card(area, info);
+        let row = card.origin.y + 8.0 + (info_row_count(info) - 1) as f64 * 34.0;
+        Some(rect(card.max().x - 14.0 - 84.0, row, 84.0, 24.0))
+    }
+
+    fn info_switches(&self, area: Rect, info: &super::model::Info) -> Vec<(SheetHit, Rect)> {
+        let card = self.info_card(area, info);
+        let hits = [(SheetHit::Lock, info.locked().is_some()), (SheetHit::Runs, info.runs().is_some())];
+        hits.into_iter()
+            .filter(|(_, shown)| *shown)
+            .enumerate()
+            .map(|(at, (hit, _))| (hit, rect(card.origin.x, card.max().y + 10.0 + at as f64 * 34.0, card.size.x, 34.0)))
+            .collect()
     }
 
     fn paint_keys(&self, canvas: &mut Canvas, area: Rect, fonts: &Fonts) {
