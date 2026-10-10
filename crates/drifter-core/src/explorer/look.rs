@@ -77,6 +77,13 @@ pub enum Hit {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Spot {
+    Path,
+    Search,
+    Rename,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Rail {
     Body,
     Tree,
@@ -1174,11 +1181,69 @@ impl Look {
         }
     }
 
+    fn field_shift(font: &Font, field: &Field, area: Rect) -> f64 {
+        let before = font.width_of(&field.text[..field.caret]);
+        let total = font.width_of(&field.text);
+        (before - area.size.x + 4.0).max(0.0).min((total - area.size.x + 4.0).max(0.0))
+    }
+
+    pub fn field_caret(&self, font: &Font, field: &Field, area: Rect, x: f64) -> usize {
+        let x = x - area.origin.x + Self::field_shift(font, field, area);
+        let mut best = (0, f64::MAX);
+        for (at, _) in field.text.char_indices().chain(std::iter::once((field.text.len(), ' '))) {
+            let gap = (font.width_of(&field.text[..at]) - x).abs();
+            if gap < best.1 {
+                best = (at, gap);
+            }
+        }
+        best.0
+    }
+
+    pub fn field_area<'f>(&self, size: Vec2, model: &Model, fonts: &Fonts<'f>, spot: Spot) -> Option<(Rect, &'f Font)> {
+        let frame = self.frame(size, model);
+        match spot {
+            Spot::Path => {
+                let path = self.path_rect(frame.bar);
+                Some((rect(path.origin.x + 10.0, path.origin.y, path.size.x - 20.0, path.size.y), fonts.body))
+            }
+            Spot::Search => {
+                let area = self.search_rect(frame.bar);
+                Some((rect(area.origin.x + 30.0, area.origin.y, area.size.x - 58.0, area.size.y), fonts.body))
+            }
+            Spot::Rename => {
+                let (path, _) = model.renaming.as_ref()?;
+                if model.view.mode == Mode::Columns {
+                    let (index, column) = model.columns.iter().enumerate().find(|(_, column)| column.entries.iter().any(|each| &each.path == path))?;
+                    let row = column.entries.iter().position(|each| &each.path == path)?;
+                    let area = self.column_rect(frame.body, model, index);
+                    let line = rect(area.origin.x + 6.0, area.origin.y + 6.0 + row as f64 * ROW_H - column.scroll, COLUMN_W - 12.0, ROW_H);
+                    let box_area = rect(line.origin.x + 28.0, line.origin.y + 2.0, line.size.x - 34.0, ROW_H - 4.0);
+                    return Some((rect(box_area.origin.x + 4.0, box_area.origin.y, box_area.size.x - 8.0, box_area.size.y), fonts.body));
+                }
+                let index = model.index_of(path)?;
+                let area = self.entry_rect(&frame, model, index)?;
+                match model.view.mode {
+                    Mode::List => {
+                        let (name_w, _) = self.list_widths(frame.body, model);
+                        Some((rect(area.origin.x + 34.0, area.origin.y, name_w - 44.0, ROW_H), fonts.body))
+                    }
+                    Mode::Icons => {
+                        let zoom = f64::from(model.prefs.zoom);
+                        let (_, cell, _) = self.grid(frame.body, model);
+                        let label_top = area.origin.y + 6.0 + zoom + 8.0;
+                        let font = if zoom >= 96.0 { fonts.body } else { fonts.small };
+                        Some((rect(area.origin.x + 8.0, label_top - 2.0, cell.x - 16.0, 24.0), font))
+                    }
+                    _ => None,
+                }
+            }
+        }
+    }
+
     fn paint_field(&self, canvas: &mut Canvas, font: &Font, field: &Field, area: Rect) {
         let middle = area.center().y;
         let before = font.width_of(&field.text[..field.caret]);
-        let total = font.width_of(&field.text);
-        let shift = (before - area.size.x + 4.0).max(0.0).min((total - area.size.x + 4.0).max(0.0));
+        let shift = Self::field_shift(font, field, area);
         let mut piece_canvas = Canvas::new(area.size.x.ceil().max(1.0) as u32, area.size.y.ceil().max(1.0) as u32);
         if let Some((from, to)) = field.picked() {
             let x0 = font.width_of(&field.text[..from]) - shift;
@@ -2989,6 +3054,52 @@ mod repaint_tests {
         let edge = look.head_edges(frame.body, &model)[0].1;
         input::press(&mut model, &ui, &lines, Vec2::new(edge, y), Button::Left, 2, Mods::default());
         assert_eq!(model.prefs.widths.get(Sort::Modified), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dragging_in_a_field_picks_text() {
+        use super::super::input::{self, Button, Mods, Ui};
+        let dir = std::env::temp_dir().join(format!("drifter-fields-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("work")).unwrap();
+        std::fs::write(dir.join("work/holiday photos.txt"), "x").unwrap();
+        let mut model = Model::new(dir.join("explorer.toml"), Some(dir.join("work")));
+        model.settle_all(std::time::Duration::from_secs(5));
+        let (Ok(body), Ok(small), Ok(title)) = (crate::Font::find(None, 13.0), crate::Font::find(None, 11.5), crate::Font::find(None, 17.0)) else {
+            return;
+        };
+        let fonts = Fonts { body: &body, small: &small, title: &title };
+        let look = Look::themed(&crate::theme::DARK, [64, 128, 238]);
+        let size = Vec2::new(900.0, 600.0);
+        crate::paint::set_density(1);
+        let ui = Ui { look: &look, fonts: &fonts, size };
+        let lines = model.lines();
+        let x_of = |font: &crate::Font, text: &str, at: usize, area: Rect| area.origin.x + font.width_of(&text[..at]);
+        for mode in [Mode::List, Mode::Icons] {
+            model.view.mode = mode;
+            model.pick_only(dir.join("work/holiday photos.txt"));
+            model.start_rename();
+            let (area, font) = look.field_area(size, &model, &fonts, Spot::Rename).expect("a rename field");
+            let text = model.renaming.as_ref().unwrap().1.text.clone();
+            let y = area.center().y;
+            input::press(&mut model, &ui, &lines, Vec2::new(x_of(font, &text, 0, area), y), Button::Left, 1, Mods::default());
+            input::motion(&mut model, &ui, &lines, Vec2::new(x_of(font, &text, 7, area), y));
+            input::release(&mut model, &ui, &lines, Vec2::new(x_of(font, &text, 7, area), y), false);
+            assert_eq!(model.renaming.as_ref().unwrap().1.picked_text(), Some("holiday"), "{mode:?}");
+            input::press(&mut model, &ui, &lines, Vec2::new(x_of(font, &text, 10, area), y), Button::Left, 2, Mods::default());
+            assert_eq!(model.renaming.as_ref().unwrap().1.picked_text(), Some("photos"), "{mode:?}");
+            assert!(model.renaming.is_some());
+            model.renaming = None;
+        }
+        model.view.mode = Mode::List;
+        model.act(super::super::model::Act::EditPath);
+        let (area, font) = look.field_area(size, &model, &fonts, Spot::Path).unwrap();
+        let text = model.path.as_ref().unwrap().text.clone();
+        let end = Vec2::new(x_of(font, &text, text.len(), area), area.center().y);
+        input::press(&mut model, &ui, &lines, end, Button::Left, 1, Mods::default());
+        input::motion(&mut model, &ui, &lines, Vec2::new(x_of(font, &text, text.len() - 4, area), area.center().y));
+        assert_eq!(model.path.as_ref().unwrap().picked_text(), Some("work"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

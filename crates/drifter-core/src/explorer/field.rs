@@ -147,6 +147,24 @@ impl Field {
         Some(out)
     }
 
+    pub fn pick_word(&mut self, at: usize) {
+        self.caret_at(at, false);
+        let word = |c: char| c.is_alphanumeric();
+        let mut from = self.caret;
+        while from > 0 && self.text[..from].chars().next_back().is_some_and(word) {
+            from = self.left_of(from);
+        }
+        let mut to = self.caret;
+        while to < self.text.len() && self.text[to..].chars().next().is_some_and(word) {
+            to = self.right_of(to);
+        }
+        if from == to {
+            to = self.right_of(to);
+        }
+        self.anchor = Some(from);
+        self.caret = to;
+    }
+
     pub fn caret_at(&mut self, at: usize, keep: bool) {
         let mut at = at.min(self.text.len());
         while !self.text.is_char_boundary(at) {
@@ -179,6 +197,22 @@ mod tests {
         field.home(false);
         field.forward_delete(false);
         assert_eq!(field.text, "home/me/");
+    }
+
+    #[test]
+    fn a_double_click_picks_one_word() {
+        let mut field = Field::new("holiday photos.tar.gz");
+        field.pick_word(10);
+        assert_eq!(field.picked_text(), Some("photos"));
+        field.pick_word(0);
+        assert_eq!(field.picked_text(), Some("holiday"));
+        field.pick_word(7);
+        assert_eq!(field.picked_text(), Some("holiday"));
+        field.pick_word(14);
+        assert_eq!(field.picked_text(), Some("photos"));
+        let mut gap = Field::new("a  b");
+        gap.pick_word(2);
+        assert_eq!(gap.picked_text(), Some(" "));
     }
 
     #[test]

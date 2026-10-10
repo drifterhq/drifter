@@ -89,6 +89,7 @@ Later steps build on these.
     - Built: drag the line at the left of a list column (Modified, Size, Kind, Folder, Date Deleted) to set its width. The line lights up under the pointer, and Name takes the rest but keeps 200 px. A double-click on the line goes back to the normal width. Widths are saved in explorer.toml. Checked on Blue.
 23. Click-and-drag text selection in the rename and path fields.
     Waits on: 13.
+    - Built: in the path, search and rename fields (List, Icons and Columns), a click puts the caret where you click, even when the text scrolls. A drag picks text, a double-click picks a word and a triple-click picks all. Shift+click extends. A click inside the rename box no longer ends the rename. Tests drive the mouse through rename in List and Icons and through the path field.
 24. Keyboard: there is no visible focus ring.
     Waits on: nothing.
 25. Keyboard: you cannot use Tab to move between the sidebar and the files.

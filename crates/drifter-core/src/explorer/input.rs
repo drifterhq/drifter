@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use super::look::{Fonts, Hit, Look, Rail, SheetHit};
+use super::look::{Fonts, Hit, Look, Rail, SheetHit, Spot};
 use super::model::{Act, Drag, Line, Menu, Model, Sheet};
 use super::prefs::{self, Click, Mode};
 use crate::geom::Vec2;
@@ -56,15 +56,30 @@ pub struct Ui<'a> {
     pub size: Vec2,
 }
 
-fn caret_from_x(font: &crate::text::Font, text: &str, x: f64) -> usize {
-    let mut best = (0, f64::MAX);
-    for (at, _) in text.char_indices().chain(std::iter::once((text.len(), ' '))) {
-        let gap = (font.width_of(&text[..at]) - x).abs();
-        if gap < best.1 {
-            best = (at, gap);
-        }
+fn field_of(model: &mut Model, spot: Spot) -> Option<&mut super::field::Field> {
+    match spot {
+        Spot::Path => model.path.as_mut(),
+        Spot::Search => model.search.as_mut().map(|search| &mut search.field),
+        Spot::Rename => model.renaming.as_mut().map(|(_, field)| field),
     }
-    best.0
+}
+
+fn press_field(model: &mut Model, ui: &Ui, spot: Spot, at: Vec2, clicks: u32, shift: bool) {
+    let Some((area, font)) = ui.look.field_area(ui.size, model, ui.fonts, spot) else {
+        return;
+    };
+    let Some(field) = field_of(model, spot) else {
+        return;
+    };
+    let caret = ui.look.field_caret(font, field, area, at.x);
+    match clicks {
+        0 | 1 => {
+            field.caret_at(caret, shift);
+            model.dragging = Some(Drag::Text(spot));
+        }
+        2 => field.pick_word(caret),
+        _ => field.pick_all(),
+    }
 }
 
 pub fn press(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, button: Button, clicks: u32, mods: Mods) {
@@ -85,6 +100,11 @@ pub fn press(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, button: Butto
         if !on_it {
             model.finish_rename();
         } else {
+            if button == Button::Left
+                && ui.look.field_area(ui.size, model, ui.fonts, Spot::Rename).is_some_and(|(area, _)| area.contains(at))
+            {
+                press_field(model, ui, Spot::Rename, at, clicks, mods.shift);
+            }
             return;
         }
     }
@@ -109,17 +129,7 @@ pub fn press(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, button: Butto
         Hit::Forward => model.act(Act::Forward),
         Hit::Up => model.act(Act::Up),
         Hit::Path => match model.path.is_some() {
-            true => {
-                let area = ui.look.path_rect(ui.look.frame(ui.size, model).bar);
-                let Some(field) = model.path.as_mut() else {
-                    return;
-                };
-                let caret = caret_from_x(ui.fonts.body, &field.text, at.x - area.origin.x - 10.0);
-                match clicks {
-                    2.. => field.pick_all(),
-                    _ => field.caret_at(caret, mods.shift),
-                }
-            }
+            true => press_field(model, ui, Spot::Path, at, clicks, mods.shift),
             false => model.act(Act::EditPath),
         },
         Hit::Crumb(index) => {
@@ -143,14 +153,7 @@ pub fn press(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, button: Butto
         }
         Hit::Search => {
             model.act(Act::Search);
-            let area = ui.look.search_rect(ui.look.frame(ui.size, model).bar);
-            if let Some(search) = model.search.as_mut() {
-                let caret = caret_from_x(ui.fonts.body, &search.field.text, at.x - area.origin.x - 30.0);
-                match clicks {
-                    2.. => search.field.pick_all(),
-                    _ => search.field.caret_at(caret, mods.shift),
-                }
-            }
+            press_field(model, ui, Spot::Search, at, clicks, mods.shift);
         }
         Hit::SearchClear => model.act(Act::EndSearch),
         Hit::Tab(index) => match right {
@@ -483,6 +486,18 @@ pub fn motion(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2) -> bool {
             model.prefs.tree_width = wide;
             model.saved = false;
             return changed;
+        }
+        Some(Drag::Text(spot)) => {
+            let Some((area, font)) = ui.look.field_area(ui.size, model, ui.fonts, spot) else {
+                return false;
+            };
+            let Some(field) = field_of(model, spot) else {
+                return false;
+            };
+            let before = (field.caret, field.anchor);
+            let caret = ui.look.field_caret(font, field, area, at.x);
+            field.caret_at(caret, true);
+            return before != (field.caret, field.anchor);
         }
         Some(Drag::Lasso { from, keep, .. }) => {
             let frame = ui.look.frame(ui.size, model);

@@ -360,6 +360,7 @@ pub enum Drag {
     Rail { rail: super::look::Rail, grab: f64 },
     Edge { sort: Sort, rest: f64 },
     Lasso { from: crate::Vec2, at: crate::Vec2, keep: HashSet<PathBuf> },
+    Text(super::look::Spot),
     Zoom,
     Slider,
     Files { paths: Vec<PathBuf>, from: crate::Vec2, at: crate::Vec2, live: bool, pending: Option<PathBuf> },
