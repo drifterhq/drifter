@@ -3275,3 +3275,15 @@ Install udisks2 to mount and eject disks
 
 No folders inside
 = No hay carpetas dentro
+
+Searching…
+= Buscando…
+
+Searching… {} found
+= Buscando… {} encontrados
+
+The first {} found
+= Los primeros {} encontrados
+
+{} found
+= {} encontrados

@@ -62,6 +62,7 @@ Later steps build on these.
     - Built: an arrow after each part of the path opens a menu of the folders inside it (up to 40, then "N more"), with the folder on your path checked. Pick one to open it. Checked on Blue.
 15. A search box. There is only type-to-find.
     Waits on: 3.
+    - Built: a search box in the toolbar (click it or press Ctrl+F). It finds names in the open folder and every folder below, on a worker thread, and does not follow folder links. Results come in as they are found, with a Folder column, up to 2000. Hidden files are searched only when they are shown. The status bar counts what was found. × or Escape ends the search, and opening another folder ends it too. Checked on Blue: "png" in ~/demo found the 4 pictures, and Escape brought the folder back.
 16. Tabs.
     Waits on: 3, 4.
 17. Remembering the window size.

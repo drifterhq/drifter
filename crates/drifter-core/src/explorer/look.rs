@@ -65,6 +65,8 @@ pub enum Hit {
     Eject(usize),
     Crumb(usize),
     CrumbArrow(usize),
+    Search,
+    SearchClear,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -291,10 +293,20 @@ impl Look {
         Mode::ALL.iter().enumerate().map(|(at, mode)| (*mode, rect(left + VIEW_W * at as f64, gear.origin.y, VIEW_W, BUTTON))).collect()
     }
 
+    pub fn search_rect(&self, bar: Rect) -> Rect {
+        let views = self.view_rects(bar)[0].1;
+        let wide = (bar.size.x * 0.22).clamp(140.0, 240.0);
+        rect(views.origin.x - 12.0 - wide, views.origin.y, wide, BUTTON)
+    }
+
+    fn search_clear_rect(&self, search: Rect) -> Rect {
+        rect(search.max().x - 26.0, search.origin.y + 3.0, 22.0, search.size.y - 6.0)
+    }
+
     pub fn path_rect(&self, bar: Rect) -> Rect {
         let nav = self.nav_rects(bar);
         let left = nav[2].max().x + 12.0;
-        let right = self.view_rects(bar)[0].1.origin.x - 12.0;
+        let right = self.search_rect(bar).origin.x - 10.0;
         rect(left, nav[0].origin.y, right - left, BUTTON)
     }
 
@@ -308,7 +320,10 @@ impl Look {
 
     pub fn list_widths(&self, body: Rect, model: &Model) -> (f64, Vec<(Sort, f64)>) {
         let mut extra = Vec::new();
-        if model.dir == super::ops::trash_files() {
+        if model.searching() {
+            extra.push((Sort::Origin, 230.0));
+        }
+        if model.dir == super::ops::trash_files() && !model.searching() {
             extra.push((Sort::Origin, 230.0));
             extra.push((Sort::Deleted, 170.0));
         } else if model.prefs.show_modified {
@@ -439,6 +454,14 @@ impl Look {
             }
             if let Some((mode, _)) = self.view_rects(frame.bar).into_iter().find(|(_, area)| area.contains(at)) {
                 return Some(Hit::Show(mode));
+            }
+            let search = self.search_rect(frame.bar);
+            if search.contains(at) {
+                let full = model.search.as_ref().is_some_and(|search| !search.field.text.is_empty());
+                return Some(match full && self.search_clear_rect(search).contains(at) {
+                    true => Hit::SearchClear,
+                    false => Hit::Search,
+                });
             }
             let path = self.path_rect(frame.bar);
             if path.contains(at) {
@@ -790,6 +813,7 @@ impl Look {
                 self.paint_crumbs(canvas, path, model, fonts);
             }
         }
+        self.paint_search(canvas, self.search_rect(bar), model, fonts);
         for (mode, area) in self.view_rects(bar) {
             let on = model.prefs.mode == mode;
             let hot = model.hover == Some(Hit::Show(mode));
@@ -804,6 +828,34 @@ impl Look {
         for (row, knob) in [(-5.0, 3.0), (0.0, -3.0), (5.0, 1.0)] {
             canvas.line(c + Vec2::new(-7.0, row), c + Vec2::new(7.0, row), 1.6, ink, 1.0);
             canvas.circle(c + Vec2::new(knob, row), 2.6, ink, 1.0);
+        }
+    }
+
+    fn paint_search(&self, canvas: &mut Canvas, area: Rect, model: &Model, fonts: &Fonts) {
+        let search = model.search.as_ref();
+        let focused = search.is_some_and(|search| search.focused);
+        canvas.round_rect(area, 8.0, self.well, 1.0);
+        match focused {
+            true => canvas.ring(area, 8.0, 2.0, self.accent, 1.0),
+            false => canvas.ring(area, 8.0, 1.0, self.rule, 1.0),
+        }
+        let c = Vec2::new(area.origin.x + 16.0, area.center().y - 1.0);
+        canvas.ring(Rect::from_center(c, Vec2::splat(10.0)), 5.0, 1.6, self.dim, 1.0);
+        canvas.line(c + Vec2::new(3.5, 3.5), c + Vec2::new(7.0, 7.0), 1.8, self.dim, 1.0);
+        let text = rect(area.origin.x + 30.0, area.origin.y, area.size.x - 58.0, area.size.y);
+        match search {
+            Some(search) if focused => self.paint_field(canvas, fonts.body, &search.field, text),
+            Some(search) if !search.field.text.is_empty() => self.text(canvas, fonts.body, &search.field.text, self.ink, Vec2::new(text.origin.x, text.center().y), text.size.x),
+            _ => self.text(canvas, fonts.body, crate::lang::t("Search"), self.dim, Vec2::new(text.origin.x, text.center().y), text.size.x),
+        }
+        if search.is_some_and(|search| !search.field.text.is_empty()) {
+            let clear = self.search_clear_rect(area);
+            if model.hover == Some(Hit::SearchClear) {
+                canvas.round_rect(clear, 5.0, self.hover, 0.9);
+            }
+            let x = clear.center();
+            canvas.line(x + Vec2::new(-4.0, -4.0), x + Vec2::new(4.0, 4.0), 1.6, self.dim, 1.0);
+            canvas.line(x + Vec2::new(4.0, -4.0), x + Vec2::new(-4.0, 4.0), 1.6, self.dim, 1.0);
         }
     }
 
@@ -1128,7 +1180,10 @@ impl Look {
                 Mode::Gallery => self.paint_gallery(&mut piece, &shifted, job),
             }
             if model.entries.is_empty() && model.prefs.mode != Mode::Columns {
+                let hunting = model.search.as_ref().filter(|_| model.searching()).map(|search| search.done);
                 let words = match (model.loading.is_some(), super::ops::in_trash(&model.dir)) {
+                    _ if hunting == Some(false) => Some(crate::lang::t("Searching…")),
+                    _ if hunting == Some(true) => Some(crate::lang::t("Nothing matches")),
                     (true, _) if model.showing_loading() => Some(crate::lang::t("Loading…")),
                     (true, _) => None,
                     (false, true) => Some(crate::lang::t("The Trash is empty")),
@@ -1200,7 +1255,10 @@ impl Look {
                     Sort::Size if entry.folder => "--".to_string(),
                     Sort::Size => super::entry::size_words(entry.size),
                     Sort::Kind => entry.kind_words(),
-                    Sort::Origin => entry.trashed.as_ref().and_then(|(from, _)| from.parent()).map(|folder| super::entry::short_path(folder, &model.home)).unwrap_or_default(),
+                    Sort::Origin => match &entry.trashed {
+                        Some((from, _)) => from.parent().map(|folder| super::entry::short_path(folder, &model.home)).unwrap_or_default(),
+                        None => entry.path.parent().map(|folder| super::entry::short_path(folder, &model.home)).unwrap_or_default(),
+                    },
                     Sort::Deleted => entry.trashed.as_ref().map(|(_, when)| model.date(*when)).unwrap_or_default(),
                     Sort::Name => String::new(),
                 };
@@ -1224,7 +1282,11 @@ impl Look {
                     canvas.round_rect(rect(x + 2.0, 3.0, w - 4.0, top - 7.0), 5.0, self.hover, 0.6);
                 }
                 let ink = if on { self.ink } else { self.dim };
-                let label = fonts.small.paint_weight(sort.name(), ink, if on { 620.0 } else { 500.0 });
+                let name = match (sort, model.searching()) {
+                    (Sort::Origin, true) => crate::lang::t("Folder"),
+                    _ => sort.name(),
+                };
+                let label = fonts.small.paint_weight(name, ink, if on { 620.0 } else { 500.0 });
                 let size = logical(&label);
                 let lx = match sort {
                     Sort::Name => x + 34.0,
@@ -1574,6 +1636,7 @@ impl Look {
             Hit::Up => self.nav_rects(frame.bar)[2],
             Hit::Show(mode) => self.view_rects(frame.bar).into_iter().find(|(each, _)| each == mode)?.1,
             Hit::Gear => self.gear_rect(frame.bar),
+            Hit::SearchClear => self.search_clear_rect(self.search_rect(frame.bar)),
             Hit::Crumb(index) => self.crumbs(self.path_rect(frame.bar), model, fonts).get(*index)?.area,
             Hit::CrumbArrow(index) => self.crumbs(self.path_rect(frame.bar), model, fonts).get(*index)?.arrow,
             Hit::Line(index) | Hit::Caret(index) | Hit::Eject(index) => *self.line_rects(frame.side?, lines, model.tree_scroll).get(*index)?,

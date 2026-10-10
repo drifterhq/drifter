@@ -67,6 +67,8 @@ pub enum Act {
     Extract,
     TrashThese(Vec<PathBuf>),
     DeleteThese(Vec<PathBuf>),
+    Search,
+    EndSearch,
     Mount(String),
     Unmount(String),
     Eject(String),
@@ -184,6 +186,17 @@ pub struct Column {
 }
 
 #[derive(Debug, Clone)]
+pub struct Search {
+    pub field: Field,
+    pub focused: bool,
+    pub seq: u64,
+    pub found: Vec<Entry>,
+    pub done: bool,
+    pub capped: bool,
+    pub mode_before: Option<Mode>,
+}
+
+#[derive(Debug, Clone)]
 pub struct Running {
     pub id: u64,
     pub stoppable: bool,
@@ -292,6 +305,7 @@ pub struct Model {
     pub marks_path: PathBuf,
     pub marks_stamp: Option<SystemTime>,
     pub place_list: Vec<(PathBuf, String, &'static str)>,
+    pub search: Option<Search>,
     pub reader: Reader,
     pub listed: HashMap<PathBuf, Listing>,
     pub loading: Option<Instant>,
@@ -419,6 +433,7 @@ impl Model {
             marks_path: super::marks::file(),
             marks_stamp: None,
             place_list: Vec::new(),
+            search: None,
             reader: Reader::default(),
             listed: HashMap::new(),
             loading: None,
@@ -502,6 +517,47 @@ impl Model {
             _ => {}
         }
         items
+    }
+
+    pub fn searching(&self) -> bool {
+        self.search.as_ref().is_some_and(|search| !search.field.text.trim().is_empty())
+    }
+
+    pub fn search_changed(&mut self) {
+        let Some(search) = self.search.as_mut() else {
+            return;
+        };
+        let words = search.field.text.trim().to_string();
+        search.seq += 1;
+        search.found.clear();
+        search.capped = false;
+        self.picked.clear();
+        self.focus = None;
+        self.anchor = None;
+        self.scroll = 0.0;
+        match words.is_empty() {
+            true => {
+                search.done = true;
+                self.reader.stop_search();
+                self.apply();
+            }
+            false => {
+                search.done = false;
+                let seq = search.seq;
+                self.entries.clear();
+                self.reader.search(self.dir.clone(), &words, self.prefs.hidden, seq);
+            }
+        }
+    }
+
+    fn leave_search(&mut self) {
+        if let Some(search) = self.search.take() {
+            self.reader.stop_search();
+            if let Some(mode) = search.mode_before {
+                self.prefs.mode = mode;
+                self.rebuild_columns();
+            }
+        }
     }
 
     pub fn known_folder(&self, path: &Path) -> bool {
@@ -612,6 +668,20 @@ impl Model {
                 self.drives = drives;
                 changed
             }
+            Got::Found { seq, entries, done, capped } => {
+                let Some(search) = self.search.as_mut().filter(|search| search.seq == seq) else {
+                    return false;
+                };
+                search.found.extend(entries);
+                search.done = done;
+                search.capped = capped;
+                let mut found = search.found.clone();
+                entry::sort(&mut found, self.prefs.sort, self.prefs.down, self.prefs.folders_first);
+                self.entries = found;
+                let here: HashSet<&PathBuf> = self.entries.iter().map(|each| &each.path).collect();
+                self.picked.retain(|path| here.contains(path));
+                true
+            }
             Got::Changed(dirs) => {
                 if dirs.iter().any(|dir| self.drive_watch.contains(dir)) {
                     self.reader.ask(Ask::Drives);
@@ -660,6 +730,11 @@ impl Model {
         let Some(listing) = self.listing(&self.dir).cloned() else {
             return;
         };
+        if self.searching() {
+            self.stamp = listing.stamp;
+            self.free = listing.free;
+            return;
+        }
         let still = self.reader.asked(&Ask::List(self.dir.clone(), self.lens()));
         self.loading = match still {
             true => Some(self.loading.unwrap_or_else(Instant::now)),
@@ -718,6 +793,7 @@ impl Model {
             self.say(words, true);
             return false;
         }
+        self.leave_search();
         self.dir = dir;
         self.picked.clear();
         self.anchor = None;
@@ -1414,6 +1490,30 @@ impl Model {
                     self.start_job(Job::Eject { device, disk: drive.disk, name: drive.name, mounted });
                 }
             }
+            Act::Search => {
+                match self.search.as_mut() {
+                    Some(search) => {
+                        search.focused = true;
+                        search.field.pick_all();
+                    }
+                    None => {
+                        let mode_before = (self.prefs.mode == Mode::Columns).then_some(Mode::Columns);
+                        if mode_before.is_some() {
+                            self.prefs.mode = Mode::List;
+                        }
+                        self.search = Some(Search { field: Field::new(""), focused: true, seq: 0, found: Vec::new(), done: true, capped: false, mode_before });
+                    }
+                }
+                self.path = None;
+                self.renaming = None;
+            }
+            Act::EndSearch => {
+                self.leave_search();
+                match self.listing(&self.dir).is_some() {
+                    true => self.apply(),
+                    false => self.reload(),
+                }
+            }
             Act::TrashThese(paths) => {
                 self.sheet = None;
                 self.start_job(Job::Trash(paths));
@@ -1848,6 +1948,14 @@ impl Model {
     }
 
     pub fn summary(&self) -> String {
+        if let Some(search) = self.search.as_ref().filter(|_| self.searching()) {
+            let count = self.entries.len();
+            return match (search.done, search.capped) {
+                (false, _) => crate::lang::tf("Searching… {} found", &[&count]),
+                (true, true) => crate::lang::tf("The first {} found", &[&count]),
+                (true, false) => crate::lang::tf("{} found", &[&count]),
+            };
+        }
         if self.entries.is_empty() && self.loading.is_some() {
             return crate::lang::t("Loading…").to_string();
         }
@@ -2195,6 +2303,39 @@ mod tests {
         let tight = look.crumbs(narrow, &model, &fonts);
         assert_eq!(tight.first().map(|crumb| crumb.words.as_str()), Some("…"));
         assert!(tight.iter().all(|crumb| crumb.area.max().x <= narrow.max().x + 1.0));
+    }
+
+    #[test]
+    fn search_finds_names_below_the_folder_and_ends_cleanly() {
+        let (place, mut model) = place("search");
+        let work = place.0.join("work");
+        std::fs::write(work.join("Photos/2026/beach.png"), "x").unwrap();
+        std::fs::write(work.join("Photos/Beach notes.txt"), "x").unwrap();
+        model.prefs.mode = Mode::Columns;
+        model.act(Act::Search);
+        assert_eq!(model.prefs.mode, Mode::List);
+        let search = model.search.as_mut().unwrap();
+        search.field.put("beach");
+        model.search_changed();
+        let until = Instant::now() + Duration::from_secs(5);
+        while !model.search.as_ref().unwrap().done && Instant::now() < until {
+            model.settle(Instant::now() + Duration::from_millis(50), |_| false);
+        }
+        let mut names: Vec<&str> = model.entries.iter().map(|each| each.name.as_str()).collect();
+        names.sort();
+        assert_eq!(names, ["Beach notes.txt", "beach.png"]);
+        assert_eq!(model.summary(), crate::lang::tf("{} found", &[&2]));
+        model.reload();
+        assert_eq!(model.entries.len(), 2);
+        model.act(Act::EndSearch);
+        assert!(model.search.is_none());
+        assert_eq!(model.prefs.mode, Mode::Columns);
+        assert!(model.index_of(&work.join("b.txt")).is_some());
+        model.act(Act::Search);
+        model.search.as_mut().unwrap().field.put("zzz");
+        model.search_changed();
+        model.go(work.join("Photos"), None);
+        assert!(model.search.is_none());
     }
 
     #[test]

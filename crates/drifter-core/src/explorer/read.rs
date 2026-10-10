@@ -42,7 +42,10 @@ pub enum Got {
     Peek(PathBuf, Option<Vec<String>>),
     Changed(Vec<PathBuf>),
     Drives(Vec<super::drives::Drive>),
+    Found { seq: u64, entries: Vec<Entry>, done: bool, capped: bool },
 }
+
+pub const MOST_FOUND: usize = 2000;
 
 pub struct Reader {
     done: Sender<(Option<Ask>, Got)>,
@@ -51,12 +54,13 @@ pub struct Reader {
     next: u64,
     wake: Arc<Mutex<Option<Wake>>>,
     watcher: Option<super::watch::Watcher>,
+    hunt: Option<Arc<std::sync::atomic::AtomicBool>>,
 }
 
 impl Default for Reader {
     fn default() -> Reader {
         let (done, back) = channel();
-        Reader { done, back, pending: HashMap::new(), next: 0, wake: Arc::default(), watcher: None }
+        Reader { done, back, pending: HashMap::new(), next: 0, wake: Arc::default(), watcher: None, hunt: None }
     }
 }
 
@@ -103,6 +107,66 @@ impl Reader {
             }))
         });
         watcher.watch(dirs);
+    }
+
+    pub fn search(&mut self, dir: PathBuf, words: &str, hidden: bool, seq: u64) {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        self.stop_search();
+        let stop = Arc::new(AtomicBool::new(false));
+        self.hunt = Some(stop.clone());
+        let (done, wake) = (self.done.clone(), self.wake.clone());
+        let words = words.to_lowercase();
+        let _ = std::thread::Builder::new().name("explorer-search".to_string()).spawn(move || {
+            let mut queue = std::collections::VecDeque::from([dir]);
+            let mut batch = Vec::new();
+            let mut total = 0usize;
+            let mut sent = Instant::now();
+            let send = |batch: &mut Vec<Entry>, last: bool, capped: bool| {
+                let _ = done.send((None, Got::Found { seq, entries: std::mem::take(batch), done: last, capped }));
+                woken(&wake);
+            };
+            while let Some(at) = queue.pop_front() {
+                if stop.load(Ordering::Relaxed) {
+                    return;
+                }
+                let Ok(items) = std::fs::read_dir(&at) else {
+                    continue;
+                };
+                for item in items.flatten() {
+                    let name = item.file_name().to_string_lossy().into_owned();
+                    if !hidden && name.starts_with('.') {
+                        continue;
+                    }
+                    let kind = item.file_type().ok();
+                    if kind.is_some_and(|kind| kind.is_dir()) {
+                        queue.push_back(item.path());
+                    }
+                    if name.to_lowercase().contains(&words)
+                        && let Some(entry) = Entry::at(&item.path())
+                    {
+                        batch.push(entry);
+                        total += 1;
+                        if total >= MOST_FOUND {
+                            send(&mut batch, true, true);
+                            return;
+                        }
+                    }
+                }
+                if !batch.is_empty() && sent.elapsed().as_millis() >= 120 {
+                    send(&mut batch, false, false);
+                    sent = Instant::now();
+                }
+            }
+            if !stop.load(Ordering::Relaxed) {
+                send(&mut batch, true, false);
+            }
+        });
+    }
+
+    pub fn stop_search(&mut self) {
+        if let Some(stop) = self.hunt.take() {
+            stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
     }
 
     pub fn watching(&self) -> bool {

@@ -3272,3 +3272,15 @@ Install udisks2 to mount and eject disks
 
 No folders inside
 = Aucun dossier à l’intérieur
+
+Searching…
+= Recherche…
+
+Searching… {} found
+= Recherche… {} trouvés
+
+The first {} found
+= Les {} premiers trouvés
+
+{} found
+= {} trouvés

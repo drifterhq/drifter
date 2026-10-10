@@ -90,6 +90,11 @@ pub fn press(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, button: Butto
     if model.path.is_some() && hit != Some(Hit::Path) {
         model.path = None;
     }
+    if let Some(search) = model.search.as_mut()
+        && hit != Some(Hit::Search)
+    {
+        search.focused = false;
+    }
     let Some(hit) = hit else {
         return;
     };
@@ -132,6 +137,18 @@ pub fn press(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, button: Butto
                 model.menu = Some(menu_at(items, Vec2::new(crumb.arrow.origin.x - 8.0, area.max().y + 4.0)));
             }
         }
+        Hit::Search => {
+            model.act(Act::Search);
+            let area = ui.look.search_rect(ui.look.frame(ui.size, model).bar);
+            if let Some(search) = model.search.as_mut() {
+                let caret = caret_from_x(ui.fonts.body, &search.field.text, at.x - area.origin.x - 30.0);
+                match clicks {
+                    2.. => search.field.pick_all(),
+                    _ => search.field.caret_at(caret, mods.shift),
+                }
+            }
+        }
+        Hit::SearchClear => model.act(Act::EndSearch),
         Hit::Show(mode) => model.act(Act::Show(mode)),
         Hit::Gear => model.act(Act::Prefs),
         Hit::Dismiss => model.act(Act::Dismiss),
@@ -434,7 +451,7 @@ pub fn motion(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2) -> bool {
     if model.sheet.is_some() {
         return false;
     }
-    let hover = ui.look.hit(ui.size, model, lines, ui.fonts, at).filter(|hit| !matches!(hit, Hit::Space | Hit::Picture | Hit::Path | Hit::Split | Hit::Zoom(_) | Hit::Banner | Hit::Jobs));
+    let hover = ui.look.hit(ui.size, model, lines, ui.fonts, at).filter(|hit| !matches!(hit, Hit::Space | Hit::Picture | Hit::Path | Hit::Split | Hit::Zoom(_) | Hit::Banner | Hit::Jobs | Hit::Search));
     let changed = hover != model.hover;
     model.hover = hover;
     changed
@@ -583,6 +600,27 @@ pub fn key(model: &mut Model, ui: &Ui, key: &Key) {
         }
         return;
     }
+    if let Some(search) = model.search.as_mut().filter(|search| search.focused) {
+        match key.named {
+            Named::Escape => model.act(Act::EndSearch),
+            Named::Enter | Named::Down | Named::Tab => {
+                search.focused = false;
+                if let Some(first) = model.entries.first().map(|each| each.path.clone()) {
+                    model.pick_only(first);
+                }
+            }
+            _ => {
+                let before = search.field.text.clone();
+                if let Some(Some(text)) = edit(&mut search.field, key) {
+                    model.effects.push(super::model::Effect::Clip(text));
+                }
+                if model.search.as_ref().is_some_and(|search| search.field.text != before) {
+                    model.search_changed();
+                }
+            }
+        }
+        return;
+    }
     if let Some(field) = model.path.as_mut() {
         match key.named {
             Named::Enter => model.finish_path(),
@@ -603,6 +641,7 @@ pub fn key(model: &mut Model, ui: &Ui, key: &Key) {
     if key.ctrl {
         let act = match key.named {
             Named::Letter('n') if key.shift => Some(Act::NewFolder),
+            Named::Letter('f') => Some(Act::Search),
             Named::Letter('n') => Some(Act::NewWindow),
             Named::Letter('w') | Named::Letter('q') => Some(Act::Close),
             Named::Letter('l') => Some(Act::EditPath),
@@ -672,6 +711,7 @@ pub fn key(model: &mut Model, ui: &Ui, key: &Key) {
         Named::PageDown => model.step(page, key.shift),
         Named::Enter => model.act(Act::Open),
         Named::Escape if !model.alerts.is_empty() => model.act(Act::Dismiss),
+        Named::Escape if model.search.is_some() => model.act(Act::EndSearch),
         Named::Escape => {
             model.pick_none();
             model.clip = model.clip.take().filter(|(_, cut)| !cut);
