@@ -3,6 +3,10 @@ use drifter_core::search::Found;
 
 const PAD_OPEN: i32 = 1;
 const PAD_PIN: i32 = 2;
+const PAD_ZOOM: f64 = 0.25;
+const PAD_TURN: f64 = 0.28;
+const SWIPE_PAGE: f64 = 90.0;
+const PAD_FROM_ZOOM: f64 = 1.1;
 
 pub(super) struct Pad {
     pub query: String,
@@ -12,6 +16,10 @@ pub(super) struct Pad {
     pub rect: Rect,
     pub art: Option<TextureBuffer<Tex>>,
     pub lane: worker::Lane,
+    pub opened: Option<Instant>,
+    pub turn: Option<(TextureBuffer<Tex>, Instant, i8)>,
+    pub turning: i8,
+    pub swipe: f64,
 }
 
 impl State {
@@ -39,6 +47,10 @@ impl State {
             rect,
             art: None,
             lane: worker::Lane::default(),
+            opened: None,
+            turn: None,
+            turning: 0,
+            swipe: 0.0,
         });
         self.paint_launchpad();
     }
@@ -84,7 +96,12 @@ impl State {
             },
             |state, art| {
                 if let Some(pad) = state.launchpad.as_mut() {
-                    pad.art = Some(art);
+                    let old = pad.art.replace(art);
+                    pad.opened.get_or_insert_with(Instant::now);
+                    if let (Some(old), true) = (old, pad.turning != 0) {
+                        pad.turn = Some((old, Instant::now(), pad.turning));
+                    }
+                    pad.turning = 0;
                 }
             },
         );
@@ -110,8 +127,16 @@ impl State {
                 };
                 pad.page = 0;
             }
-            LockKey::Down | LockKey::Right => pad.page = (pad.page + 1).min(pages - 1),
-            LockKey::Up | LockKey::Left => pad.page = pad.page.saturating_sub(1),
+            LockKey::Down | LockKey::Right => {
+                let next = (pad.page + 1).min(pages - 1);
+                pad.turning = if next != pad.page { 1 } else { pad.turning };
+                pad.page = next;
+            }
+            LockKey::Up | LockKey::Left => {
+                let back = pad.page.saturating_sub(1);
+                pad.turning = if back != pad.page { -1 } else { pad.turning };
+                pad.page = back;
+            }
             LockKey::Enter => {
                 let first = pad.shown.first().cloned();
                 self.launchpad = None;
@@ -192,9 +217,98 @@ impl State {
             false => pad.page.saturating_sub(1),
         };
         if pad.page != before {
+            pad.turning = if pad.page > before { 1 } else { -1 };
             self.paint_launchpad();
         }
         true
+    }
+
+    pub(super) fn swipe_launchpad(&mut self, moved: f64, done: bool) -> bool {
+        let look = drifter_core::launchpad::Look::themed(&self.palette);
+        let Some(pad) = self.launchpad.as_mut() else {
+            return false;
+        };
+        let pages = look.pages(pad.rect.size, pad.shown.len());
+        let before = pad.page;
+        let (page, left) = drifter_core::launchpad::page_after_swipe(pad.page, pages, pad.swipe + moved, SWIPE_PAGE);
+        pad.page = page;
+        pad.swipe = if done { 0.0 } else { left };
+        if pad.page != before {
+            pad.turning = if pad.page > before { 1 } else { -1 };
+            self.paint_launchpad();
+        }
+        true
+    }
+
+    pub(super) fn pad_moving(&self) -> bool {
+        let Some(pad) = self.launchpad.as_ref() else {
+            return false;
+        };
+        let pace = self.window_pace;
+        pace > 0.0
+            && (pad.opened.is_some_and(|at| at.elapsed().as_secs_f64() < PAD_ZOOM / pace)
+                || pad.turn.as_ref().is_some_and(|(_, at, _)| at.elapsed().as_secs_f64() < PAD_TURN / pace))
+    }
+
+    pub(super) fn launchpad_layers(&self) -> Option<(Vec<super::fade::Layer>, Rect)> {
+        use super::fade::{Layer, Shadow};
+        let pad = self.launchpad.as_ref()?;
+        let art = pad.art.as_ref()?;
+        let look = drifter_core::launchpad::Look::themed(&self.palette);
+        let size = pad.rect.size;
+        let origin = pad.rect.origin;
+        let band = look.grid_band(size);
+        let pace = self.window_pace;
+        let still = pace <= 0.0 || self.window_still;
+        let crop = |art: &TextureBuffer<Tex>, source: Rect, target: Rect, alpha: f32| Layer {
+            source: Some(source),
+            alpha,
+            ..Layer::new(art, Rect::new(origin + target.origin, target.size), Shadow::None)
+        };
+        let mut layers = Vec::new();
+        let turn = pad
+            .turn
+            .as_ref()
+            .filter(|_| pace > 0.0)
+            .map(|(old, at, way)| (old, (at.elapsed().as_secs_f64() / (PAD_TURN / pace)).min(1.0), *way))
+            .filter(|(_, t, _)| *t < 1.0);
+        match turn {
+            Some((old, t, way)) if !still => {
+                let moved = band.size.x * drifter_core::motion::smooth(t);
+                let [from, to] = drifter_core::launchpad::slide_crops(band.size.x, moved, way > 0);
+                for (piece, (sx, dx, w)) in [(old, from), (art, to)] {
+                    if w > 0.0 {
+                        let source = Rect::new(Vec2::new(sx, band.origin.y), Vec2::new(w, band.size.y));
+                        let target = Rect::new(Vec2::new(dx, band.origin.y), source.size);
+                        layers.push(crop(piece, source, target, 1.0));
+                    }
+                }
+            }
+            Some((old, t, _)) => {
+                let fade = drifter_core::motion::smooth(t) as f32;
+                layers.push(crop(old, band, band, 1.0 - fade));
+                layers.push(crop(art, band, band, 1.0));
+            }
+            None => {
+                let t = match (still, pad.opened) {
+                    (false, Some(at)) => at.elapsed().as_secs_f64() / (PAD_ZOOM / pace),
+                    _ => 1.0,
+                };
+                let zoom = PAD_FROM_ZOOM - (PAD_FROM_ZOOM - 1.0) * drifter_core::motion::smooth(t);
+                let source = Rect::from_center(band.center(), band.size / zoom);
+                layers.push(crop(art, source, band, 1.0));
+            }
+        }
+        let top = Rect::new(Vec2::ZERO, Vec2::new(size.x, band.origin.y));
+        let bottom = Rect::new(Vec2::new(0.0, band.max().y), Vec2::new(size.x, size.y - band.max().y));
+        for part in [top, bottom] {
+            layers.push(crop(art, part, part, 1.0));
+        }
+        if let Some(first) = layers.first_mut() {
+            first.shadow = Shadow::Modal;
+            first.shade = Some(pad.rect);
+        }
+        Some((layers, pad.rect))
     }
 
     fn pinned_app(&self, key: &str) -> bool {

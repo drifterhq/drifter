@@ -245,7 +245,7 @@ How motion works today (all items use this):
   - Fix: `Search` (render/search.rs:4-11) gets `height: (f64, Instant)`, `prior: Option<(TextureBuffer<Tex>, Rect)>`, `SEARCH_EASE 0.16`. In the done closure, record the drawn height and keep the old art when shrinking. Draw in two slices to keep the bottom corners (radius 16, search.rs:246): top `faded(art, (0, 0, w, h - r), ..)`, bottom `faded(art, (0, art_h - r, w, r), (o + (0, h - r), (w, r)))`. Use `prior` while `h > new height`. `modal_shadow` on `(o, (w, h))`. `search_moving()` in `animating()`. Pace 0: no ease.
   - Test: search.rs `pub fn slices(art, h, r)`: two slices cover exactly `h`, bottom comes from the last `r` rows.
 
-- [ ] **14 [MED] Launchpad: zoom in, page slide, touchpad swipe.**
+- [x] **14 [MED] Launchpad: zoom in, page slide, touchpad swipe.**
   - Waits on: G2.
   - Pages exist (`per_page`, `pages`, launchpad.rs:135-142; `Pad.page` render/launchpad.rs:11). Keys turn pages (:113-114). Wheel uses only vertical and drops `|steps| < 0.5` (:180-198, input.rs:1142-1150), so a two-finger scroll rarely turns a page. Dots are not clickable. 3+ finger swipes pan the camera even with the launchpad open (input.rs:1170-1190). The panel is one CPU image (launchpad.rs:204-209).
   - Fix:

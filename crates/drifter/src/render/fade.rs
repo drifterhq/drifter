@@ -53,16 +53,17 @@ impl Pane {
 
 #[derive(Clone)]
 pub(super) struct Layer {
-    art: TextureBuffer<Tex>,
-    rect: Rect,
-    source: Option<Rect>,
-    scales: bool,
-    shadow: Shadow,
-    shade: Option<Rect>,
+    pub art: TextureBuffer<Tex>,
+    pub rect: Rect,
+    pub source: Option<Rect>,
+    pub scales: bool,
+    pub shadow: Shadow,
+    pub shade: Option<Rect>,
+    pub alpha: f32,
 }
 
 impl Layer {
-    fn new(art: &TextureBuffer<Tex>, rect: Rect, shadow: Shadow) -> Layer {
+    pub(super) fn new(art: &TextureBuffer<Tex>, rect: Rect, shadow: Shadow) -> Layer {
         Layer {
             art: art.clone(),
             rect,
@@ -70,6 +71,7 @@ impl Layer {
             scales: true,
             shadow,
             shade: None,
+            alpha: 1.0,
         }
     }
 }
@@ -141,7 +143,7 @@ impl State {
                 }
                 Some((layers, frame))
             }
-            Pane::Launchpad => self.launchpad.as_ref().and_then(|pad| one(pad.art.as_ref()?, pad.rect, Shadow::Modal)),
+            Pane::Launchpad => self.launchpad_layers(),
             Pane::Control => self.control.as_ref().and_then(|open| one(open.art.as_ref()?, open.rect, Shadow::Menu)),
             Pane::Notes => self.notes_panel.as_ref().and_then(|(art, rect, _)| one(art, *rect, Shadow::Menu)),
             Pane::Charges => self.charges.as_ref().and_then(|panel| one(panel.art.as_ref()?, panel.rect, Shadow::Menu)),
@@ -350,9 +352,13 @@ impl State {
         };
         for layer in &layers {
             let drawn = place(layer.rect, layer.scales);
+            let shown = alpha * layer.alpha;
+            if shown <= 0.0 || drawn.size.x <= 0.0 || drawn.size.y <= 0.0 {
+                continue;
+            }
             match layer.source {
-                Some(source) => elements.push(Skin::Texture(faded(&layer.art, source, drawn, alpha))),
-                None => elements.push(Skin::Texture(element(&layer.art, drawn, alpha))),
+                Some(source) => elements.push(Skin::Texture(faded(&layer.art, source, drawn, shown))),
+                None => elements.push(Skin::Texture(element(&layer.art, drawn, shown))),
             }
             let shade = layer.shade.map_or(drawn, |rect| place(rect, layer.scales));
             self.panel_shadow(shade, layer.shadow, alpha, elements);

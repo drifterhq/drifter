@@ -1152,6 +1152,14 @@ impl State {
                     }
                     return;
                 }
+                if self.launchpad.is_some() && event.source() == smithay::backend::input::AxisSource::Finger {
+                    let across = event.amount(Axis::Horizontal).unwrap_or(0.0);
+                    let stopped = across == 0.0 && event.amount(Axis::Vertical).unwrap_or(0.0) == 0.0;
+                    self.swipe_launchpad(-across, stopped);
+                    if across != 0.0 || stopped {
+                        return;
+                    }
+                }
                 let steps = event
                     .amount_v120(Axis::Vertical)
                     .map(|raw| -raw / 120.0)
@@ -1186,6 +1194,12 @@ impl State {
             }
             InputEvent::GestureSwipeUpdate { event } => {
                 use smithay::backend::input::GestureSwipeUpdateEvent;
+                if self.launchpad.is_some() && self.fingers >= 3 {
+                    if let Some(pad) = self.launchpad.as_mut() {
+                        pad.swipe += event.delta_x();
+                    }
+                    return;
+                }
                 if self.fingers < 3 || !self.touch.swipe || self.held_by_fullscreen().is_some() {
                     return;
                 }
@@ -1200,7 +1214,12 @@ impl State {
                     self.welcome_did(drifter_core::welcome::Lesson::Glide);
                 }
             }
-            InputEvent::GestureSwipeEnd { .. } => self.fingers = 0,
+            InputEvent::GestureSwipeEnd { .. } => {
+                if self.launchpad.is_some() && self.fingers >= 3 {
+                    self.swipe_launchpad(0.0, true);
+                }
+                self.fingers = 0;
+            }
             InputEvent::Keyboard { event } => {
                 let code = event.key_code().raw();
                 if self.holds.holds(code) && !self.shortcuts_inhibited() {

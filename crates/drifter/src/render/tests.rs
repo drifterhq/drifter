@@ -591,6 +591,24 @@ fn the_hover_highlight_slides_between_control_tiles() {
 }
 
 #[test]
+fn a_swipe_turns_the_launchpad_page() {
+    let mut run = start("pad-swipe", &Config::default(), None);
+    let state = &mut run.screen.state;
+    state.toggle_launchpad();
+    let one = super::launchpad::welcome_found();
+    let pad = state.launchpad.as_mut().expect("the launchpad is open");
+    pad.shown = vec![one; 200];
+    state.swipe_launchpad(-40.0, false);
+    assert_eq!(state.launchpad.as_ref().unwrap().page, 0, "a short swipe waits");
+    state.swipe_launchpad(-60.0, false);
+    let pad = state.launchpad.as_ref().unwrap();
+    assert_eq!(pad.page, 1, "past the threshold it turns");
+    assert!(pad.turning == 1 || pad.turn.is_some(), "and slides ahead");
+    state.swipe_launchpad(30.0, true);
+    assert_eq!(state.launchpad.as_ref().unwrap().swipe, 0.0, "the end of a swipe resets it");
+}
+
+#[test]
 fn an_open_menu_casts_a_shadow() {
     let mut run = start("menu-shadow", &Config::default(), None);
     let item = |id: i32, label: &str| drifter_core::menu::Item {

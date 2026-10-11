@@ -141,6 +141,12 @@ impl Look {
         count.div_ceil(self.per_page(size)).max(1)
     }
 
+    pub fn grid_band(&self, size: Vec2) -> Rect {
+        let top = self.field + 1.0;
+        let bottom = size.y - self.dots - 8.0;
+        Rect::new(Vec2::new(0.0, top), Vec2::new(size.x, (bottom - top).max(0.0)))
+    }
+
     pub fn field_rect(&self, size: Vec2) -> Rect {
         Rect::new(Vec2::ZERO, Vec2::new(size.x, self.field))
     }
@@ -233,6 +239,24 @@ impl Look {
     }
 }
 
+pub fn page_after_swipe(page: usize, pages: usize, swipe: f64, threshold: f64) -> (usize, f64) {
+    if swipe <= -threshold {
+        return ((page + 1).min(pages.saturating_sub(1)), 0.0);
+    }
+    if swipe >= threshold {
+        return (page.saturating_sub(1), 0.0);
+    }
+    (page, swipe)
+}
+
+pub fn slide_crops(width: f64, moved: f64, ahead: bool) -> [(f64, f64, f64); 2] {
+    let moved = moved.clamp(0.0, width);
+    match ahead {
+        true => [(moved, 0.0, width - moved), (0.0, width - moved, moved)],
+        false => [(0.0, moved, width - moved), (width - moved, 0.0, moved)],
+    }
+}
+
 fn fit(font: &Font, text: &str, room: f64) -> String {
     if font.width_of(text) <= room {
         return text.to_string();
@@ -250,6 +274,31 @@ fn fit(font: &Font, text: &str, room: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_swipe_turns_one_page_past_the_threshold_and_stops_at_the_ends() {
+        assert_eq!(page_after_swipe(0, 3, -50.0, 90.0), (0, -50.0), "short of the threshold");
+        assert_eq!(page_after_swipe(0, 3, -95.0, 90.0), (1, 0.0), "left goes ahead");
+        assert_eq!(page_after_swipe(1, 3, 120.0, 90.0), (0, 0.0), "right goes back");
+        assert_eq!(page_after_swipe(2, 3, -400.0, 90.0), (2, 0.0), "the last page stays");
+        assert_eq!(page_after_swipe(0, 3, 400.0, 90.0), (0, 0.0), "the first page stays");
+    }
+
+    #[test]
+    fn slide_crops_cover_the_width() {
+        for ahead in [true, false] {
+            for moved in [0.0, 37.5, 300.0, 600.0] {
+                let [old, new] = slide_crops(600.0, moved, ahead);
+                assert_eq!(old.2 + new.2, 600.0);
+                if old.2 > 0.0 && new.2 > 0.0 {
+                    let (left, right) = if old.1 < new.1 { (old, new) } else { (new, old) };
+                    assert_eq!(left.1, 0.0);
+                    assert_eq!(left.1 + left.2, right.1, "they meet with no gap");
+                }
+            }
+        }
+        assert_eq!(slide_crops(600.0, 600.0, true)[1], (0.0, 0.0, 600.0), "the new page lands whole");
+    }
 
     const SCREEN: Vec2 = Vec2::new(1200.0, 800.0);
 
