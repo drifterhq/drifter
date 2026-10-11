@@ -32,14 +32,22 @@ impl State {
             fade,
             window.inset,
             (window.lit, window.restore.is_some()),
-            window.decorated && window.full.is_none(),
+            match window.decorated {
+                false => 0.0,
+                true => match (window.full.is_none(), window.motion) {
+                    (_, Some(motion)) if matches!(motion.phase, Phase::Filling | Phase::Unfilling) => motion.chrome() as f32,
+                    (true, _) => 1.0,
+                    (false, _) => 0.0,
+                },
+            },
             window.title.clone(),
             window.toplevel.wl_surface().clone(),
         )
     }
 
     pub(super) fn show_window(&mut self, item: Showing, shadow: bool, elements: &mut Vec<Skin>) {
-        let (content, shown, fade, inset, (lit, maximized), dressed, title, surface) = item;
+        let (content, shown, fade, inset, (lit, maximized), chrome, title, surface) = item;
+        let dressed = chrome > 0.0;
         let zoom = self.camera.zoom;
         let stretch = match content.size.x > 0.0 {
             true => shown.size.x / content.size.x,
@@ -83,7 +91,7 @@ impl State {
             }
         }
         if dressed {
-            self.dress(shown, (lit, maximized), &title, fade, elements);
+            self.dress(shown, (lit, maximized), &title, fade * chrome, elements);
         }
         let edge = self.on_screen(shown);
         self.idle_wash(edge, lit, fade, elements);
@@ -120,6 +128,7 @@ impl State {
     }
 
     pub(super) fn step_windows(&mut self, dt: Duration) {
+        let dt = dt.min(Duration::from_millis(50));
         self.step_ghosts(dt);
         let focus = self.focus;
         for window in self.windows.iter_mut() {
@@ -768,11 +777,15 @@ impl State {
         }
         let screen = self.full_rect(self.windows[index].content.center());
         let window = &mut self.windows[index];
+        let was = window.content;
         window.full = Some((window.content, screen));
         window.content = Rect::new(
             screen.center() - window.content.size / 2.0,
             window.content.size,
         );
+        if window.motion.is_none() {
+            window.motion = Some(Motion::new(Phase::Filling, was));
+        }
         window.touched = true;
         window.toplevel.with_pending_state(|state| {
             state.size = Some((screen.size.x as i32, screen.size.y as i32).into());
@@ -794,7 +807,7 @@ impl State {
 
         let window = &mut self.windows[index];
         window.wants_full = false;
-        let Some((back, _)) = window.full.take() else {
+        let Some((back, screen)) = window.full.take() else {
             window.toplevel.with_pending_state(|state| {
                 state.states.unset(xdg_toplevel::State::Fullscreen);
             });
@@ -802,6 +815,9 @@ impl State {
             return;
         };
         window.content = back;
+        if window.motion.is_none() {
+            window.motion = Some(Motion::new(Phase::Unfilling, screen));
+        }
         window.toplevel.with_pending_state(|state| {
             state.size = Some((back.size.x as i32, back.size.y as i32).into());
             state.states.unset(xdg_toplevel::State::Fullscreen);

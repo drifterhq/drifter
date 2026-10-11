@@ -279,7 +279,7 @@ How motion works today (all items use this):
   - No setting.
   - Test: render/tests.rs `a_window_that_quits_fades_out_instead_of_vanishing`: `red_window` (tests.rs:239), stop the client, `ghosts.len() == 1` and the old frame has non-background pixels; after 150 ms, empty. `other_apps_see_each_window_come_and_go` (tests.rs:914) must still pass.
 
-- [ ] **17 [MED] Fullscreen glides in and out.**
+- [x] **17 [MED] Fullscreen glides in and out.**
   - Waits on: G2.
   - `enter_fullscreen` (windows.rs:610-650) moves and resizes with no motion; the chrome drops at once (render.rs:1006 `dressed = decorated && full.is_none()`). `leave_fullscreen` (:655-670) sets `content = back` at :662 with no motion.
   - Reuse: `Phase::Resizing` (`between(dock, window, smooth(t))`, motion.rs:75, 230 ms), as maximize does (input.rs:494-499).

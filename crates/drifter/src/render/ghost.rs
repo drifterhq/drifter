@@ -59,7 +59,6 @@ impl State {
     }
 
     pub(super) fn step_ghosts(&mut self, dt: Duration) {
-        let dt = dt.min(Duration::from_millis(50));
         let pace = self.window_pace;
         for ghost in &mut self.ghosts {
             ghost.motion.advance(match pace {

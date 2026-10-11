@@ -638,6 +638,37 @@ fn a_window_that_quits_fades_out_instead_of_vanishing() {
 }
 
 #[test]
+fn fullscreen_glides_in_and_back_out() {
+    use drifter_core::motion::Phase;
+    let mut run = start("fullscreen", &Config::default(), None);
+    let (stop, client) = red_window(&mut run);
+    let red = |state: &State| {
+        state
+            .windows
+            .iter()
+            .position(|window| window.app == "drifter-test-red")
+            .expect("the red window is placed")
+    };
+    pump(&mut run.screen, |state| state.windows[red(state)].motion.is_none());
+    let before = run.screen.state.windows[red(&run.screen.state)].content;
+    let index = red(&run.screen.state);
+    run.screen.state.enter_fullscreen(index);
+    let state = &run.screen.state;
+    let phase = state.windows[red(state)].motion.map(|motion| motion.phase);
+    assert_eq!(phase, Some(Phase::Filling), "going fullscreen glides");
+    pump(&mut run.screen, |state| state.windows[red(state)].motion.is_none());
+    assert!(run.screen.state.windows[red(&run.screen.state)].full.is_some());
+    let index = red(&run.screen.state);
+    run.screen.state.leave_fullscreen(index);
+    let state = &run.screen.state;
+    let window = &state.windows[red(state)];
+    assert_eq!(window.motion.map(|motion| motion.phase), Some(Phase::Unfilling), "and coming back glides too");
+    assert_eq!(window.content, before, "back where it was");
+    stop.store(true, Ordering::Relaxed);
+    let _ = client.join();
+}
+
+#[test]
 fn an_open_menu_casts_a_shadow() {
     let mut run = start("menu-shadow", &Config::default(), None);
     let item = |id: i32, label: &str| drifter_core::menu::Item {

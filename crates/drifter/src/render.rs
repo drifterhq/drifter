@@ -147,7 +147,7 @@ type Showing = (
     f32,
     Vec2,
     (f64, bool),
-    bool,
+    f32,
     String,
     smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
 );

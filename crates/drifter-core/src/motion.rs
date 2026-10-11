@@ -10,6 +10,8 @@ pub enum Phase {
     Minimizing,
     Restoring,
     Resizing,
+    Filling,
+    Unfilling,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -31,7 +33,7 @@ impl Motion {
             Phase::Opening => OPEN,
             Phase::Closing => CLOSE,
             Phase::Minimizing | Phase::Restoring => STOW,
-            Phase::Resizing => RESIZE,
+            Phase::Resizing | Phase::Filling | Phase::Unfilling => RESIZE,
         };
         Motion {
             phase,
@@ -64,7 +66,16 @@ impl Motion {
         match self.phase {
             Phase::Opening | Phase::Restoring => (window, t),
             Phase::Closing | Phase::Minimizing => (window, 1.0 - t),
-            Phase::Resizing => (window, 1.0),
+            Phase::Resizing | Phase::Filling | Phase::Unfilling => (window, 1.0),
+        }
+    }
+
+    pub fn chrome(&self) -> f64 {
+        let t = smooth(self.progress());
+        match self.phase {
+            Phase::Filling => 1.0 - t,
+            Phase::Unfilling => t,
+            _ => 1.0,
         }
     }
 
@@ -84,7 +95,7 @@ impl Motion {
                 let t = smooth(t);
                 (between(self.dock, window, t), (t * t) as f32)
             }
-            Phase::Resizing => (between(self.dock, window, smooth(t)), 1.0),
+            Phase::Resizing | Phase::Filling | Phase::Unfilling => (between(self.dock, window, smooth(t)), 1.0),
         }
     }
 }
@@ -150,6 +161,27 @@ mod tests {
         assert_eq!(vanish(0.0, false), (1.0, 1.0));
         assert_eq!(vanish(1.0, false), (0.0, FROM_SCALE));
         assert_eq!(vanish(2.0, true), (0.0, 1.0));
+    }
+
+    #[test]
+    fn filling_glides_like_a_resize_and_fades_the_frame() {
+        let old = window();
+        let screen = Rect::new(Vec2::ZERO, Vec2::new(1920.0, 1080.0));
+        let mut filling = Motion::new(Phase::Filling, old);
+        assert_eq!(filling.shape(screen), (old, 1.0));
+        assert_eq!(filling.chrome(), 1.0, "the frame starts whole");
+        filling.advance(RESIZE / 2);
+        let (mid, fade) = filling.shape(screen);
+        assert_eq!(fade, 1.0);
+        assert!(mid.size.x > old.size.x && mid.size.x < screen.size.x);
+        assert!(filling.chrome() > 0.0 && filling.chrome() < 1.0);
+        filling.advance(RESIZE);
+        assert_eq!(filling.shape(screen).0, screen);
+        assert_eq!(filling.chrome(), 0.0, "and is gone at the end");
+        let mut leaving = Motion::new(Phase::Unfilling, screen);
+        assert_eq!(leaving.chrome(), 0.0);
+        leaving.advance(RESIZE);
+        assert_eq!((leaving.shape(old).0, leaving.chrome()), (old, 1.0));
     }
 
     #[test]
