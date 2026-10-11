@@ -501,7 +501,7 @@ pub fn open(
         search: None,
         launchpad: None,
         welcome: None,
-        dock_logo: docklogo::DockLogo::default(),
+        dock_logo: docklogo::DockLogo::squircle(),
         lock_logo: docklogo::DockLogo::default(),
         battery_art: None,
         battery_seen: None,

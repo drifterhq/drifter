@@ -1,3 +1,6 @@
+#ifdef SQUIRCLE
+uniform vec4 U;
+#endif
 float bulge(float d){float k=clamp(-d/0.24,0.,1.);return sqrt(1.-(1.-k)*(1.-k));}
 vec3 lines(vec2 p){
  vec3 base=mix(S1,S0,smoothstep(-0.9,0.9,p.y));
@@ -8,8 +11,15 @@ vec3 lines(vec2 p){
 }
 float field(vec2 p){
  float an=atan(p.y,p.x);
- float r=0.55+0.035*sin(3.*an+T*0.45)+0.025*sin(5.*an-T*0.33)+0.015*sin(2.*an+T*0.21);
- return (length(p)-r)*0.95;
+ float w=0.035*sin(3.*an+T*0.45)+0.025*sin(5.*an-T*0.33)+0.015*sin(2.*an+T*0.21);
+#ifdef SQUIRCLE
+ float h=smoothstep(0.,1.,U.x);
+ float m=0.035*sin(3.*an+T*1.7)+0.03*sin(5.*an-T*1.3)+0.02*sin(2.*an+T*0.9);
+ vec2 q=abs(p);
+ return (pow(pow(q.x,5.)+pow(q.y,5.),0.2)-0.66-w*0.08-m*h)*0.95;
+#else
+ return (length(p)-0.55-w)*0.95;
+#endif
 }
 vec4 mark(vec2 uv,float px){
  float d=field(uv);

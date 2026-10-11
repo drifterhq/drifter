@@ -1,6 +1,7 @@
 use super::*;
 
 const GROW: f64 = 1.3;
+const LIFT_SECONDS: f64 = 0.35;
 
 pub(super) struct DockLogo {
     program: Option<smithay::backend::renderer::gles::GlesPixelProgram>,
@@ -10,6 +11,8 @@ pub(super) struct DockLogo {
     frame: Option<(TextureBuffer<Tex>, i64)>,
     pub(super) hot: bool,
     pub(super) pace: f64,
+    squircle: bool,
+    lift: (f64, Instant),
 }
 
 impl Default for DockLogo {
@@ -22,6 +25,17 @@ impl Default for DockLogo {
             frame: None,
             hot: false,
             pace: drifter_core::welcome::LOGO_PACE,
+            squircle: false,
+            lift: (0.0, Instant::now()),
+        }
+    }
+}
+
+impl DockLogo {
+    pub(super) fn squircle() -> DockLogo {
+        DockLogo {
+            squircle: true,
+            ..DockLogo::default()
         }
     }
 }
@@ -39,7 +53,18 @@ impl State {
 }
 
 fn logo_frame(logo: &mut DockLogo, renderer: &mut Painter, shown: Vec2, hot: bool, name: &str) -> Option<TextureBuffer<Tex>> {
-    let moving = hot && logo.pace > 0.0;
+    let now = Instant::now();
+    let goal = match hot && logo.pace > 0.0 && logo.squircle {
+        true => 1.0,
+        false => 0.0,
+    };
+    let step = now.duration_since(logo.lift.1).as_secs_f64() / LIFT_SECONDS;
+    let lift = match goal > logo.lift.0 {
+        true => (logo.lift.0 + step).min(goal),
+        false => (logo.lift.0 - step).max(goal),
+    };
+    logo.lift = (lift, now);
+    let moving = (hot && logo.pace > 0.0) || lift > 0.0;
     let was_moving = std::mem::replace(&mut logo.hot, moving);
     if moving && !was_moving {
         logo.clock.1 = Instant::now();
@@ -60,7 +85,10 @@ fn logo_frame(logo: &mut DockLogo, renderer: &mut Painter, shown: Vec2, hot: boo
         return None;
     }
     if logo.program.is_none() {
-        logo.program = wallpaper::logo_program(renderer);
+        logo.program = match logo.squircle {
+            true => wallpaper::squircle_logo_program(renderer),
+            false => wallpaper::logo_program(renderer),
+        };
         if logo.program.is_none() {
             logo.failed = true;
             return None;
@@ -76,7 +104,6 @@ fn logo_frame(logo: &mut DockLogo, renderer: &mut Painter, shown: Vec2, hot: boo
             }
         }
     }
-    let now = Instant::now();
     let (then, at) = logo.clock;
     let clock = match moving {
         true => then + now.duration_since(at).as_secs_f64() * logo.pace,
@@ -86,7 +113,8 @@ fn logo_frame(logo: &mut DockLogo, renderer: &mut Painter, shown: Vec2, hot: boo
     let hour = drifter_core::shader::hour_now();
     let program = logo.program.clone()?;
     let (sheet, _) = logo.sheet.as_mut()?;
-    if let Err(error) = wallpaper::paint_logo(&program, renderer, sheet, size, clock, hour, None) {
+    let extra = logo.squircle.then_some([lift as f32, 0.0, 0.0, 0.0]);
+    if let Err(error) = wallpaper::paint_logo(&program, renderer, sheet, size, clock, hour, extra) {
         log!("drifter: the {name} logo did not draw: {error}");
         logo.failed = true;
         return None;

@@ -211,6 +211,10 @@ pub(super) fn logo_program(renderer: &mut Painter) -> Option<GlesPixelProgram> {
     overlay_program(renderer, drifter_core::welcome::logo_source(), false)
 }
 
+pub(super) fn squircle_logo_program(renderer: &mut Painter) -> Option<GlesPixelProgram> {
+    overlay_program(renderer, drifter_core::welcome::squircle_logo_source(), true)
+}
+
 pub(super) fn desk_program(renderer: &mut Painter) -> Option<GlesPixelProgram> {
     overlay_program(renderer, drifter_core::welcome::desk_source(), true)
 }

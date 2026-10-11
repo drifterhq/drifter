@@ -57,6 +57,10 @@ pub fn desk_moment(seconds: f64, animate: bool) -> (f64, f64) {
 pub fn logo_source() -> String {
     format!("{}{LOGO_BODY}", crate::shader::HEAD)
 }
+
+pub fn squircle_logo_source() -> String {
+    format!("{}#define SQUIRCLE\n{LOGO_BODY}", crate::shader::HEAD)
+}
 pub const CHOICES: usize = 5;
 pub const TILES: usize = 8;
 pub const TILE_ICON: u32 = 56;

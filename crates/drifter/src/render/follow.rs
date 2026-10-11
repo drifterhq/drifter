@@ -328,7 +328,7 @@ impl State {
             self.cog = cog;
             self.dock_spare = spare;
         }
-        if was.icons != look.icons || paths[3] != self.asset_paths[3] {
+        if icons_moved || paths[3] != self.asset_paths[3] {
             let side = self.dock.icon as u32;
             match dock_items(&mut self.renderer, config, side, self.dock_spare.as_ref()) {
                 Ok(pinned) => {
