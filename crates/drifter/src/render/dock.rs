@@ -786,7 +786,8 @@ impl State {
         if self.trash_full_art.is_none() {
             let side = self.dock.icon as u32;
             let themed = drifter_core::icon::find("user-trash-full", None, dense(side))
-                .and_then(|path| drifter_core::image::load_sized(&path, dense(side)).ok());
+                .and_then(|path| drifter_core::image::load_sized(&path, dense(side)).ok())
+                .map(|image| image.scaled(dense(side), dense(side)));
             let from_art = themed.or_else(|| {
                 self.dock_art_dir
                     .as_ref()
@@ -813,7 +814,11 @@ impl State {
         let text = match slot {
             Slot::Pinned(index) => {
                 let launch = &apps.get(index)?.launch;
-                launch.title().map(str::to_string).unwrap_or_else(|| launch.name())
+                launch
+                    .title()
+                    .map(str::to_string)
+                    .or_else(|| launch.app().and_then(crate::apps::find).and_then(|entry| entry.name))
+                    .unwrap_or_else(|| launch.name())
             }
             Slot::Minimized(index) => hidden.get(index)?.clone(),
             Slot::Settings => drifter_core::lang::t("Settings").to_string(),

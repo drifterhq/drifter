@@ -329,6 +329,10 @@ fn named(proxy: &zbus::blocking::Proxy<'_>) -> Option<(Image, bool)> {
     let own = (!theme.is_empty()).then(|| std::path::PathBuf::from(theme));
     let path = drifter_core::icon::find(&name, own.as_deref(), 24)?;
     let image = drifter_core::image::load_sized(&path, 24).ok()?;
+    let image = match (image.width, image.height) {
+        (24, 24) => image,
+        _ => image.scaled(24, 24),
+    };
     Some((image, drifter_core::icon::is_symbolic(&path)))
 }
 

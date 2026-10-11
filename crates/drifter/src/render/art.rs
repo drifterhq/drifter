@@ -32,12 +32,18 @@ pub(super) fn dock_items(
             .icon()
             .map(|path| config.beside(path))
             .or_else(|| item.app().and_then(crate::apps::find).and_then(|e| e.icon))
-            .or_else(|| crate::apps::icon_file(&item.name()));
+            .or_else(|| crate::apps::icon_file(&item.name()))
+            .or_else(|| {
+                drifter_core::launchpad::is_button(&item)
+                    .then(|| drifter_core::icon::find("drifter-launchpad", None, dense(side)))
+                    .flatten()
+            });
         let marked = item
             .command()
             .and_then(drifter_core::place::from_dock)
             .is_some()
-            && item.icon().is_none();
+            && item.icon().is_none()
+            && !drifter_core::launchpad::is_button(&item);
         let path = path.filter(|_| !marked);
         let art = path
             .and_then(|path| match drifter_core::image::load_sized(&path, dense(side)) {
@@ -178,7 +184,9 @@ pub(super) fn load_dock_art(
     let themed = |names: &[&str]| -> Option<drifter_core::Image> {
         names.iter().find_map(|name| {
             let path = drifter_core::icon::find(name, None, dense(side))?;
-            drifter_core::image::load_sized(&path, dense(side)).ok()
+            drifter_core::image::load_sized(&path, dense(side))
+                .ok()
+                .map(|image| image.scaled(dense(side), dense(side)))
         })
     };
     let trash_image = themed(&["user-trash", "user-trash-empty"])
