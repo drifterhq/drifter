@@ -780,7 +780,13 @@ pub(super) fn tell_gnome(
     if let Some(accent) = changed(|look| look.accent.map(|a| a.word().to_string())) {
         sets.push((FACE, "accent-color", accent));
     }
-    if let Some(icons) = drifter_core::icon::now_for(look).filter(|icons| told_icons(icons)) {
+    let icons = drifter_core::icon::now_for(look);
+    let gtk = match drifter_core::theme::now(look.style) {
+        drifter_core::Style::Light => "Adwaita",
+        _ => "Adwaita-dark",
+    };
+    crate::apps::tell_x11(crate::apps::xsettings_text(gtk, icons.as_deref(), look.cursor_theme.as_deref(), look.cursor_size));
+    if let Some(icons) = icons.filter(|icons| told_icons(icons)) {
         sets.push((FACE, "icon-theme", icons));
     }
     if let Some(cursor) = changed(|look| look.cursor_theme.clone()) {

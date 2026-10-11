@@ -180,6 +180,7 @@ pub fn start_x11(socket: &str) {
     match result {
         Ok(mut child) => {
             out!("x11         {display} through {}", program.display());
+            start_xsettings(&display);
             let _ = X11.set(display);
             std::thread::spawn(move || {
                 let _ = child.wait();
@@ -187,6 +188,84 @@ pub fn start_x11(socket: &str) {
             });
         }
         Err(error) => log!("drifter: cannot start xwayland-satellite: {error}"),
+    }
+}
+
+static XSETTINGS: std::sync::Mutex<(String, Option<u32>)> = std::sync::Mutex::new((String::new(), None));
+
+fn xsettings_file() -> PathBuf {
+    drifter_core::Config::state_dir().join("xsettingsd.conf")
+}
+
+pub fn xsettings_text(theme: &str, icons: Option<&str>, cursor: Option<&str>, cursor_size: u32) -> String {
+    let mut text = format!("Net/ThemeName \"{theme}\"\n");
+    if let Some(icons) = icons {
+        text.push_str(&format!("Net/IconThemeName \"{icons}\"\n"));
+    }
+    if let Some(cursor) = cursor {
+        text.push_str(&format!("Gtk/CursorThemeName \"{cursor}\"\n"));
+    }
+    text.push_str(&format!("Gtk/CursorThemeSize {cursor_size}\n"));
+    text
+}
+
+fn start_xsettings(display: &str) {
+    let Some(program) = on_path("xsettingsd") else {
+        log!("drifter: xsettingsd is not installed, so X11 apps keep their own theme");
+        return;
+    };
+    let file = xsettings_file();
+    let Ok(mut held) = XSETTINGS.lock() else {
+        return;
+    };
+    if held.0.is_empty() || std::fs::write(&file, &held.0).is_err() {
+        return;
+    }
+    let result = fresh_signals(&mut std::process::Command::new(&program))
+        .arg("-c")
+        .arg(&file)
+        .env("DISPLAY", display)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+    match result {
+        Ok(mut child) => {
+            held.1 = Some(child.id());
+            std::thread::spawn(move || {
+                let _ = child.wait();
+                if let Ok(mut held) = XSETTINGS.lock() {
+                    held.1 = None;
+                }
+            });
+        }
+        Err(error) => log!("drifter: cannot start xsettingsd: {error}"),
+    }
+}
+
+pub fn tell_x11(text: String) {
+    let pid = {
+        let Ok(mut held) = XSETTINGS.lock() else {
+            return;
+        };
+        if held.0 == text {
+            return;
+        }
+        held.0 = text;
+        if held.1.is_some()
+            && let Err(error) = std::fs::write(xsettings_file(), &held.0)
+        {
+            log!("drifter: cannot write the X11 settings: {error}");
+            return;
+        }
+        held.1
+    };
+    match (pid, X11.get()) {
+        (Some(pid), _) => unsafe {
+            libc::kill(pid as i32, libc::SIGHUP);
+        },
+        (None, Some(display)) => start_xsettings(display),
+        (None, None) => {}
     }
 }
 
@@ -282,4 +361,18 @@ pub fn defaults(
         }
     }
     chosen
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn x11_settings_name_the_theme_icons_and_pointer() {
+        let text = xsettings_text("Adwaita-dark", Some("drifter-icons-dark"), None, 24);
+        assert_eq!(
+            text,
+            "Net/ThemeName \"Adwaita-dark\"\nNet/IconThemeName \"drifter-icons-dark\"\nGtk/CursorThemeSize 24\n"
+        );
+    }
 }
