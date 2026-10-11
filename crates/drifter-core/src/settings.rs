@@ -309,6 +309,8 @@ pub struct Model {
     pub unit: usize,
     pub rotation: WallpaperOrder,
     pub drift: u32,
+    pub ripple: bool,
+    pub ripple_strength: u32,
     pub pictures: Vec<PathBuf>,
     pub shaders: Vec<PathBuf>,
     pub names: HashMap<String, String>,
@@ -497,6 +499,8 @@ impl Model {
             unit,
             rotation: config.workspace.wallpaper_order,
             drift: config.workspace.wallpaper_motion,
+            ripple: config.workspace.ripple,
+            ripple_strength: config.workspace.ripple_strength,
             pictures: config
                 .wallpaper_folder()
                 .map(|folder| crate::wallpaper::pictures(&clean(folder)))
@@ -1637,6 +1641,20 @@ impl Model {
                             },
                         },
                     ),
+                    Row::new(Id::Ripple, crate::lang::t("Ripple"), Control::Switch(self.ripple))
+                        .detail(crate::lang::t("A right click on the desktop sends a ripple across the wallpaper")),
+                    Row::new(
+                        Id::RippleStrength,
+                        crate::lang::t("Ripple strength"),
+                        Control::Slider {
+                            least: f64::from(crate::ripple::STRENGTH.0),
+                            most: f64::from(crate::ripple::STRENGTH.1),
+                            value: f64::from(self.ripple_strength),
+                            unit: "%",
+                            zero: None,
+                        },
+                    )
+                    .enabled(self.ripple),
                 ],
                 footer: Some(
                     match self.wallpaper_mode {
@@ -1786,6 +1804,11 @@ impl Model {
                 let (least, most) = REPEAT_RATE;
                 self.keyboard.repeat_rate =
                     n.round().clamp(f64::from(least), f64::from(most)) as u32
+            }
+            (Id::Ripple, Value::Switch(on)) => self.ripple = on,
+            (Id::RippleStrength, Value::Number(n)) => {
+                let (weak, strong) = crate::ripple::STRENGTH;
+                self.ripple_strength = n.round().clamp(f64::from(weak), f64::from(strong)) as u32
             }
             (Id::Drift, Value::Number(n)) => {
                 self.drift = n.round().clamp(0.0, f64::from(crate::config::MOST_MOTION)) as u32
@@ -2046,6 +2069,12 @@ impl Model {
                 "wallpaper_every",
                 int(self.every() as f64),
             );
+        }
+        if self.ripple != before.ripple {
+            put(&mut doc, "workspace", "ripple", toml_edit::Value::from(self.ripple));
+        }
+        if self.ripple_strength != before.ripple_strength {
+            put(&mut doc, "workspace", "ripple_strength", int(f64::from(self.ripple_strength)));
         }
         if self.drift != before.drift {
             put(&mut doc, "workspace", "wallpaper_motion", int(f64::from(self.drift)));
@@ -2562,6 +2591,8 @@ fn put(doc: &mut toml_edit::DocumentMut, table: &str, key: &str, fresh: toml_edi
 pub enum Id {
     World,
     Drift,
+    Ripple,
+    RippleStrength,
     WallpaperMode,
     Modifier,
     Top,
@@ -4368,6 +4399,20 @@ mod tests {
         let back = Config::parse(&after.write(&before, text).unwrap()).unwrap();
         assert_eq!(back.workspace.wallpaper_motion, crate::config::MOST_MOTION);
         assert!(Config::parse("[workspace]\nwallpaper_motion = 301\n").unwrap().validate().is_err());
+    }
+
+    #[test]
+    fn the_ripple_switch_and_strength_write_the_workspace_table() {
+        let text = "";
+        let before = model(&config(text));
+        assert!(before.ripple && before.ripple_strength == 100);
+        let mut after = before.clone();
+        after.set(Id::Ripple, Value::Switch(false));
+        after.set(Id::RippleStrength, Value::Number(5.0));
+        let back = Config::parse(&after.write(&before, text).unwrap()).unwrap();
+        assert!(!back.workspace.ripple);
+        assert_eq!(back.workspace.ripple_strength, 25, "the strength clamps");
+        back.validate().unwrap();
     }
 
     #[test]

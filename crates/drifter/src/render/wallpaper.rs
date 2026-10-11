@@ -1,5 +1,5 @@
 use super::*;
-use smithay::backend::renderer::gles::{GlesPixelProgram, GlesTexture, Uniform, UniformName, UniformType};
+use smithay::backend::renderer::gles::{GlesPixelProgram, GlesTexProgram, GlesTexture, Uniform, UniformName, UniformType};
 use smithay::backend::renderer::{Bind, Frame, Offscreen, Renderer};
 
 const STRIPS: i32 = 15;
@@ -213,6 +213,63 @@ pub(super) fn logo_program(renderer: &mut Painter) -> Option<GlesPixelProgram> {
 
 pub(super) fn squircle_logo_program(renderer: &mut Painter) -> Option<GlesPixelProgram> {
     overlay_program(renderer, drifter_core::welcome::squircle_logo_source(), true)
+}
+
+pub(super) fn ripple_program(renderer: &mut Painter) -> Option<GlesTexProgram> {
+    let Painter::Gles(gles) = renderer else {
+        return None;
+    };
+    let names = [
+        UniformName::new("S", UniformType::_2f),
+        UniformName::new("O", UniformType::_2f),
+        UniformName::new("K", UniformType::_1f),
+        UniformName::new("G", UniformType::_1f),
+    ];
+    match gles.compile_custom_texture_shader(drifter_core::ripple::source(), &names) {
+        Ok(program) => Some(program),
+        Err(error) => {
+            log!("drifter: the ripple shader does not compile: {error}");
+            None
+        }
+    }
+}
+
+pub(super) fn paint_ripple(
+    program: &GlesTexProgram,
+    renderer: &mut Painter,
+    ripple: &mut super::deskmenu::Ripple,
+    (screen, at, seconds, strength): (Vec2, Vec2, f32, f32),
+) -> Result<(), String> {
+    let Painter::Gles(gles) = renderer else {
+        return Err("the ripple needs the gles renderer".to_string());
+    };
+    let size = ripple.size;
+    let whole = smithay::utils::Rectangle::from_size(size.into());
+    let uniforms = [
+        Uniform::new("S", (screen.x as f32, screen.y as f32)),
+        Uniform::new("O", (at.x as f32, at.y as f32)),
+        Uniform::new("K", seconds),
+        Uniform::new("G", strength),
+    ];
+    let mut target = gles.bind(&mut ripple.sheet.texture).map_err(|e| e.to_string())?;
+    let mut frame = gles
+        .render(&mut target, size.into(), Transform::Normal)
+        .map_err(|e| e.to_string())?;
+    frame
+        .render_texture_from_to(
+            &ripple.snapshot,
+            smithay::utils::Rectangle::from_size((f64::from(size.0), f64::from(size.1)).into()),
+            whole,
+            &[whole],
+            &[],
+            Transform::Normal,
+            1.0,
+            Some(program),
+            &uniforms,
+        )
+        .map_err(|e| e.to_string())?;
+    let _ = frame.finish().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 pub(super) fn desk_program(renderer: &mut Painter) -> Option<GlesPixelProgram> {

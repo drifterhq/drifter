@@ -600,6 +600,9 @@ pub struct State {
     popover: Option<Popover>,
     desk_menu: Option<deskmenu::DeskMenu>,
     ripple: Option<deskmenu::Ripple>,
+    ripple_program: Option<Option<smithay::backend::renderer::gles::GlesTexProgram>>,
+    ripple_on: bool,
+    ripple_strength: f64,
     alert: Option<deskmenu::Alert>,
     reopening: Option<(drifter_core::reopen::Desk, Instant)>,
     switch: Option<Switch>,
@@ -1014,8 +1017,8 @@ impl State {
             .as_ref()
             .map(|(_, since)| drifter_core::motion::smooth(since.elapsed().as_secs_f64() / PAPER_FADE.as_secs_f64()));
         let view = (self.mode, self.screen, self.world, self.camera);
-        if let Some((art, area)) = self.ripple.as_ref().and_then(|ripple| ripple.art.as_ref().map(|art| (art, ripple.area))) {
-            elements.push(Skin::Texture(element(art, area, 1.0)));
+        if let Some(ripple) = self.ripple.as_ref() {
+            elements.push(Skin::Texture(element(&ripple.sheet.buffer, Rect::new(Vec2::ZERO, self.screen), 1.0)));
         }
         let clock = self.paper_clock();
         let every = self.live_every();

@@ -346,8 +346,9 @@ How motion works today (all items use this):
 
 Shared: smithay 0.7.0 has `compile_custom_texture_shader(src, &[UniformName])` (gles/mod.rs:1969) and `render_texture_from_to(.., alpha, Some(&program), &uniforms)` (gles/mod.rs:2488). Nothing uses it yet. The source must contain the line `//_DEFINES_` and handle `EXTERNAL`; inputs are `tex`, `v_coords`, `alpha`. Pixel shaders cannot sample a texture. Put each program next to `overlay_program` (wallpaper.rs:222-242), its GLSL as a const in core, and render into a `Sheet`. Pixman always falls back.
 
-- [ ] **22 [MED] Right-click ripple on the GPU; ripple setting.**
+- [x] **22 [MED] Right-click ripple on the GPU; ripple setting.**
   - Waits on: G2.
+  - Done. Needs a look on a GLES device: click off-centre and check the ring is centred on the click (step 4). The shader takes v_coords y = 0 as the top, as desk.glsl does.
   - Today: a `ripple` thread (deskmenu.rs:191-214) steps a 300x300 wave grid every 16 ms (:193, :212), and each frame spawns up to 8 scoped threads (ripple.rs ~171-205) and uploads a new texture on the main thread (deskmenu.rs:237). `wallpaper_patch` (deskmenu.rs:128-181) renders the wallpaper only (no windows) and reads back a 600x600 region once per click (:157-161), then downscales, so it is blurry at 2x. It always runs (deskmenu.rs:112) and ignores reduce motion.
   - Fix:
     1. Rename `wallpaper_patch` to `fn wallpaper_snapshot(&mut self) -> Option<GlesTexture>`: keep the render (:136-149), return the `Canvas::Gles` texture, delete the readback (:150-180).

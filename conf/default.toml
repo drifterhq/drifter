@@ -24,6 +24,11 @@ wallpaper = "aurora.shader"
 # at every speed.
 wallpaper_motion = 100
 
+# A right click on the desktop sends a ripple across the wallpaper. The
+# strength is in percent, 25 to 200. Reduce motion turns it off.
+ripple = true
+ripple_strength = 100
+
 # fixed    one screen. Stays put at every zoom.
 # pan      world sized. Moves and zooms with the world.
 # parallax any size between those two. Moves slower than the world.

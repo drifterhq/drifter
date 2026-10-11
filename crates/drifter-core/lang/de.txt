@@ -3551,3 +3551,12 @@ Glow
 
 The corner warms in the accent color as the pointer nears
 = Die Ecke leuchtet in der Akzentfarbe, wenn sich der Zeiger nähert
+
+Ripple
+= Welle
+
+Ripple strength
+= Stärke der Welle
+
+A right click on the desktop sends a ripple across the wallpaper
+= Ein Rechtsklick auf den Schreibtisch schickt eine Welle über das Hintergrundbild

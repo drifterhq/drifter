@@ -702,6 +702,8 @@ impl State {
         let raster = self.dock_side();
         self.dock_hover_mode = config.dock.hover;
         self.dock_magnify = f64::from(config.dock.magnify) / 100.0;
+        self.ripple_on = config.workspace.ripple;
+        self.ripple_strength = f64::from(config.workspace.ripple_strength) / 100.0;
         self.dock_pad = config.dock_padding();
         self.dock.margin = dock_margin(config);
         let resized = self.dock.with_icon(config.dock_icon());

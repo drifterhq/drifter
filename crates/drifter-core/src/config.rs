@@ -66,6 +66,14 @@ pub struct Workspace {
     pub wallpaper_order: WallpaperOrder,
     #[serde(default = "default_motion")]
     pub wallpaper_motion: u32,
+    #[serde(default = "yes")]
+    pub ripple: bool,
+    #[serde(default = "ripple_strength")]
+    pub ripple_strength: u32,
+}
+
+fn ripple_strength() -> u32 {
+    100
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
@@ -421,6 +429,8 @@ impl Default for Workspace {
             wallpaper_every: 0,
             wallpaper_order: WallpaperOrder::default(),
             wallpaper_motion: default_motion(),
+            ripple: true,
+            ripple_strength: ripple_strength(),
         }
     }
 }
@@ -1768,6 +1778,12 @@ impl Config {
             return Err(ConfigError::Invalid(
                 "appearance cursor_size is pixels from 8 to 256".into(),
             ));
+        }
+        let (weak, strong) = crate::ripple::STRENGTH;
+        if !(weak..=strong).contains(&self.workspace.ripple_strength) {
+            return Err(ConfigError::Invalid(format!(
+                "workspace ripple_strength is percent from {weak} to {strong}"
+            )));
         }
         if !(MAGNIFY.0..=MAGNIFY.1).contains(&self.dock.magnify) {
             return Err(ConfigError::Invalid(format!(

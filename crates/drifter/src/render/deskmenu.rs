@@ -28,10 +28,11 @@ pub(super) struct DeskMenu {
 type LevelKey = (usize, usize, Option<usize>, u64, [i64; 4]);
 
 pub(super) struct Ripple {
-    pub fresh: std::sync::Arc<std::sync::Mutex<Option<drifter_core::Image>>>,
-    pub area: Rect,
+    pub snapshot: smithay::backend::renderer::gles::GlesTexture,
+    pub sheet: super::wallpaper::Sheet,
+    pub size: (i32, i32),
+    pub at: Vec2,
     pub since: Instant,
-    pub art: Option<TextureBuffer<Tex>>,
 }
 
 pub(super) struct Alert {
@@ -124,10 +125,10 @@ impl State {
         self.paint_desk_menu();
     }
 
-    fn wallpaper_patch(&mut self, area: Rect) -> Option<drifter_core::Image> {
+    fn wallpaper_snapshot(&mut self) -> Option<(smithay::backend::renderer::gles::GlesTexture, (i32, i32))> {
+        use smithay::backend::renderer::Bind;
         use smithay::backend::renderer::damage::OutputDamageTracker;
-        use smithay::backend::renderer::{Bind, ExportMem};
-        use smithay::utils::{Buffer as BufferCoord, Physical, Rectangle, Size};
+        use smithay::utils::{Buffer as BufferCoord, Physical, Size};
 
         let scale = self.heads.get(self.at).map_or(1.0, |head| head.scale);
         let view = (self.mode, self.screen, self.world, self.camera);
@@ -142,102 +143,62 @@ impl State {
         let whole = self.physical();
         let size = Size::<i32, Physical>::from((whole.x as i32, whole.y as i32));
         let buffer_size = Size::<i32, BufferCoord>::from((size.w, size.h));
-        let mut texture = self.renderer.canvas(DrmFourcc::Abgr8888, buffer_size).ok()?;
-        let mut target = self.renderer.bind(&mut texture).ok()?;
-        let mut tracker = OutputDamageTracker::new(size, 1.0, Transform::Normal);
-        tracker.render_output(&mut self.renderer, &mut target, 0, &shown, self.clear).ok()?;
-        let low = (area.origin * scale).round();
-        let high = (area.max() * scale).round();
-        let x0 = low.x.clamp(0.0, whole.x) as i32;
-        let y0 = low.y.clamp(0.0, whole.y) as i32;
-        let x1 = high.x.clamp(0.0, whole.x) as i32;
-        let y1 = high.y.clamp(0.0, whole.y) as i32;
-        let (w, h) = ((x1 - x0).max(1), (y1 - y0).max(1));
-        let mapping = self
-            .renderer
-            .copy_framebuffer(&target, Rectangle::new((x0, y0).into(), (w, h).into()), DrmFourcc::Abgr8888)
-            .ok()?;
-        let bytes = self.renderer.map_texture(&mapping).ok()?.to_vec();
-        let mut full = drifter_core::Image {
-            width: (high.x - low.x).max(1.0) as u32,
-            height: (high.y - low.y).max(1.0) as u32,
-            rgba: vec![0; ((high.x - low.x).max(1.0) * (high.y - low.y).max(1.0) * 4.0) as usize],
-        };
-        let (dx, dy) = ((x0 as f64 - low.x) as u32, (y0 as f64 - low.y) as u32);
-        for row in 0..h as u32 {
-            for col in 0..w as u32 {
-                let from = ((row * w as u32 + col) * 4) as usize;
-                let (x, y) = (col + dx, row + dy);
-                if x >= full.width || y >= full.height || from + 4 > bytes.len() {
-                    continue;
-                }
-                let to = ((y * full.width + x) * 4) as usize;
-                full.rgba[to..to + 4].copy_from_slice(&bytes[from..from + 4]);
-                full.rgba[to + 3] = 255;
-            }
+        let mut canvas = self.renderer.canvas(DrmFourcc::Abgr8888, buffer_size).ok()?;
+        {
+            let mut target = self.renderer.bind(&mut canvas).ok()?;
+            let mut tracker = OutputDamageTracker::new(size, 1.0, Transform::Normal);
+            tracker.render_output(&mut self.renderer, &mut target, 0, &shown, self.clear).ok()?;
         }
-        Some(full.scaled(area.size.x as u32, area.size.y as u32))
+        match canvas {
+            crate::paint::Canvas::Gles(texture) => Some((texture, (size.w, size.h))),
+            _ => None,
+        }
     }
 
     fn start_ripple(&mut self, at: Vec2) {
-        let area = drifter_core::ripple::region(at);
-        let Some(patch) = self.wallpaper_patch(area) else {
+        let wanted = self.ripple_on && !self.window_still && self.window_pace > 0.0 && !self.renderer.is_pixman();
+        if !wanted {
+            return;
+        }
+        if self.ripple_program.is_none() {
+            let program = super::wallpaper::ripple_program(&mut self.renderer);
+            self.ripple_program = Some(program);
+        }
+        if !matches!(self.ripple_program, Some(Some(_))) {
+            return;
+        }
+        let Some((snapshot, size)) = self.wallpaper_snapshot() else {
             return;
         };
-        let since = Instant::now();
-        let fresh = std::sync::Arc::new(std::sync::Mutex::new(None));
-        let out = std::sync::Arc::downgrade(&fresh);
-        let spawned = std::thread::Builder::new().name("ripple".into()).spawn(move || {
-            let mut water = drifter_core::ripple::Water::new();
-            let pace = Duration::from_millis(16);
-            loop {
-                let began = Instant::now();
-                let t = since.elapsed().as_secs_f64() / drifter_core::ripple::SECONDS;
-                if t >= 1.0 {
-                    return;
-                }
-                let Some(slot) = out.upgrade() else {
-                    return;
-                };
-                let waiting = slot.lock().is_ok_and(|held| held.is_some());
-                if !waiting {
-                    water.advance(t);
-                    let image = water.render(&patch, t);
-                    if let Ok(mut held) = slot.lock() {
-                        *held = Some(image);
-                    }
-                }
-                drop(slot);
-                std::thread::sleep(pace.saturating_sub(began.elapsed()));
-            }
+        let Ok(sheet) = super::wallpaper::sheet(&mut self.renderer, size) else {
+            return;
+        };
+        self.ripple = Some(Ripple {
+            snapshot,
+            sheet,
+            size,
+            at,
+            since: Instant::now(),
         });
-        if spawned.is_ok() {
-            self.ripple = Some(Ripple {
-                fresh,
-                area,
-                since,
-                art: None,
-            });
-        }
     }
 
     pub(super) fn wind_the_ripple(&mut self) {
         let Some(ripple) = self.ripple.as_mut() else {
             return;
         };
-        let t = ripple.since.elapsed().as_secs_f64() / drifter_core::ripple::SECONDS;
-        if t >= 1.0 {
+        let seconds = ripple.since.elapsed().as_secs_f64();
+        if seconds >= drifter_core::ripple::SECONDS {
             self.ripple = None;
             return;
         }
-        let Some(image) = ripple.fresh.lock().ok().and_then(|mut slot| slot.take()) else {
+        let Some(Some(program)) = self.ripple_program.as_ref() else {
+            self.ripple = None;
             return;
         };
-        let art = upload_flat(&mut self.renderer, Some(&image), "ripple").ok().flatten();
-        if let Some(ripple) = self.ripple.as_mut()
-            && art.is_some()
-        {
-            ripple.art = art;
+        let look = (self.screen, ripple.at, seconds as f32, self.ripple_strength as f32);
+        if let Err(error) = super::wallpaper::paint_ripple(program, &mut self.renderer, ripple, look) {
+            log!("drifter: no ripple: {error}");
+            self.ripple = None;
         }
     }
 

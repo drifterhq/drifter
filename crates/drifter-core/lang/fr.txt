@@ -3548,3 +3548,12 @@ Glow
 
 The corner warms in the accent color as the pointer nears
 = Le coin s’illumine de la couleur d’accent quand le pointeur approche
+
+Ripple
+= Onde
+
+Ripple strength
+= Force de l’onde
+
+A right click on the desktop sends a ripple across the wallpaper
+= Un clic droit sur le bureau envoie une onde sur le fond d’écran
