@@ -303,7 +303,10 @@ impl Paper {
                 .wallpaper_path()
                 .filter(|path| drifter_core::shader::is_shader(path))
                 .map(|_| drifter_core::night::hour_now()),
-            drift: f64::from(config.workspace.wallpaper_motion) / 100.0,
+            drift: match config.access.reduce_motion {
+                true => 0.0,
+                false => f64::from(config.workspace.wallpaper_motion) / 100.0,
+            },
             clock: (0.0, Instant::now()),
         }
     }
@@ -544,6 +547,7 @@ pub struct State {
     pub drag_shot: Option<PathBuf>,
     pub drag_icon: Option<smithay::reexports::wayland_server::protocol::wl_surface::WlSurface>,
     window_pace: f64,
+    window_still: bool,
     dock_pad: f64,
     fit_busy: bool,
     battery_glow: Option<TextureBuffer<Tex>>,
@@ -998,7 +1002,7 @@ impl State {
             .map(|window| {
                 let (shown, fade) = window
                     .motion
-                    .map(|motion| motion.shape(window.content))
+                    .map(|motion| motion.shape_for(window.content, self.window_still))
                     .unwrap_or((window.content, 1.0));
                 (
                     window.content,
@@ -1639,12 +1643,7 @@ impl Screen {
 }
 
 fn window_pace(config: &Config) -> f64 {
-    let reduce = config.access.reduce_motion;
-    match drifter_core::welcome::Motion::of(reduce, config.workspace.wallpaper_motion) {
-        drifter_core::welcome::Motion::Still => 0.0,
-        drifter_core::welcome::Motion::Calm => 0.75,
-        drifter_core::welcome::Motion::Full => 1.0,
-    }
+    config.motion.animation.pace()
 }
 
 fn dock_margin(config: &Config) -> f64 {

@@ -3482,3 +3482,9 @@ Undo and redo
 
 {} Items
 = {} elementos
+
+Animation
+= Animación
+
+Reduce motion in Accessibility keeps fades and stops movement.
+= Reducir el movimiento en Accesibilidad mantiene los fundidos y detiene el movimiento.

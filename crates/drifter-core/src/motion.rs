@@ -56,6 +56,18 @@ impl Motion {
         self.progress() >= 1.0
     }
 
+    pub fn shape_for(&self, window: Rect, still: bool) -> (Rect, f32) {
+        if !still {
+            return self.shape(window);
+        }
+        let t = self.progress().min(1.0) as f32;
+        match self.phase {
+            Phase::Opening | Phase::Restoring => (window, t),
+            Phase::Closing | Phase::Minimizing => (window, 1.0 - t),
+            Phase::Resizing => (window, 1.0),
+        }
+    }
+
     pub fn shape(&self, window: Rect) -> (Rect, f32) {
         let t = self.progress();
         match self.phase {
@@ -112,6 +124,22 @@ mod tests {
 
     use super::*;
     use crate::geom::Vec2;
+
+    #[test]
+    fn reduce_motion_keeps_the_fade_but_not_the_move() {
+        for phase in [Phase::Opening, Phase::Closing, Phase::Minimizing, Phase::Restoring, Phase::Resizing] {
+            let mut motion = Motion::new(phase, dock());
+            motion.advance(motion.span / 2);
+            let (rect, fade) = motion.shape_for(window(), true);
+            assert_eq!(rect, window(), "{phase:?} stays in place");
+            let want = match phase {
+                Phase::Resizing => 1.0,
+                _ => 0.5,
+            };
+            assert!((fade - want).abs() < 0.01, "{phase:?} fades to {fade}");
+            assert_eq!(motion.shape_for(window(), false), motion.shape(window()));
+        }
+    }
 
     fn window() -> Rect {
         Rect::new(Vec2::new(400.0, 300.0), Vec2::new(800.0, 600.0))

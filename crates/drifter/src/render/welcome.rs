@@ -915,6 +915,7 @@ impl State {
             Hit::Motion(motion) => {
                 self.write_config(|text| {
                     let text = drifter_core::settings::write_flag(text, "access", "reduce_motion", motion.reduce())?;
+                    let text = drifter_core::settings::write_word(&text, "motion", "animation", motion.animation().word())?;
                     drifter_core::settings::write_number(&text, "workspace", "wallpaper_motion", i64::from(motion.percent()))
                 });
                 self.welcome_reload();

@@ -493,7 +493,7 @@ impl State {
             return;
         }
         match Config::load_from(&self.config_path) {
-            Ok(config) if config.access.reduce_motion || self.renderer.is_pixman() => {
+            Ok(config) if config.motion.animation == drifter_core::Animation::Off || self.renderer.is_pixman() => {
                 self.follow_looks(&config);
                 self.kick_now();
             }
@@ -577,7 +577,9 @@ impl State {
             self.battery_seen = None;
         }
         self.show_battery = config.tray.battery;
+        let was_off = self.window_pace <= 0.0;
         self.window_pace = window_pace(config);
+        self.window_still = config.access.reduce_motion;
         let reduce = config.access.reduce_motion;
         self.dock_logo.pace = drifter_core::welcome::logo_pace(
             drifter_core::welcome::Motion::of(reduce, config.workspace.wallpaper_motion),
@@ -603,18 +605,15 @@ impl State {
             }
         }
         let pinned = self.tunables.bar_hides;
-        self.tunables = match config.access.reduce_motion {
-            true => Tunables::from(&config.motion).still(),
-            false => Tunables::from(&config.motion),
-        };
+        self.tunables = Tunables::from(&config.motion).paced(self.window_pace, config.access.reduce_motion);
         if self.access.sticky_keys && !config.access.sticky_keys {
             let time = self.clock_ms();
             for (code, pressed) in self.sticky.clear() {
                 self.feed_key(code, pressed, time);
             }
         }
-        if self.access != config.access {
-            tell_access(Some(&self.access), &config.access);
+        if self.access != config.access || was_off != (self.window_pace <= 0.0) {
+            tell_access(Some((&self.access, was_off)), &config.access, config.motion.animation);
         }
         self.access = config.access;
         if self.drm.is_some() {
@@ -736,13 +735,19 @@ pub(super) fn cursor_env(look: &drifter_core::Appearance) {
 
 const FACE: &str = "org.gnome.desktop.interface";
 
-pub(super) fn tell_access(was: Option<&drifter_core::Access>, now: &drifter_core::Access) {
+pub(super) fn tell_access(
+    was: Option<(&drifter_core::Access, bool)>,
+    now: &drifter_core::Access,
+    animation: drifter_core::Animation,
+) {
     let mut sets: Vec<(&'static str, &'static str, String)> = Vec::new();
     const A11Y: &str = "org.gnome.desktop.a11y.interface";
     let moved = |pick: fn(&drifter_core::Access) -> bool| match was {
-        Some(was) => pick(was) != pick(now),
+        Some((was, _)) => pick(was) != pick(now),
         None => pick(now),
     };
+    let off = animation == drifter_core::Animation::Off;
+    let still = now.reduce_motion || off;
     if moved(|access| access.large_text) {
         let factor = match now.large_text {
             true => drifter_core::config::LARGE_TEXT,
@@ -750,8 +755,9 @@ pub(super) fn tell_access(was: Option<&drifter_core::Access>, now: &drifter_core
         };
         sets.push((FACE, "text-scaling-factor", format!("{factor}")));
     }
-    if moved(|access| access.reduce_motion) {
-        sets.push((FACE, "enable-animations", (!now.reduce_motion).to_string()));
+    let was_still = was.map(|(was, was_off)| was.reduce_motion || was_off);
+    if was_still.map_or(still, |was_still| was_still != still) {
+        sets.push((FACE, "enable-animations", (!still).to_string()));
     }
     if moved(|access| access.high_contrast) {
         sets.push((A11Y, "high-contrast", now.high_contrast.to_string()));

@@ -53,6 +53,9 @@ natural = false
 left_handed = false
 
 [motion]
+# How windows, panels and bars move: "off", "calm" or "full".
+# Reduce motion in [access] keeps the fades and stops the movement.
+animation = "full"
 # Rest the pointer in the top left corner to zoom out.
 hot_corner = true
 # Corner size in pixels, 8 to 160.

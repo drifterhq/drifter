@@ -28,7 +28,7 @@ How motion works today (all items use this):
   - Fix: insert `if self.animating() { return Some(TICK); }` after the lock block, before render.rs:734.
   - Test (render/tests.rs): show a card, start a window open, assert `state.waiting() == Some(TICK)`.
 
-- [ ] **G2 [HIGH] One Animation setting; split "speed" from "reduce motion".**
+- [x] **G2 [HIGH] One Animation setting; split "speed" from "reduce motion".**
   - Waits on: G1.
   - Today: `window_pace` (render.rs:1638-1645) comes from `Motion::of(reduce, wallpaper_motion)` (welcome.rs:131-137). The wallpaper slider sets window speed, and reduce motion forces pace 0, which kills fades too.
   - Also wrong today: bars and camera read only reduce (`Tunables.still()`, start.rs:186-189, follow.rs:605-609, config.rs:1246-1252). Wallpaper drift ignores reduce (render.rs:306, follow.rs:682).

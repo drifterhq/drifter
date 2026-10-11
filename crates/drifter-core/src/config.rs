@@ -703,9 +703,40 @@ pub const PAN_SPEED: (u32, u32) = (25, 400);
 pub const WAIT_MS: (u32, u32) = (0, 2000);
 pub const SLIDE_MS: (u32, u32) = (40, 1500);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Animation {
+    Off,
+    Calm,
+    #[default]
+    Full,
+}
+
+impl Animation {
+    pub const ALL: [Animation; 3] = [Animation::Off, Animation::Calm, Animation::Full];
+
+    pub fn pace(self) -> f64 {
+        match self {
+            Animation::Off => 0.0,
+            Animation::Calm => 0.75,
+            Animation::Full => 1.0,
+        }
+    }
+
+    pub fn word(self) -> &'static str {
+        match self {
+            Animation::Off => "off",
+            Animation::Calm => "calm",
+            Animation::Full => "full",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Motion {
+    #[serde(default)]
+    pub animation: Animation,
     #[serde(default = "yes")]
     pub hot_corner: bool,
     #[serde(default = "corner_size")]
@@ -759,6 +790,7 @@ fn flight() -> u32 {
 impl Default for Motion {
     fn default() -> Self {
         Motion {
+            animation: Animation::Full,
             hot_corner: true,
             corner_size: corner_size(),
             corner_wait: corner_wait(),
@@ -1247,6 +1279,17 @@ impl Tunables {
         Tunables {
             drawer_anim: Duration::ZERO,
             camera_anim: Duration::ZERO,
+            ..self
+        }
+    }
+
+    pub fn paced(self, pace: f64, reduce: bool) -> Tunables {
+        if pace <= 0.0 || reduce {
+            return self.still();
+        }
+        Tunables {
+            drawer_anim: self.drawer_anim.div_f64(pace),
+            camera_anim: self.camera_anim.div_f64(pace),
             ..self
         }
     }

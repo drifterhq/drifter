@@ -148,6 +148,14 @@ impl Motion {
         self == Motion::Still
     }
 
+    pub fn animation(self) -> crate::config::Animation {
+        match self {
+            Motion::Still => crate::config::Animation::Off,
+            Motion::Calm => crate::config::Animation::Calm,
+            Motion::Full => crate::config::Animation::Full,
+        }
+    }
+
     pub fn tip(self) -> &'static str {
         match self {
             Motion::Still => crate::lang::t("Nothing moves on its own, and windows and panels appear at once."),

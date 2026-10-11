@@ -326,11 +326,14 @@ impl State {
         let Some(open) = self.desk_menu.as_ref() else {
             return;
         };
-        let still = self.window_pace <= 0.0;
+        let instant = self.window_pace <= 0.0;
+        let fade_only = self.window_still;
         for (level, (art, rect)) in open.arts.iter().enumerate().rev() {
             let gone = open.opened.get(level).map_or(f64::MAX, |at| at.elapsed().as_secs_f64());
-            let (drop, shown) = match (level, still) {
+            let (drop, shown) = match (level, instant) {
                 (_, true) => (*rect, 1.0),
+                (0, false) if fade_only => (*rect, (((gone - GROW_WAIT) / GROW).clamp(0.0, 1.0) * 1.6).min(1.0)),
+                (_, false) if fade_only => (*rect, (gone / PANEL_FADE).min(1.0)),
                 (0, false) => {
                     let t = ((gone - GROW_WAIT) / GROW).clamp(0.0, 1.0);
                     let grow = drifter_core::motion::smooth(t);

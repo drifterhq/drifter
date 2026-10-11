@@ -77,6 +77,22 @@ impl Model {
         let motion = &self.motion;
         vec![
             Group {
+                header: Some(crate::lang::t("Animation")),
+                rows: vec![Row::new(
+                    Id::Animation,
+                    crate::lang::t("Animation"),
+                    Control::Segments {
+                        options: vec![crate::lang::t("Off"), crate::lang::t("Calm"), crate::lang::t("Full")],
+                        chosen: crate::config::Animation::ALL
+                            .iter()
+                            .position(|a| *a == motion.animation)
+                            .unwrap_or(2),
+                    },
+                )],
+                footer: Some(crate::lang::t("Reduce motion in Accessibility keeps fades and stops movement.").into()),
+                thumbs: None,
+            },
+            Group {
                 header: Some(crate::lang::t("Hot corner")),
                 rows: vec![
                     Row::new(
@@ -1078,6 +1094,9 @@ impl Model {
             (Id::MouseAccel, Value::Switch(on)) => self.mouse.accel = on,
             (Id::MouseNatural, Value::Switch(on)) => self.mouse.natural = on,
             (Id::LeftHanded, Value::Choice(n)) => self.mouse.left_handed = n == 1,
+            (Id::Animation, Value::Choice(n)) => {
+                self.motion.animation = crate::config::Animation::ALL[n.min(2)]
+            }
             (Id::HotCorner, Value::Switch(on)) => self.motion.hot_corner = on,
             (Id::CornerSize, Value::Number(n)) => self.motion.corner_size = number(n, CORNER_SIZE),
             (Id::CornerWait, Value::Number(n)) => {
@@ -1318,6 +1337,9 @@ impl Model {
         }
 
         let (motion, was) = (&self.motion, &before.motion);
+        if motion.animation != was.animation {
+            put(doc, "motion", "animation", word(motion.animation.word()));
+        }
         for (key, now, then) in [
             ("hot_corner", motion.hot_corner, was.hot_corner),
             ("hide_top", motion.hide_top, was.hide_top),
@@ -1485,7 +1507,9 @@ mod tests {
             m.set(Id::HotCorner, Value::Switch(false));
             m.set(Id::CornerWait, Value::Number(433.0));
             m.set(Id::PanSpeed, Value::Number(151.0));
+            m.set(Id::Animation, Value::Choice(1));
         });
+        assert_eq!(back.motion.animation, crate::config::Animation::Calm);
         assert_eq!(back.mouse.speed, 8);
         assert!(back.mouse.left_handed && !back.mouse.accel);
         assert!(!back.motion.hot_corner);

@@ -183,17 +183,14 @@ pub fn open(
     let screen = Vec2::new(f64::from(virtual_size.0), f64::from(virtual_size.1));
     let world = config.world_size(screen);
     let start = Camera::at_work_zoom(world / 2.0);
-    let tunables = match config.access.reduce_motion {
-        true => Tunables::from(&config.motion).still(),
-        false => Tunables::from(&config.motion),
-    };
+    let tunables = Tunables::from(&config.motion).paced(window_pace(config), config.access.reduce_motion);
     crate::apps::set_env("DRIFTER_RENDERER", Some(gl.clone()));
     drifter_core::icon::follow(&config.appearance);
     let style = drifter_core::theme::now(config.appearance.style);
     tell_gnome(None, &config.appearance, Some(style));
     tell_buttons(config.window.gtk_layout());
     dress_gtk4();
-    tell_access(None, &config.access);
+    tell_access(None, &config.access, config.motion.animation);
     cursor_env(&config.appearance);
     let shapes = [
         Panel {
@@ -520,6 +517,7 @@ pub fn open(
         drag_shot: None,
         drag_icon: None,
         window_pace: window_pace(config),
+        window_still: config.access.reduce_motion,
         dock_pad: config.dock_padding(),
         fit_busy: false,
         battery_glow: None,

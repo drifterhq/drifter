@@ -132,7 +132,7 @@ impl Section {
 
     pub fn words(self) -> &'static str {
         match self {
-            Section::Desktop => "world workspace zoom pan hot corner camera",
+            Section::Desktop => "world workspace zoom pan hot corner camera animation",
             Section::Displays => "monitor screen scale rotation flip resolution refresh rate hz mode adaptive sync vrr freesync gsync hdr high dynamic range mirror duplicate brightness night light warm",
             Section::Wallpaper => "background picture image photo",
             Section::Appearance => "theme dark light accent color icons cursor font",
@@ -2608,6 +2608,7 @@ pub enum Id {
     MouseAccel,
     MouseNatural,
     LeftHanded,
+    Animation,
     HotCorner,
     CornerSize,
     CornerWait,
