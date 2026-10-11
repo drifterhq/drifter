@@ -287,6 +287,8 @@ impl State {
         if accent != self.look.accent {
             self.look.accent = accent;
             self.accent_round = fade::round_art(&mut self.renderer, accent);
+            self.paint_corner_glow();
+            self.take_icons(self.tray_raw.clone());
             self.snap_art = upload_flat(&mut self.renderer, Some(&drifter_core::snap::preview_patch(accent)), "snap preview")
                 .ok()
                 .flatten();
@@ -614,6 +616,7 @@ impl State {
         }
         let pinned = self.tunables.bar_hides;
         self.tunables = Tunables::from(&config.motion).paced(self.window_pace, config.access.reduce_motion);
+        self.paint_corner_glow();
         if self.access.sticky_keys && !config.access.sticky_keys {
             let time = self.clock_ms();
             for (code, pressed) in self.sticky.clear() {

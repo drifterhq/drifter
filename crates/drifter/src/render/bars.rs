@@ -33,6 +33,9 @@ impl State {
             if icon.symbolic {
                 image.tint(self.palette.glyph);
             }
+            if icon.placeholder {
+                image.tint(self.look.accent);
+            }
             match upload(&mut self.renderer, Some(&image), "tray icon") {
                 Ok(Some(buffer)) => self.icons.push((icon.service, icon.title, buffer)),
                 Ok(None) => {}

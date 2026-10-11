@@ -3542,3 +3542,9 @@ Smooth scrolling
 
 A wheel click glides in Settings, Activity and Files
 = Un cran de molette glisse dans Réglages, Activité et Fichiers
+
+Glow
+= Lueur
+
+The corner warms in the accent color as the pointer nears
+= Le coin s’illumine de la couleur d’accent quand le pointeur approche

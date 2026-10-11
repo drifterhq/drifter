@@ -195,4 +195,18 @@ impl State {
         self.flight = None;
         self.welcome_did(drifter_core::welcome::Lesson::Zoom);
     }
+
+    pub(super) fn glows(&self) -> bool {
+        self.tunables.hot_corner && self.tunables.corner_glow
+    }
+
+    pub(super) fn paint_corner_glow(&mut self) {
+        let key = (drifter_core::corner::glow_reach(self.tunables.hot_corner_size), self.look.accent);
+        if key == self.glow_key && self.glow.is_some() {
+            return;
+        }
+        let image = drifter_core::corner::paint_glow(key.0 as u32, key.1);
+        self.glow = upload(&mut self.renderer, Some(&image), "hot corner").ok().flatten();
+        self.glow_key = key;
+    }
 }

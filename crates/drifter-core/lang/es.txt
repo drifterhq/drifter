@@ -3545,3 +3545,9 @@ Smooth scrolling
 
 A wheel click glides in Settings, Activity and Files
 = Un clic de la rueda se desliza en Configuración, Actividad y Archivos
+
+Glow
+= Brillo
+
+The corner warms in the accent color as the pointer nears
+= La esquina se ilumina con el color de acento al acercar el puntero

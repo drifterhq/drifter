@@ -16,6 +16,7 @@ pub struct Icon {
     pub title: String,
     pub image: Image,
     pub symbolic: bool,
+    pub placeholder: bool,
 }
 
 pub enum Update {
@@ -154,54 +155,86 @@ fn owned_by(service: &str, name: &str) -> bool {
 
 fn read_icon(connection: &zbus::blocking::Connection, service: &str) -> Option<Icon> {
     let (name, path) = split(service);
-    let proxy = zbus::blocking::Proxy::new(connection, name, path, ITEM).ok()?;
+    let proxy = zbus::blocking::Proxy::new(connection, name.clone(), path, ITEM).ok()?;
 
-    let (image, symbolic) = pixmap(&proxy)
-        .map(|image| (image, false))
-        .or_else(|| named(&proxy))
-        .unwrap_or_else(|| (placeholder(), false));
-    let title = tip(&proxy).unwrap_or_else(|| service.to_string());
+    let found = pixmap(&proxy).map(|image| (image, false)).or_else(|| named(&proxy));
+    let placeholder = found.is_none();
+    let (image, symbolic) = found.unwrap_or_else(|| (placeholder_image(), false));
+    let text = |key: &str| proxy.get_property::<String>(key).ok().filter(|text| !text.is_empty());
+    let id = text("Id");
+    let comm = owner_command(connection, &name);
+    let desktop = |key: &str| crate::apps::find(key).and_then(|entry| entry.name);
+    let title = label(Label {
+        tip: tip(&proxy),
+        title: text("Title"),
+        id_name: id.as_deref().and_then(desktop),
+        comm_name: comm.as_deref().and_then(desktop),
+        id,
+        comm,
+        service: service.to_string(),
+    });
 
     Some(Icon {
         service: service.to_string(),
         title,
         image,
         symbolic,
+        placeholder,
     })
 }
 
-fn placeholder() -> Image {
+struct Label {
+    tip: Option<String>,
+    title: Option<String>,
+    id_name: Option<String>,
+    comm_name: Option<String>,
+    id: Option<String>,
+    comm: Option<String>,
+    service: String,
+}
+
+fn label(found: Label) -> String {
+    let pretty = |id: &str| {
+        let words: Vec<String> = id
+            .split(['-', '_', '.'])
+            .filter(|word| !word.is_empty())
+            .map(|word| {
+                let mut chars = word.chars();
+                chars.next().map_or(String::new(), |first| first.to_uppercase().chain(chars).collect())
+            })
+            .collect();
+        words.join(" ")
+    };
+    found
+        .tip
+        .or(found.title)
+        .or(found.id_name)
+        .or(found.comm_name)
+        .or_else(|| found.id.as_deref().map(pretty).filter(|text| !text.is_empty()))
+        .or(found.comm)
+        .unwrap_or(found.service)
+}
+
+fn owner_command(connection: &zbus::blocking::Connection, name: &str) -> Option<String> {
+    let bus = zbus::blocking::fdo::DBusProxy::new(connection).ok()?;
+    let owner = zbus::names::BusName::try_from(name).ok()?;
+    let pid = bus.get_connection_unix_process_id(owner).ok()?;
+    let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
+    Some(comm.trim().to_string()).filter(|comm| !comm.is_empty())
+}
+
+fn placeholder_image() -> Image {
     let mut canvas = drifter_core::paint::Canvas::new(24, 24);
-    canvas.circle(
-        drifter_core::Vec2::new(12.0, 12.0),
-        9.0,
-        [190, 196, 210],
-        1.0,
-    );
-    canvas.circle(drifter_core::Vec2::new(12.0, 12.0), 4.0, [60, 64, 76], 1.0);
+    canvas.circle(drifter_core::Vec2::new(12.0, 12.0), 9.0, [255, 255, 255], 0.55);
+    canvas.circle(drifter_core::Vec2::new(12.0, 12.0), 4.0, [255, 255, 255], 1.0);
     canvas.image
 }
 
 fn tip(proxy: &zbus::blocking::Proxy<'_>) -> Option<String> {
-    if let Ok(tooltip) =
-        proxy.get_property::<(String, Vec<(i32, i32, Vec<u8>)>, String, String)>("ToolTip")
-    {
-        let (_, _, title, body) = tooltip;
-        if !title.is_empty() {
-            return Some(title);
-        }
-        if !body.is_empty() {
-            return Some(body);
-        }
-    }
-    for key in ["Title", "Id"] {
-        if let Ok(text) = proxy.get_property::<String>(key)
-            && !text.is_empty()
-        {
-            return Some(text);
-        }
-    }
-    None
+    let (_, _, title, body) = proxy
+        .get_property::<(String, Vec<(i32, i32, Vec<u8>)>, String, String)>("ToolTip")
+        .ok()?;
+    [title, body].into_iter().find(|text| !text.is_empty())
 }
 
 type Node = (
@@ -575,6 +608,25 @@ fn watch_signals(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tray_tip_never_shows_a_bus_name() {
+        let bare = || Label {
+            tip: None,
+            title: None,
+            id_name: None,
+            comm_name: None,
+            id: None,
+            comm: None,
+            service: ":1.87/StatusNotifierItem".to_string(),
+        };
+        assert_eq!(label(Label { tip: Some("Volume".into()), title: Some("x".into()), ..bare() }), "Volume");
+        assert_eq!(label(Label { title: Some("Network".into()), ..bare() }), "Network");
+        assert_eq!(label(Label { id: Some("nm-applet".into()), id_name: Some("Network Manager".into()), ..bare() }), "Network Manager");
+        assert_eq!(label(Label { id: Some("blueman_applet".into()), ..bare() }), "Blueman Applet");
+        assert_eq!(label(Label { comm: Some("udiskie".into()), ..bare() }), "udiskie");
+        assert_eq!(label(bare()), ":1.87/StatusNotifierItem", "only when nothing else is known");
+    }
 
     #[test]
     fn a_name_that_leaves_takes_only_its_own_items() {

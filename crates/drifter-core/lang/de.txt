@@ -3545,3 +3545,9 @@ Smooth scrolling
 
 A wheel click glides in Settings, Activity and Files
 = Ein Mausradklick gleitet in Einstellungen, Aktivität und Dateien
+
+Glow
+= Leuchten
+
+The corner warms in the accent color as the pointer nears
+= Die Ecke leuchtet in der Akzentfarbe, wenn sich der Zeiger nähert

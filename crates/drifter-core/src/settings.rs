@@ -2657,6 +2657,7 @@ pub enum Id {
     LeftHanded,
     Animation,
     HotCorner,
+    CornerGlow,
     CornerSize,
     CornerWait,
     PanSpeed,

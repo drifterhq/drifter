@@ -523,6 +523,7 @@ pub struct State {
     cog: Option<TextureBuffer<Tex>>,
     dot: Option<TextureBuffer<Tex>>,
     glow: Option<TextureBuffer<Tex>>,
+    glow_key: (f64, [u8; 3]),
     rule: Option<TextureBuffer<Tex>>,
     app_icons: std::collections::HashMap<String, TextureBuffer<Tex>>,
     no_icon: std::collections::HashSet<String>,
@@ -811,7 +812,7 @@ impl State {
         if self.hover_since.is_some() && self.tip.is_none() {
             return Some(SECOND_TICK);
         }
-        if drifter_core::corner::heat(self.pointer, drifter_core::corner::REACH) > 0.0 {
+        if self.glows() && drifter_core::corner::heat(self.pointer, self.glow_key.0) > 0.0 {
             return Some(TICK);
         }
         if self.battery_glow.is_some() && self.drawers[Edge::Top.index()].visible() {
@@ -878,8 +879,8 @@ impl State {
             &mut elements,
         );
 
-        if let Some(buffer) = self.glow.as_ref().filter(|_| live) {
-            let reach = drifter_core::corner::REACH;
+        if let Some(buffer) = self.glow.as_ref().filter(|_| live && self.glows()) {
+            let reach = self.glow_key.0;
             let warmth = drifter_core::corner::heat(self.pointer, reach);
             if warmth > 0.0 && !self.modifier && self.held_by_fullscreen().is_none() {
                 let rect = Rect::new(Vec2::ZERO, Vec2::splat(reach));

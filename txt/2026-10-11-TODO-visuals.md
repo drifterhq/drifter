@@ -328,7 +328,7 @@ How motion works today (all items use this):
   - Fix: menu.rs `pub const ROW: f64 = 26.0; pub const RADIUS: f64 = 10.0; pub const HOVER_RADIUS: f64 = 6.0;`. Use them at menu.rs:91, :93, :214 and cascade.rs:97, :100, :203. Also match label x (menu.rs:229 to `pad + 8.0`), rule colour and inset (menu.rs:204 to `pad + 6.0`, palette rule colour), back alpha (menu.rs:99 to 245). Keep the minimum widths.
   - Test: menu.rs `panel_and_desktop_menus_share_one_style` (item and radius equal).
 
-- [ ] **21 [LOW] Hard-coded colours and labels.**
+- [x] **21 [LOW] Hard-coded colours and labels.**
   - Waits on: nothing.
   - All three are in `crates/drifter/src/tray.rs` (the D-Bus host), not core tray.rs.
   - Tray fallback icon: `placeholder()` (tray.rs:173-183) paints gray `[190, 196, 210]` / `[60, 64, 76]`, returned with `symbolic = false` (:162), so `take_icons` (bars.rs:31-35) never tints it. Fix: add `pub placeholder: bool` to `tray::Icon` (tray.rs:14-19), paint it white, tint with `self.look.accent` in `take_icons`. Re-take icons when the accent changes (follow.rs:283-286; `recolor` only re-takes on palette change, :403).

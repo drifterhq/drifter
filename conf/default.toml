@@ -60,6 +60,8 @@ smooth_scroll = true
 animation = "full"
 # Rest the pointer in the top left corner to zoom out.
 hot_corner = true
+# The corner warms in the accent color as the pointer nears it.
+corner_glow = true
 # Corner size in pixels, 8 to 160.
 corner_size = 48
 # Milliseconds the pointer rests before the corner fires, 0 to 2000.

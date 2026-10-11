@@ -820,6 +820,8 @@ pub struct Motion {
     pub animation: Animation,
     #[serde(default = "yes")]
     pub hot_corner: bool,
+    #[serde(default = "yes")]
+    pub corner_glow: bool,
     #[serde(default = "corner_size")]
     pub corner_size: u32,
     #[serde(default = "corner_wait")]
@@ -873,6 +875,7 @@ impl Default for Motion {
         Motion {
             animation: Animation::Full,
             hot_corner: true,
+            corner_glow: true,
             corner_size: corner_size(),
             corner_wait: corner_wait(),
             pan_speed: pan_speed(),
@@ -1364,6 +1367,7 @@ impl Shots {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Tunables {
     pub hot_corner: bool,
+    pub corner_glow: bool,
     pub drawer_height: f64,
     pub drawer_dwell: Duration,
     pub drawer_hide_delay: Duration,
@@ -1380,6 +1384,7 @@ impl Default for Tunables {
     fn default() -> Self {
         Tunables {
             hot_corner: true,
+            corner_glow: true,
             drawer_height: 64.0,
             drawer_dwell: Duration::from_millis(120),
             drawer_hide_delay: Duration::from_millis(400),
@@ -1418,6 +1423,7 @@ impl Tunables {
         let ms = |n: u32| Duration::from_millis(u64::from(n));
         Tunables {
             hot_corner: motion.hot_corner,
+            corner_glow: motion.corner_glow,
             hot_corner_size: f64::from(motion.corner_size),
             hot_corner_dwell: ms(motion.corner_wait),
             pan_scale: f64::from(motion.pan_speed) / 100.0,

@@ -12,6 +12,10 @@ pub fn heat(pointer: Vec2, reach: f64) -> f64 {
     near * near
 }
 
+pub fn glow_reach(corner_size: f64) -> f64 {
+    (corner_size * REACH / 48.0).round().max(32.0)
+}
+
 pub fn paint_glow(side: u32, color: [u8; 3]) -> Image {
     let side = crate::paint::dense(f64::from(side.max(2)));
     let reach = f64::from(side);
@@ -43,6 +47,16 @@ pub fn paint_glow(side: u32, color: [u8; 3]) -> Image {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_glow_is_painted_in_the_given_color() {
+        let image = paint_glow(64, [10, 122, 255]);
+        let corner = &image.rgba[0..4];
+        assert!(corner[2] > corner[0], "blue leads: {corner:?}");
+        assert!(corner[3] > 200);
+        assert_eq!(glow_reach(48.0), REACH, "the default corner keeps the old reach");
+        assert!(glow_reach(160.0) > REACH && glow_reach(8.0) >= 32.0);
+    }
 
     #[test]
     fn the_corner_itself_is_the_hottest_point() {

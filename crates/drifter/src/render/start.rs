@@ -340,8 +340,11 @@ pub fn open(
 
     let dot_image = drifter_core::dock::paint_dot(trash_look.dot_side() as u32, palette.ink);
     let dot = upload(&mut renderer, Some(&dot_image), "running dot")?;
-    let glow_image =
-        drifter_core::corner::paint_glow(drifter_core::corner::REACH as u32, [255, 214, 160]);
+    let glow_key = (
+        drifter_core::corner::glow_reach(f64::from(config.motion.corner_size)),
+        config.appearance.accent.map(|accent| accent.color()).unwrap_or(drifter_core::menu::ACCENT),
+    );
+    let glow_image = drifter_core::corner::paint_glow(glow_key.0 as u32, glow_key.1);
     let glow = upload(&mut renderer, Some(&glow_image), "hot corner")?;
 
     let dock_look = Dock::themed(&palette);
@@ -458,6 +461,7 @@ pub fn open(
         cog,
         dot,
         glow,
+        glow_key,
         rule,
         app_icons: std::collections::HashMap::new(),
         no_icon: std::collections::HashSet::new(),

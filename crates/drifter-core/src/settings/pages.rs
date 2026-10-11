@@ -101,6 +101,9 @@ impl Model {
                         Control::Switch(motion.hot_corner),
                     )
                     .detail(crate::lang::t("Rest the pointer in the top left corner to zoom out")),
+                    Row::new(Id::CornerGlow, crate::lang::t("Glow"), Control::Switch(motion.corner_glow))
+                        .detail(crate::lang::t("The corner warms in the accent color as the pointer nears"))
+                        .enabled(motion.hot_corner),
                     slider(
                         Id::CornerSize,
                         crate::lang::t("Size"),
@@ -1141,6 +1144,7 @@ impl Model {
                 self.motion.animation = crate::config::Animation::ALL[n.min(2)]
             }
             (Id::HotCorner, Value::Switch(on)) => self.motion.hot_corner = on,
+            (Id::CornerGlow, Value::Switch(on)) => self.motion.corner_glow = on,
             (Id::CornerSize, Value::Number(n)) => self.motion.corner_size = number(n, CORNER_SIZE),
             (Id::CornerWait, Value::Number(n)) => {
                 self.motion.corner_wait = number(n / 10.0, (0, 200)) * 10
@@ -1394,6 +1398,7 @@ impl Model {
         }
         for (key, now, then) in [
             ("hot_corner", motion.hot_corner, was.hot_corner),
+            ("corner_glow", motion.corner_glow, was.corner_glow),
             ("hide_top", motion.hide_top, was.hide_top),
             ("hide_bottom", motion.hide_bottom, was.hide_bottom),
         ] {
@@ -1564,6 +1569,7 @@ mod tests {
             m.set(Id::LeftHanded, Value::Choice(1));
             m.set(Id::SmoothScroll, Value::Switch(false));
             m.set(Id::HotCorner, Value::Switch(false));
+            m.set(Id::CornerGlow, Value::Switch(false));
             m.set(Id::CornerWait, Value::Number(433.0));
             m.set(Id::PanSpeed, Value::Number(151.0));
             m.set(Id::Animation, Value::Choice(1));
@@ -1572,7 +1578,7 @@ mod tests {
         assert_eq!(back.mouse.speed, 8);
         assert!(back.mouse.left_handed && !back.mouse.accel);
         assert!(!back.mouse.smooth_scroll);
-        assert!(!back.motion.hot_corner);
+        assert!(!back.motion.hot_corner && !back.motion.corner_glow);
         assert_eq!(back.motion.corner_wait, 430);
         assert_eq!(back.motion.pan_speed, 150);
         assert_eq!(back.motion.bar_slide, Motion::default().bar_slide);
