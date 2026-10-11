@@ -612,6 +612,7 @@ pub fn open(
         dock_wound: Instant::now(),
         dock_slides: std::collections::HashMap::new(),
         dock_ghosts: Vec::new(),
+        dock_span: (0.0, 0.0, Instant::now()),
         lit: None,
         ghosts: Vec::new(),
         stows: std::collections::HashMap::new(),

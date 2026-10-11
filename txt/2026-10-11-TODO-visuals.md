@@ -292,7 +292,7 @@ How motion works today (all items use this):
 
 - [x] **18 [MED] The dock glides when apps open, close or minimize.**
   - Waits on: 10.
-  - Done: every slot, dot and divider glides; gone icons fade as ghosts; new ones fade in. Magnify from item 10 is in too (icons are rasterized at the magnified size). Open: with Fit to icons on, the panel width still jumps at the end (step 4, the 3-crop panel draw).
+  - Done: every slot, dot and divider glides; gone icons fade as ghosts; new ones fade in. Magnify from item 10 is in too (icons are rasterized at the magnified size). With Fit to icons on, the panel width glides too: it is drawn as three crops (drawer::panel_slices) at the shown width once the new panel lands. The panel is not painted at max(shown, target) ahead of time; the flat middle stretches instead.
   - `slot_rect` (core dock.rs:95-108) is a pure function of counts, recomputed every frame (dock.rs:664-667, 686, 710). With `dock.fit` on (default off, config.rs:425-426), `fit_dock` (bars.rs:655-701) repaints the panel on a worker and swaps it, then `frost_key = None` (:697) repaints again: two jumps.
   - Fix:
     1. core dock.rs: `GLIDE 0.22`, `glide(from, to, t)` (ease; smooth when no bounce).

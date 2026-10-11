@@ -671,6 +671,7 @@ pub struct State {
     dock_wound: Instant,
     dock_slides: std::collections::HashMap<String, dock::Slide>,
     dock_ghosts: Vec<(TextureBuffer<Tex>, Rect, Instant)>,
+    dock_span: (f64, f64, Instant),
     lit: Option<lit::Lit>,
     ghosts: Vec<ghost::Ghost>,
     stows: std::collections::HashMap<u64, genie::Stow>,
@@ -984,6 +985,9 @@ impl State {
         for edge in Edge::ALL {
             let drawer = &self.drawers[edge.index()];
             if drawer.visible() {
+                if edge == Edge::Bottom && self.dock_panel_elements(&mut elements) {
+                    continue;
+                }
                 let shape = &self.shapes[edge.index()];
                 let rect = drawer.rect(self.screen, shape);
                 elements.push(Skin::Texture(element(

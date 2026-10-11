@@ -314,6 +314,14 @@ impl State {
             false => 0.0,
         };
         self.dock_lens = (step(self.dock_lens.0, lens_goal, dt, lens_seconds), lens_goal);
+        let span = self.shapes[Edge::Bottom.index()].span;
+        if span != self.dock_span.1 {
+            let shown = match (self.dock_span.1 > 0.0, span > 0.0, pace > 0.0 && !self.window_still) {
+                (true, true, true) => self.shown_span(),
+                _ => span,
+            };
+            self.dock_span = (shown, span, now);
+        }
         if !lifts {
             self.dock_hover.clear();
         }
@@ -419,11 +427,39 @@ impl State {
     }
 
     pub(super) fn dock_gliding(&self) -> bool {
-        !self.dock_ghosts.is_empty()
+        self.slide_progress(self.dock_span.2) < 1.0 && self.dock_span.0 != self.dock_span.1
+            || !self.dock_ghosts.is_empty()
             || self
                 .dock_slides
                 .values()
                 .any(|slide| self.slide_progress(slide.since) < 1.0 || self.slide_progress(slide.born) < 1.0)
+    }
+
+    fn shown_span(&self) -> f64 {
+        let (from, to, since) = self.dock_span;
+        drifter_core::dock::glide(from, to, self.slide_progress(since), false)
+    }
+
+    pub(super) fn dock_panel_elements(&self, elements: &mut Vec<Skin>) -> bool {
+        let shape = self.shapes[Edge::Bottom.index()];
+        let shown = self.shown_span();
+        if shape.span <= 0.0 || shown <= 0.0 || (shown - shape.span).abs() < 0.5 {
+            return false;
+        }
+        let drawer = &self.drawers[Edge::Bottom.index()];
+        let art = drawer.rect(self.screen, &shape);
+        let narrow = drifter_core::Panel { span: shown, ..shape };
+        let rect = drawer.rect(self.screen, &narrow);
+        let panel = &self.panels[Edge::Bottom.index()];
+        for (source, target) in drifter_core::drawer::panel_slices(art.size, rect, shape.radius + 2.0) {
+            if target.size.x > 0.0 {
+                elements.push(Skin::Texture(cropped(panel, source, target)));
+            }
+        }
+        if let Some(drop) = self.drops.get(Edge::Bottom.index()) {
+            elements.push(Skin::Texture(element(drop, drifter_core::drawer::wrap_rect(rect, &narrow), 1.0)));
+        }
+        true
     }
 
     pub(super) fn dock_winding(&self) -> bool {

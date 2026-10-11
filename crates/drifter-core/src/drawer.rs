@@ -302,6 +302,22 @@ pub fn wrap_shadow(width: u32, panel: &Panel, strength: f64) -> Image {
     Image { width: pw, height: ph, rgba }
 }
 
+pub fn panel_slices(art: Vec2, shown: Rect, cap: f64) -> [(Rect, Rect); 3] {
+    let cap = cap.min(art.x / 2.0).min(shown.size.x / 2.0).max(0.0);
+    let tall = art.y;
+    [
+        (Rect::new(Vec2::ZERO, Vec2::new(cap, tall)), Rect::new(shown.origin, Vec2::new(cap, tall))),
+        (
+            Rect::new(Vec2::new(cap, 0.0), Vec2::new((art.x - cap * 2.0).max(1.0), tall)),
+            Rect::new(shown.origin + Vec2::new(cap, 0.0), Vec2::new((shown.size.x - cap * 2.0).max(0.0), tall)),
+        ),
+        (
+            Rect::new(Vec2::new(art.x - cap, 0.0), Vec2::new(cap, tall)),
+            Rect::new(shown.origin + Vec2::new(shown.size.x - cap, 0.0), Vec2::new(cap, tall)),
+        ),
+    ]
+}
+
 pub fn wrap_rect(rect: Rect, panel: &Panel) -> Rect {
     let reach = panel.shadow.max(1.0).round();
     Rect::new(
@@ -358,6 +374,23 @@ pub fn paint_flat(edge: Edge, width: u32, panel: &Panel, color: [u8; 3], alpha: 
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn panel_slices_cover_the_width_and_keep_the_caps() {
+        use super::panel_slices;
+        use crate::geom::{Rect, Vec2};
+        let art = Vec2::new(400.0, 50.0);
+        for width in [300.0, 400.0, 520.0] {
+            let shown = Rect::new(Vec2::new(100.0, 900.0), Vec2::new(width, 50.0));
+            let [left, middle, right] = panel_slices(art, shown, 12.0);
+            assert_eq!(left.1.size.x + middle.1.size.x + right.1.size.x, width, "they cover {width}");
+            assert_eq!(middle.1.origin.x, left.1.max().x);
+            assert_eq!(right.1.origin.x, middle.1.max().x);
+            assert_eq!(left.0.size, left.1.size, "the caps never stretch");
+            assert_eq!(right.0.size, right.1.size);
+            assert_eq!(right.0.max().x, art.x);
+        }
+    }
+
     #[test]
     fn a_narrow_dock_casts_shadow_on_its_sides_but_not_inside() {
         let panel = Panel { height: 64.0, span: 300.0, ..Panel::default() };
