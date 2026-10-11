@@ -208,6 +208,11 @@ impl Chrome {
     }
 }
 
+pub fn detail_alpha(zoom: f64, (lo, hi): (f64, f64)) -> f32 {
+    let t = ((zoom - lo) / (hi - lo)).clamp(0.0, 1.0);
+    (t * t * (3.0 - 2.0 * t)) as f32
+}
+
 pub const FOCUS_FADE: f64 = 0.15;
 
 pub fn step_lit(lit: f64, target: f64, dt: f64, pace: f64) -> f64 {
@@ -737,6 +742,21 @@ mod tests {
         let half = shadow_slices(frame, corner, 0.5, 0.0);
         let narrow = half.iter().map(|(_, d)| d.origin.x).fold(f64::MAX, f64::min);
         assert_eq!(narrow, frame.origin.x - SHADOW_BLUR * 0.5, "the shadow shrinks with the zoom");
+    }
+
+    #[test]
+    fn chrome_detail_fades_over_a_zoom_range() {
+        let range = (0.72, 0.85);
+        assert_eq!(detail_alpha(0.70, range), 0.0);
+        assert_eq!(detail_alpha(1.0, range), 1.0);
+        let mid = detail_alpha(0.78, range);
+        assert!(mid > 0.0 && mid < 1.0, "{mid}");
+        let mut last = 0.0;
+        for step in 0..=60 {
+            let now = detail_alpha(0.6 + step as f64 * 0.01, range);
+            assert!(now >= last, "it never falls as the zoom grows");
+            last = now;
+        }
     }
 
     #[test]

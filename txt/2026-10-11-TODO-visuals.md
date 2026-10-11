@@ -179,7 +179,7 @@ How motion works today (all items use this):
     - Model: flat `inactive` field (beside settings.rs:285-287), read ~462, set ~1777, write ~2138. `Id::Inactive`, `Segments [t("Slight"), t("More"), t("None")]`.
   - Tests: window.rs `the_focus_fade_lands_on_the_old_numbers`, `focus_fades_over_150ms_and_snaps_when_off`. render/tests.rs:427 must still pass.
 
-- [ ] **9 [LOW] Title bar detail fades over a zoom range.**
+- [x] **9 [LOW] Title bar detail fades over a zoom range.**
   - Waits on: nothing.
   - render.rs:122 `DETAIL_ZOOM = 0.75`; windows.rs:311 gates buttons (:321) and title (:343). Overview zoom is 0.7 (camera.rs:10), so every flight pops at 0.75.
   - Fix: render.rs:122 `const DETAIL_FADE: (f64, f64) = (0.72, 0.85);`. drifter-core window.rs `pub fn detail_alpha(zoom, (lo, hi)) -> f32` (smoothstep). windows.rs:311: filter `detail > 0`, multiply button alpha (:337) and title dim (:353).

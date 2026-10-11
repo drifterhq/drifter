@@ -327,7 +327,8 @@ impl State {
         let layout = self.chrome.layout(content);
         let show = |rect: Rect| self.on_screen(rect);
         let bar = self.chrome.title_bar(content);
-        let close_enough = self.camera.zoom >= DETAIL_ZOOM;
+        let detail = drifter_core::window::detail_alpha(self.camera.zoom, DETAIL_FADE);
+        let close_enough = detail > 0.0;
         let over = self
             .chrome
             .button_at(content, self.in_world(self.pointer), 3);
@@ -353,7 +354,7 @@ impl State {
             if let Some((buffer, size)) = self.skin.get(&file) {
                 let place = self.chrome.button_rect(slot, bar.size.x);
                 let rect = Rect::new(bar.origin + place.origin, *size);
-                elements.push(Skin::Texture(element(buffer, show(rect), fade)));
+                elements.push(Skin::Texture(element(buffer, show(rect), fade * detail)));
             }
         }
         if let Some((buffer, size)) = self
@@ -368,7 +369,7 @@ impl State {
                     bar.center().x - width / 2.0,
                     bar.origin.y + (bar.size.y - size.y) / 2.0,
                 );
-                let dim = fade * drifter_core::window::focus_look(lit, self.chrome.idle_title).0;
+                let dim = fade * detail * drifter_core::window::focus_look(lit, self.chrome.idle_title).0;
                 for (source, offset, alpha) in drifter_core::window::title_cut(*size, room) {
                     let rect = Rect::new(at.round() + Vec2::new(offset, 0.0), source.size);
                     elements.push(Skin::Texture(faded(buffer, source, show(rect), dim * alpha)));

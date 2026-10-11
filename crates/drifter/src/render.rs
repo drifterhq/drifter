@@ -120,7 +120,7 @@ const SECOND_TICK: Duration = Duration::from_millis(250);
 const SETTLING: Duration = Duration::from_secs(2);
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 const PUSH_BAND: f64 = 8.0;
-const DETAIL_ZOOM: f64 = 0.75;
+const DETAIL_FADE: (f64, f64) = (0.72, 0.85);
 
 use smithay::backend::renderer::{ImportAll, RendererSuper, element::render_elements};
 
