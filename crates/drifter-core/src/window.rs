@@ -18,6 +18,8 @@ pub struct Chrome {
     pub side: Side,
     pub order: [Button; 3],
     pub show_title: bool,
+    pub idle_title: f64,
+    pub idle_wash: f64,
 }
 
 impl Chrome {
@@ -37,6 +39,8 @@ impl Chrome {
             side: Side::Left,
             order: [Button::Close, Button::Minimize, Button::Maximize],
             show_title: true,
+            idle_title: crate::config::Inactive::Slight.title(),
+            idle_wash: 0.0,
         }
     }
 }
@@ -174,6 +178,8 @@ impl Chrome {
     pub fn follow(&mut self, config: &WindowConfig) {
         self.side = config.buttons;
         self.show_title = config.title;
+        self.idle_title = config.inactive.title();
+        self.idle_wash = config.inactive.wash();
         for (slot, name) in config.order.iter().take(3).enumerate() {
             self.order[slot] = match name {
                 ButtonName::Close => Button::Close,
@@ -200,6 +206,26 @@ impl Chrome {
         }
         self.margin + (self.button + self.gap) * count as f64 - self.gap + self.margin
     }
+}
+
+pub const FOCUS_FADE: f64 = 0.15;
+
+pub fn step_lit(lit: f64, target: f64, dt: f64, pace: f64) -> f64 {
+    if pace <= 0.0 {
+        return target;
+    }
+    let step = dt * pace / FOCUS_FADE;
+    match lit < target {
+        true => (lit + step).min(target),
+        false => (lit - step).max(target),
+    }
+}
+
+pub fn focus_look(lit: f64, idle_title: f64) -> (f32, f32) {
+    let e = crate::motion::smooth(lit);
+    let title = idle_title + (1.0 - idle_title) * e;
+    let shadow = 0.105 + 0.095 * e;
+    (title as f32, shadow as f32)
 }
 
 pub const TITLE_FADE: f64 = 24.0;
@@ -714,6 +740,30 @@ mod tests {
     }
 
     #[test]
+    fn the_focus_fade_lands_on_the_old_numbers() {
+        assert_eq!(focus_look(1.0, 0.55), (1.0, 0.2));
+        assert_eq!(focus_look(0.0, 0.55), (0.55, 0.105));
+        assert_eq!(focus_look(0.0, 1.0).0, 1.0, "none keeps the title bright");
+        let (title, shadow) = focus_look(0.5, 0.55);
+        assert!(title > 0.55 && title < 1.0 && shadow > 0.105 && shadow < 0.2);
+    }
+
+    #[test]
+    fn focus_fades_over_150ms_and_snaps_when_off() {
+        let mut lit = 0.0;
+        let mut frames = 0;
+        while lit < 1.0 {
+            lit = step_lit(lit, 1.0, 0.01, 1.0);
+            frames += 1;
+        }
+        assert!((15..=16).contains(&frames), "150 ms at full pace: {frames} frames");
+        assert_eq!(step_lit(0.3, 0.0, 0.01, 0.0), 0.0, "no animation snaps");
+        let half = step_lit(1.0, 0.0, 0.075, 1.0);
+        assert!((half - 0.5).abs() < 1e-9, "it walks down too: {half}");
+        assert_eq!(step_lit(0.5, 1.0, 0.5, 1.0), 1.0, "and never passes the target");
+    }
+
+    #[test]
     fn a_long_title_is_cut_not_squashed_and_fades_at_its_end() {
         let art = Vec2::new(400.0, 16.0);
         let room = 250.0;
@@ -973,6 +1023,7 @@ mod tests {
     fn the_config_sets_side_order_and_title() {
         let mut chrome = chrome();
         let config = WindowConfig {
+            inactive: crate::config::Inactive::More,
             buttons: Side::Right,
             order: vec![
                 ButtonName::Minimize,
@@ -988,6 +1039,7 @@ mod tests {
             [Button::Minimize, Button::Maximize, Button::Close]
         );
         assert!(!chrome.show_title);
+        assert_eq!((chrome.idle_title, chrome.idle_wash), (0.4, 0.08));
     }
 
     #[test]

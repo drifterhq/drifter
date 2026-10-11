@@ -21,7 +21,26 @@ impl State {
         Rect::new(self.in_world(seat.origin), seat.size / self.camera.zoom)
     }
 
+    pub(super) fn lit_target(&self, id: u64) -> f64 {
+        match self.focus == Some(id) {
+            true => 1.0,
+            false => 0.0,
+        }
+    }
+
+    pub(super) fn idle_wash(&self, edge: Rect, lit: f64, fade: f32, elements: &mut Vec<Skin>) {
+        let wash = self.chrome.idle_wash * (1.0 - drifter_core::motion::smooth(lit));
+        if let Some(black) = self.black.as_ref().filter(|_| wash > 0.0) {
+            elements.push(Skin::Texture(fill(black, edge, wash as f32 * fade)));
+        }
+    }
+
     pub(super) fn step_windows(&mut self, dt: Duration) {
+        let focus = self.focus;
+        for window in self.windows.iter_mut() {
+            let target = if focus == Some(window.id) { 1.0 } else { 0.0 };
+            window.lit = drifter_core::window::step_lit(window.lit, target, dt.as_secs_f64(), self.window_pace);
+        }
         let mut finished: Vec<usize> = Vec::new();
         for (index, window) in self.windows.iter_mut().enumerate() {
             let Some(motion) = window.motion.as_mut() else {
@@ -300,7 +319,7 @@ impl State {
     pub(super) fn dress(
         &self,
         content: Rect,
-        (awake, maximized): (bool, bool),
+        (lit, maximized): (f64, bool),
         title: &str,
         fade: f32,
         elements: &mut Vec<Skin>,
@@ -349,7 +368,7 @@ impl State {
                     bar.center().x - width / 2.0,
                     bar.origin.y + (bar.size.y - size.y) / 2.0,
                 );
-                let dim = fade * if awake { 1.0 } else { 0.55 };
+                let dim = fade * drifter_core::window::focus_look(lit, self.chrome.idle_title).0;
                 for (source, offset, alpha) in drifter_core::window::title_cut(*size, room) {
                     let rect = Rect::new(at.round() + Vec2::new(offset, 0.0), source.size);
                     elements.push(Skin::Texture(faded(buffer, source, show(rect), dim * alpha)));
@@ -371,15 +390,21 @@ impl State {
             if rect.size.x <= 0.0 || rect.size.y <= 0.0 {
                 continue;
             }
-            let Some((buffer, art)) = self.skin.get(&piece.file_name(awake)) else {
-                continue;
-            };
-            match tiles(piece) {
-                true => {
-                    let source = Rect::new(Vec2::ZERO, rect.size.min(*art));
-                    elements.push(Skin::Texture(faded(buffer, source, show(rect), fade)));
+            let e = drifter_core::motion::smooth(lit) as f32;
+            for (awake, alpha) in [(true, fade * e), (false, if e < 1.0 { fade } else { 0.0 })] {
+                if alpha <= 0.0 {
+                    continue;
                 }
-                false => elements.push(Skin::Texture(element(buffer, show(rect), fade))),
+                let Some((buffer, art)) = self.skin.get(&piece.file_name(awake)) else {
+                    continue;
+                };
+                match tiles(piece) {
+                    true => {
+                        let source = Rect::new(Vec2::ZERO, rect.size.min(*art));
+                        elements.push(Skin::Texture(faded(buffer, source, show(rect), alpha)));
+                    }
+                    false => elements.push(Skin::Texture(element(buffer, show(rect), alpha))),
+                }
             }
         }
     }
@@ -426,14 +451,14 @@ impl State {
         &self,
         content: Rect,
         dressed: bool,
-        awake: bool,
+        lit: f64,
         fade: f32,
         elements: &mut Vec<Skin>,
     ) {
         let Some((buffer, corner)) = self.window_shadow.as_ref() else {
             return;
         };
-        let strength = fade * if awake { 0.2 } else { 0.105 };
+        let strength = fade * drifter_core::window::focus_look(lit, self.chrome.idle_title).1;
         let edge = match dressed {
             true => self.chrome.layout(content).frame,
             false => content,

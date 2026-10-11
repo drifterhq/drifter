@@ -162,7 +162,7 @@ How motion works today (all items use this):
   - No setting.
   - Tests: snap.rs `the_preview_glides_from_the_window_into_the_zone`. render/tests.rs `the_snap_preview_matches_where_the_window_lands` (pinned bottom bar, `land(i, Zone::Left)`, frame equals `snap.rect(Left, snap_view())`).
 
-- [ ] **8 [MED] Focus change eases over 150 ms; inactive dim setting.**
+- [x] **8 [MED] Focus change eases over 150 ms; inactive dim setting.**
   - Waits on: G2.
   - Jumps: shadow windows.rs:405 (`0.2` vs `0.105`), title dim windows.rs:353 (`1.0` vs `0.55`, inline literal), title art windows.rs:372 (`title-mid.png` vs `title-mid-idle.png`, window.rs:89-104). `awake` computed per frame at render.rs:1005.
   - Fix:

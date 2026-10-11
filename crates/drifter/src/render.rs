@@ -144,7 +144,7 @@ type Showing = (
     Rect,
     f32,
     Vec2,
-    (bool, bool),
+    (f64, bool),
     bool,
     String,
     smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
@@ -651,6 +651,7 @@ pub struct State {
     round: Option<TextureBuffer<Tex>>,
     accent_round: Option<TextureBuffer<Tex>>,
     snap_art: Option<TextureBuffer<Tex>>,
+    black: Option<TextureBuffer<Tex>>,
     zone_glide: Option<(Rect, Instant)>,
     titles: std::collections::HashMap<String, (TextureBuffer<Tex>, Vec2)>,
     hover_since: Option<(Vec2, Instant)>,
@@ -722,6 +723,7 @@ impl State {
             || self.cards_moving()
             || self.hud_busy()
             || self.snap_gliding()
+            || self.windows.iter().any(|window| window.lit != self.lit_target(window.id))
             || self.thumb_moving()
             || self.welcome_busy()
             || self.dock_logo.hot
@@ -978,7 +980,7 @@ impl State {
                     shown,
                     fade,
                     window.inset,
-                    (self.focus == Some(window.id), window.restore.is_some()),
+                    (window.lit, window.restore.is_some()),
                     window.decorated && window.full.is_none(),
                     window.title.clone(),
                     window.toplevel.wl_surface().clone(),
@@ -986,7 +988,7 @@ impl State {
             })
             .collect();
 
-        for (content, shown, fade, inset, (awake, maximized), dressed, title, surface) in showing {
+        for (content, shown, fade, inset, (lit, maximized), dressed, title, surface) in showing {
             let stretch = match content.size.x > 0.0 {
                 true => shown.size.x / content.size.x,
                 false => 1.0,
@@ -1029,9 +1031,10 @@ impl State {
                 }
             }
             if dressed {
-                self.dress(shown, (awake, maximized), &title, fade, &mut elements);
+                self.dress(shown, (lit, maximized), &title, fade, &mut elements);
             }
             let edge = self.on_screen(shown);
+            self.idle_wash(edge, lit, fade, &mut elements);
             let crop = smithay::utils::Rectangle::<i32, smithay::utils::Physical>::new(
                 (edge.origin.x.round() as i32, edge.origin.y.round() as i32).into(),
                 (edge.size.x.round() as i32, edge.size.y.round() as i32).into(),
@@ -1046,7 +1049,7 @@ impl State {
                 .map(Skin::Clipped)
             }));
             if !maximized {
-                self.cast_shadow(shown, dressed, awake, fade, &mut elements);
+                self.cast_shadow(shown, dressed, lit, fade, &mut elements);
             }
         }
 

@@ -68,6 +68,7 @@ pub struct Window {
     pub closed_at: Option<std::time::Instant>,
     pub listed: Option<smithay::wayland::foreign_toplevel_list::ForeignToplevelHandle>,
     pub modal: bool,
+    pub lit: f64,
 }
 
 #[derive(Default)]
@@ -251,6 +252,7 @@ impl XdgShellHandler for State {
             closed_at: None,
             listed: None,
             modal: false,
+            lit: 0.0,
         });
     }
 

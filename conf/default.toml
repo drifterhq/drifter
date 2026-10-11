@@ -168,6 +168,8 @@ buttons = "left"
 order = ["close", "minimize", "maximize"]
 # Show the window title in the middle of the title bar.
 title = true
+# How much windows in the back fade: "slight", "more" or "none".
+inactive = "slight"
 
 [appearance]
 # What apps that follow GNOME settings look like. Leave a key out to leave

@@ -3497,3 +3497,15 @@ Bottom
 
 At the right edge
 = Sur le bord droit
+
+Inactive windows
+= Fenêtres inactives
+
+Slight
+= Léger
+
+More
+= Plus
+
+How much windows in the back fade
+= À quel point les fenêtres en arrière-plan s’estompent

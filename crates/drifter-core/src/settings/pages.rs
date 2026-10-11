@@ -359,6 +359,18 @@ impl Model {
                                 .and_then(|held| Accent::ALL.iter().position(|a| *a == held)),
                         },
                     ),
+                    Row::new(
+                        Id::Inactive,
+                        crate::lang::t("Inactive windows"),
+                        Control::Segments {
+                            options: vec![crate::lang::t("Slight"), crate::lang::t("More"), crate::lang::t("None")],
+                            chosen: crate::config::Inactive::ALL
+                                .iter()
+                                .position(|i| *i == self.inactive)
+                                .unwrap_or(0),
+                        },
+                    )
+                    .detail(crate::lang::t("How much windows in the back fade")),
                 ],
                 footer: Some(
                     crate::lang::t("Auto turns dark at dusk and light at dawn, with the wallpaper sky. GTK, libadwaita and Qt apps switch with Drifter.").into(),
@@ -1129,6 +1141,7 @@ impl Model {
             (Id::BarSlide, Value::Number(n)) => {
                 self.motion.bar_slide = number(n / 10.0, (4, 150)) * 10
             }
+            (Id::Inactive, Value::Choice(n)) => self.inactive = crate::config::Inactive::ALL[n.min(2)],
             (Id::Style, Value::Choice(n)) => {
                 self.appearance.style = match n {
                     0 => Some(Style::Light),
@@ -1544,6 +1557,7 @@ mod tests {
         let back = round_trip(text, |m| {
             m.set(Id::Style, Value::Choice(2));
             m.set(Id::AccentColor, Value::Choice(5));
+            m.set(Id::Inactive, Value::Choice(1));
             m.set(Id::CursorSize, Value::Choice(2));
             m.press(Id::IconTheme, 1);
             m.press(Id::Asset(1), 1);
@@ -1552,6 +1566,7 @@ mod tests {
         });
         assert_eq!(back.appearance.style, Some(Style::Auto));
         assert_eq!(back.appearance.accent, Some(Accent::Red));
+        assert_eq!(back.window.inactive, crate::config::Inactive::More);
         assert_eq!(back.appearance.cursor_size, 48);
         assert_eq!(back.appearance.icons, None);
         assert_eq!(back.appearance.cursor_theme.as_deref(), Some("Bibata"));

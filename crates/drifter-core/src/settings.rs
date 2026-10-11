@@ -285,6 +285,7 @@ pub struct Model {
     pub side: Side,
     pub order: [ButtonName; 3],
     pub title: bool,
+    pub inactive: crate::config::Inactive,
     pub lock_after: u64,
     pub screen_off: u64,
     pub login: Vec<Launch>,
@@ -460,6 +461,7 @@ impl Model {
                     .unwrap_or(ButtonName::Close)
             }),
             title: config.window.title,
+            inactive: config.window.inactive,
             lock_after: config.lock.after,
             screen_off: config.lock.screen_off,
             login: config.login.start.clone(),
@@ -2143,6 +2145,9 @@ impl Model {
                 toml_edit::Value::from(self.title),
             );
         }
+        if self.inactive != before.inactive {
+            put(&mut doc, "window", "inactive", word(self.inactive.word()));
+        }
         if self.lock_after != before.lock_after {
             put(&mut doc, "lock", "after", int(self.lock_after as f64));
         }
@@ -2620,6 +2625,7 @@ pub enum Id {
     BarClose,
     BarSlide,
     Style,
+    Inactive,
     AccentColor,
     IconTheme,
     CursorTheme,

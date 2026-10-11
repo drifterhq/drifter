@@ -3500,3 +3500,15 @@ Bottom
 
 At the right edge
 = En el borde derecho
+
+Inactive windows
+= Ventanas inactivas
+
+Slight
+= Poco
+
+More
+= Más
+
+How much windows in the back fade
+= Cuánto se atenúan las ventanas del fondo

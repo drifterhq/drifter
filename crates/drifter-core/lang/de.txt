@@ -3500,3 +3500,15 @@ Bottom
 
 At the right edge
 = Am rechten Rand
+
+Inactive windows
+= Inaktive Fenster
+
+Slight
+= Leicht
+
+More
+= Mehr
+
+How much windows in the back fade
+= Wie stark Fenster im Hintergrund verblassen

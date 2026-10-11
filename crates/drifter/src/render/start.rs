@@ -362,6 +362,12 @@ pub fn open(
         rgba: vec![255, 255, 255, 255],
     };
     let plain = upload(&mut renderer, Some(&plain_image), "outline")?;
+    let black_image = drifter_core::Image {
+        width: 1,
+        height: 1,
+        rgba: vec![0, 0, 0, 255],
+    };
+    let black = upload(&mut renderer, Some(&black_image), "inactive wash")?;
     let round = fade::round_art(&mut renderer, palette.shade);
     let hud_pill = upload(&mut renderer, Some(&drifter_core::hud::Look::themed(&palette).pill()), "hud bar")
         .ok()
@@ -590,6 +596,7 @@ pub fn open(
         round,
         accent_round,
         snap_art,
+        black,
         zone_glide: None,
         titles: std::collections::HashMap::new(),
         hover_since: None,

@@ -234,6 +234,8 @@ pub enum ButtonName {
 #[serde(deny_unknown_fields)]
 pub struct WindowConfig {
     #[serde(default)]
+    pub inactive: Inactive,
+    #[serde(default)]
     pub buttons: Side,
     #[serde(default = "default_order")]
     pub order: Vec<ButtonName>,
@@ -256,9 +258,46 @@ fn yes() -> bool {
 impl Default for WindowConfig {
     fn default() -> Self {
         WindowConfig {
+            inactive: Inactive::Slight,
             buttons: Side::default(),
             order: default_order(),
             title: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Inactive {
+    #[default]
+    Slight,
+    More,
+    None,
+}
+
+impl Inactive {
+    pub const ALL: [Inactive; 3] = [Inactive::Slight, Inactive::More, Inactive::None];
+
+    pub fn word(self) -> &'static str {
+        match self {
+            Inactive::Slight => "slight",
+            Inactive::More => "more",
+            Inactive::None => "none",
+        }
+    }
+
+    pub fn title(self) -> f64 {
+        match self {
+            Inactive::Slight => 0.55,
+            Inactive::More => 0.4,
+            Inactive::None => 1.0,
+        }
+    }
+
+    pub fn wash(self) -> f64 {
+        match self {
+            Inactive::More => 0.08,
+            _ => 0.0,
         }
     }
 }
