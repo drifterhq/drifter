@@ -823,11 +823,32 @@ impl Animation {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Minimize {
+    #[default]
+    Scale,
+    Genie,
+}
+
+impl Minimize {
+    pub const ALL: [Minimize; 2] = [Minimize::Scale, Minimize::Genie];
+
+    pub fn word(self) -> &'static str {
+        match self {
+            Minimize::Scale => "scale",
+            Minimize::Genie => "genie",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Motion {
     #[serde(default)]
     pub animation: Animation,
+    #[serde(default)]
+    pub minimize: Minimize,
     #[serde(default = "yes")]
     pub hot_corner: bool,
     #[serde(default = "yes")]
@@ -884,6 +905,7 @@ impl Default for Motion {
     fn default() -> Self {
         Motion {
             animation: Animation::Full,
+            minimize: Minimize::Scale,
             hot_corner: true,
             corner_glow: true,
             corner_size: corner_size(),

@@ -375,8 +375,9 @@ Shared: smithay 0.7.0 has `compile_custom_texture_shader(src, &[UniformName])` (
   - Setting "Theme change": `[appearance] transition = "fade" | "reveal"`, default fade, in `Appearance` (config.rs:842-874). Appearance "Style" group (pages.rs:321-351): `Id::ThemeChange`, `Segments [t("Fade"), t("Reveal")]`. Set near pages.rs:1101, write :1344-1377. Effective mode is Fade when reduce or Pixman.
   - Tests: motion.rs `pub fn reveal_radius(at, screen, t)` and `the_reveal_reaches_the_farthest_corner_at_the_end`. render/tests.rs: flip `appearance.style` through `apply`, assert `restyle_due` is set, not applied at once. Settings round trip for `ThemeChange`.
 
-- [ ] **24 [MED] Genie minimize; Minimize effect setting.**
+- [x] **24 [MED] Genie minimize; Minimize effect setting.**
   - Waits on: 16.
+  - Done (render/genie.rs, core genie.rs, Animation > Minimize). The window and its chrome are shot offscreen when the minimize starts, while the surface is alive. Needs a look on a GLES device.
   - Today: `Motion::new(Phase::Minimizing, seat)` (input.rs:466-471, appname.rs:126-127), slot from `dock_slot` (windows.rs:8-22), straight lerp with alpha `1 - t²` (motion.rs:67-74). The window is the live surface through `RescaleRenderElement` (render.rs:1014-1017, 1064), which cannot bend.
   - Fix:
     1. Snapshot window + chrome once at minimize start with `snapshot_window` (item 16). Store `Window.stow_art`. Restore takes a fresh snapshot.

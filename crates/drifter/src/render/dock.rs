@@ -169,6 +169,7 @@ impl State {
                 let seat = self.dock_slot(index);
                 self.windows[place].hidden = false;
                 self.windows[place].motion = Some(Motion::new(Phase::Restoring, seat));
+                self.begin_stow(place);
                 self.focus_window(place);
             }
         }

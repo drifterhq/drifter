@@ -3572,3 +3572,6 @@ Reveal
 
 Reveal opens the new look in a circle from the pointer
 = Revelar abre el nuevo aspecto en un círculo desde el puntero
+
+Genie
+= Genio

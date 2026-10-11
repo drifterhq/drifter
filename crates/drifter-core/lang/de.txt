@@ -3572,3 +3572,6 @@ Reveal
 
 Reveal opens the new look in a circle from the pointer
 = Enthüllen öffnet das neue Aussehen in einem Kreis ab dem Zeiger
+
+Genie
+= Flaschengeist

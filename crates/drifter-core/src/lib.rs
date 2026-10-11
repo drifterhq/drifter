@@ -21,6 +21,7 @@ pub mod fnkey;
 pub mod folders;
 pub mod frost;
 pub mod geom;
+pub mod genie;
 pub mod glance;
 pub mod grab;
 pub mod hdr;
@@ -70,7 +71,7 @@ mod density_tests;
 pub use camera::Camera;
 pub use config::{
     Accent, Animation, Access, DockHover, Inactive, Appearance, AppsConfig, Assets, ButtonName, Config, DockConfig, Keyboard, Keys,
-    Launch, Lid, Modifier, Motion, Mouse, Night, NotePosition, Notify, Power, PowerKey, ShotFormat, Shots, Side,
+    Launch, Lid, Minimize, Modifier, Motion, Mouse, Night, NotePosition, Notify, Power, PowerKey, ShotFormat, Shots, Side,
     Style, ThreeTap, Transition, Touchpad, TrayConfig, Tunables, WallpaperMode, WallpaperOrder,
 };
 pub use cursor::Cursor;

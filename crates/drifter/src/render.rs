@@ -17,6 +17,7 @@ mod dock;
 mod docklogo;
 mod fade;
 mod follow;
+mod genie;
 mod ghost;
 mod heads;
 mod launchpad;
@@ -670,6 +671,9 @@ pub struct State {
     dock_ghosts: Vec<(TextureBuffer<Tex>, Rect, Instant)>,
     lit: Option<lit::Lit>,
     ghosts: Vec<ghost::Ghost>,
+    stows: std::collections::HashMap<u64, genie::Stow>,
+    genie: Option<Option<smithay::backend::renderer::gles::GlesTexProgram>>,
+    minimize_effect: drifter_core::Minimize,
     kept: std::collections::HashMap<u64, (Tex, Vec2)>,
     zone_glide: Option<(Rect, Instant)>,
     titles: std::collections::HashMap<String, (TextureBuffer<Tex>, Vec2)>,
@@ -1001,9 +1005,10 @@ impl State {
             .windows
             .iter()
             .rev()
-            .filter(|window| window.placed && !window.hidden && window.closed_at.is_none())
+            .filter(|window| window.placed && !window.hidden && window.closed_at.is_none() && !self.in_genie(window))
             .map(|window| self.showing_of(window))
             .collect();
+        self.genie_elements(&mut elements);
         self.ghost_elements(&mut elements);
         for item in showing {
             self.show_window(item, true, &mut elements);

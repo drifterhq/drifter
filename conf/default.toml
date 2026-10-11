@@ -63,6 +63,8 @@ smooth_scroll = true
 # How windows, panels and bars move: "off", "calm" or "full".
 # Reduce motion in [access] keeps the fades and stops the movement.
 animation = "full"
+# How a window goes to the dock: "scale" or "genie".
+minimize = "scale"
 # Rest the pointer in the top left corner to zoom out.
 hot_corner = true
 # The corner warms in the accent color as the pointer nears it.

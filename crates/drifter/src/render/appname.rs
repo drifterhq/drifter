@@ -125,6 +125,7 @@ impl State {
                 for at in targets {
                     let seat = self.dock_slot(self.minimized().len());
                     self.windows[at].motion = Some(Motion::new(Phase::Minimizing, seat));
+                    self.begin_stow(at);
                 }
                 if hide_mine {
                     let mine: Vec<u64> = self

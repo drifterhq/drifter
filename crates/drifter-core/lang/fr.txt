@@ -3569,3 +3569,6 @@ Reveal
 
 Reveal opens the new look in a circle from the pointer
 = Dévoiler ouvre le nouvel aspect en cercle depuis le pointeur
+
+Genie
+= Génie

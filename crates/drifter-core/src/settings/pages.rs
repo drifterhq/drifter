@@ -78,17 +78,31 @@ impl Model {
         vec![
             Group {
                 header: Some(crate::lang::t("Animation")),
-                rows: vec![Row::new(
-                    Id::Animation,
-                    crate::lang::t("Animation"),
-                    Control::Segments {
-                        options: vec![crate::lang::t("Off"), crate::lang::t("Calm"), crate::lang::t("Full")],
-                        chosen: crate::config::Animation::ALL
-                            .iter()
-                            .position(|a| *a == motion.animation)
-                            .unwrap_or(2),
-                    },
-                )],
+                rows: vec![
+                    Row::new(
+                        Id::Animation,
+                        crate::lang::t("Animation"),
+                        Control::Segments {
+                            options: vec![crate::lang::t("Off"), crate::lang::t("Calm"), crate::lang::t("Full")],
+                            chosen: crate::config::Animation::ALL
+                                .iter()
+                                .position(|a| *a == motion.animation)
+                                .unwrap_or(2),
+                        },
+                    ),
+                    Row::new(
+                        Id::MinimizeEffect,
+                        crate::lang::t("Minimize"),
+                        Control::Segments {
+                            options: vec![crate::lang::t("Scale"), crate::lang::t("Genie")],
+                            chosen: crate::config::Minimize::ALL
+                                .iter()
+                                .position(|m| *m == motion.minimize)
+                                .unwrap_or(0),
+                        },
+                    )
+                    .enabled(motion.animation != crate::config::Animation::Off),
+                ],
                 footer: Some(crate::lang::t("Reduce motion in Accessibility keeps fades and stops movement.").into()),
                 thumbs: None,
             },
@@ -1152,6 +1166,7 @@ impl Model {
             (Id::MouseNatural, Value::Switch(on)) => self.mouse.natural = on,
             (Id::LeftHanded, Value::Choice(n)) => self.mouse.left_handed = n == 1,
             (Id::SmoothScroll, Value::Switch(on)) => self.mouse.smooth_scroll = on,
+            (Id::MinimizeEffect, Value::Choice(n)) => self.motion.minimize = crate::config::Minimize::ALL[n.min(1)],
             (Id::Animation, Value::Choice(n)) => {
                 self.motion.animation = crate::config::Animation::ALL[n.min(2)]
             }
@@ -1411,6 +1426,9 @@ impl Model {
         if motion.animation != was.animation {
             put(doc, "motion", "animation", word(motion.animation.word()));
         }
+        if motion.minimize != was.minimize {
+            put(doc, "motion", "minimize", word(motion.minimize.word()));
+        }
         for (key, now, then) in [
             ("hot_corner", motion.hot_corner, was.hot_corner),
             ("corner_glow", motion.corner_glow, was.corner_glow),
@@ -1591,7 +1609,9 @@ mod tests {
             m.set(Id::CornerWait, Value::Number(433.0));
             m.set(Id::PanSpeed, Value::Number(151.0));
             m.set(Id::Animation, Value::Choice(1));
+            m.set(Id::MinimizeEffect, Value::Choice(1));
         });
+        assert_eq!(back.motion.minimize, crate::config::Minimize::Genie);
         assert_eq!(back.motion.animation, crate::config::Animation::Calm);
         assert_eq!(back.mouse.speed, 8);
         assert!(back.mouse.left_handed && !back.mouse.accel);

@@ -469,6 +469,7 @@ impl State {
             ChromeButton::Minimize => {
                 let seat = self.dock_slot(self.minimized().len());
                 self.windows[index].motion = Some(Motion::new(Phase::Minimizing, seat));
+                self.begin_stow(index);
                 let id = self.windows[index].id;
                 self.focus_next(Some(id));
             }

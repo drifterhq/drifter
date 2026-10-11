@@ -612,6 +612,7 @@ impl State {
         let was_off = self.window_pace <= 0.0;
         self.window_pace = window_pace(config);
         self.window_still = config.access.reduce_motion;
+        self.minimize_effect = config.motion.minimize;
         let reduce = config.access.reduce_motion;
         self.dock_logo.pace = drifter_core::welcome::logo_pace(
             drifter_core::welcome::Motion::of(reduce, config.workspace.wallpaper_motion),

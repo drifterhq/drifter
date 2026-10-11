@@ -2687,6 +2687,7 @@ pub enum Id {
     SmoothScroll,
     LeftHanded,
     Animation,
+    MinimizeEffect,
     HotCorner,
     CornerGlow,
     CornerSize,

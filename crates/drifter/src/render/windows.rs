@@ -1016,6 +1016,7 @@ impl State {
             let seat = self.dock_slot(index);
             self.windows[place].hidden = false;
             self.windows[place].motion = Some(Motion::new(Phase::Restoring, seat));
+            self.begin_stow(place);
         }
         let full = self.windows[place].full.is_some();
         let center = self.windows[place].content.center();
