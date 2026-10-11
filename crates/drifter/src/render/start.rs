@@ -363,6 +363,9 @@ pub fn open(
     };
     let plain = upload(&mut renderer, Some(&plain_image), "outline")?;
     let round = fade::round_art(&mut renderer, palette.shade);
+    let hud_pill = upload(&mut renderer, Some(&drifter_core::hud::Look::themed(&palette).pill()), "hud bar")
+        .ok()
+        .flatten();
     let accent_round = fade::round_art(
         &mut renderer,
         config.appearance.accent.map(|accent| accent.color()).unwrap_or(drifter_core::menu::ACCENT),
@@ -590,6 +593,7 @@ pub fn open(
         tray_bus,
         media,
         hud: None,
+        hud_pill,
         notes_bus,
         cards: Vec::new(),
         copies: Vec::new(),

@@ -17,6 +17,21 @@ pub struct Reading {
     pub muted: bool,
 }
 
+impl Reading {
+    pub fn shown(&self) -> f64 {
+        match self.muted {
+            true => 0.0,
+            false => self.level.clamp(0.0, 1.0),
+        }
+    }
+}
+
+pub const EASE: f64 = 0.18;
+
+pub fn eased_level(from: f64, to: f64, t: f64) -> f64 {
+    from + (to - from) * crate::motion::smooth(t)
+}
+
 pub fn parse_wpctl(text: &str) -> Option<(f64, bool)> {
     let rest = text.trim().strip_prefix("Volume:")?;
     let level: f64 = rest.split_whitespace().next()?.parse().ok()?;
@@ -67,7 +82,7 @@ impl Look {
         )
     }
 
-    fn bar(&self) -> Rect {
+    pub fn bar(&self) -> Rect {
         Rect::new(
             Vec2::new(120.0, self.size.y / 2.0 - 3.0),
             Vec2::new(130.0, 6.0),
@@ -75,19 +90,27 @@ impl Look {
     }
 
     pub fn paint(&self, reading: Reading, font: Option<&Font>) -> Image {
+        let mut canvas = Canvas::on(self.paint_frame(reading, font));
+        let bar = self.bar();
+        let filled = Rect::new(bar.origin, Vec2::new(bar.size.x * reading.shown(), bar.size.y));
+        canvas.round_rect(filled, 3.0, self.fill, 1.0);
+        canvas.image
+    }
+
+    pub fn pill(&self) -> Image {
+        let bar = self.bar();
+        let mut canvas = Canvas::new(bar.size.x as u32, bar.size.y as u32);
+        canvas.round_rect(Rect::new(Vec2::ZERO, bar.size), 3.0, self.fill, 1.0);
+        canvas.image
+    }
+
+    pub fn paint_frame(&self, reading: Reading, font: Option<&Font>) -> Image {
         let mut canvas = Canvas::new(self.size.x as u32, self.size.y as u32);
         let all = Rect::new(Vec2::ZERO, self.size);
         canvas.round_rect(all, self.size.y / 2.0, self.back, self.back_alpha);
 
         let bar = self.bar();
         canvas.round_rect(bar, 3.0, self.track, 1.0);
-        let level = if reading.muted {
-            0.0
-        } else {
-            reading.level.clamp(0.0, 1.0)
-        };
-        let filled = Rect::new(bar.origin, Vec2::new(bar.size.x * level, bar.size.y));
-        canvas.round_rect(filled, 3.0, self.fill, 1.0);
 
         if let Some(font) = font {
             let name = match reading.gauge {
@@ -123,6 +146,38 @@ mod tests {
         assert_eq!(parse_wpctl("Volume: 0.40\n"), Some((0.40, false)));
         assert_eq!(parse_wpctl("Volume: 0.55 [MUTED]\n"), Some((0.55, true)));
         assert_eq!(parse_wpctl("Volume: 1.20"), Some((1.20, false)));
+    }
+
+    #[test]
+    fn the_frame_has_an_empty_track() {
+        let look = Look::default();
+        let bar = look.bar();
+        let reading = Reading {
+            gauge: Gauge::Volume,
+            level: 1.0,
+            muted: false,
+        };
+        let frame = look.paint_frame(reading, None);
+        let full = look.paint(reading, None);
+        let y = bar.center().y as u32;
+        let at = |image: &Image, x: f64| image.rgba[((y * image.width + x as u32) * 4) as usize];
+        assert!(at(&frame, bar.center().x) < 120, "the frame leaves the track empty");
+        assert!(at(&full, bar.center().x) > 200, "a full paint fills it");
+        let pill = look.pill();
+        assert_eq!((pill.width, pill.height), (bar.size.x as u32, bar.size.y as u32));
+    }
+
+    #[test]
+    fn the_level_eases_without_overshoot() {
+        assert_eq!(eased_level(0.2, 0.8, 0.0), 0.2);
+        assert_eq!(eased_level(0.2, 0.8, 1.0), 0.8);
+        let mut last = 0.2;
+        for step in 1..=20 {
+            let now = eased_level(0.2, 0.8, step as f64 / 20.0);
+            assert!(now >= last && now <= 0.8, "{now} after {last}");
+            last = now;
+        }
+        assert!((eased_level(0.8, 0.2, 2.0) - 0.2).abs() < 1e-9, "it clamps past the end");
     }
 
     #[test]

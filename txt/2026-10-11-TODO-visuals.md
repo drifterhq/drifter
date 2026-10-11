@@ -136,7 +136,7 @@ How motion works today (all items use this):
     - follow.rs:630: when `position` changes, call `repaint_notes()` (overlays.rs:304).
   - Tests: notify.rs `cards_stack_up_from_the_bottom_right` (beside :455-462). pages.rs:1520-1536 round trip with `NotePosition`.
 
-- [ ] **6 [MED] HUD fades out and its bar eases.**
+- [x] **6 [MED] HUD fades out and its bar eases.**
   - Waits on: 1.
   - Shown by `show_hud` (overlays.rs:119-137), `HUD_TIME` 1500 ms (render.rs:116), dropped at render.rs:1229-1231. Bar painted on the CPU (hud.rs:80-89, `bar()` private at :71-76, 130x6 at (120, 25), radius 3). Every reading repaints, so the bar jumps.
   - Fix:

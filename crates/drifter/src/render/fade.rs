@@ -53,6 +53,7 @@ impl Pane {
 pub(super) struct Layer {
     art: TextureBuffer<Tex>,
     rect: Rect,
+    source: Option<Rect>,
     scales: bool,
     shadow: Shadow,
 }
@@ -62,6 +63,7 @@ impl Layer {
         Layer {
             art: art.clone(),
             rect,
+            source: None,
             scales: true,
             shadow,
         }
@@ -127,7 +129,7 @@ impl State {
             Pane::Charges => self.charges.as_ref().and_then(|panel| one(panel.art.as_ref()?, panel.rect, Shadow::Menu)),
             Pane::Glance => self.glance_panel.as_ref().and_then(|panel| one(panel.art.as_ref()?, panel.rect, Shadow::Menu)),
             Pane::GlanceCard => self.glance_card.as_ref().and_then(|(art, rect)| one(art, *rect, Shadow::Modal)),
-            Pane::Hud => self.hud.as_ref().and_then(|(art, rect, _)| one(art, *rect, Shadow::Menu)),
+            Pane::Hud => self.hud_layers(),
             Pane::Card(id) => {
                 let (card, rect) = self.cards.iter().zip(self.card_shown()).find(|(card, _)| card.note.id == id)?;
                 one(&card.art, rect, Shadow::Menu)
@@ -159,6 +161,52 @@ impl State {
                 Some((layers, *rect))
             }
         }
+    }
+
+    fn hud_layers(&self) -> Option<(Vec<Layer>, Rect)> {
+        let hud = self.hud.as_ref()?;
+        let mut layers = Vec::new();
+        if let (Some(pill), Some(level)) = (self.hud_pill.as_ref(), self.hud_level()) {
+            let bar = drifter_core::hud::Look::themed(&self.palette).bar();
+            let at = hud.rect.origin + bar.origin;
+            let width = bar.size.x * level;
+            let cap = 3.0_f64.min(width);
+            if width >= 0.5 {
+                let part = |source: Rect, x: f64| Layer {
+                    source: Some(source),
+                    ..Layer::new(pill, Rect::new(at + Vec2::new(x, 0.0), source.size), Shadow::None)
+                };
+                if width > cap {
+                    layers.push(part(Rect::new(Vec2::ZERO, Vec2::new(width - cap, bar.size.y)), 0.0));
+                }
+                layers.push(part(
+                    Rect::new(Vec2::new(bar.size.x - cap, 0.0), Vec2::new(cap, bar.size.y)),
+                    width - cap,
+                ));
+            }
+        }
+        layers.push(Layer::new(&hud.art, hud.rect, Shadow::Menu));
+        Some((layers, hud.rect))
+    }
+
+    pub(super) fn hud_level(&self) -> Option<f64> {
+        let hud = self.hud.as_ref()?;
+        let pace = self.window_pace;
+        if pace <= 0.0 || self.window_still {
+            return Some(hud.to);
+        }
+        let t = hud.since.elapsed().as_secs_f64() / (drifter_core::hud::EASE / pace);
+        Some(drifter_core::hud::eased_level(hud.from, hud.to, t))
+    }
+
+    pub(super) fn hud_busy(&self) -> bool {
+        let pace = self.window_pace;
+        pace > 0.0
+            && !self.window_still
+            && self
+                .hud
+                .as_ref()
+                .is_some_and(|hud| hud.from != hud.to && hud.since.elapsed().as_secs_f64() < drifter_core::hud::EASE / pace)
     }
 
     pub(super) fn watch_panes(&mut self, now: Instant) {
@@ -253,7 +301,10 @@ impl State {
                 true => Rect::new(centre + (layer.rect.origin - centre) * scale, layer.rect.size * scale),
                 false => layer.rect,
             };
-            elements.push(Skin::Texture(element(&layer.art, drawn, alpha)));
+            match layer.source {
+                Some(source) => elements.push(Skin::Texture(faded(&layer.art, source, drawn, alpha))),
+                None => elements.push(Skin::Texture(element(&layer.art, drawn, alpha))),
+            }
             self.panel_shadow(drawn, layer.shadow, alpha, elements);
         }
     }
@@ -300,6 +351,8 @@ impl State {
     }
 
     pub(super) fn rebake_rounds(&mut self) {
+        let pill = drifter_core::hud::Look::themed(&self.palette).pill();
+        self.hud_pill = upload(&mut self.renderer, Some(&pill), "hud bar").ok().flatten();
         self.round = round_art(&mut self.renderer, self.palette.shade);
         self.accent_round = round_art(&mut self.renderer, self.look.accent);
     }

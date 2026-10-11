@@ -313,6 +313,15 @@ impl Paper {
     }
 }
 
+struct Hud {
+    art: TextureBuffer<Tex>,
+    rect: Rect,
+    until: Instant,
+    from: f64,
+    to: f64,
+    since: Instant,
+}
+
 struct Card {
     note: drifter_core::notify::Note,
     art: TextureBuffer<Tex>,
@@ -666,7 +675,8 @@ pub struct State {
     sound_from: Option<String>,
     own_count: usize,
     cards: Vec<Card>,
-    hud: Option<(TextureBuffer<Tex>, Rect, Instant)>,
+    hud: Option<Hud>,
+    hud_pill: Option<TextureBuffer<Tex>>,
     drawers: [Drawer; 2],
     tunables: Tunables,
     overview_hold: Option<OverviewHold>,
@@ -708,6 +718,7 @@ impl State {
             || self.fades_busy()
             || self.popover_busy()
             || self.cards_moving()
+            || self.hud_busy()
             || self.thumb_moving()
             || self.welcome_busy()
             || self.dock_logo.hot
@@ -751,8 +762,8 @@ impl State {
         if self.animating() {
             return Some(TICK);
         }
-        if let Some((_, _, until)) = self.hud.as_ref() {
-            return Some(until.saturating_duration_since(Instant::now()).max(TICK));
+        if let Some(hud) = self.hud.as_ref() {
+            return Some(hud.until.saturating_duration_since(Instant::now()).max(TICK));
         }
         if self.thumb.is_some() {
             return Some(Duration::from_millis(200));
@@ -1208,7 +1219,7 @@ impl State {
         self.last = now;
         self.step_windows(dt);
 
-        if self.hud.as_ref().is_some_and(|(_, _, until)| now >= *until) {
+        if self.hud.as_ref().is_some_and(|hud| now >= hud.until) {
             self.hud = None;
         }
         self.watch_panes(now);

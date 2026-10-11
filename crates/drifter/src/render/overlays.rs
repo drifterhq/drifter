@@ -132,9 +132,19 @@ impl State {
                     state.show_hud(reading);
                 }
             },
-            move || Some(look.paint(reading, font.as_deref())),
+            move || Some(look.paint_frame(reading, font.as_deref())),
             move |state, art| {
-                state.hud = Some((art, rect, Instant::now() + HUD_TIME));
+                let now = Instant::now();
+                let to = reading.shown();
+                let from = state.hud_level().unwrap_or(to);
+                state.hud = Some(super::Hud {
+                    art,
+                    rect,
+                    until: now + HUD_TIME,
+                    from,
+                    to,
+                    since: now,
+                });
             },
         );
     }
