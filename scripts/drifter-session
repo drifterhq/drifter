@@ -8,6 +8,8 @@ bin=$here/target/release/drifter
 state=${XDG_STATE_HOME:-$HOME/.local/state}/drifter
 mkdir -p "$state"
 log=$state/crash.log
+err=$state/drifter.log
+: >"$err"
 
 export XDG_CURRENT_DESKTOP=drifter
 export XDG_SESSION_DESKTOP=drifter
@@ -16,7 +18,7 @@ export QT_QPA_PLATFORMTHEME=${QT_QPA_PLATFORMTHEME:-gtk3}
 
 recent=()
 while true; do
-    "$bin"
+    "$bin" 2> >(tee -a "$err" >&2)
     code=$?
     if [ "$code" -eq 0 ]; then
         exit 0
