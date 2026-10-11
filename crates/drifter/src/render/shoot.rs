@@ -124,7 +124,7 @@ impl State {
         }
     }
 
-    fn paint_shooter_bar(&mut self) {
+    pub(super) fn paint_shooter_bar(&mut self) {
         let Some(font) = self.font.clone() else {
             return;
         };

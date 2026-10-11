@@ -343,7 +343,10 @@ impl State {
 
     pub(super) fn recolor(&mut self, config: &Config, palette: drifter_core::theme::Palette) {
         self.palette = palette;
-        self.look = Look::themed(&palette);
+        self.look = Look {
+            accent: self.look.accent,
+            ..Look::themed(&palette)
+        };
         self.popover = None;
         self.tip = None;
         self.tip_of = None;
@@ -400,7 +403,37 @@ impl State {
         self.take_icons(self.tray_raw.clone());
         self.relayout(true);
         self.welcome_restyle();
+        self.restyle_open();
         self.kick_now();
+    }
+
+    fn restyle_open(&mut self) {
+        self.hud = None;
+        self.glance_card = None;
+        if self.launchpad.is_some() {
+            self.paint_launchpad();
+        }
+        if self.switch.is_some() {
+            self.paint_switch();
+        }
+        if self.desk_menu.is_some() {
+            self.paint_desk_menu();
+        }
+        if self.alert.is_some() {
+            self.paint_alert();
+        }
+        if self.shooter.as_ref().is_some_and(|shooter| shooter.bar.is_some()) {
+            self.paint_shooter_bar();
+        }
+        if !self.prompts.is_empty() {
+            self.prompt_haze = None;
+            self.paint_prompt();
+        }
+        if let Some(lock) = self.lock.as_mut() {
+            lock.shown.0.clear();
+            lock.shade = None;
+        }
+        self.repaint_notes();
     }
 
     pub(super) fn remember_note(&mut self, note: &drifter_core::notify::Note) {

@@ -298,6 +298,17 @@ impl State {
             self.tell_closed(note.id, 1);
             return;
         }
+        self.paint_note(note, true);
+    }
+
+    pub(super) fn repaint_notes(&mut self) {
+        let notes: Vec<drifter_core::notify::Note> = self.cards.iter().map(|card| card.note.clone()).collect();
+        for note in notes {
+            self.paint_note(note, false);
+        }
+    }
+
+    fn paint_note(&mut self, note: drifter_core::notify::Note, restart: bool) {
         let (Some(head), Some(body), Some(meta)) = (self.note_head.clone(), self.note_body.clone(), self.card_font.clone()) else {
             self.tell_closed(note.id, 3);
             return;
@@ -332,18 +343,20 @@ impl State {
                 }
                 Some(image)
             },
-            move |state, art| state.place_note(note, art, tall),
+            move |state, art| state.place_note(note, art, tall, restart),
         );
     }
 
-    fn place_note(&mut self, note: drifter_core::notify::Note, art: Option<TextureBuffer<Tex>>, tall: f64) {
+    fn place_note(&mut self, note: drifter_core::notify::Note, art: Option<TextureBuffer<Tex>>, tall: f64, restart: bool) {
         let Some(art) = art else {
             self.tell_closed(note.id, 3);
             return;
         };
-        let until = note
-            .expire
-            .map(|ms| Instant::now() + Duration::from_millis(u64::from(ms)));
+        let held = self.cards.iter().find(|held| held.note.id == note.id).map(|held| held.until);
+        let until = match (restart, held) {
+            (false, Some(until)) => until,
+            _ => note.expire.map(|ms| Instant::now() + Duration::from_millis(u64::from(ms))),
+        };
         let card = Card {
             note,
             art,

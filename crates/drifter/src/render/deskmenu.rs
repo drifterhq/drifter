@@ -600,7 +600,7 @@ impl State {
         true
     }
 
-    fn paint_alert(&mut self) {
+    pub(super) fn paint_alert(&mut self) {
         let (Some(font), Some(bold)) = (self.note_head.clone(), self.note_head.clone()) else {
             self.alert = None;
             return;
