@@ -265,6 +265,6 @@ pub(super) fn welcome_found() -> Found {
         detail: drifter_core::lang::t("Application").to_string(),
         key: super::welcome::WELCOME_KEY.to_string(),
         extra: "welcome tour start setup hello drifter".to_string(),
-        icon: None,
+        icon: Some("drifter-welcome".to_string()),
     }
 }
