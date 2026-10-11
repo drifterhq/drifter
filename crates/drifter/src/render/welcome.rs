@@ -3,6 +3,7 @@ use drifter_core::desktop::{Offer, Role};
 use drifter_core::welcome::{Card, Choice, Device, Hit, Lesson, Motion, Paper, Tile, View};
 
 const SLIDE: Duration = Duration::from_millis(320);
+const WELCOME_WOBBLE: f32 = 0.6;
 const SLIDE_STILL: Duration = Duration::from_millis(140);
 const INTRO: Duration = Duration::from_millis(1400);
 const CLOSING: Duration = Duration::from_millis(260);
@@ -191,7 +192,7 @@ impl State {
             flight: None,
             sheen: None,
         });
-        let logo = wallpaper::logo_program(&mut self.renderer).map(|program| Logo { program, sheet: None });
+        let logo = wallpaper::squircle_logo_program(&mut self.renderer).map(|program| Logo { program, sheet: None });
         let desk = wallpaper::desk_program(&mut self.renderer).map(|program| Logo { program, sheet: None });
         if let Some(open) = self.welcome.as_mut() {
             open.view.live_logo = logo.is_some();
@@ -687,7 +688,7 @@ impl State {
         let hour = drifter_core::shader::hour_now();
         let mut drawn = None;
         if let Some((sheet, _)) = logo.sheet.as_mut() {
-            match wallpaper::paint_logo(&logo.program, &mut self.renderer, sheet, size, clock, hour, None) {
+            match wallpaper::paint_logo(&logo.program, &mut self.renderer, sheet, size, clock, hour, Some([WELCOME_WOBBLE, 0.0, 0.0, 0.0])) {
                 Ok(()) => drawn = Some(sheet.texture.clone()),
                 Err(error) => log!("drifter: the welcome logo did not draw: {error}"),
             }
