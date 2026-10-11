@@ -746,6 +746,23 @@ fn drawers_slide_in_at_their_edge_and_leave_no_trace() {
 }
 
 #[test]
+fn a_hud_on_screen_does_not_slow_an_animation() {
+    let mut run = start("hud-tick", &Config::default(), None);
+    let state = &mut run.screen.state;
+    state.show_hud(drifter_core::hud::Reading {
+        gauge: drifter_core::hud::Gauge::Volume,
+        level: 0.5,
+        muted: false,
+    });
+    pump(&mut run.screen, |state| state.hud.is_some());
+    let state = &mut run.screen.state;
+    assert!(state.hud.is_some(), "the HUD is up");
+    assert!(state.waiting() > Some(super::TICK), "a still HUD waits for its end");
+    state.dock_logo.hot = true;
+    assert_eq!(state.waiting(), Some(super::TICK), "an animation ticks with the HUD up");
+}
+
+#[test]
 fn a_window_grab_at_the_edge_does_not_open_a_bar() {
     let mut run = start("grab-edge", &Config::default(), None);
     let bottom = Edge::Bottom.index();

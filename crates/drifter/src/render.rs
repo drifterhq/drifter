@@ -731,6 +731,9 @@ impl State {
                 (false, false) => drifter_core::lock::BLINK / 2,
             });
         }
+        if self.animating() {
+            return Some(TICK);
+        }
         if let Some((_, _, until)) = self.hud.as_ref() {
             return Some(until.saturating_duration_since(Instant::now()).max(TICK));
         }

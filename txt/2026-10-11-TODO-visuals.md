@@ -21,7 +21,7 @@ How motion works today (all items use this):
 
 ## Phase 0: Groundwork
 
-- [ ] **G1 [BUG] `waiting()` starves every animation while the HUD, a thumbnail or a notification is up.**
+- [x] **G1 [BUG] `waiting()` starves every animation while the HUD, a thumbnail or a notification is up.**
   - Waits on: nothing.
   - render.rs:734-742 returns early (HUD: `until - now` up to 1.5 s; thumb: 200 ms; cards: `SECOND_TICK` 250 ms) before `animating()` is checked at :745.
   - Effect: with a note card on screen, every animation falls to 250 ms steps once a frame has no damage.
