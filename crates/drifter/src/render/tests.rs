@@ -669,6 +669,23 @@ fn fullscreen_glides_in_and_back_out() {
 }
 
 #[test]
+fn a_theme_flip_without_a_gpu_applies_at_once() {
+    let mut run = start("restyle", &Config::default(), None);
+    let state = &mut run.screen.state;
+    let mut config = Config::default();
+    let other = match state.style {
+        drifter_core::Style::Dark => drifter_core::Style::Light,
+        _ => drifter_core::Style::Dark,
+    };
+    config.appearance.style = Some(other);
+    config.appearance.transition = drifter_core::Transition::Reveal;
+    state.apply(&config);
+    assert!(state.restyle_due.is_none(), "pixman has no shot to fade from");
+    assert_eq!(state.style, other, "so the new look lands at once");
+    assert!(!state.reveals(), "and it never reveals");
+}
+
+#[test]
 fn an_open_menu_casts_a_shadow() {
     let mut run = start("menu-shadow", &Config::default(), None);
     let item = |id: i32, label: &str| drifter_core::menu::Item {

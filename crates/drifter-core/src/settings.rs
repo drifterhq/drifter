@@ -2700,6 +2700,7 @@ pub enum Id {
     BarSlide,
     Style,
     Inactive,
+    ThemeChange,
     AccentColor,
     IconTheme,
     CursorTheme,

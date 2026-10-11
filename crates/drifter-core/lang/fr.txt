@@ -3557,3 +3557,15 @@ Ripple strength
 
 A right click on the desktop sends a ripple across the wallpaper
 = Un clic droit sur le bureau envoie une onde sur le fond d’écran
+
+Theme change
+= Changement de thème
+
+Fade
+= Fondu
+
+Reveal
+= Dévoiler
+
+Reveal opens the new look in a circle from the pointer
+= Dévoiler ouvre le nouvel aspect en cercle depuis le pointeur

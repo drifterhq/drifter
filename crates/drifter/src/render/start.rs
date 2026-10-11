@@ -634,6 +634,10 @@ pub fn open(
         shot_wanted: false,
         restyle_due: None,
         style_shots: Vec::new(),
+        style_tex: Vec::new(),
+        reveal: None,
+        reveal_from: None,
+        transition: config.appearance.transition,
         style_fade: None,
         shot_crop: None,
         shot_tool: drifter_core::grab::Tool::new(

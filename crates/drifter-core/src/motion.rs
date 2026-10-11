@@ -100,6 +100,19 @@ impl Motion {
     }
 }
 
+pub fn reveal_radius(at: crate::geom::Vec2, screen: crate::geom::Vec2, t: f64, feather: f64) -> f64 {
+    let far = [
+        crate::geom::Vec2::new(0.0, 0.0),
+        crate::geom::Vec2::new(screen.x, 0.0),
+        crate::geom::Vec2::new(0.0, screen.y),
+        screen,
+    ]
+    .into_iter()
+    .map(|corner| (corner - at).length())
+    .fold(0.0, f64::max);
+    smooth(t) * (far + feather) - feather * (1.0 - smooth(t))
+}
+
 pub const FROM_SCALE: f64 = 0.96;
 
 pub fn appear(t: f64, reduce: bool) -> (f64, f64) {
@@ -150,6 +163,17 @@ mod tests {
 
     use super::*;
     use crate::geom::Vec2;
+
+    #[test]
+    fn the_reveal_reaches_the_farthest_corner_at_the_end() {
+        let screen = Vec2::new(1920.0, 1080.0);
+        let at = Vec2::new(100.0, 100.0);
+        let far = (screen - at).length();
+        assert!(reveal_radius(at, screen, 0.0, 24.0) <= -24.0 + 1e-9, "nothing shows at the start");
+        assert!(reveal_radius(at, screen, 1.0, 24.0) >= far + 24.0 - 1e-9, "the feather clears the far corner");
+        let mid = reveal_radius(at, screen, 0.5, 24.0);
+        assert!(mid > 0.0 && mid < far);
+    }
 
     #[test]
     fn appear_starts_clear_and_small_and_ends_solid_and_whole() {

@@ -97,6 +97,35 @@ impl State {
         }
     }
 
+    pub(super) fn capture_texture(&mut self, elements: &[Shown]) -> Result<smithay::backend::renderer::gles::GlesTexture, String> {
+        use smithay::backend::renderer::Bind;
+        use smithay::backend::renderer::damage::OutputDamageTracker;
+        use smithay::utils::{Buffer as BufferCoord, Physical, Size};
+
+        let whole = self.physical();
+        let size = Size::<i32, Physical>::from((whole.x as i32, whole.y as i32));
+        let buffer_size = Size::<i32, BufferCoord>::from((size.w, size.h));
+        let mut canvas = self
+            .renderer
+            .canvas(DrmFourcc::Abgr8888, buffer_size)
+            .map_err(|e| format!("no offscreen buffer: {e}"))?;
+        {
+            let mut target = self
+                .renderer
+                .bind(&mut canvas)
+                .map_err(|e| format!("cannot draw offscreen: {e}"))?;
+            let shown = &elements[self.cursor_count.min(elements.len())..];
+            let mut tracker = OutputDamageTracker::new(size, 1.0, Transform::Normal);
+            tracker
+                .render_output(&mut self.renderer, &mut target, 0, shown, self.clear)
+                .map_err(|e| format!("cannot draw offscreen: {e:?}"))?;
+        }
+        match canvas {
+            crate::paint::Canvas::Gles(texture) => Ok(texture),
+            _ => Err("a reveal needs the gles renderer".to_string()),
+        }
+    }
+
     pub(super) fn capture(&mut self, elements: &[Shown], cursor: bool) -> Result<Vec<u8>, String> {
         use smithay::backend::renderer::damage::OutputDamageTracker;
         use smithay::backend::renderer::{Bind, ExportMem};

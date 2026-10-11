@@ -71,7 +71,7 @@ pub use camera::Camera;
 pub use config::{
     Accent, Animation, Access, DockHover, Inactive, Appearance, AppsConfig, Assets, ButtonName, Config, DockConfig, Keyboard, Keys,
     Launch, Lid, Modifier, Motion, Mouse, Night, NotePosition, Notify, Power, PowerKey, ShotFormat, Shots, Side,
-    Style, ThreeTap, Touchpad, TrayConfig, Tunables, WallpaperMode, WallpaperOrder,
+    Style, ThreeTap, Transition, Touchpad, TrayConfig, Tunables, WallpaperMode, WallpaperOrder,
 };
 pub use cursor::Cursor;
 pub use drawer::{Drawer, Edge, Panel};

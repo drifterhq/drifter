@@ -28,6 +28,7 @@ mod lock;
 mod overlays;
 mod power;
 mod reopen;
+mod reveal;
 mod search;
 mod start;
 mod welcome;
@@ -686,6 +687,10 @@ pub struct State {
     shot_wanted: bool,
     restyle_due: Option<Box<Config>>,
     style_shots: Vec<(usize, TextureBuffer<Tex>)>,
+    style_tex: Vec<(usize, smithay::backend::renderer::gles::GlesTexture)>,
+    reveal: Option<Option<reveal::Reveal>>,
+    reveal_from: Option<Vec2>,
+    transition: drifter_core::Transition,
     style_fade: Option<Instant>,
     shot_crop: Option<Rect>,
     shot_tool: drifter_core::grab::Tool,
@@ -1223,6 +1228,7 @@ impl State {
 
         let scale = self.heads[at].scale;
         let mut pieces = self.elements();
+        self.paint_reveal();
         self.style_fade_elements(&mut pieces);
         let shown: Vec<Shown> = pieces
             .into_iter()

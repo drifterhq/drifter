@@ -980,6 +980,27 @@ pub struct Appearance {
     pub cursor_size: u32,
     #[serde(default)]
     pub language: Option<String>,
+    #[serde(default)]
+    pub transition: Transition,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Transition {
+    #[default]
+    Fade,
+    Reveal,
+}
+
+impl Transition {
+    pub const ALL: [Transition; 2] = [Transition::Fade, Transition::Reveal];
+
+    pub fn word(self) -> &'static str {
+        match self {
+            Transition::Fade => "fade",
+            Transition::Reveal => "reveal",
+        }
+    }
 }
 
 fn cursor_size() -> u32 {
@@ -995,6 +1016,7 @@ impl Default for Appearance {
             cursor_theme: None,
             cursor_size: cursor_size(),
             language: None,
+            transition: Transition::Fade,
         }
     }
 }

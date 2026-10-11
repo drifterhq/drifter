@@ -510,7 +510,9 @@ impl State {
             Ok(config) => {
                 self.restyle_due = Some(Box::new(config));
                 self.style_shots.clear();
+                self.style_tex.clear();
                 self.style_fade = None;
+                self.reveal_from.get_or_insert(self.screen / 2.0);
                 self.kick_now();
             }
             Err(error) => log!("drifter: the look waits, the config did not load: {error}"),
@@ -520,6 +522,15 @@ impl State {
     pub(super) fn shoot_old_style(&mut self, shown: &[Shown]) {
         if self.restyle_due.is_none() {
             return;
+        }
+        if self.reveals() {
+            match self.capture_texture(shown) {
+                Ok(texture) => {
+                    self.style_tex.push((self.at, texture));
+                    return;
+                }
+                Err(error) => log!("drifter: the look fades instead of revealing: {error}"),
+            }
         }
         let bytes = match self.capture(shown, false) {
             Ok(bytes) => bytes,
@@ -550,17 +561,23 @@ impl State {
             return;
         };
         self.follow_looks(&config);
-        if !self.style_shots.is_empty() {
+        if !self.style_shots.is_empty() || !self.style_tex.is_empty() {
             self.style_fade = Some(now);
         }
     }
 
     pub(super) fn settle_style_fade(&mut self) {
-        if self.style_fade.is_some_and(|since| since.elapsed() >= STYLE_FADE) {
+        let span = match self.style_tex.is_empty() {
+            true => STYLE_FADE,
+            false => reveal::REVEAL,
+        };
+        if self.style_fade.is_some_and(|since| since.elapsed() >= span) {
             self.style_fade = None;
         }
         if self.style_fade.is_none() && self.restyle_due.is_none() {
             self.style_shots.clear();
+            self.style_tex.clear();
+            self.reveal_from = None;
         }
     }
 
@@ -568,6 +585,11 @@ impl State {
         let Some(since) = self.style_fade else {
             return;
         };
+        if let Some(sheet) = self.reveal_sheet() {
+            let at = self.cursor_count.min(elements.len());
+            elements.insert(at, Skin::Texture(element(sheet, Rect::new(Vec2::ZERO, self.screen), 1.0)));
+            return;
+        }
         let Some((_, shot)) = self.style_shots.iter().find(|(head, _)| *head == self.at) else {
             return;
         };
@@ -644,7 +666,20 @@ impl State {
         }
         self.set_shortcuts(&config.keys, config.input.modifier);
         self.set_places(&config.place, config.input.modifier);
-        self.follow_looks(config);
+        self.transition = config.appearance.transition;
+        let flips = drifter_core::theme::now(config.appearance.style) != self.style;
+        let animated = config.motion.animation != drifter_core::Animation::Off && !self.renderer.is_pixman();
+        match flips && animated && self.restyle_due.is_none() {
+            true => {
+                self.restyle_due = Some(Box::new(config.clone()));
+                self.style_shots.clear();
+                self.style_tex.clear();
+                self.style_fade = None;
+                self.reveal_from.get_or_insert(self.pointer);
+                self.kick_now();
+            }
+            false => self.follow_looks(config),
+        }
 
         let heights = [config.drawers.top, config.dock_height()];
         let mut repaint = false;

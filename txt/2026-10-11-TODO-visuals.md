@@ -359,8 +359,9 @@ Shared: smithay 0.7.0 has `compile_custom_texture_shader(src, &[UniformName])` (
   - Setting: `[workspace] ripple: bool` (default true), optional `ripple_strength: u32` 25..=200 %. Wallpaper page first group (settings.rs:1598-1608): `Id::Ripple` Switch, `Id::RippleStrength` Slider `.enabled(ripple)`. Flat model fields like `drift` (settings.rs:308, 493, 1760, 2015). Gate deskmenu.rs:112 with `ripple && !window_still && window_pace > 0 && !is_pixman()`.
   - Tests: ripple.rs `the_ring_reaches_the_screen_corner_before_it_fades` (`SPEED * SECONDS >= 1920x1080 diagonal`), `the_ripple_shader_names_its_inputs` (mirror shader.rs:555-569).
 
-- [ ] **23 [MED] Circular reveal for Dark/Light and wallpaper changes.**
+- [x] **23 [MED] Circular reveal for Dark/Light and wallpaper changes.**
   - Waits on: G2, 22.
+  - Done: the bug fix (a manual theme change now fades), capture_texture, reveal.rs, the click point, the Theme change row. Open: the wallpaper reveal (step 6); wallpaper changes keep their 1.5 s crossfade. Needs a look on a GLES device.
   - Bug first: a manual theme change never animates. Control Center (`flip_tile`, centers.rs:243-247) and Settings only write the config. `watch_config` (follow.rs:472-489) calls `apply`, which calls `follow_looks` at once (follow.rs:633). `watch_style` runs after it (start.rs:904-907) and sees no change. So the 2 s fade (`style_fade_elements`, follow.rs:557-569, `STYLE_FADE` render.rs:110) plays only on Auto at dusk and dawn. Reduce motion and Pixman skip even that (follow.rs:496).
   - Snapshot today: `shoot_old_style` (render.rs:1323) calls `capture` (capture.rs:100-137), a full GPU to CPU to GPU round trip, into `style_shots` (follow.rs:521-535).
   - Wallpaper change already crossfades over 1.5 s (wallpaper.rs:390-391, render.rs:1085-1103).

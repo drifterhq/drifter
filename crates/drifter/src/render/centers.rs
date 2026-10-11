@@ -242,6 +242,7 @@ impl State {
             }
             Tile::Dark => {
                 self.control_status.dark = on;
+                self.reveal_from = Some(self.pointer);
                 let style = if on { "dark" } else { "light" };
                 self.save_key(|text| drifter_core::settings::write_word(text, "appearance", "style", style));
             }

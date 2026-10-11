@@ -369,6 +369,18 @@ impl Model {
                         },
                     ),
                     Row::new(
+                        Id::ThemeChange,
+                        crate::lang::t("Theme change"),
+                        Control::Segments {
+                            options: vec![crate::lang::t("Fade"), crate::lang::t("Reveal")],
+                            chosen: crate::config::Transition::ALL
+                                .iter()
+                                .position(|t| *t == look.transition)
+                                .unwrap_or(0),
+                        },
+                    )
+                    .detail(crate::lang::t("Reveal opens the new look in a circle from the pointer")),
+                    Row::new(
                         Id::Inactive,
                         crate::lang::t("Inactive windows"),
                         Control::Segments {
@@ -1165,6 +1177,9 @@ impl Model {
                 self.motion.bar_slide = number(n / 10.0, (4, 150)) * 10
             }
             (Id::Inactive, Value::Choice(n)) => self.inactive = crate::config::Inactive::ALL[n.min(2)],
+            (Id::ThemeChange, Value::Choice(n)) => {
+                self.appearance.transition = crate::config::Transition::ALL[n.min(1)]
+            }
             (Id::Style, Value::Choice(n)) => {
                 self.appearance.style = match n {
                     0 => Some(Style::Light),
@@ -1437,6 +1452,9 @@ impl Model {
         if look.accent != was.accent {
             optional(doc, "accent", look.accent.map(Accent::word));
         }
+        if look.transition != was.transition {
+            put(doc, "appearance", "transition", word(look.transition.word()));
+        }
         if look.icons != was.icons {
             optional(doc, "icons", look.icons.as_deref());
         }
@@ -1593,6 +1611,7 @@ mod tests {
             m.set(Id::Style, Value::Choice(2));
             m.set(Id::AccentColor, Value::Choice(5));
             m.set(Id::Inactive, Value::Choice(1));
+            m.set(Id::ThemeChange, Value::Choice(1));
             m.set(Id::CursorSize, Value::Choice(2));
             m.press(Id::IconTheme, 1);
             m.press(Id::Asset(1), 1);
@@ -1602,6 +1621,7 @@ mod tests {
         assert_eq!(back.appearance.style, Some(Style::Auto));
         assert_eq!(back.appearance.accent, Some(Accent::Red));
         assert_eq!(back.window.inactive, crate::config::Inactive::More);
+        assert_eq!(back.appearance.transition, crate::config::Transition::Reveal);
         assert_eq!(back.appearance.cursor_size, 48);
         assert_eq!(back.appearance.icons, None);
         assert_eq!(back.appearance.cursor_theme.as_deref(), Some("Bibata"));

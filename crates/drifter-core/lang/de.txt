@@ -3560,3 +3560,15 @@ Ripple strength
 
 A right click on the desktop sends a ripple across the wallpaper
 = Ein Rechtsklick auf den Schreibtisch schickt eine Welle über das Hintergrundbild
+
+Theme change
+= Designwechsel
+
+Fade
+= Überblenden
+
+Reveal
+= Enthüllen
+
+Reveal opens the new look in a circle from the pointer
+= Enthüllen öffnet das neue Aussehen in einem Kreis ab dem Zeiger
