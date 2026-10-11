@@ -362,6 +362,11 @@ pub fn open(
         rgba: vec![255, 255, 255, 255],
     };
     let plain = upload(&mut renderer, Some(&plain_image), "outline")?;
+    let round = fade::round_art(&mut renderer, palette.shade);
+    let accent_round = fade::round_art(
+        &mut renderer,
+        config.appearance.accent.map(|accent| accent.color()).unwrap_or(drifter_core::menu::ACCENT),
+    );
 
     let (clip, clip_events) = crate::clipboard::Keeper::new(events.handle());
     let state = State {
@@ -577,6 +582,8 @@ pub fn open(
         },
         zone: None,
         plain,
+        round,
+        accent_round,
         titles: std::collections::HashMap::new(),
         hover_since: None,
         tray_bus,

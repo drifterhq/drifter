@@ -49,7 +49,7 @@ How motion works today (all items use this):
   - Behaviour change: a user with wallpaper motion 0..60 now gets Full window speed unless they set Animation.
   - Tests: extend the round trip at pages.rs:1480-1495 with `Id::Animation`. motion.rs: `reduce_motion_keeps_the_fade_but_not_the_move` (shape_for gives `window` rect and alpha t).
 
-- [ ] **G3 [MED] Shared GPU pieces: a rounded fill and sized shadows.**
+- [x] **G3 [MED] Shared GPU pieces: a rounded fill and sized shadows.**
   - Waits on: nothing.
   - There is no GPU rounded rect. `shadow_slices` (window.rs:603-628) skips the centre cell (:615).
   - Add to drifter-core window.rs beside `shadow_slices`: `pub fn round_slices(rect: Rect, radius: f64) -> Vec<(Rect, Rect)>` (3x3 with centre, no drop, no blur growth). Add to paint.rs: `pub fn round_patch(radius: f64, color: [u8; 3]) -> Image` (side `2 * ceil(r) + 1`, `Canvas::round_rect`, paint.rs:84).

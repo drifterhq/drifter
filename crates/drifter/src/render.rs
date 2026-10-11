@@ -15,6 +15,7 @@ mod clients;
 mod deskmenu;
 mod dock;
 mod docklogo;
+mod fade;
 mod follow;
 mod heads;
 mod launchpad;
@@ -631,6 +632,8 @@ pub struct State {
     config_path: PathBuf,
     zone: Option<Zone>,
     plain: Option<TextureBuffer<Tex>>,
+    round: Option<TextureBuffer<Tex>>,
+    accent_round: Option<TextureBuffer<Tex>>,
     titles: std::collections::HashMap<String, (TextureBuffer<Tex>, Vec2)>,
     hover_since: Option<(Vec2, Instant)>,
     tray_bus: Option<crate::tray::Tray>,

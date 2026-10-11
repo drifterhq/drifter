@@ -280,10 +280,14 @@ impl State {
         if palette != self.palette {
             self.recolor(config, palette);
         }
-        self.look.accent = look
+        let accent = look
             .accent
             .map(|accent| accent.color())
             .unwrap_or(drifter_core::menu::ACCENT);
+        if accent != self.look.accent {
+            self.look.accent = accent;
+            self.accent_round = fade::round_art(&mut self.renderer, accent);
+        }
         if paths == self.asset_paths && !cursor_moved && !icons_moved {
             return;
         }
@@ -348,6 +352,7 @@ impl State {
             accent: self.look.accent,
             ..Look::themed(&palette)
         };
+        self.rebake_rounds();
         self.popover = None;
         self.tip = None;
         self.tip_of = None;

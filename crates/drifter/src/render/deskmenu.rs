@@ -356,11 +356,7 @@ impl State {
                 true => elements.push(Skin::Texture(element(art, drop, shown as f32))),
                 false => elements.push(Skin::Texture(faded(art, Rect::new(Vec2::ZERO, rect.size), drop, shown as f32))),
             }
-            if let Some((buffer, corner)) = self.window_shadow.as_ref() {
-                for (source, target) in drifter_core::window::shadow_slices(drop, *corner, 0.6, 6.0) {
-                    elements.push(Skin::Texture(faded(buffer, source, target, 0.3 * shown as f32)));
-                }
-            }
+            self.panel_shadow(drop, fade::Shadow::Menu, shown as f32, elements);
         }
     }
 

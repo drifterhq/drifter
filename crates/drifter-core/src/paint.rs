@@ -34,6 +34,15 @@ fn up(rect: Rect) -> Rect {
     Rect::new(rect.origin * d, rect.size * d)
 }
 
+pub fn round_patch(radius: f64, color: [u8; 3]) -> Image {
+    at_density(1, || {
+        let side = 2 * radius.max(0.0).ceil() as u32 + 1;
+        let mut canvas = Canvas::new(side, side);
+        canvas.round_rect(Rect::new(Vec2::ZERO, Vec2::splat(f64::from(side))), radius, color, 1.0);
+        canvas.image
+    })
+}
+
 pub struct Canvas {
     pub image: Image,
     pub clip: Option<[u32; 4]>,

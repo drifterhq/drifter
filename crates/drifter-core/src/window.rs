@@ -600,6 +600,28 @@ pub fn shadow_patch(radius: f64, blur: f64) -> Image {
     }
 }
 
+pub fn round_slices(rect: Rect, patch: f64, radius: f64) -> Vec<(Rect, Rect)> {
+    let k = patch.max(0.0).ceil();
+    let c = radius.max(0.0).min(rect.size.x / 2.0).min(rect.size.y / 2.0);
+    let middle = Vec2::new(rect.size.x - 2.0 * c, rect.size.y - 2.0 * c);
+    let (x, y) = (rect.origin.x, rect.origin.y);
+    let cols = [(0.0, k, x, c), (k, 1.0, x + c, middle.x), (k + 1.0, k, x + c + middle.x, c)];
+    let rows = [(0.0, k, y, c), (k, 1.0, y + c, middle.y), (k + 1.0, k, y + c + middle.y, c)];
+    let mut out = Vec::new();
+    for (sy, sh, dy, dh) in rows {
+        for (sx, sw, dx, dw) in cols {
+            if dw <= 0.0 || dh <= 0.0 {
+                continue;
+            }
+            out.push((
+                Rect::new(Vec2::new(sx, sy), Vec2::new(sw, sh)),
+                Rect::new(Vec2::new(dx, dy), Vec2::new(dw, dh)),
+            ));
+        }
+    }
+    out
+}
+
 pub fn shadow_slices(frame: Rect, corner: f64, zoom: f64, drop: f64) -> Vec<(Rect, Rect)> {
     let c = corner * zoom;
     let outer = Rect::new(
@@ -666,6 +688,27 @@ mod tests {
         let half = shadow_slices(frame, corner, 0.5, 0.0);
         let narrow = half.iter().map(|(_, d)| d.origin.x).fold(f64::MAX, f64::min);
         assert_eq!(narrow, frame.origin.x - SHADOW_BLUR * 0.5, "the shadow shrinks with the zoom");
+    }
+
+    #[test]
+    fn round_slices_tile_the_rect_with_no_gap() {
+        let patch = crate::paint::round_patch(12.0, [255, 255, 255]);
+        assert_eq!(patch.width, 25);
+        let alpha = |x: u32, y: u32| patch.rgba[((y * patch.width + x) * 4 + 3) as usize];
+        assert_eq!(alpha(12, 12), 255, "solid in the middle");
+        assert!(alpha(0, 0) < 20, "clear in the corner");
+        let rect = Rect::new(Vec2::new(100.0, 50.0), Vec2::new(300.0, 120.0));
+        for radius in [8.0, 12.0, 100.0] {
+            let slices = round_slices(rect, 12.0, radius);
+            assert_eq!(slices.len(), 9 - if radius >= 60.0 { 3 } else { 0 });
+            let area: f64 = slices.iter().map(|(_, d)| d.size.x * d.size.y).sum();
+            assert!((area - rect.size.x * rect.size.y).abs() < 1e-6, "{radius}: covers the rect once");
+            for (source, target) in &slices {
+                assert!(source.max().x <= 25.0 && source.max().y <= 25.0, "inside the patch");
+                assert!(target.origin.x >= rect.origin.x && target.max().x <= rect.max().x + 1e-9);
+                assert!(target.origin.y >= rect.origin.y && target.max().y <= rect.max().y + 1e-9);
+            }
+        }
     }
 
     fn chrome() -> Chrome {
