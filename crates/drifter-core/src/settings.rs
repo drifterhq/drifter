@@ -3165,6 +3165,18 @@ impl Look {
         (self.content_height(size, section, groups) - size.y).max(0.0)
     }
 
+    pub fn paint_switch(&self, canvas: &mut Canvas, pill: Rect, t: f64, fade: f64) {
+        let t = t.clamp(0.0, 1.0);
+        let color = [0, 1, 2].map(|c| (f64::from(self.off[c]) + (f64::from(self.accent[c]) - f64::from(self.off[c])) * t).round() as u8);
+        canvas.round_rect(pill, pill.size.y, color, fade);
+        let knob = pill.size.y / 2.0 - 2.0;
+        let left = pill.origin.x + 2.0 + knob;
+        let right = pill.max().x - 2.0 - knob;
+        let center = Vec2::new(left + (right - left) * t, pill.center().y);
+        canvas.circle(center + Vec2::new(0.0, 1.0), knob + 0.5, [0, 0, 0], 0.25 * fade);
+        canvas.circle(center, knob, [255, 255, 255], fade);
+    }
+
     pub fn switch_rect(&self, row: Rect) -> Rect {
         Rect::new(
             Vec2::new(
@@ -3562,22 +3574,8 @@ impl Look {
 
         match &row.control {
             Control::Switch(on) => {
-                let pill = self.switch_rect(rect);
-                let color = if *on { self.accent } else { self.off };
-                canvas.round_rect(pill, pill.size.y, color, fade);
-                let knob = pill.size.y / 2.0 - 2.0;
-                let cx = match on {
-                    true => pill.max().x - 2.0 - knob,
-                    false => pill.origin.x + 2.0 + knob,
-                };
-                let center = Vec2::new(cx, pill.center().y);
-                canvas.circle(
-                    center + Vec2::new(0.0, 1.0),
-                    knob + 0.5,
-                    [0, 0, 0],
-                    0.25 * fade,
-                );
-                canvas.circle(center, knob, [255, 255, 255], fade);
+                let t = if *on { 1.0 } else { 0.0 };
+                self.paint_switch(canvas, self.switch_rect(rect), t, fade);
             }
             Control::Slider {
                 least,

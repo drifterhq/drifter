@@ -135,6 +135,7 @@ pub struct Settings {
     last: Option<(u64, drifter_core::Image)>,
     glide: Option<drifter_core::tween::Glide>,
     page_fade: Option<(drifter_core::Image, Option<drifter_core::tween::Fade>)>,
+    flip: Option<(Id, bool, std::time::Instant)>,
     side_pages: Vec<Option<drifter_core::Image>>,
     pages: Vec<Option<drifter_core::Image>>,
     sheet_pages: (u64, Vec<Option<drifter_core::Image>>),
@@ -358,6 +359,7 @@ pub fn run() -> Result<(), String> {
         last: None,
         glide: None,
         page_fade: None,
+        flip: None,
         side_pages: Vec::new(),
         pages: Vec::new(),
         sheet_pages: (0, Vec::new()),
@@ -419,6 +421,7 @@ pub fn run() -> Result<(), String> {
 
 const GLIDE: std::time::Duration = std::time::Duration::from_millis(150);
 const PAGE_FADE: std::time::Duration = std::time::Duration::from_millis(160);
+const SWITCH_FLIP: std::time::Duration = std::time::Duration::from_millis(150);
 
 static SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
 
@@ -965,7 +968,7 @@ impl Settings {
                     .filter(|(held, _, _)| *held == key)
                     .map_or((f64::NAN, f64::NAN), |(_, at, side)| (at, side));
                 let moved = was_scroll != self.scroll || was_side != side;
-                let fading = self.page_fade.as_ref().is_some_and(|(_, fade)| fade.is_some());
+                let fading = self.page_fade.as_ref().is_some_and(|(_, fade)| fade.is_some()) || self.flip.is_some();
                 let last = self.last.take().filter(|(held, _)| *held == key && (moved || fading));
                 let image = match last {
                     Some((_, mut image)) => {
@@ -991,6 +994,7 @@ impl Settings {
                 };
                 self.painted = Some((key, self.scroll, side));
                 let shown = self.crossfade(&image);
+                let shown = self.flip_switch(shown.as_ref().unwrap_or(&image));
                 self.show_ringed(shown.as_ref().unwrap_or(&image));
                 self.last = Some((key, image));
                 return;
@@ -998,6 +1002,25 @@ impl Settings {
         };
         self.painted = Some((key, self.scroll, self.look.side_scroll));
         self.show(&image);
+    }
+
+    fn flip_switch(&mut self, image: &drifter_core::Image) -> Option<drifter_core::Image> {
+        let (id, on, since) = self.flip?;
+        let t = since.elapsed().as_secs_f64() / SWITCH_FLIP.as_secs_f64();
+        if t >= 1.0 {
+            self.flip = None;
+            return None;
+        }
+        let spot = drifter_core::settings::Spot::Row(id, 0);
+        let Some(pill) = self.look.spot_rect(self.view(), self.section, &self.model, self.scroll, spot) else {
+            self.flip = None;
+            return None;
+        };
+        let eased = drifter_core::tween::ease(t);
+        let mut canvas = drifter_core::paint::Canvas::on(image.clone());
+        self.look.paint_switch(&mut canvas, pill, if on { eased } else { 1.0 - eased }, 1.0);
+        self.stale = true;
+        Some(canvas.image)
     }
 
     fn crossfade(&mut self, image: &drifter_core::Image) -> Option<drifter_core::Image> {
@@ -1322,6 +1345,11 @@ impl Settings {
             Some(Hit::Search) => {}
             Some(Hit::Section(section)) => self.go_to(section),
             Some(Hit::Change(id, value)) => {
+                if let Value::Switch(on) = value
+                    && self.animates()
+                {
+                    self.flip = Some((id, on, std::time::Instant::now()));
+                }
                 self.model.set(id, value);
                 if let Value::Number(_) = value {
                     self.holding = Some(id);
@@ -2412,13 +2440,17 @@ impl Settings {
         }
     }
 
+    fn animates(&self) -> bool {
+        !self.model.access.reduce_motion && self.model.motion.animation != drifter_core::Animation::Off
+    }
+
     fn smooth(&self) -> bool {
         let model = &self.model;
         model.mouse.smooth_scroll && !model.access.reduce_motion && model.motion.animation != drifter_core::Animation::Off
     }
 
     fn moving(&self) -> bool {
-        self.glide.is_some() || self.page_fade.is_some()
+        self.glide.is_some() || self.page_fade.is_some() || self.flip.is_some()
     }
 
     fn wheel(&mut self, by: f64, click: bool) {

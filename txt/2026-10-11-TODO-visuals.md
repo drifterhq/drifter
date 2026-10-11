@@ -305,7 +305,7 @@ How motion works today (all items use this):
 
 - [x] **19 [MED] Settings and Activity get Explorer's Fade and Glide.**
   - Waits on: G2.
-  - Done: tween.rs, Explorer on it, Settings wheel glide and page crossfade, Activity wheel glide and view crossfade, Mouse > Smooth scrolling gating all three. Open: the Settings switch knob animation (step 3, third bullet).
+  - Done: tween.rs, Explorer on it, Settings wheel glide and page crossfade, Activity wheel glide and view crossfade, Mouse > Smooth scrolling gating all three. The Settings switch knob slides too (Look::paint_switch); it redraws the whole buffer, not only the pill.
   - Explorer: `Glide` and `Fade` (explorer window.rs:64-78), `crop`/`paste` (:80-104), fields :147-148, consts :52-54, fade draw :608-626 and :654-659, swap crossfade :667-675, glide tick :737-763 (from loop :372-375), wheel :1113-1156 (discrete wheel only, :1115). `explorer::look::ease` (look.rs:316) equals `motion::smooth`.
   - Settings and Activity have no UI transitions (the About logo and Activity's hold-to-force bar are the only motion).
   - Fix:
