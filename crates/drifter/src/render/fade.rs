@@ -129,7 +129,7 @@ impl State {
             Pane::GlanceCard => self.glance_card.as_ref().and_then(|(art, rect)| one(art, *rect, Shadow::Modal)),
             Pane::Hud => self.hud.as_ref().and_then(|(art, rect, _)| one(art, *rect, Shadow::Menu)),
             Pane::Card(id) => {
-                let (card, rect) = self.cards.iter().zip(self.card_rects()).find(|(card, _)| card.note.id == id)?;
+                let (card, rect) = self.cards.iter().zip(self.card_shown()).find(|(card, _)| card.note.id == id)?;
                 one(&card.art, rect, Shadow::Menu)
             }
             Pane::Switch => {

@@ -418,6 +418,18 @@ impl Model {
                 )
                 .detail(crate::lang::t("Apps can ask for their own time")),
                 Row::new(
+                    Id::NotePosition,
+                    crate::lang::t("Position"),
+                    Control::Segments {
+                        options: vec![crate::lang::t("Top"), crate::lang::t("Bottom")],
+                        chosen: crate::config::NotePosition::ALL
+                            .iter()
+                            .position(|p| *p == notify.position)
+                            .unwrap_or(0),
+                    },
+                )
+                .detail(crate::lang::t("At the right edge")),
+                Row::new(
                     Id::History,
                     crate::lang::t("Keep a history"),
                     Control::Switch(notify.history),
@@ -1153,6 +1165,9 @@ impl Model {
                 self.notify.seconds =
                     n.round().clamp(0.0, NOTE_MOST.min(f64::from(LONGEST_NOTE))) as u32
             }
+            (Id::NotePosition, Value::Choice(n)) => {
+                self.notify.position = crate::config::NotePosition::ALL[n.min(1)]
+            }
             (Id::History, Value::Switch(on)) => self.notify.history = on,
             (Id::Volume, Value::Number(n)) => self.sound.volume = (n / 100.0).clamp(0.0, 1.0),
             (Id::Mute, Value::Switch(on)) => self.sound.muted = on,
@@ -1457,6 +1472,9 @@ impl Model {
         if notify.history != was.history {
             put(doc, "notify", "history", flag(notify.history));
         }
+        if notify.position != was.position {
+            put(doc, "notify", "position", word(notify.position.word()));
+        }
 
         for action in Action::ALL {
             let now = self.keys.get(action);
@@ -1549,8 +1567,10 @@ mod tests {
             m.set(Id::PowerButton, Value::Choice(2));
             m.set(Id::Quiet, Value::Switch(true));
             m.set(Id::NoteSeconds, Value::Number(0.0));
+            m.set(Id::NotePosition, Value::Choice(1));
             m.set(Id::Caps, Value::Choice(1));
         });
+        assert_eq!(back.notify.position, crate::config::NotePosition::BottomRight);
         assert_eq!(back.power.sleep_after, 30);
         assert_eq!(back.power.lid, Lid::Lock);
         assert_eq!(back.power.button, PowerKey::Off);

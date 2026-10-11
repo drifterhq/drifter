@@ -631,7 +631,11 @@ impl State {
             }
         }
         self.power_rules = config.power;
+        let moved = self.notify.position != config.notify.position;
         self.notify = config.notify;
+        if moved {
+            self.repaint_notes();
+        }
         self.set_shortcuts(&config.keys, config.input.modifier);
         self.set_places(&config.place, config.input.modifier);
         self.follow_looks(config);

@@ -3488,3 +3488,15 @@ Animation
 
 Reduce motion in Accessibility keeps fades and stops movement.
 = „Bewegung reduzieren“ in Bedienungshilfen behält das Einblenden und stoppt die Bewegung.
+
+Position
+= Position
+
+Top
+= Oben
+
+Bottom
+= Unten
+
+At the right edge
+= Am rechten Rand

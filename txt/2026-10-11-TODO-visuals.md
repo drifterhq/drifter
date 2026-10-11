@@ -118,7 +118,7 @@ How motion works today (all items use this):
   - Not a gradient overlay (skin PNGs break a flat colour). Not baked into the title art (cut point moves on every resize).
   - Test (window.rs tests, :630+): `a_long_title_is_cut_not_squashed_and_fades_at_its_end`: source widths sum to `room`, no source past `art.x`, source width equals draw width, alphas fall to below 0.2, a short title gives one slice.
 
-- [ ] **5 [MED] Notifications slide in from the right; cards below glide; position setting.**
+- [x] **5 [MED] Notifications slide in from the right; cards below glide; position setting.**
   - Waits on: G1, G2.
   - `Card` (render.rs:312-317) has no motion. Drawn at render.rs:824-826 from `card_rects()` (overlays.rs:397-400) via `Look::stack` (notify.rs:290-303, top right only, newest on top). In: `place_note` (overlays.rs:350-380). Out: `close_note` (:382-389).
   - Extra bug: frost is baked at the predicted spot (overlays.rs:333, 342). After a restack the frost stays wrong.

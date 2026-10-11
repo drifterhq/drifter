@@ -1,5 +1,8 @@
 use super::*;
 
+const CARD_IN: f64 = 0.28;
+const CARD_GLIDE: f64 = 0.22;
+
 impl State {
     pub(super) fn switch_step(&mut self, back: bool) {
         if self.lock.is_some() {
@@ -330,7 +333,8 @@ impl State {
                 0
             }
         };
-        let spot = look.stack(self.screen, &heights).get(slot).copied();
+        let spot = self.card_stack(&heights).get(slot).copied();
+        let frosted = spot.map_or(f64::NAN, |spot| spot.origin.y);
         let frosting = self.frosting();
         let painted = note.clone();
         self.paint_on_worker(
@@ -343,45 +347,124 @@ impl State {
                 }
                 Some(image)
             },
-            move |state, art| state.place_note(note, art, tall, restart),
+            move |state, art| state.place_note(note, art, tall, restart, frosted),
         );
     }
 
-    fn place_note(&mut self, note: drifter_core::notify::Note, art: Option<TextureBuffer<Tex>>, tall: f64, restart: bool) {
+    fn place_note(
+        &mut self,
+        note: drifter_core::notify::Note,
+        art: Option<TextureBuffer<Tex>>,
+        tall: f64,
+        restart: bool,
+        frosted: f64,
+    ) {
         let Some(art) = art else {
             self.tell_closed(note.id, 3);
             return;
         };
-        let held = self.cards.iter().find(|held| held.note.id == note.id).map(|held| held.until);
-        let until = match (restart, held) {
+        let now = Instant::now();
+        let held = self.cards.iter().find(|held| held.note.id == note.id);
+        let until = match (restart, held.map(|held| held.until)) {
             (false, Some(until)) => until,
-            _ => note.expire.map(|ms| Instant::now() + Duration::from_millis(u64::from(ms))),
+            _ => note.expire.map(|ms| now + Duration::from_millis(u64::from(ms))),
         };
         let card = Card {
+            born: held.map_or(now, |held| held.born),
+            from_y: held.map_or(0.0, |held| held.from_y),
+            moved: held.map_or(now, |held| held.moved),
             note,
             art,
             tall,
             until,
+            frosted,
         };
-        match self
-            .cards
-            .iter()
-            .position(|held| held.note.id == card.note.id)
-        {
-            Some(at) => self.cards[at] = card,
-            None => self.cards.insert(0, card),
-        }
-        while self.cards.len() > drifter_core::notify::MOST {
-            if let Some(old) = self.cards.pop() {
-                self.tell_closed(old.note.id, 1);
+        let mut dropped = Vec::new();
+        self.restack_cards(|state| {
+            match state.cards.iter().position(|held| held.note.id == card.note.id) {
+                Some(at) => state.cards[at] = card,
+                None => state.cards.insert(0, card),
             }
+            while state.cards.len() > drifter_core::notify::MOST {
+                if let Some(old) = state.cards.pop() {
+                    dropped.push(old.note.id);
+                }
+            }
+        });
+        for id in dropped {
+            self.tell_closed(id, 1);
         }
         self.kick_now();
     }
 
+    fn restack_cards(&mut self, change: impl FnOnce(&mut State)) {
+        let was: std::collections::HashMap<u32, (f64, f64)> = self
+            .cards
+            .iter()
+            .zip(self.card_rects().into_iter().zip(self.card_shown()))
+            .map(|(card, (target, shown))| (card.note.id, (target.origin.y, shown.origin.y)))
+            .collect();
+        change(self);
+        let now = Instant::now();
+        let rects = self.card_rects();
+        for (card, rect) in self.cards.iter_mut().zip(rects) {
+            match was.get(&card.note.id) {
+                Some((target, shown)) if (target - rect.origin.y).abs() > 0.5 => {
+                    card.from_y = *shown;
+                    card.moved = now;
+                }
+                Some(_) => {}
+                None => card.from_y = rect.origin.y,
+            }
+        }
+    }
+
+    fn card_stack(&self, heights: &[f64]) -> Vec<Rect> {
+        let bottom = Edge::Bottom.index();
+        let floor = match self.tunables.bar_hides[bottom] {
+            true => 0.0,
+            false => self.screen.y - self.drawers[bottom].open_band(self.screen, &self.shapes[bottom]).origin.y,
+        };
+        drifter_core::notify::Look::themed(&self.palette).stack(self.screen, heights, self.notify.position, floor)
+    }
+
+    fn cards_still(&self) -> bool {
+        self.window_pace <= 0.0 || self.window_still
+    }
+
+    pub(super) fn card_shown(&self) -> Vec<Rect> {
+        let rects = self.card_rects();
+        if self.cards_still() {
+            return rects;
+        }
+        let pace = self.window_pace;
+        let look = drifter_core::notify::Look::themed(&self.palette);
+        self.cards
+            .iter()
+            .zip(rects)
+            .map(|(card, rect)| {
+                let entered = drifter_core::motion::smooth(card.born.elapsed().as_secs_f64() / (CARD_IN / pace));
+                let dx = (1.0 - entered) * (look.width + look.margin);
+                let glide = drifter_core::motion::smooth(card.moved.elapsed().as_secs_f64() / (CARD_GLIDE / pace));
+                let y = card.from_y + (rect.origin.y - card.from_y) * glide;
+                Rect::new(Vec2::new(rect.origin.x + dx, y), rect.size)
+            })
+            .collect()
+    }
+
+    pub(super) fn cards_moving(&self) -> bool {
+        if self.cards_still() {
+            return false;
+        }
+        let pace = self.window_pace;
+        self.cards.iter().any(|card| {
+            card.born.elapsed().as_secs_f64() < CARD_IN / pace || card.moved.elapsed().as_secs_f64() < CARD_GLIDE / pace
+        })
+    }
+
     pub(super) fn close_note(&mut self, id: u32, reason: u32) {
         let before = self.cards.len();
-        self.cards.retain(|card| card.note.id != id);
+        self.restack_cards(|state| state.cards.retain(|card| card.note.id != id));
         if self.cards.len() != before {
             self.tell_closed(id, reason);
             self.kick_now();
@@ -396,11 +479,22 @@ impl State {
 
     pub(super) fn card_rects(&self) -> Vec<Rect> {
         let heights: Vec<f64> = self.cards.iter().map(|card| card.tall).collect();
-        drifter_core::notify::Look::themed(&self.palette).stack(self.screen, &heights)
+        self.card_stack(&heights)
     }
 
     pub(super) fn expire_cards(&mut self, now: Instant) {
         let rects = self.card_rects();
+        let resting = !self.cards_moving();
+        let mut refrost = Vec::new();
+        for (card, rect) in self.cards.iter_mut().zip(&rects) {
+            if resting && (card.frosted - rect.origin.y).abs() > 0.5 {
+                card.frosted = rect.origin.y;
+                refrost.push(card.note.clone());
+            }
+        }
+        for note in refrost {
+            self.paint_note(note, false);
+        }
         let over = rects.iter().position(|rect| rect.contains(self.pointer));
         let mut gone = Vec::new();
         for (at, card) in self.cards.iter_mut().enumerate() {

@@ -2630,6 +2630,7 @@ pub enum Id {
     PowerButton,
     Quiet,
     NoteSeconds,
+    NotePosition,
     History,
     Recent(usize),
     Forget,

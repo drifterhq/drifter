@@ -937,11 +937,32 @@ pub struct Power {
 
 pub const LONGEST_NOTE: u32 = 120;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum NotePosition {
+    #[default]
+    TopRight,
+    BottomRight,
+}
+
+impl NotePosition {
+    pub const ALL: [NotePosition; 2] = [NotePosition::TopRight, NotePosition::BottomRight];
+
+    pub fn word(self) -> &'static str {
+        match self {
+            NotePosition::TopRight => "top-right",
+            NotePosition::BottomRight => "bottom-right",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Notify {
     #[serde(default)]
     pub quiet: bool,
+    #[serde(default)]
+    pub position: NotePosition,
     #[serde(default = "note_seconds")]
     pub seconds: u32,
     #[serde(default = "yes")]
@@ -956,6 +977,7 @@ impl Default for Notify {
     fn default() -> Self {
         Notify {
             quiet: false,
+            position: NotePosition::TopRight,
             seconds: note_seconds(),
             history: true,
         }

@@ -287,19 +287,33 @@ impl Look {
         text.max(self.icon + self.pad * 2.0).ceil()
     }
 
-    pub fn stack(&self, screen: Vec2, heights: &[f64]) -> Vec<Rect> {
-        let mut y = self.margin;
-        heights
-            .iter()
-            .map(|tall| {
-                let rect = Rect::new(
-                    Vec2::new(screen.x - self.margin - self.width, y),
-                    Vec2::new(self.width, *tall),
-                );
-                y += tall + self.gap;
-                rect
-            })
-            .collect()
+    pub fn stack(&self, screen: Vec2, heights: &[f64], position: crate::config::NotePosition, floor: f64) -> Vec<Rect> {
+        let x = screen.x - self.margin - self.width;
+        match position {
+            crate::config::NotePosition::TopRight => {
+                let mut y = self.margin;
+                heights
+                    .iter()
+                    .map(|tall| {
+                        let rect = Rect::new(Vec2::new(x, y), Vec2::new(self.width, *tall));
+                        y += tall + self.gap;
+                        rect
+                    })
+                    .collect()
+            }
+            crate::config::NotePosition::BottomRight => {
+                let mut y = screen.y - self.margin - floor;
+                heights
+                    .iter()
+                    .map(|tall| {
+                        y -= tall;
+                        let rect = Rect::new(Vec2::new(x, y), Vec2::new(self.width, *tall));
+                        y -= self.gap;
+                        rect
+                    })
+                    .collect()
+            }
+        }
     }
 
     pub fn paint(&self, note: &Note, fonts: &Type) -> Image {
@@ -455,11 +469,23 @@ mod tests {
     #[test]
     fn cards_stack_down_from_the_top_right() {
         let look = Look::default();
-        let rects = look.stack(Vec2::new(1920.0, 1080.0), &[70.0, 90.0]);
+        let rects = look.stack(Vec2::new(1920.0, 1080.0), &[70.0, 90.0], NotePosition::TopRight, 64.0);
         assert_eq!(rects[0].max().x, 1920.0 - look.margin);
         assert_eq!(rects[0].origin.y, look.margin);
         assert_eq!(rects[1].origin.y, rects[0].max().y + look.gap);
     }
+
+    #[test]
+    fn cards_stack_up_from_the_bottom_right() {
+        let look = Look::default();
+        let rects = look.stack(Vec2::new(1920.0, 1080.0), &[70.0, 90.0], NotePosition::BottomRight, 64.0);
+        assert_eq!(rects[0].max().x, 1920.0 - look.margin);
+        assert_eq!(rects[0].max().y, 1080.0 - look.margin - 64.0, "the newest sits above the dock");
+        assert_eq!(rects[1].max().y, rects[0].origin.y - look.gap, "older notes stack up");
+        assert_eq!(rects[1].size.y, 90.0);
+    }
+
+    use crate::config::NotePosition;
 
     #[test]
     fn a_card_grows_with_its_body() {

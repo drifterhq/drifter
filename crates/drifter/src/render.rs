@@ -318,6 +318,10 @@ struct Card {
     art: TextureBuffer<Tex>,
     tall: f64,
     until: Option<Instant>,
+    born: Instant,
+    from_y: f64,
+    moved: Instant,
+    frosted: f64,
 }
 
 struct Pending {
@@ -703,6 +707,7 @@ impl State {
             || self.desk_menu_busy()
             || self.fades_busy()
             || self.popover_busy()
+            || self.cards_moving()
             || self.thumb_moving()
             || self.welcome_busy()
             || self.dock_logo.hot

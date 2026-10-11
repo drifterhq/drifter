@@ -69,7 +69,7 @@ mod density_tests;
 pub use camera::Camera;
 pub use config::{
     Accent, Animation, Access, Appearance, AppsConfig, Assets, ButtonName, Config, DockConfig, Keyboard, Keys,
-    Launch, Lid, Modifier, Motion, Mouse, Night, Notify, Power, PowerKey, ShotFormat, Shots, Side,
+    Launch, Lid, Modifier, Motion, Mouse, Night, NotePosition, Notify, Power, PowerKey, ShotFormat, Shots, Side,
     Style, ThreeTap, Touchpad, TrayConfig, Tunables, WallpaperMode, WallpaperOrder,
 };
 pub use cursor::Cursor;

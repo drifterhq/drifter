@@ -3488,3 +3488,15 @@ Animation
 
 Reduce motion in Accessibility keeps fades and stops movement.
 = Reducir el movimiento en Accesibilidad mantiene los fundidos y detiene el movimiento.
+
+Position
+= Posición
+
+Top
+= Arriba
+
+Bottom
+= Abajo
+
+At the right edge
+= En el borde derecho

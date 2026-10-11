@@ -184,6 +184,8 @@ cursor_size = 24
 quiet = false
 # Seconds a note shows when the app does not ask. 0 keeps it until clicked.
 seconds = 5
+# Where notes stack: "top-right" or "bottom-right".
+position = "top-right"
 # Keep the last 50 notes. Settings > Notifications lists them.
 history = true
 
