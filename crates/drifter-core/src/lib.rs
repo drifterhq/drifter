@@ -58,6 +58,7 @@ pub mod text;
 pub mod theme;
 pub mod tiles;
 pub mod tray;
+pub mod tween;
 pub mod users;
 pub mod wallpaper;
 pub mod welcome;

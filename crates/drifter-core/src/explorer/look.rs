@@ -314,7 +314,7 @@ pub fn key_words(keys: &str) -> String {
 }
 
 pub fn ease(t: f64) -> f64 {
-    1.0 - (1.0 - t.clamp(0.0, 1.0)).powi(3)
+    crate::tween::ease(t)
 }
 
 fn layered(canvas: &mut Canvas, size: Vec2, pop: f64, rise: f64, paint: impl FnOnce(&mut Canvas)) {

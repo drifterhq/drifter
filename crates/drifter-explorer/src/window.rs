@@ -8,6 +8,7 @@ use drifter_core::explorer::model::{Act, Drag, Effect, Model};
 use drifter_core::explorer::ops::{self, Done, Job};
 use drifter_core::explorer::clip::{self, Held};
 use drifter_core::explorer::prefs::Prefs;
+use drifter_core::tween;
 use drifter_core::{Config, Font, Image, Vec2};
 use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState};
 use smithay_client_toolkit::data_device_manager::data_device::{DataDevice, DataDeviceHandler};
@@ -61,46 +62,8 @@ fn scale() -> u32 {
 
 type DragIcon = (wl_surface::WlSurface, smithay_client_toolkit::shm::slot::Buffer);
 
-struct Glide {
-    side: bool,
-    from: f64,
-    to: f64,
-    shown: f64,
-    since: Instant,
-}
-
-struct Fade {
-    area: drifter_core::Rect,
-    at: (u32, u32),
-    old: Image,
-    new: Image,
-    since: Instant,
-}
-
 fn crop(image: &Image, area: drifter_core::Rect) -> Option<((u32, u32), Image)> {
-    let dense = f64::from(scale());
-    let x0 = ((area.origin.x * dense).floor().max(0.0) as u32).min(image.width);
-    let y0 = ((area.origin.y * dense).floor().max(0.0) as u32).min(image.height);
-    let x1 = ((area.max().x * dense).ceil().max(0.0) as u32).min(image.width);
-    let y1 = ((area.max().y * dense).ceil().max(0.0) as u32).min(image.height);
-    if x1 <= x0 || y1 <= y0 {
-        return None;
-    }
-    let (width, height) = (x1 - x0, y1 - y0);
-    let mut rgba = Vec::with_capacity((width * height * 4) as usize);
-    for y in y0..y1 {
-        let from = ((y * image.width + x0) * 4) as usize;
-        rgba.extend_from_slice(&image.rgba[from..from + (width * 4) as usize]);
-    }
-    Some(((x0, y0), Image { width, height, rgba }))
-}
-
-fn paste(image: &mut Image, at: (u32, u32), piece: &Image) {
-    for y in 0..piece.height {
-        let to = (((at.1 + y) * image.width + at.0) * 4) as usize;
-        let from = (y * piece.width * 4) as usize;
-        image.rgba[to..to + (piece.width * 4) as usize].copy_from_slice(&piece.rgba[from..from + (piece.width * 4) as usize]);
-    }
+    tween::crop(image, area, f64::from(scale()))
 }
 
 struct Explorer {
@@ -144,8 +107,8 @@ struct Explorer {
     seen: (bool, bool, drifter_core::explorer::prefs::Mode, PathBuf),
     pop_at: Option<Instant>,
     swap: Option<(Image, Instant, Duration)>,
-    fade: Option<Fade>,
-    glide: Option<Glide>,
+    fade: Option<tween::Fade>,
+    glide: Option<(bool, tween::Glide)>,
     stamps: std::collections::HashMap<PathBuf, (Option<std::time::SystemTime>, u64)>,
     picks: usize,
     clicked: bool,
@@ -607,16 +570,16 @@ impl Explorer {
         };
         let fading = self.fade.take();
         if let (Some(fade), Some(image)) = (&fading, before.as_mut()) {
-            paste(image, fade.at, &fade.new);
+            tween::paste(image, fade.at, &fade.new);
             if hover.is_none() && shifts.is_empty() {
                 let mut canvas = drifter_core::paint::Canvas::on(before.take().unwrap_or_else(|| Image { width: 0, height: 0, rgba: Vec::new() }));
-                let t = drifter_core::explorer::look::ease(fade.since.elapsed().as_secs_f64() / GLOW.as_secs_f64());
+                let left = fade.old_alpha(Instant::now());
                 let at = Vec2::new(f64::from(fade.at.0), f64::from(fade.at.1)) / f64::from(scale());
-                canvas.stamp(&fade.old, at, 1.0 - t);
+                canvas.stamp(&fade.old, at, left);
                 let image = canvas.image;
                 self.show(&image, Some(fade.area));
                 self.last = Some(image);
-                if let Some(fade) = fading.filter(|_| t < 1.0) {
+                if let Some(fade) = fading.filter(|_| left > 0.0) {
                     self.fade = Some(fade);
                 }
                 return;
@@ -655,7 +618,7 @@ impl Explorer {
             let old = crop(&image, area).filter(|_| self.model.menu.is_none() && self.model.dragging.is_none() && part.is_none());
             let image = self.look.repaint(image, size, &Paint { clip: Some(area), ..job });
             if let (Some((at, old)), Some((_, new))) = (old, crop(&image, area)) {
-                self.fade = Some(Fade { area, at, old, new, since: Instant::now() });
+                self.fade = Some(tween::Fade::new(area, at, old, new, GLOW));
             }
             before = Some(image);
             part = Some(part.map_or(area, |had| join(had, area)));
@@ -735,10 +698,11 @@ impl Explorer {
     }
 
     fn glide(&mut self) {
-        let Some(glide) = self.glide.as_mut() else {
+        let Some((side, glide)) = self.glide.as_mut() else {
             return;
         };
-        let now = match glide.side {
+        let side = *side;
+        let now = match side {
             true => self.model.tree_scroll,
             false => self.model.scroll,
         };
@@ -746,18 +710,15 @@ impl Explorer {
             self.glide = None;
             return;
         }
-        let t = drifter_core::explorer::look::ease(glide.since.elapsed().as_secs_f64() / GLIDE.as_secs_f64());
-        let dense = f64::from(scale());
-        let next = ((glide.from + (glide.to - glide.from) * t) * dense).round() / dense;
-        if next != now {
-            match glide.side {
+        let at = Instant::now();
+        if let Some(next) = glide.step(at, f64::from(scale())) {
+            match side {
                 true => self.model.tree_scroll = next,
                 false => self.model.scroll = next,
             }
-            self.shifts.push((next - now, glide.side));
-            glide.shown = next;
+            self.shifts.push((next - now, side));
         }
-        if t >= 1.0 {
+        if glide.done(at) {
             self.glide = None;
         }
     }
@@ -1118,8 +1079,8 @@ impl PointerHandler for Explorer {
                         false => (horizontal.absolute, vertical.absolute),
                     };
                     let shown = (self.model.scroll, self.model.tree_scroll);
-                    if let Some(glide) = &self.glide {
-                        match glide.side {
+                    if let Some((side, glide)) = &self.glide {
+                        match side {
                             true => self.model.tree_scroll = glide.to,
                             false => self.model.scroll = glide.to,
                         }
@@ -1131,17 +1092,17 @@ impl PointerHandler for Explorer {
                     let moved = self.with_ui(|model, ui, lines| input::scroll(model, ui, lines, at, dx, dy, ctrl));
                     let (body, side) = (self.model.scroll - before.0, self.model.tree_scroll - before.1);
                     let plain = self.model.prefs.zoom == before.2 && self.model.view.mode == before.3;
-                    let side_glide = self.glide.as_ref().map(|glide| glide.side);
+                    let side_glide = self.glide.as_ref().map(|(side, _)| *side);
                     match (moved, plain, body != 0.0, side != 0.0) {
                         (true, true, true, false) if wheel && side_glide != Some(true) => {
                             let to = self.model.scroll;
                             self.model.scroll = shown.0;
-                            self.glide = Some(Glide { side: false, from: shown.0, to, shown: shown.0, since: Instant::now() });
+                            self.glide = Some((false, tween::Glide::new(shown.0, to, GLIDE)));
                         }
                         (true, true, false, true) if wheel && side_glide != Some(false) => {
                             let to = self.model.tree_scroll;
                             self.model.tree_scroll = shown.1;
-                            self.glide = Some(Glide { side: true, from: shown.1, to, shown: shown.1, since: Instant::now() });
+                            self.glide = Some((true, tween::Glide::new(shown.1, to, GLIDE)));
                         }
                         _ => {
                             self.glide = None;
