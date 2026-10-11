@@ -77,7 +77,7 @@ struct Activity {
     config_seen: Option<std::time::SystemTime>,
     show_seen: Option<std::time::SystemTime>,
     watched_at: Instant,
-    theme_checks: u64,
+    appearance: drifter_core::config::Appearance,
 }
 
 fn modified(path: &std::path::Path) -> Option<std::time::SystemTime> {
@@ -88,9 +88,9 @@ pub fn show_path() -> std::path::PathBuf {
     Config::state_dir().join("activity-show")
 }
 
-fn themed(config: &Config) -> Look {
-    let palette = drifter_core::theme::of(drifter_core::theme::now(config.appearance.style));
-    let accent = config.appearance.accent.map(|accent| accent.color()).unwrap_or([64, 128, 238]);
+fn themed(look: &drifter_core::config::Appearance) -> Look {
+    let palette = drifter_core::theme::of(drifter_core::theme::now(look.style));
+    let accent = look.accent.map(|accent| accent.color()).unwrap_or([64, 128, 238]);
     Look::themed(&palette, accent)
 }
 
@@ -100,7 +100,7 @@ pub fn run() -> Result<(), String> {
     drifter_core::lang::use_config(config.appearance.language.as_deref());
     let find = |px| Font::find(config.font_path(), px);
     let fonts = (find(13.0)?, find(11.5)?, find(22.0)?);
-    drifter_core::icon::set_theme(config.appearance.icons.clone());
+    drifter_core::icon::follow(&config.appearance);
 
     let connection = Connection::connect_to_env().map_err(|e| format!("no wayland: {e}"))?;
     let (globals, queue) = registry_queue_init(&connection).map_err(|e| format!("no wayland registry: {e}"))?;
@@ -113,7 +113,7 @@ pub fn run() -> Result<(), String> {
     let window = shell.create_window(surface, WindowDecorations::RequestServer, &qh);
     window.set_title(drifter_core::lang::t("Activity"));
     window.set_app_id(APP);
-    let look = themed(&config);
+    let look = themed(&config.appearance);
     let least = look.least();
     window.set_min_size(Some((least.x as u32, least.y as u32)));
     window.commit();
@@ -199,7 +199,7 @@ pub fn run() -> Result<(), String> {
         config_seen: modified(&path),
         show_seen: modified(&show_path()),
         watched_at: Instant::now(),
-        theme_checks: 0,
+        appearance: config.appearance.clone(),
     };
     while !app.exit {
         events
@@ -320,18 +320,22 @@ impl Activity {
         if seen != self.config_seen {
             self.config_seen = seen;
             if let Ok(config) = Config::load_from(&path) {
-                drifter_core::icon::set_theme(config.appearance.icons.clone());
-                self.look = themed(&config);
+                drifter_core::icon::follow(&config.appearance);
+                self.look = themed(&config.appearance);
+                self.appearance = config.appearance.clone();
                 self.stale = true;
             }
         }
-        self.theme_checks += 1;
-        if self.theme_checks % 120 == 0 {
-            let again = themed(&Config::load_from(&path).unwrap_or_default());
-            if again != self.look {
-                self.look = again;
-                self.stale = true;
-            }
+        if drifter_core::icon::follow(&self.appearance) {
+            self.icons.clear();
+            self.missing.clear();
+            self.load_icons();
+            self.stale = true;
+        }
+        let again = themed(&self.appearance);
+        if again != self.look {
+            self.look = again;
+            self.stale = true;
         }
         let show = modified(&show_path());
         if show != self.show_seen {

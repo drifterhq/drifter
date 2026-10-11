@@ -185,7 +185,7 @@ pub fn run() -> Result<(), String> {
         .and_then(|path| drifter_core::image::load(&path).ok())
         .map(small);
     let apps = drifter_core::desktop::installed();
-    drifter_core::icon::set_theme(config.appearance.icons.clone());
+    drifter_core::icon::follow(&config.appearance);
     let mut model = read_model(&config);
     model.sound = read_sound();
     model.autostarts = drifter_core::autostart::installed();
@@ -468,6 +468,21 @@ fn themed(model: &Model, side_scroll: f64) -> Look {
         accent: accent(model),
         side_scroll,
         ..Look::themed(&drifter_core::theme::of(drifter_core::theme::now(model.appearance.style)))
+    }
+}
+
+impl Settings {
+    fn follow_look(&mut self) {
+        if drifter_core::icon::follow(&self.model.appearance) {
+            self.icons.clear();
+            self.load_row_icons();
+            self.stale = true;
+        }
+        let again = themed(&self.model, self.look.side_scroll);
+        if again != self.look {
+            self.look = again;
+            self.stale = true;
+        }
     }
 }
 
@@ -1359,6 +1374,7 @@ impl Settings {
     fn watch(&mut self) {
         self.settle_agent();
         self.take_ask(true);
+        self.follow_look();
         if self.sheet.is_some() || self.holding.is_some() {
             return;
         }
@@ -2702,8 +2718,7 @@ impl Settings {
             }
         }
 
-        if self.model.appearance.icons != before.appearance.icons {
-            drifter_core::icon::set_theme(self.model.appearance.icons.clone());
+        if drifter_core::icon::follow(&self.model.appearance) {
             self.icons.clear();
             self.load_row_icons();
         }

@@ -188,7 +188,7 @@ pub fn open(
         false => Tunables::from(&config.motion),
     };
     crate::apps::set_env("DRIFTER_RENDERER", Some(gl.clone()));
-    drifter_core::icon::set_theme(config.appearance.icons.clone());
+    drifter_core::icon::follow(&config.appearance);
     let style = drifter_core::theme::now(config.appearance.style);
     tell_gnome(None, &config.appearance, Some(style));
     tell_buttons(config.window.gtk_layout());

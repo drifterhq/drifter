@@ -1251,6 +1251,9 @@ Auto turns dark at dusk and light at dawn, with the wallpaper sky. GTK, libadwai
 Icons and pointer
 = Icônes et pointeur
 
+Drifter, follows light and dark
+= Drifter, suit le mode clair et sombre
+
 Icon theme
 = Thème d’icônes
 

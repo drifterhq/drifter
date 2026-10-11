@@ -31,7 +31,7 @@ pub fn roots() -> Vec<PathBuf> {
 
 static CHOSEN: Mutex<Option<String>> = Mutex::new(None);
 
-pub fn set_theme(theme: Option<String>) {
+pub fn set_theme(theme: Option<String>) -> bool {
     let changed = match CHOSEN.lock() {
         Ok(mut held) if *held != theme => {
             *held = theme;
@@ -42,6 +42,32 @@ pub fn set_theme(theme: Option<String>) {
     if changed && let Ok(mut seen) = SEEN.lock() {
         *seen = None;
     }
+    changed
+}
+
+pub const DARK: &str = "drifter-icons-dark";
+pub const LIGHT: &str = "drifter-icons-light";
+
+pub fn theme_for(picked: Option<&str>, style: crate::config::Style, roots: &[PathBuf]) -> Option<String> {
+    if let Some(picked) = picked {
+        return Some(picked.to_string());
+    }
+    let ours = match style {
+        crate::config::Style::Light => LIGHT,
+        _ => DARK,
+    };
+    roots
+        .iter()
+        .any(|root| root.join(ours).join("index.theme").is_file())
+        .then(|| ours.to_string())
+}
+
+pub fn now_for(look: &crate::config::Appearance) -> Option<String> {
+    theme_for(look.icons.as_deref(), crate::theme::now(look.style), &roots())
+}
+
+pub fn follow(look: &crate::config::Appearance) -> bool {
+    set_theme(now_for(look))
 }
 
 pub fn chosen_theme() -> Option<String> {
@@ -297,6 +323,20 @@ mod tests {
     fn touch(path: &Path) {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, b"x").unwrap();
+    }
+
+    #[test]
+    fn our_themes_follow_the_look_unless_one_is_picked() {
+        let root = scratch("ours");
+        touch(&root.join("drifter-icons-dark/index.theme"));
+        touch(&root.join("drifter-icons-light/index.theme"));
+        let roots = [root];
+        let dark = crate::config::Style::Dark;
+        let light = crate::config::Style::Light;
+        assert_eq!(theme_for(None, dark, &roots).as_deref(), Some(DARK));
+        assert_eq!(theme_for(None, light, &roots).as_deref(), Some(LIGHT));
+        assert_eq!(theme_for(Some("Papirus"), light, &roots).as_deref(), Some("Papirus"));
+        assert_eq!(theme_for(None, dark, &[scratch("none")]), None);
     }
 
     #[test]

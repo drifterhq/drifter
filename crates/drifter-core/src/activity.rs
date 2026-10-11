@@ -10,6 +10,9 @@ pub const ACTIVITY_APP: &str = "drifter-activity";
 pub const SETTINGS_APP: &str = "drifter-settings";
 
 pub fn art_icon() -> String {
+    if crate::icon::find(ACTIVITY_APP, None, 64).is_some() {
+        return ACTIVITY_APP.to_string();
+    }
     static FOUND: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     FOUND
         .get_or_init(|| {

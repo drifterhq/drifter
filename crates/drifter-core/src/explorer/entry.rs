@@ -41,7 +41,7 @@ impl Sort {
     }
 }
 
-const KINDS: [(&str, &str); 64] = [
+const KINDS: &[(&str, &str)] = &[
     ("png", "image/png"),
     ("jpg", "image/jpeg"),
     ("jpeg", "image/jpeg"),
@@ -52,31 +52,54 @@ const KINDS: [(&str, &str); 64] = [
     ("tif", "image/tiff"),
     ("tiff", "image/tiff"),
     ("heic", "image/heic"),
+    ("heif", "image/heif"),
     ("avif", "image/avif"),
     ("ico", "image/vnd.microsoft.icon"),
+    ("cr2", "image/x-canon-cr2"),
+    ("nef", "image/x-nikon-nef"),
+    ("arw", "image/x-sony-arw"),
+    ("dng", "image/x-adobe-dng"),
+    ("psd", "image/vnd.adobe.photoshop"),
+    ("xcf", "image/x-xcf"),
+    ("kra", "application/x-krita"),
+    ("ai", "application/illustrator"),
+    ("blend", "application/x-blender"),
     ("mp4", "video/mp4"),
-    ("m4v", "video/mp4"),
+    ("m4v", "video/x-m4v"),
     ("mkv", "video/x-matroska"),
     ("webm", "video/webm"),
     ("mov", "video/quicktime"),
     ("avi", "video/x-msvideo"),
+    ("wmv", "video/x-ms-wmv"),
+    ("flv", "video/x-flv"),
     ("mp3", "audio/mpeg"),
     ("flac", "audio/flac"),
     ("ogg", "audio/ogg"),
-    ("opus", "audio/ogg"),
+    ("opus", "audio/x-opus+ogg"),
     ("wav", "audio/x-wav"),
     ("m4a", "audio/mp4"),
     ("aac", "audio/aac"),
+    ("mid", "audio/midi"),
+    ("midi", "audio/midi"),
     ("pdf", "application/pdf"),
     ("txt", "text/plain"),
     ("md", "text/markdown"),
-    ("log", "text/plain"),
+    ("log", "text/x-log"),
     ("csv", "text/csv"),
+    ("rtf", "application/rtf"),
+    ("tex", "text/x-tex"),
+    ("epub", "application/epub+zip"),
     ("json", "application/json"),
     ("toml", "application/toml"),
     ("yaml", "application/x-yaml"),
     ("yml", "application/x-yaml"),
     ("xml", "application/xml"),
+    ("ini", "text/x-ini"),
+    ("conf", "text/x-conf"),
+    ("env", "text/x-dotenv"),
+    ("db", "application/vnd.sqlite3"),
+    ("sqlite", "application/vnd.sqlite3"),
+    ("desktop", "application/x-desktop"),
     ("html", "text/html"),
     ("htm", "text/html"),
     ("css", "text/css"),
@@ -88,24 +111,52 @@ const KINDS: [(&str, &str); 64] = [
     ("c", "text/x-csrc"),
     ("h", "text/x-chdr"),
     ("cpp", "text/x-c++src"),
+    ("hpp", "text/x-c++hdr"),
     ("java", "text/x-java"),
     ("sh", "application/x-shellscript"),
+    ("rb", "application/x-ruby"),
+    ("php", "application/x-php"),
+    ("lua", "text/x-lua"),
+    ("sql", "application/sql"),
     ("glsl", "text/plain"),
     ("shader", "text/plain"),
-    ("conf", "text/plain"),
-    ("ini", "text/plain"),
     ("zip", "application/zip"),
     ("tar", "application/x-tar"),
     ("gz", "application/gzip"),
+    ("tgz", "application/x-compressed-tar"),
     ("xz", "application/x-xz"),
     ("zst", "application/zstd"),
+    ("bz2", "application/x-bzip2"),
     ("7z", "application/x-7z-compressed"),
+    ("rar", "application/vnd.rar"),
+    ("iso", "application/x-cd-image"),
+    ("img", "application/x-raw-disk-image"),
     ("deb", "application/vnd.debian.binary-package"),
     ("rpm", "application/x-rpm"),
+    ("exe", "application/x-ms-dos-executable"),
+    ("msi", "application/x-msi"),
+    ("appimage", "application/vnd.appimage"),
+    ("flatpakref", "application/vnd.flatpak.ref"),
+    ("snap", "application/vnd.snap"),
+    ("apk", "application/vnd.android.package-archive"),
+    ("jar", "application/x-java-archive"),
     ("odt", "application/vnd.oasis.opendocument.text"),
     ("docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+    ("doc", "application/msword"),
+    ("ods", "application/vnd.oasis.opendocument.spreadsheet"),
     ("xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
-    ("iso", "application/x-cd-image"),
+    ("xls", "application/vnd.ms-excel"),
+    ("odp", "application/vnd.oasis.opendocument.presentation"),
+    ("pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"),
+    ("odg", "application/vnd.oasis.opendocument.graphics"),
+    ("ttf", "font/ttf"),
+    ("otf", "font/otf"),
+    ("torrent", "application/x-bittorrent"),
+    ("ics", "text/calendar"),
+    ("vcf", "text/vcard"),
+    ("pem", "application/x-pem-key"),
+    ("key", "application/x-pem-key"),
+    ("url", "application/x-mswinurl"),
 ];
 
 pub const FOLDER: &str = "inode/directory";
@@ -142,7 +193,9 @@ pub fn family(mime: &str, runs: bool) -> Family {
         "application/pdf" => Family::Pdf,
         "application/json" | "application/toml" | "application/x-yaml" | "application/xml" | "application/x-shellscript" => Family::Text,
         "application/zip" | "application/x-tar" | "application/gzip" | "application/x-xz" | "application/zstd" | "application/x-7z-compressed"
-        | "application/vnd.debian.binary-package" | "application/x-rpm" | "application/x-cd-image" => Family::Archive,
+        | "application/vnd.debian.binary-package" | "application/x-rpm" | "application/x-cd-image" | "application/x-compressed-tar"
+        | "application/x-bzip2" | "application/vnd.rar" | "application/x-raw-disk-image" => Family::Archive,
+        "application/msword" | "application/vnd.ms-excel" | "application/rtf" => Family::Document,
         _ if mime.starts_with("image/") => Family::Image,
         _ if mime.starts_with("video/") => Family::Video,
         _ if mime.starts_with("audio/") => Family::Audio,
@@ -150,6 +203,13 @@ pub fn family(mime: &str, runs: bool) -> Family {
         _ if mime.contains("opendocument") || mime.contains("officedocument") => Family::Document,
         _ if runs => Family::Program,
         _ => Family::Other,
+    }
+}
+
+pub fn icon_names(mime: &str, family: Family) -> Vec<String> {
+    match family {
+        Family::Program | Family::Folder => vec![family.icon().to_string()],
+        _ => vec![mime.replace('/', "-"), family.icon().to_string()],
     }
 }
 
@@ -462,6 +522,10 @@ mod tests {
         assert_eq!(family(mime_of("clip.mkv", false), false), Family::Video);
         assert_eq!(family(mime_of("notes", false), true), Family::Program);
         assert_eq!(family(mime_of("x", true), false), Family::Folder);
+        assert_eq!(family(mime_of("notes.log", false), false), Family::Text);
+        assert_eq!(family(mime_of("backup.tar.bz2", false), false), Family::Archive);
+        assert_eq!(icon_names(mime_of("song.flac", false), Family::Audio), ["audio-flac", "audio-x-generic"]);
+        assert_eq!(icon_names(mime_of("run", false), Family::Program), ["application-x-executable"]);
         assert_eq!(entry("song.flac", false, 1).kind_words(), "FLAC audio");
         assert_eq!(entry("album.tar.gz", false, 1).kind_words(), "TAR.GZ archive");
         assert_eq!(entry("Backup.TAR.XZ", false, 1).kind_words(), "TAR.XZ archive");

@@ -39,6 +39,13 @@ DESKTOP
 sudo chmod 0644 /usr/share/wayland-sessions/drifter.desktop
 echo "wrote /usr/share/wayland-sessions/drifter.desktop, which runs $here/scripts/drifter-session"
 
+icons="${XDG_DATA_HOME:-$HOME/.local/share}/icons"
+mkdir -p "$icons"
+for theme in drifter-icons-dark drifter-icons-light; do
+    ln -sfn "$here/icons/$theme" "$icons/$theme"
+done
+echo "linked the Drifter icon themes into $icons"
+
 if [ ! -x "$here/target/release/drifter" ]; then
     echo "build it before you log in: cargo build --release"
 fi

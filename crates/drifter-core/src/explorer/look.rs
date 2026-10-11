@@ -175,14 +175,21 @@ pub struct Art {
 
 impl Art {
     pub fn icon(&self, name: &str, side: f64) -> Option<&Image> {
+        self.first_icon(&[name], side)
+    }
+
+    pub fn first_icon(&self, names: &[&str], side: f64) -> Option<&Image> {
         let px = crate::paint::dense(side);
-        let key = (name.to_string(), px);
-        if let Some(found) = self.icons.get(&key) {
-            return Some(found);
-        }
-        let want = Want::Icon(key.0, px);
-        if !self.missing.contains(&want) {
-            self.wants.borrow_mut().push(want);
+        for name in names {
+            let key = (name.to_string(), px);
+            if let Some(found) = self.icons.get(&key) {
+                return Some(found);
+            }
+            let want = Want::Icon(key.0, px);
+            if !self.missing.contains(&want) {
+                self.wants.borrow_mut().push(want);
+                return None;
+            }
         }
         None
     }
@@ -1062,9 +1069,11 @@ impl Look {
         let card = rect(at.x + 14.0, at.y + 10.0, fonts.body.width_of(&shown) + 46.0, 30.0);
         canvas.shadow(card, 8.0, 12.0, self.drop);
         canvas.round_rect(card, 8.0, if self.dark { self.raised } else { [255, 255, 255] }, 0.96);
-        let family = paths.first().and_then(|path| Entry::at(path)).map_or(Family::Other, |one| one.family());
+        let first = paths.first().and_then(|path| Entry::at(path));
+        let family = first.as_ref().map_or(Family::Other, |one| one.family());
+        let mime = first.as_ref().map_or(super::entry::UNKNOWN, |one| one.mime);
         let icon = rect(card.origin.x + 8.0, card.center().y - 9.0, 18.0, 18.0);
-        self.icon_or_glyph(canvas, job.art, family.icon(), family, icon);
+        self.file_or_glyph(canvas, job.art, mime, family, icon);
         self.text(canvas, fonts.body, &shown, self.ink, Vec2::new(card.origin.x + 34.0, card.center().y), card.size.x - 40.0);
         if paths.len() > 1 {
             let badge = Vec2::new(card.max().x - 2.0, card.origin.y + 2.0);
@@ -1440,7 +1449,17 @@ impl Look {
     }
 
     fn icon_or_glyph(&self, canvas: &mut Canvas, art: &Art, name: &str, family: Family, area: Rect) {
-        match art.icon(name, area.size.y) {
+        self.first_or_glyph(canvas, art, &[name], family, area);
+    }
+
+    fn file_or_glyph(&self, canvas: &mut Canvas, art: &Art, mime: &str, family: Family, area: Rect) {
+        let names = super::entry::icon_names(mime, family);
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        self.first_or_glyph(canvas, art, &names, family, area);
+    }
+
+    fn first_or_glyph(&self, canvas: &mut Canvas, art: &Art, names: &[&str], family: Family, area: Rect) {
+        match art.first_icon(names, area.size.y) {
             Some(image) => {
                 let at = (area.center() - logical(image) / 2.0).round();
                 if !self.dark && pale(image) {
@@ -1498,11 +1517,10 @@ impl Look {
             canvas.stamp(&shown, at.round(), 1.0);
             return;
         }
-        let name = match family {
-            Family::Folder => folder_icon(&entry.path, model),
-            _ => family.icon(),
-        };
-        self.icon_or_glyph(canvas, art, name, family, area);
+        match family {
+            Family::Folder => self.icon_or_glyph(canvas, art, folder_icon(&entry.path, model), family, area),
+            _ => self.file_or_glyph(canvas, art, entry.mime, family, area),
+        }
         if entry.link {
             let badge = rect(area.origin.x, area.max().y - area.size.y * 0.32, area.size.y * 0.32, area.size.y * 0.32);
             canvas.circle(badge.center(), badge.size.x / 2.0, self.card, 1.0);
@@ -1553,8 +1571,10 @@ impl Look {
                     self.text(&mut canvas, fonts.body, name, ink, Vec2::new(area.origin.x + 34.0, middle), area.size.x - 40.0);
                 }
                 Line::Recent { path, name } => {
-                    let family = Entry::at(path).map_or(Family::Other, |one| one.family());
-                    self.icon_or_glyph(&mut canvas, job.art, family.icon(), family, rect(area.origin.x + 8.0, middle - 9.0, 18.0, 18.0));
+                    let one = Entry::at(path);
+                    let family = one.as_ref().map_or(Family::Other, |one| one.family());
+                    let mime = one.as_ref().map_or(super::entry::UNKNOWN, |one| one.mime);
+                    self.file_or_glyph(&mut canvas, job.art, mime, family, rect(area.origin.x + 8.0, middle - 9.0, 18.0, 18.0));
                     self.text(&mut canvas, fonts.body, name, ink, Vec2::new(area.origin.x + 34.0, middle), area.size.x - 40.0);
                 }
                 Line::Drive { name, drive, .. } => {

@@ -265,8 +265,8 @@ impl State {
             self.gtk_layout = layout.clone();
             tell_buttons(layout);
         }
-        if was.icons != look.icons {
-            drifter_core::icon::set_theme(look.icons.clone());
+        let icons_moved = drifter_core::icon::follow(&look);
+        if icons_moved {
             self.app_icons.clear();
             self.no_icon.clear();
         }
@@ -283,7 +283,7 @@ impl State {
             .accent
             .map(|accent| accent.color())
             .unwrap_or(drifter_core::menu::ACCENT);
-        if paths == self.asset_paths && !cursor_moved && was.icons == look.icons {
+        if paths == self.asset_paths && !cursor_moved && !icons_moved {
             return;
         }
         if paths[0] != self.asset_paths[0] || cursor_moved {
@@ -747,7 +747,7 @@ pub(super) fn tell_gnome(
     if let Some(accent) = changed(|look| look.accent.map(|a| a.word().to_string())) {
         sets.push((FACE, "accent-color", accent));
     }
-    if let Some(icons) = changed(|look| look.icons.clone()) {
+    if let Some(icons) = drifter_core::icon::now_for(look).filter(|icons| told_icons(icons)) {
         sets.push((FACE, "icon-theme", icons));
     }
     if let Some(cursor) = changed(|look| look.cursor_theme.clone()) {
@@ -761,6 +761,17 @@ pub(super) fn tell_gnome(
         sets.push((FACE, "cursor-size", look.cursor_size.to_string()));
     }
     gsettings(sets);
+}
+
+fn told_icons(icons: &str) -> bool {
+    static TOLD: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+    match TOLD.lock() {
+        Ok(mut told) if told.as_deref() != Some(icons) => {
+            *told = Some(icons.to_string());
+            true
+        }
+        _ => false,
+    }
 }
 
 pub(super) fn tell_buttons(layout: String) {

@@ -357,7 +357,7 @@ impl Model {
                         crate::lang::t("Icon theme"),
                         choose_and_reset(look.icons.is_some()),
                     )
-                    .detail(&named(&look.icons, crate::lang::t("The system choice"))),
+                    .detail(&named(&look.icons, crate::lang::t("Drifter, follows light and dark"))),
                     Row::new(
                         Id::CursorTheme,
                         crate::lang::t("Cursor theme"),

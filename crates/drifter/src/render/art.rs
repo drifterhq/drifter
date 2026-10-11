@@ -197,7 +197,7 @@ pub(super) fn load_dock_art(
         };
     let trash = built(&trash_image, "trash");
     let cog = built(&cog_image, "settings");
-    (trash, cog, from_art("app"))
+    (trash, cog, themed(&["application-x-executable"]).or_else(|| from_art("app")))
 }
 
 pub(super) fn tile_skin(name: &str, image: Image) -> Image {
