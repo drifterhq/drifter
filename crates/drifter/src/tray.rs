@@ -327,7 +327,12 @@ fn named(proxy: &zbus::blocking::Proxy<'_>) -> Option<(Image, bool)> {
     }
     let theme: String = proxy.get_property("IconThemePath").unwrap_or_default();
     let own = (!theme.is_empty()).then(|| std::path::PathBuf::from(theme));
-    let path = drifter_core::icon::find(&name, own.as_deref(), 24)?;
+    // The symbolic twin is tinted to match the bar, so prefer it when the theme has one.
+    let path = match name.ends_with("-symbolic") {
+        true => None,
+        false => drifter_core::icon::find(&format!("{name}-symbolic"), own.as_deref(), 24),
+    }
+    .or_else(|| drifter_core::icon::find(&name, own.as_deref(), 24))?;
     let image = drifter_core::image::load_sized(&path, 24).ok()?;
     let image = match (image.width, image.height) {
         (24, 24) => image,
