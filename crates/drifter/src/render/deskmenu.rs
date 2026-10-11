@@ -38,8 +38,8 @@ pub(super) struct Alert {
     pub action: Action,
     pub ticked: bool,
     pub since: Instant,
-    pub shown: u64,
     pub art: Option<TextureBuffer<Tex>>,
+    pub pill: Option<TextureBuffer<Tex>>,
     pub rect: Rect,
     pub lane: worker::Lane,
 }
@@ -542,7 +542,7 @@ impl State {
         }
     }
 
-    fn alert_look(&self) -> drifter_core::alert::Look {
+    pub(super) fn alert_look(&self) -> drifter_core::alert::Look {
         let plain = drifter_core::alert::Look::themed(&self.palette, self.look.accent).with_tick();
         drifter_core::alert::Look {
             back_alpha: self.veil(plain.back_alpha),
@@ -553,40 +553,35 @@ impl State {
     pub(super) fn ask_alert(&mut self, action: Action) {
         let look = self.alert_look();
         let since = Instant::now();
+        let pill = upload(&mut self.renderer, Some(&look.pill()), "alert bar").ok().flatten();
         self.alert = Some(Alert {
             action,
             ticked: drifter_core::reopen::wanted(),
             since,
-            shown: drifter_core::power::COUNTDOWN,
             art: None,
+            pill,
             rect: look.rect(self.screen),
             lane: worker::Lane::default(),
         });
         self.paint_alert();
         let _ = self.handle.insert_source(
-            Timer::from_duration(Duration::from_millis(250)),
-            move |_, _, state: &mut State| match state.tick_alert(since) {
-                true => TimeoutAction::ToDuration(Duration::from_millis(250)),
-                false => TimeoutAction::Drop,
+            Timer::from_duration(Duration::from_secs(self.power_rules.countdown)),
+            move |_, _, state: &mut State| {
+                if state.alert.as_ref().is_some_and(|open| open.since == since) {
+                    state.confirm_alert();
+                }
+                TimeoutAction::Drop
             },
         );
     }
 
-    fn tick_alert(&mut self, since: Instant) -> bool {
-        let Some(open) = self.alert.as_mut().filter(|open| open.since == since) else {
-            return false;
-        };
-        let left = drifter_core::power::COUNTDOWN.saturating_sub(since.elapsed().as_secs());
-        if left == 0 {
-            self.confirm_alert();
-            return false;
+    pub(super) fn alert_left(&self) -> Option<f64> {
+        let open = self.alert.as_ref()?;
+        if self.window_pace <= 0.0 {
+            return Some(1.0);
         }
-        if left != open.shown {
-            open.shown = left;
-            self.paint_alert();
-            self.kick_now();
-        }
-        true
+        let countdown = self.power_rules.countdown.max(1) as f64;
+        Some((1.0 - open.since.elapsed().as_secs_f64() / countdown).clamp(0.0, 1.0))
     }
 
     pub(super) fn paint_alert(&mut self) {
@@ -602,7 +597,7 @@ impl State {
             Action::Reboot => (drifter_core::lang::t("Restart now?"), drifter_core::lang::t("Restart")),
             _ => (drifter_core::lang::t("Shut down now?"), drifter_core::lang::t("Shut Down")),
         };
-        let message = open.action.countdown(open.shown);
+        let message = open.action.notice();
         let ticked = open.ticked;
         let rect = open.rect;
         let look = self.alert_look();

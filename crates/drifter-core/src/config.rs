@@ -985,7 +985,7 @@ pub enum PowerKey {
     Nothing,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Power {
     #[serde(default)]
@@ -994,6 +994,23 @@ pub struct Power {
     pub lid: Lid,
     #[serde(default)]
     pub button: PowerKey,
+    #[serde(default = "countdown")]
+    pub countdown: u64,
+}
+
+fn countdown() -> u64 {
+    crate::power::COUNTDOWN
+}
+
+impl Default for Power {
+    fn default() -> Self {
+        Power {
+            sleep_after: 0,
+            lid: Lid::default(),
+            button: PowerKey::default(),
+            countdown: countdown(),
+        }
+    }
 }
 
 pub const LONGEST_NOTE: u32 = 120;
@@ -1725,6 +1742,12 @@ impl Config {
             return Err(ConfigError::Invalid(
                 "appearance cursor_size is pixels from 8 to 256".into(),
             ));
+        }
+        let (least, most) = crate::power::COUNTDOWN_RANGE;
+        if !(least..=most).contains(&self.power.countdown) {
+            return Err(ConfigError::Invalid(format!(
+                "power countdown is seconds from {least} to {most}"
+            )));
         }
         if self.power.sleep_after > LONGEST_LOCK {
             return Err(ConfigError::Invalid(format!(

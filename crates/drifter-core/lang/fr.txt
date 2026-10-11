@@ -3518,3 +3518,18 @@ Lift
 
 What an icon does under the pointer
 = Ce que fait une icône sous le pointeur
+
+Countdown
+= Compte à rebours
+
+How long Log Out, Restart and Shut Down wait
+= Le délai de Déconnexion, Redémarrer et Éteindre
+
+You will be logged out automatically.
+= Vous serez déconnecté automatiquement.
+
+Your computer will restart automatically.
+= L’ordinateur va redémarrer automatiquement.
+
+Your computer will shut down automatically.
+= L’ordinateur va s’éteindre automatiquement.

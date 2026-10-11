@@ -3521,3 +3521,18 @@ Lift
 
 What an icon does under the pointer
 = Was ein Symbol unter dem Zeiger tut
+
+Countdown
+= Countdown
+
+How long Log Out, Restart and Shut Down wait
+= Wie lange Abmelden, Neustart und Ausschalten warten
+
+You will be logged out automatically.
+= Sie werden automatisch abgemeldet.
+
+Your computer will restart automatically.
+= Der Computer startet automatisch neu.
+
+Your computer will shut down automatically.
+= Der Computer schaltet sich automatisch aus.

@@ -6,6 +6,8 @@ use drifter_core::motion::{appear, vanish};
 pub(super) const ROUND_PATCH: f64 = 12.0;
 const FADE_IN: f64 = 0.16;
 const FADE_OUT: f64 = 0.12;
+const ALERT_IN: f64 = 0.22;
+const ALERT_FROM_SCALE: f64 = 0.90;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) enum Pane {
@@ -148,7 +150,24 @@ impl State {
                 layers.push(Layer::new(art, panel, Shadow::Modal));
                 Some((layers, panel))
             }
-            Pane::Alert => self.alert.as_ref().and_then(|open| one(open.art.as_ref()?, open.rect, Shadow::Modal)),
+            Pane::Alert => {
+                let open = self.alert.as_ref()?;
+                let art = open.art.as_ref()?;
+                let mut layers = Vec::new();
+                if let (Some(pill), Some(left)) = (open.pill.as_ref(), self.alert_left()) {
+                    let drain = self.alert_look().drain();
+                    let width = drain.size.x * left;
+                    if width >= 0.5 {
+                        let source = Rect::new(Vec2::ZERO, Vec2::new(width, drain.size.y));
+                        layers.push(Layer {
+                            source: Some(source),
+                            ..Layer::new(pill, Rect::new(open.rect.origin + drain.origin, source.size), Shadow::None)
+                        });
+                    }
+                }
+                layers.push(Layer::new(art, open.rect, Shadow::Modal));
+                Some((layers, open.rect))
+            }
             Pane::Prompt => {
                 let (art, rect) = self.prompt_art.as_ref()?;
                 let mut layers = vec![Layer::new(art, *rect, Shadow::Modal)];
@@ -262,6 +281,18 @@ impl State {
         let (alpha, scale) = match fader.gone {
             Some(gone) => vanish(now.duration_since(gone).as_secs_f64() / (FADE_OUT / pace), self.window_still),
             None if pane.grows_itself() => (1.0, 1.0),
+            None if pane == Pane::Alert => {
+                let t = (now.duration_since(fader.born).as_secs_f64() / (ALERT_IN / pace)).clamp(0.0, 1.0);
+                let grow = match pace >= 1.0 {
+                    true => drifter_core::drawer::ease(t),
+                    false => drifter_core::motion::smooth(t),
+                };
+                let scale = match self.window_still {
+                    true => 1.0,
+                    false => ALERT_FROM_SCALE + (1.0 - ALERT_FROM_SCALE) * grow,
+                };
+                (drifter_core::motion::smooth(t), scale)
+            }
             None => appear(now.duration_since(fader.born).as_secs_f64() / (FADE_IN / pace), self.window_still),
         };
         (alpha as f32, scale)

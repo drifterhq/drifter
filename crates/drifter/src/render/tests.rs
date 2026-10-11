@@ -541,6 +541,28 @@ fn the_snap_preview_matches_where_the_window_lands() {
 }
 
 #[test]
+fn the_power_alert_drains() {
+    let mut run = start("alert-drain", &Config::default(), None);
+    run.screen.state.ask_alert(drifter_core::power::Action::Reboot);
+    pump(&mut run.screen, |state| {
+        state.alert.as_ref().is_some_and(|open| open.art.is_some()) && !state.fades_busy()
+    });
+    let rect = run.screen.state.alert.as_ref().expect("the alert is up").rect;
+    let drain = run.screen.state.alert_look().drain();
+    let x = (rect.origin.x + drain.max().x - 8.0).round() as u32;
+    let y = (rect.origin.y + drain.center().y).round() as u32;
+    let full = run.shot("alert-full");
+    assert!(run.screen.state.alert_left().unwrap() > 0.9);
+    if let Some(open) = run.screen.state.alert.as_mut() {
+        open.since -= Duration::from_secs(55);
+    }
+    let low = run.shot("alert-low");
+    assert!(run.screen.state.alert_left().unwrap() < 0.1);
+    assert_ne!(pixel(&full, x, y), pixel(&low, x, y), "the end of the bar empties");
+    run.screen.state.alert = None;
+}
+
+#[test]
 fn an_open_menu_casts_a_shadow() {
     let mut run = start("menu-shadow", &Config::default(), None);
     let item = |id: i32, label: &str| drifter_core::menu::Item {

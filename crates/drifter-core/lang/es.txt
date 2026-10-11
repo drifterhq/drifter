@@ -3521,3 +3521,18 @@ Lift
 
 What an icon does under the pointer
 = Lo que hace un icono bajo el puntero
+
+Countdown
+= Cuenta atrás
+
+How long Log Out, Restart and Shut Down wait
+= Cuánto esperan Cerrar sesión, Reiniciar y Apagar
+
+You will be logged out automatically.
+= Se cerrará la sesión automáticamente.
+
+Your computer will restart automatically.
+= El equipo se reiniciará automáticamente.
+
+Your computer will shut down automatically.
+= El equipo se apagará automáticamente.

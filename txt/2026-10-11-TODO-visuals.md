@@ -202,8 +202,9 @@ How motion works today (all items use this):
   - Setting: `[dock] hover = "off" | "lift" | "magnify"` (default lift), `magnify: u32` 110..=200 % (default 150, check in `validate`). In `DockConfig` (config.rs:402-445). Rows after `DockFit` (settings.rs:1203): `Id::DockHover` `Segments [Off, Lift, Magnify]`; `Id::DockMagnify` `Slider { 110, 200, "%" }.enabled(hover == Magnify)`. Model flat fields (settings.rs:295-298), read ~470, set ~1856, write ~2167. Reload in `apply` (follow.rs:683-707).
   - Tests: core dock.rs `a_hover_lifts_a_few_pixels_and_settles`, `the_magnified_icon_under_the_pointer_is_biggest_and_the_row_stays_centered`, `magnify_at_1_matches_slot_rect`.
 
-- [ ] **11 [MED] Power alert grows in and drains a bar; countdown setting.**
+- [x] **11 [MED] Power alert grows in and drains a bar; countdown setting.**
   - Waits on: 1.
+  - Done with Option A: a static message and one timer.
   - The alert is in render/deskmenu.rs (`Alert` :38-46, `ask_alert` :564-584, `tick_alert` :586-601, `paint_alert` :603-636, `alert_elements` :676-683) and core alert.rs (`Look::paint` :92-136). `COUNTDOWN = 60` (core power.rs:53). It repaints the frosted art each second (deskmenu.rs:595-598).
   - Fix:
     - Grow-in via item 1: `Pane::Alert` with its own `ALERT_FROM_SCALE 0.90`, `ALERT_IN 0.22`; `drawer::ease` at Full, `smooth` at Calm; alpha only under reduce.

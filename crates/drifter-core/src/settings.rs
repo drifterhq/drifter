@@ -2651,6 +2651,7 @@ pub enum Id {
     CursorSize,
     Asset(usize),
     SleepAfter,
+    Countdown,
     Lid,
     PowerButton,
     Quiet,

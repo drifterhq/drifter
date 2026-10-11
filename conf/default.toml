@@ -220,6 +220,8 @@ sleep_after = 0
 lid = "suspend"
 # The power button: menu, suspend, off or nothing.
 button = "menu"
+# Seconds the log out, restart and shut down alerts wait, 10 to 60.
+countdown = 60
 
 [lock]
 # Minutes with no input before the screen locks. 0 never locks.

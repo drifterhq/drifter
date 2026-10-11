@@ -951,6 +951,18 @@ impl Model {
                         },
                     },
                 ),
+                Row::new(
+                    Id::Countdown,
+                    crate::lang::t("Countdown"),
+                    Control::Slider {
+                        least: crate::power::COUNTDOWN_RANGE.0 as f64,
+                        most: crate::power::COUNTDOWN_RANGE.1 as f64,
+                        value: power.countdown as f64,
+                        unit: " s",
+                        zero: None,
+                    },
+                )
+                .detail(crate::lang::t("How long Log Out, Restart and Shut Down wait")),
             ],
             footer: Some(crate::lang::t("A video that is playing keeps the computer awake.").into()),
             thumbs: None,
@@ -1154,6 +1166,10 @@ impl Model {
             }
             (Id::CursorSize, Value::Choice(n)) => {
                 self.appearance.cursor_size = CURSOR_SIZES[n.min(CURSOR_SIZES.len() - 1)]
+            }
+            (Id::Countdown, Value::Number(n)) => {
+                let (least, most) = crate::power::COUNTDOWN_RANGE;
+                self.power.countdown = n.round().clamp(least as f64, most as f64) as u64
             }
             (Id::SleepAfter, Value::Number(n)) => {
                 self.power.sleep_after = n.round().clamp(0.0, SLEEP_MOST) as u64
@@ -1437,6 +1453,9 @@ impl Model {
         }
 
         let (power, was) = (&self.power, &before.power);
+        if power.countdown != was.countdown {
+            put(doc, "power", "countdown", int(power.countdown));
+        }
         if power.sleep_after != was.sleep_after {
             put(doc, "power", "sleep_after", int(power.sleep_after));
         }
@@ -1578,6 +1597,7 @@ mod tests {
     fn power_notify_and_keyboard_options_round_trip() {
         let back = round_trip("[keyboard]\noptions = \"grp:alt_shift_toggle\"\n", |m| {
             m.set(Id::SleepAfter, Value::Number(30.0));
+            m.set(Id::Countdown, Value::Number(4.0));
             m.set(Id::Lid, Value::Choice(1));
             m.set(Id::PowerButton, Value::Choice(2));
             m.set(Id::Quiet, Value::Switch(true));
@@ -1587,6 +1607,7 @@ mod tests {
         });
         assert_eq!(back.notify.position, crate::config::NotePosition::BottomRight);
         assert_eq!(back.power.sleep_after, 30);
+        assert_eq!(back.power.countdown, 10, "the countdown clamps to its range");
         assert_eq!(back.power.lid, Lid::Lock);
         assert_eq!(back.power.button, PowerKey::Off);
         assert!(back.notify.quiet && back.notify.history);

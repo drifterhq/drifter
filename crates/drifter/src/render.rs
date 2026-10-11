@@ -772,6 +772,9 @@ impl State {
         if self.animating() {
             return Some(TICK);
         }
+        if self.alert.is_some() && self.window_pace > 0.0 {
+            return Some(EBB_TICK);
+        }
         if let Some(hud) = self.hud.as_ref() {
             return Some(hud.until.saturating_duration_since(Instant::now()).max(TICK));
         }

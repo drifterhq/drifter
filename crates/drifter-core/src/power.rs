@@ -51,17 +51,14 @@ impl Action {
 }
 
 pub const COUNTDOWN: u64 = 60;
+pub const COUNTDOWN_RANGE: (u64, u64) = (10, 60);
 
 impl Action {
-    pub fn countdown(self, left: u64) -> String {
-        let doing = match self {
-            Action::Logout => crate::lang::t("Logging out"),
-            Action::Reboot => crate::lang::t("Restarting"),
-            _ => crate::lang::t("Shutting down"),
-        };
-        match left {
-            1 => format!("{doing} in 1 second."),
-            left => format!("{doing} in {left} seconds."),
+    pub fn notice(self) -> &'static str {
+        match self {
+            Action::Logout => crate::lang::t("You will be logged out automatically."),
+            Action::Reboot => crate::lang::t("Your computer will restart automatically."),
+            _ => crate::lang::t("Your computer will shut down automatically."),
         }
     }
 }
@@ -102,10 +99,10 @@ mod tests {
     }
 
     #[test]
-    fn the_countdown_says_what_happens_and_when() {
-        assert_eq!(Action::Reboot.countdown(60), "Restarting in 60 seconds.");
-        assert_eq!(Action::Shutdown.countdown(2), "Shutting down in 2 seconds.");
-        assert_eq!(Action::Logout.countdown(1), "Logging out in 1 second.");
+    fn the_notice_says_what_happens() {
+        assert_eq!(Action::Reboot.notice(), "Your computer will restart automatically.");
+        assert_eq!(Action::Shutdown.notice(), "Your computer will shut down automatically.");
+        assert_eq!(Action::Logout.notice(), "You will be logged out automatically.");
     }
 
     #[test]

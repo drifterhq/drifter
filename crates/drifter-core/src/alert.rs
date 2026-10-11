@@ -58,6 +58,17 @@ impl Look {
             .then(|| Rect::new(Vec2::new(20.0, 92.0), Vec2::new(self.width - 40.0, 30.0)))
     }
 
+    pub fn drain(&self) -> Rect {
+        Rect::new(Vec2::new(20.0, self.height - 64.0), Vec2::new(self.width - 40.0, 4.0))
+    }
+
+    pub fn pill(&self) -> Image {
+        let drain = self.drain();
+        let mut canvas = Canvas::new(drain.size.x as u32, drain.size.y as u32);
+        canvas.round_rect(Rect::new(Vec2::ZERO, drain.size), 2.0, self.accent, 1.0);
+        canvas.image
+    }
+
     pub fn rect(&self, screen: Vec2) -> Rect {
         let size = Vec2::new(self.width, self.height);
         Rect::new(
@@ -115,6 +126,7 @@ impl Look {
             Vec2::new((size.x - crate::paint::logical(&body).x) / 2.0, 62.0).round(),
             1.0,
         );
+        canvas.round_rect(self.drain(), 2.0, self.off, 1.0);
         if let Some(row) = self.tick_row() {
             self.paint_tick(&mut canvas, row, ticked, font);
         }
@@ -177,6 +189,24 @@ mod tests {
         assert_eq!(look.hit(Vec2::new(10.0, 10.0)), None);
         assert!(confirm.max().x <= look.width && confirm.max().y <= look.height);
         assert_eq!(look.tick_row(), None);
+    }
+
+    #[test]
+    fn the_drain_bar_sits_between_the_text_and_the_buttons() {
+        let font = crate::text::Font::find(None, 13.0).unwrap();
+        let plain = Look::themed(&crate::theme::DARK, [10, 122, 255]);
+        for look in [plain, plain.with_tick()] {
+            let drain = look.drain();
+            let [cancel, _] = look.buttons();
+            let words = 62.0 + font.line_height();
+            assert!(drain.origin.y > words, "below the words: {drain:?}");
+            assert!(drain.max().y < cancel.origin.y, "above the buttons: {drain:?}");
+            if let Some(row) = look.tick_row() {
+                assert!(drain.origin.y >= row.max().y, "below the reopen row");
+            }
+            let pill = look.pill();
+            assert_eq!((pill.width, pill.height), (drain.size.x as u32, drain.size.y as u32));
+        }
     }
 
     #[test]
