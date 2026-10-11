@@ -34,6 +34,8 @@ const START: (u32, u32) = (1180, 700);
 const SETTLE: Duration = Duration::from_millis(16);
 const TOAST: Duration = Duration::from_secs(6);
 const FRAME_LATE: Duration = Duration::from_millis(100);
+const GLIDE: Duration = Duration::from_millis(150);
+const VIEW_FADE: Duration = Duration::from_millis(160);
 
 static SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
 
@@ -78,6 +80,10 @@ struct Activity {
     show_seen: Option<std::time::SystemTime>,
     watched_at: Instant,
     appearance: drifter_core::config::Appearance,
+    smooth: bool,
+    glide: Option<drifter_core::tween::Glide>,
+    view_fade: Option<(Image, Instant)>,
+    fading_only: bool,
 }
 
 fn modified(path: &std::path::Path) -> Option<std::time::SystemTime> {
@@ -200,11 +206,16 @@ pub fn run() -> Result<(), String> {
         show_seen: modified(&show_path()),
         watched_at: Instant::now(),
         appearance: config.appearance.clone(),
+        smooth: config.smooth_scroll(),
+        glide: None,
+        view_fade: None,
+        fading_only: false,
     };
     while !app.exit {
         events
-            .dispatch(app.stale.then_some(SETTLE), &mut app)
+            .dispatch((app.stale || app.glide.is_some() || app.view_fade.is_some()).then_some(SETTLE), &mut app)
             .map_err(|e| format!("event loop: {e}"))?;
+        app.step_motion();
         if std::mem::take(&mut app.resized) || (app.stale && app.frame_free()) {
             app.draw();
         }
@@ -323,6 +334,7 @@ impl Activity {
                 drifter_core::icon::follow(&config.appearance);
                 self.look = themed(&config.appearance);
                 self.appearance = config.appearance.clone();
+                self.smooth = config.smooth_scroll();
                 self.stale = true;
             }
         }
@@ -371,9 +383,67 @@ impl Activity {
         }
     }
 
+    fn step_motion(&mut self) {
+        let now = Instant::now();
+        if let Some(glide) = self.glide.as_mut() {
+            if let Some(next) = glide.step(now, f64::from(scale())) {
+                self.model.scroll = next;
+                self.scrolled_only = !self.stale || self.scrolled_only;
+                self.stale = true;
+            }
+            if glide.done(now) {
+                self.glide = None;
+            }
+        }
+        if self.view_fade.is_some() {
+            self.fading_only = !self.stale || self.fading_only;
+            self.stale = true;
+        }
+    }
+
+    fn wheel(&mut self, by: f64, click: bool) {
+        if !(click && self.smooth) || self.model.view == View::Hour {
+            self.glide = None;
+            self.scroll_by(by);
+            return;
+        }
+        let most = self.look.most_scroll(self.view(), &self.model);
+        let from = self.glide.map_or(self.model.scroll, |glide| glide.to);
+        let to = (from + by).clamp(0.0, most);
+        match self.glide.as_mut() {
+            Some(glide) => glide.retarget(to, Instant::now()),
+            None if to != self.model.scroll => self.glide = Some(drifter_core::tween::Glide::new(self.model.scroll, to, GLIDE)),
+            None => {}
+        }
+    }
+
+    fn crossfaded(&mut self, image: &Image) -> Option<Image> {
+        let (old, since) = self.view_fade.as_ref()?;
+        let left = 1.0 - drifter_core::tween::ease(since.elapsed().as_secs_f64() / VIEW_FADE.as_secs_f64());
+        if left <= 0.0 || old.width != image.width || old.height != image.height {
+            self.view_fade = None;
+            return None;
+        }
+        let mut canvas = drifter_core::paint::Canvas::on(image.clone());
+        canvas.stamp(old, Vec2::ZERO, left);
+        Some(canvas.image)
+    }
+
     fn draw(&mut self) {
         self.stale = false;
         drifter_core::paint::set_density(scale());
+        let fading = std::mem::take(&mut self.fading_only);
+        if fading
+            && !self.scrolled_only
+            && let Some(fresh) = self.last.take()
+        {
+            match self.crossfaded(&fresh) {
+                Some(mixed) => self.show(&mixed, None),
+                None => self.show(&fresh, None),
+            }
+            self.last = Some(fresh);
+            return;
+        }
         let scrolled = std::mem::take(&mut self.scrolled_only);
         if scrolled
             && self.model.view != View::Hour
@@ -390,7 +460,10 @@ impl Activity {
             (self.look.paint(self.view(), &self.model, &fonts, &self.icons), tall)
         };
         self.tall = tall;
-        self.show(&image, None);
+        match self.crossfaded(&image) {
+            Some(mixed) => self.show(&mixed, None),
+            None => self.show(&image, None),
+        }
         self.last = Some(image);
     }
 
@@ -558,6 +631,12 @@ impl Activity {
         match hit {
             Hit::View(view) => {
                 if self.model.view != view {
+                    self.glide = None;
+                    if self.smooth
+                        && let Some(old) = self.last.clone()
+                    {
+                        self.view_fade = Some((old, Instant::now()));
+                    }
                     self.model.view = view;
                     self.model.scroll = 0.0;
                     self.model.arrange();
@@ -880,7 +959,7 @@ impl PointerHandler for Activity {
                 PointerEventKind::Motion { .. } => self.motion(),
                 PointerEventKind::Press { button, .. } if button == BTN_LEFT => self.press(),
                 PointerEventKind::Release { button, .. } if button == BTN_LEFT => self.let_go(),
-                PointerEventKind::Axis { vertical, .. } => self.scroll_by(vertical.absolute),
+                PointerEventKind::Axis { vertical, .. } => self.wheel(vertical.absolute, vertical.discrete != 0),
                 PointerEventKind::Leave { .. } => {
                     self.let_go();
                     self.over_list = false;

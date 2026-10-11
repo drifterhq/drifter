@@ -124,6 +124,7 @@ struct Explorer {
     config_seen: Option<std::time::SystemTime>,
     watched_at: Instant,
     appearance: drifter_core::config::Appearance,
+    smooth: bool,
     tip_plan: u64,
     tip_seen: Option<Instant>,
 }
@@ -325,6 +326,7 @@ pub fn run() -> Result<(), String> {
         config_seen: modified(&path),
         watched_at: Instant::now(),
         appearance: config.appearance.clone(),
+        smooth: config.smooth_scroll(),
         tip_plan: 0,
         tip_seen: None,
     };
@@ -471,6 +473,7 @@ impl Explorer {
                 }
                 self.look = themed(&config.appearance);
                 self.appearance = config.appearance.clone();
+                self.smooth = config.smooth_scroll();
                 self.art.icons.clear();
                 self.art.missing.retain(|want| matches!(want, Want::Thumb(..)));
                 self.stale = true;
@@ -1094,12 +1097,12 @@ impl PointerHandler for Explorer {
                     let plain = self.model.prefs.zoom == before.2 && self.model.view.mode == before.3;
                     let side_glide = self.glide.as_ref().map(|(side, _)| *side);
                     match (moved, plain, body != 0.0, side != 0.0) {
-                        (true, true, true, false) if wheel && side_glide != Some(true) => {
+                        (true, true, true, false) if wheel && self.smooth && side_glide != Some(true) => {
                             let to = self.model.scroll;
                             self.model.scroll = shown.0;
                             self.glide = Some((false, tween::Glide::new(shown.0, to, GLIDE)));
                         }
-                        (true, true, false, true) if wheel && side_glide != Some(false) => {
+                        (true, true, false, true) if wheel && self.smooth && side_glide != Some(false) => {
                             let to = self.model.tree_scroll;
                             self.model.tree_scroll = shown.1;
                             self.glide = Some((true, tween::Glide::new(shown.1, to, GLIDE)));

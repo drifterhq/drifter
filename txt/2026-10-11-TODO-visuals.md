@@ -303,8 +303,9 @@ How motion works today (all items use this):
   - No setting.
   - Tests: core dock.rs `a_glide_starts_at_from_and_ends_at_to`, `the_row_recentres_by_half_a_step_when_one_app_opens`; drawer.rs `panel_slices` cover the width with no stretch.
 
-- [ ] **19 [MED] Settings and Activity get Explorer's Fade and Glide.**
+- [x] **19 [MED] Settings and Activity get Explorer's Fade and Glide.**
   - Waits on: G2.
+  - Done: tween.rs, Explorer on it, Settings wheel glide and page crossfade, Activity wheel glide and view crossfade, Mouse > Smooth scrolling gating all three. Open: the Settings switch knob animation (step 3, third bullet).
   - Explorer: `Glide` and `Fade` (explorer window.rs:64-78), `crop`/`paste` (:80-104), fields :147-148, consts :52-54, fade draw :608-626 and :654-659, swap crossfade :667-675, glide tick :737-763 (from loop :372-375), wheel :1113-1156 (discrete wheel only, :1115). `explorer::look::ease` (look.rs:316) equals `motion::smooth`.
   - Settings and Activity have no UI transitions (the About logo and Activity's hold-to-force bar are the only motion).
   - Fix:
