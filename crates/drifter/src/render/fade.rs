@@ -124,7 +124,7 @@ impl State {
                     let origin = a.origin.min(b.origin);
                     Rect::new(origin, a.max().max(b.max()) - origin)
                 })?;
-                let layers = open.arts.iter().map(|(art, rect)| Layer::new(art, *rect, Shadow::Menu)).collect();
+                let layers = open.arts.iter().rev().map(|(art, rect)| Layer::new(art, *rect, Shadow::Menu)).collect();
                 Some((layers, frame))
             }
             Pane::Tip => self.tip.as_ref().and_then(|(art, rect)| one(art, *rect, Shadow::Tip)),
@@ -360,6 +360,7 @@ impl State {
             true => Rect::new(centre + (rect.origin - centre) * scale, rect.size * scale),
             false => rect,
         };
+        let mut shadows = Vec::new();
         for layer in &layers {
             let drawn = place(layer.rect, layer.scales);
             let shown = alpha * layer.alpha;
@@ -370,8 +371,10 @@ impl State {
                 Some(source) => elements.push(Skin::Texture(faded(&layer.art, source, drawn, shown))),
                 None => elements.push(Skin::Texture(element(&layer.art, drawn, shown))),
             }
-            let shade = layer.shade.map_or(drawn, |rect| place(rect, layer.scales));
-            self.panel_shadow(shade, layer.shadow, alpha, elements);
+            shadows.push((layer.shade.map_or(drawn, |rect| place(rect, layer.scales)), layer.shadow));
+        }
+        for (shade, shadow) in shadows {
+            self.panel_shadow(shade, shadow, alpha, elements);
         }
     }
 
