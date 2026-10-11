@@ -165,6 +165,16 @@ impl State {
                         layers.push(Layer::new(icon, Rect::new(panel.origin + rect.origin, rect.size), Shadow::None));
                     }
                 }
+                if let (Some((ring, shown)), Some(patch)) = (self.switch_ring(), self.round.as_ref()) {
+                    let (_, alpha) = open.layout.pick_style();
+                    for (source, target) in drifter_core::window::round_slices(ring, ROUND_PATCH, 12.0) {
+                        layers.push(Layer {
+                            source: Some(source),
+                            alpha: alpha as f32 * shown,
+                            ..Layer::new(patch, target, Shadow::None)
+                        });
+                    }
+                }
                 layers.push(Layer::new(art, panel, Shadow::Modal));
                 Some((layers, panel))
             }

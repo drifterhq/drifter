@@ -257,7 +257,7 @@ How motion works today (all items use this):
   - No setting for the swipe.
   - Tests: launchpad.rs `pub fn page_after_swipe(page, pages, swipe, threshold) -> (usize, f64)` (threshold, clamp at ends); slide crop widths sum to `w`. render/tests.rs: two pages of apps, swipe, `page == 1`, `turn.is_some()`.
 
-- [ ] **15 [LOW] Switcher selection slides between tiles.**
+- [x] **15 [LOW] Switcher selection slides between tiles.**
   - Waits on: G3.
   - It is a filled tint, not a ring: `canvas.round_rect(tile_rect(chosen), 12.0, look.pick, look.pick_alpha)` (switcher.rs:100; pick = shade, 0.16, :33-34). Each step repaints the panel (`switch_step`, overlays.rs:4-43). The title under the tiles still needs the repaint.
   - Fix: `Switch` (render.rs:262-269) gets `ring: (Rect, Instant)`, `RING_SLIDE 0.14`. Set on open (overlays.rs:27-34) and on step before `open.at = at` (:39-41) from the drawn rect. switcher.rs: `paint(chosen: Option<usize>, ..)`, pass `None`; expose `pick_style()`. In `switch_elements` insert at overlays.rs:475 (between icons and art) a `round_fill` (radius 12, alpha 0.16) at the lerped rect. Wrap-around jumps more than one tile: snap. Reduce: fade at target. `switch_moving()` in `animating()`.

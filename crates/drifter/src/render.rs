@@ -264,6 +264,7 @@ enum Target {
 struct Switch {
     order: Vec<u64>,
     at: usize,
+    ring: (Rect, Instant),
     layout: drifter_core::switcher::Layout,
     art: Option<TextureBuffer<Tex>>,
     icons: Vec<Option<TextureBuffer<Tex>>>,
@@ -733,6 +734,7 @@ impl State {
             || self.lit_moving()
             || self.search_moving()
             || self.pad_moving()
+            || self.switch_moving()
             || self.windows.iter().any(|window| window.lit != self.lit_target(window.id))
             || self.thumb_moving()
             || self.welcome_busy()

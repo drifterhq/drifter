@@ -2,6 +2,7 @@ use super::*;
 
 const CARD_IN: f64 = 0.28;
 const CARD_GLIDE: f64 = 0.22;
+const RING_SLIDE: f64 = 0.14;
 
 impl State {
     pub(super) fn switch_step(&mut self, back: bool) {
@@ -27,10 +28,12 @@ impl State {
                 };
                 let layout =
                     drifter_core::switcher::Look::themed(&self.palette).layout(self.screen, order.len());
+                let tile = layout.tile_rect(at);
                 self.switch = Some(Switch {
                     icons: vec![None; order.len()],
                     order,
                     at,
+                    ring: (Rect::new(layout.panel.origin + tile.origin, tile.size), Instant::now() - Duration::from_secs(1)),
                     layout,
                     art: None,
                     lane: worker::Lane::default(),
@@ -39,10 +42,42 @@ impl State {
                 at
             }
         };
+        let drawn = self.switch_ring().map(|(rect, _)| rect);
         if let Some(open) = self.switch.as_mut() {
+            if at != open.at {
+                let tile = open.layout.tile_rect(at);
+                let to = Rect::new(open.layout.panel.origin + tile.origin, tile.size);
+                let jump = (at as isize - open.at as isize).abs() > 1;
+                open.ring = (if jump { to } else { drawn.unwrap_or(to) }, Instant::now());
+            }
             open.at = at;
         }
         self.paint_switch();
+    }
+
+    pub(super) fn switch_ring(&self) -> Option<(Rect, f32)> {
+        let open = self.switch.as_ref()?;
+        let tile = open.layout.tile_rect(open.at);
+        let to = Rect::new(open.layout.panel.origin + tile.origin, tile.size);
+        let pace = self.window_pace;
+        let (from, since) = open.ring;
+        if pace <= 0.0 {
+            return Some((to, 1.0));
+        }
+        let t = drifter_core::motion::smooth(since.elapsed().as_secs_f64() / (RING_SLIDE / pace));
+        match self.window_still {
+            true => Some((to, t as f32)),
+            false => Some((drifter_core::motion::between(from, to, t), 1.0)),
+        }
+    }
+
+    pub(super) fn switch_moving(&self) -> bool {
+        let pace = self.window_pace;
+        pace > 0.0
+            && self
+                .switch
+                .as_ref()
+                .is_some_and(|open| open.ring.1.elapsed().as_secs_f64() < RING_SLIDE / pace)
     }
 
     pub(super) fn refresh_switch_icons(&mut self) {
@@ -104,13 +139,13 @@ impl State {
                 false => window.title.clone(),
             })
             .unwrap_or_default();
-        let (layout, at) = (open.layout.clone(), open.at);
+        let layout = open.layout.clone();
         let font = self.font.clone();
         self.paint_in_lane(
             "switcher",
             |state| state.switch.as_mut().map(|open| &mut open.lane),
             State::paint_switch,
-            move || Some(layout.paint(at, &title, &letters, font.as_deref())),
+            move || Some(layout.paint(None, &title, &letters, font.as_deref())),
             |state, art| {
                 if let Some(open) = state.switch.as_mut() {
                     open.art = Some(art);

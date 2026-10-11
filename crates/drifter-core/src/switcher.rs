@@ -85,9 +85,13 @@ impl Layout {
         Rect::from_center(self.tile_rect(index).center(), Vec2::splat(self.icon))
     }
 
+    pub fn pick_style(&self) -> ([u8; 3], f64) {
+        (self.look.pick, self.look.pick_alpha)
+    }
+
     pub fn paint(
         &self,
-        chosen: usize,
+        chosen: Option<usize>,
         title: &str,
         letters: &[Option<char>],
         font: Option<&Font>,
@@ -97,7 +101,9 @@ impl Layout {
         let mut canvas = Canvas::new(size.x.round() as u32, size.y.round() as u32);
         let all = Rect::new(Vec2::ZERO, size);
         canvas.round_rect(all, look.radius, look.back, look.back_alpha);
-        canvas.round_rect(self.tile_rect(chosen), 12.0, look.pick, look.pick_alpha);
+        if let Some(chosen) = chosen {
+            canvas.round_rect(self.tile_rect(chosen), 12.0, look.pick, look.pick_alpha);
+        }
 
         for (index, letter) in letters.iter().enumerate() {
             let Some(letter) = letter else {
@@ -159,7 +165,8 @@ mod tests {
         let layout = Look::default().layout(SCREEN, 3);
         let font = crate::text::Font::find(None, 13.0).ok();
         let letters = [Some('T'), None, Some('F')];
-        crate::paint::same_at_two("switcher", || layout.paint(1, "Terminal", &letters, font.as_ref()));
+        crate::paint::same_at_two("switcher", || layout.paint(Some(1), "Terminal", &letters, font.as_ref()));
+        crate::paint::same_at_two("switcher bare", || layout.paint(None, "Terminal", &letters, font.as_ref()));
     }
 
     #[test]
@@ -200,9 +207,20 @@ mod tests {
     }
 
     #[test]
+    fn the_panel_paints_without_a_pick_when_none_is_chosen() {
+        let layout = Look::default().layout(SCREEN, 3);
+        let picked = layout.paint(Some(1), "", &[None, None, None], None);
+        let bare = layout.paint(None, "", &[None, None, None], None);
+        let tile = layout.tile_rect(1);
+        let at = (((tile.origin.y + 4.0) as u32 * bare.width + tile.center().x as u32) * 4) as usize;
+        assert_ne!(picked.rgba[at..at + 4], bare.rgba[at..at + 4], "the pick is painted only when asked");
+        assert_eq!(layout.pick_style().1, 0.16);
+    }
+
+    #[test]
     fn the_panel_paints_at_its_own_size_with_round_corners() {
         let layout = Look::default().layout(SCREEN, 3);
-        let image = layout.paint(1, "a window", &[None, Some('f'), None], None);
+        let image = layout.paint(Some(1), "a window", &[None, Some('f'), None], None);
         assert_eq!(image.size(), layout.panel.size.round());
         assert_eq!(image.rgba[3], 0, "the corner is cut");
         let middle = ((image.height / 2 * image.width + image.width / 2) * 4 + 3) as usize;
