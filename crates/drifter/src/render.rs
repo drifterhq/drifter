@@ -19,6 +19,7 @@ mod fade;
 mod follow;
 mod heads;
 mod launchpad;
+mod lit;
 mod shoot;
 mod speech;
 mod input;
@@ -656,6 +657,7 @@ pub struct State {
     dock_dots: std::collections::HashMap<String, (f64, f64)>,
     dock_hover_mode: drifter_core::DockHover,
     dock_wound: Instant,
+    lit: Option<lit::Lit>,
     zone_glide: Option<(Rect, Instant)>,
     titles: std::collections::HashMap<String, (TextureBuffer<Tex>, Vec2)>,
     hover_since: Option<(Vec2, Instant)>,
@@ -728,6 +730,7 @@ impl State {
             || self.hud_busy()
             || self.snap_gliding()
             || self.dock_winding()
+            || self.lit_moving()
             || self.windows.iter().any(|window| window.lit != self.lit_target(window.id))
             || self.thumb_moving()
             || self.welcome_busy()
@@ -1438,6 +1441,7 @@ impl State {
         self.repaint_popover();
         self.hover_desk_menu();
         self.hover_welcome();
+        self.hover_rows();
         if self.hover_since.is_none() {
             self.hover_since = Some((self.pointer, Instant::now()));
         } else if let Some((at, _)) = self.hover_since

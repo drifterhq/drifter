@@ -82,7 +82,7 @@ impl Layout {
         self.system() + HEAD + ROW * tops.max(1) as f64 + opened + FOOT
     }
 
-    fn row_rect(&self, at: usize, open: Option<usize>) -> Rect {
+    pub fn row_rect(&self, at: usize, open: Option<usize>) -> Rect {
         let mut y = self.system() + HEAD + ROW * at as f64;
         if let Some(open) = open
             && open < at
@@ -150,7 +150,6 @@ pub struct Paint<'a> {
     pub history: &'a [u8],
     pub tops: &'a [Top],
     pub open: Option<usize>,
-    pub hover: Option<usize>,
     pub icons: &'a HashMap<String, Image>,
     pub counts: (usize, usize),
     pub accent: [u8; 3],
@@ -185,8 +184,6 @@ pub fn paint(layout: &Layout, what: &Paint) -> Image {
         let row = layout.row_rect(at, what.open);
         if what.open == Some(at) {
             canvas.round_rect(row, 9.0, card.ink, 0.08);
-        } else if what.hover == Some(at) {
-            canvas.round_rect(row, 9.0, card.ink, 0.06);
         }
         let mid = row.origin.y + ROW / 2.0;
         let spot = Rect::new(Vec2::new(row.origin.x + 6.0, mid - 14.0), Vec2::splat(28.0));
@@ -271,6 +268,17 @@ mod tests {
             card: Card { width: WIDTH, ..Card::themed(&crate::theme::DARK) },
             rows: 3,
             spark: true,
+        }
+    }
+
+    #[test]
+    fn row_rect_sits_inside_the_card_and_rows_do_not_overlap() {
+        let layout = layout();
+        for at in 0..4 {
+            let row = layout.row_rect(at, None);
+            assert!(row.origin.x >= 0.0 && row.max().x <= layout.card.width);
+            assert!(row.max().y <= layout.height(4, None));
+            assert_eq!(layout.row_rect(at + 1, None).origin.y, row.max().y, "rows touch, no gap");
         }
     }
 

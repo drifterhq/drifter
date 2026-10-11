@@ -39,7 +39,7 @@ impl State {
         });
     }
 
-    fn control_look(&self) -> drifter_core::control::Look {
+    pub(super) fn control_look(&self) -> drifter_core::control::Look {
         let plain = drifter_core::control::Look::themed(&self.palette, self.look.accent);
         drifter_core::control::Look {
             back_alpha: self.veil(plain.back_alpha),

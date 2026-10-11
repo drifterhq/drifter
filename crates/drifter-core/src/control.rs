@@ -173,6 +173,14 @@ impl Look {
         ((x - track.origin.x) / track.size.x.max(1.0)).clamp(0.0, 1.0)
     }
 
+    pub fn hit_rect(&self, inside: Vec2) -> Option<Rect> {
+        Tile::ALL
+            .into_iter()
+            .map(|tile| self.tile_rect(tile))
+            .chain([self.slider_rect(0), self.slider_rect(1)])
+            .find(|rect| rect.contains(inside))
+    }
+
     pub fn hit(&self, inside: Vec2) -> Option<Hit> {
         if let Some(tile) = Tile::ALL.into_iter().find(|tile| self.tile_rect(*tile).contains(inside)) {
             return Some(Hit::Tile(tile));
@@ -297,6 +305,18 @@ fn symbol(canvas: &mut Canvas, tile: Tile, at: Vec2, ink: [u8; 3]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hit_rect_finds_the_tile_or_slider_under_the_pointer() {
+        let look = Look::themed(&crate::theme::DARK, [10, 122, 255]);
+        for tile in Tile::ALL {
+            let rect = look.tile_rect(tile);
+            assert_eq!(look.hit_rect(rect.center()), Some(rect));
+        }
+        let slider = look.slider_rect(1);
+        assert_eq!(look.hit_rect(slider.center()), Some(slider));
+        assert_eq!(look.hit_rect(Vec2::new(1.0, 1.0)), None, "the padding is nothing");
+    }
 
     #[test]
     fn control_center_at_density_two_matches_density_one() {

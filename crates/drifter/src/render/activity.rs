@@ -17,7 +17,7 @@ pub(super) struct GlancePanel {
 }
 
 impl State {
-    fn glance_layout(&self) -> Layout {
+    pub(super) fn glance_layout(&self) -> Layout {
         let plain = drifter_core::glance::Card::themed(&self.palette);
         let card = drifter_core::glance::Card {
             width: glance::WIDTH,
@@ -127,7 +127,7 @@ impl State {
         let rect = Rect::new(Vec2::new(x, y).round(), Vec2::new(layout.card.width, height.ceil()));
         panel.rect = rect;
         let tops = panel.tops.clone();
-        let (open, hover, counts, ready, over_open) = (panel.open, panel.hover, panel.counts, panel.ready, panel.over_open);
+        let (open, counts, ready, over_open) = (panel.open, panel.counts, panel.ready, panel.over_open);
         let undo = panel.undo.as_ref().map(|gone| gone.name.clone());
         let fields = self.glance_fields.clone();
         let history = self.cpu_history.clone();
@@ -146,7 +146,6 @@ impl State {
                     history: &history,
                     tops: &tops,
                     open,
-                    hover,
                     icons: &icons,
                     counts,
                     accent,
@@ -207,8 +206,8 @@ impl State {
             _ => None,
         };
         let over_open = hit == Some(GlanceHit::Open);
-        if hover != panel.hover || over_open != panel.over_open {
-            panel.hover = hover;
+        panel.hover = hover;
+        if over_open != panel.over_open {
             panel.over_open = over_open;
             self.paint_glance();
         }

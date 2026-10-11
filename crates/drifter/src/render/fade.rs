@@ -327,6 +327,7 @@ impl State {
             return;
         }
         let centre = frame.center();
+        self.lit_elements(pane, centre, scale, alpha, elements);
         for layer in &layers {
             let drawn = match layer.scales && scale != 1.0 {
                 true => Rect::new(centre + (layer.rect.origin - centre) * scale, layer.rect.size * scale),

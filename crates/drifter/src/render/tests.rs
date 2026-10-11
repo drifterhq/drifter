@@ -563,6 +563,34 @@ fn the_power_alert_drains() {
 }
 
 #[test]
+fn the_hover_highlight_slides_between_control_tiles() {
+    let mut run = start("lit", &Config::default(), None);
+    let state = &mut run.screen.state;
+    let look = state.control_look();
+    let origin = Vec2::new(200.0, 80.0);
+    state.control = Some(super::centers::Panel {
+        rect: Rect::new(origin, look.size()),
+        art: state.plain.clone(),
+        held: None,
+        last: 0,
+        lane: Default::default(),
+    });
+    let first = look.tile_rect(drifter_core::control::Tile::ALL[0]);
+    let second = look.tile_rect(drifter_core::control::Tile::ALL[1]);
+    state.pointer_to(origin + first.center());
+    state.hover_rows();
+    let lit = state.lit.as_ref().expect("a tile lights up");
+    assert_eq!(lit.pane, super::fade::Pane::Control);
+    assert_eq!(lit.to, Rect::new(origin + first.origin, first.size));
+    state.pointer_to(origin + second.center());
+    state.hover_rows();
+    let (_, drawn, _) = state.lit_rect().expect("still lit");
+    assert_eq!(state.lit.as_ref().unwrap().to, Rect::new(origin + second.origin, second.size));
+    assert!(drawn.origin.x < origin.x + second.origin.x, "it slides over instead of jumping");
+    assert!(state.lit_moving());
+}
+
+#[test]
 fn an_open_menu_casts_a_shadow() {
     let mut run = start("menu-shadow", &Config::default(), None);
     let item = |id: i32, label: &str| drifter_core::menu::Item {

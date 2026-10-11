@@ -47,7 +47,7 @@ impl State {
         });
     }
 
-    fn search_look(&self) -> drifter_core::search::Look {
+    pub(super) fn search_look(&self) -> drifter_core::search::Look {
         let plain = drifter_core::search::Look::themed(&self.palette, self.look.accent);
         drifter_core::search::Look {
             back_alpha: self.veil(plain.back_alpha),

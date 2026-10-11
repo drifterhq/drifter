@@ -220,7 +220,7 @@ How motion works today (all items use this):
 
 ## Tier 2: about a day each
 
-- [ ] **12 [MED] GPU hover highlight that slides between rows.**
+- [x] **12 [MED] GPU hover highlight that slides between rows.**
   - Waits on: G3, 1, 5.
   - No hover today: Launchpad (`Pad`, render/launchpad.rs:7-15), Spotlight (only the keyboard row, search.rs:282-285; `hover()` render.rs:1446-1462 never asks search), Control Center (`Panel`, centers.rs:4-10), notifications (hover only extends expiry, overlays.rs:404-411).
   - Glance already has a hover, but on the CPU on the input path: `hover_glance` (activity.rs:169-215) repaints the panel from `drag()` (input.rs:515); painted at glance.rs:188-190. Convert it.

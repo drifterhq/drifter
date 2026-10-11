@@ -181,7 +181,6 @@ fn main() {
             history: &history[history.len() - 30..],
             tops: &tops,
             open,
-            hover: None,
             icons: &icons,
             counts: (7, 4),
             accent: [10, 122, 255],
