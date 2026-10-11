@@ -650,6 +650,8 @@ pub struct State {
     fades: fade::Fades,
     round: Option<TextureBuffer<Tex>>,
     accent_round: Option<TextureBuffer<Tex>>,
+    snap_art: Option<TextureBuffer<Tex>>,
+    zone_glide: Option<(Rect, Instant)>,
     titles: std::collections::HashMap<String, (TextureBuffer<Tex>, Vec2)>,
     hover_since: Option<(Vec2, Instant)>,
     tray_bus: Option<crate::tray::Tray>,
@@ -719,6 +721,7 @@ impl State {
             || self.popover_busy()
             || self.cards_moving()
             || self.hud_busy()
+            || self.snap_gliding()
             || self.thumb_moving()
             || self.welcome_busy()
             || self.dock_logo.hot
@@ -858,28 +861,8 @@ impl State {
             }
         }
 
-        if let Some(zone) = self.zone.filter(|_| live)
-            && let Some(buffer) = self.plain.as_ref()
-        {
-            let view = self.camera.visible_rect(self.screen);
-            let target = self.on_screen(self.snap.rect(zone, view));
-            let thick = 3.0;
-            let bars = [
-                Rect::new(target.origin, Vec2::new(target.size.x, thick)),
-                Rect::new(
-                    Vec2::new(target.origin.x, target.max().y - thick),
-                    Vec2::new(target.size.x, thick),
-                ),
-                Rect::new(target.origin, Vec2::new(thick, target.size.y)),
-                Rect::new(
-                    Vec2::new(target.max().x - thick, target.origin.y),
-                    Vec2::new(thick, target.size.y),
-                ),
-            ];
-            for bar in bars {
-                elements.push(Skin::Texture(fill(buffer, bar, 0.85)));
-            }
-            elements.push(Skin::Texture(fill(buffer, target, 0.12)));
+        if live {
+            self.snap_elements(&mut elements);
         }
 
         if live {

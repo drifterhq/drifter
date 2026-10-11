@@ -149,7 +149,7 @@ How motion works today (all items use this):
     - `hud_busy()` in `animating()`. G1 fixes the HUD early return.
   - Tests: hud.rs `the_frame_has_an_empty_track`. motion: `the_level_eases_without_overshoot`.
 
-- [ ] **7 [MED] Snap preview: rounded, accent tinted, glides from the window.**
+- [x] **7 [MED] Snap preview: rounded, accent tinted, glides from the window.**
   - Waits on: G2, G3.
   - Today render.rs:843-865: `thick = 3.0` (:848), four bars at `fill(.., 0.85)` (:862), fill at 0.12 (:864), white `plain`.
   - Extra bug: the preview uses the visible rect (render.rs:846, input.rs:533-539), but `land()` uses `work_zone()` (input.rs:393-414), which leaves out pinned bars. With a pinned bar, the window lands below where the preview showed.

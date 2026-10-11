@@ -408,10 +408,13 @@ impl State {
         )
     }
 
-    pub(super) fn land(&mut self, index: usize, zone: Zone) {
+    pub(super) fn snap_view(&self) -> Rect {
         let work = self.work_zone();
-        let view = Rect::new(self.in_world(work.origin), work.size / self.camera.zoom);
-        let frame = self.snap.rect(zone, view);
+        Rect::new(self.in_world(work.origin), work.size / self.camera.zoom)
+    }
+
+    pub(super) fn land(&mut self, index: usize, zone: Zone) {
+        let frame = self.snap.rect(zone, self.snap_view());
         let chrome = self.chrome_of(index);
         let want = Rect::new(
             Vec2::new(frame.origin.x + chrome.edge, frame.origin.y + chrome.title),
@@ -439,7 +442,7 @@ impl State {
         window.toplevel.send_pending_configure();
     }
 
-    fn chrome_of(&self, index: usize) -> Chrome {
+    pub(super) fn chrome_of(&self, index: usize) -> Chrome {
         match self.windows.get(index) {
             Some(window) if !window.decorated => Chrome {
                 title: 0.0,
@@ -526,17 +529,27 @@ impl State {
             Grab::None => {}
             Grab::Move { id, offset } => {
                 let world = self.in_world(self.pointer);
+                let mut frame = None;
                 if let Some(window) = self.windows.iter_mut().find(|window| window.id == id) {
                     window.content.origin = (world - offset).round();
                     window.touched = true;
+                    frame = Some(window.content);
                 }
-                self.zone = match self.modifier {
+                let zone = match self.modifier {
                     true => None,
                     false => {
                         let view = self.camera.visible_rect(self.screen);
                         self.snap.zone_at(self.in_world(self.pointer), view)
                     }
                 };
+                if zone.is_some() && zone != self.zone {
+                    let from = match self.snap_drawn() {
+                        Some((drawn, _)) => drawn,
+                        None => frame.map_or(Rect::new(Vec2::ZERO, self.screen), |content| self.on_screen(self.chrome.layout(content).frame)),
+                    };
+                    self.zone_glide = Some((from, Instant::now()));
+                }
+                self.zone = zone;
             }
             Grab::Resize {
                 id,

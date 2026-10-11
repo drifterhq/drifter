@@ -517,6 +517,30 @@ fn a_framed_window_casts_a_soft_shadow_that_fades_out() {
 }
 
 #[test]
+fn the_snap_preview_matches_where_the_window_lands() {
+    let mut config = Config::default();
+    config.motion.hide_bottom = false;
+    let mut run = start("snap-match", &config, None);
+    let (stop, client) = red_window(&mut run);
+    let state = &mut run.screen.state;
+    let index = state
+        .windows
+        .iter()
+        .position(|window| window.app == "drifter-test-red")
+        .expect("the red window is placed");
+    state.land(index, drifter_core::snap::Zone::Left);
+    let content = state.windows[index].content;
+    let landed = state.on_screen(state.chrome_of(index).layout(content).frame);
+    let preview = state.snap_target(drifter_core::snap::Zone::Left);
+    stop.store(true, Ordering::Relaxed);
+    let _ = client.join();
+    let off = (landed.origin - preview.origin).length() + (landed.size - preview.size).length();
+    assert!(off <= 2.0, "the window lands at {landed:?}, the preview showed {preview:?}");
+    let band = state.drawers[Edge::Bottom.index()].open_band(state.screen, &state.shapes[Edge::Bottom.index()]);
+    assert!(preview.max().y <= band.origin.y + 0.5, "the preview stops above a pinned dock");
+}
+
+#[test]
 fn an_open_menu_casts_a_shadow() {
     let mut run = start("menu-shadow", &Config::default(), None);
     let item = |id: i32, label: &str| drifter_core::menu::Item {

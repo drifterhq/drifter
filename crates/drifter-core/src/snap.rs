@@ -1,4 +1,28 @@
 use crate::geom::{Rect, Vec2};
+use crate::image::Image;
+
+pub const GLIDE: f64 = 0.18;
+pub const RADIUS: f64 = 12.0;
+
+pub fn glide(from: Rect, to: Rect, t: f64, still: bool) -> (Rect, f32) {
+    let eased = crate::motion::smooth(t);
+    let alpha = eased.max(0.35) as f32;
+    match still {
+        true => (to, alpha),
+        false => (crate::motion::between(from, to, eased), alpha),
+    }
+}
+
+pub fn preview_patch(accent: [u8; 3]) -> Image {
+    crate::paint::at_density(1, || {
+        let side = 2 * RADIUS as u32 + 1;
+        let full = Rect::new(Vec2::ZERO, Vec2::splat(f64::from(side)));
+        let mut canvas = crate::paint::Canvas::new(side, side);
+        canvas.round_rect(full, RADIUS, accent, 0.22);
+        canvas.ring(full, RADIUS, 2.0, accent, 0.9);
+        canvas.image
+    })
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Zone {
@@ -80,6 +104,24 @@ impl Snap {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_preview_glides_from_the_window_into_the_zone() {
+        let window = Rect::new(Vec2::new(600.0, 300.0), Vec2::new(500.0, 400.0));
+        let zone = Rect::new(Vec2::ZERO, Vec2::new(960.0, 1040.0));
+        let (start, faint) = glide(window, zone, 0.0, false);
+        assert_eq!(start, window, "it starts on the window");
+        assert_eq!(faint, 0.35, "and is never invisible");
+        assert_eq!(glide(window, zone, 1.0, false), (zone, 1.0));
+        let (mid, _) = glide(window, zone, 0.5, false);
+        assert!(mid.origin.x < window.origin.x && mid.size.x > window.size.x);
+        let (still, alpha) = glide(window, zone, 0.3, true);
+        assert_eq!(still, zone, "reduce motion shows the zone at once");
+        assert!(alpha < 1.0, "but still fades in");
+        let patch = preview_patch([53, 132, 228]);
+        let alpha_at = |x: u32, y: u32| patch.rgba[((y * patch.width + x) * 4 + 3) as usize];
+        assert!(alpha_at(12, 0) > alpha_at(12, 12), "the ring is stronger than the fill");
+    }
 
     fn view() -> Rect {
         Rect::new(Vec2::new(1000.0, 500.0), Vec2::new(1920.0, 1080.0))

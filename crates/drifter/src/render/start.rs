@@ -366,10 +366,11 @@ pub fn open(
     let hud_pill = upload(&mut renderer, Some(&drifter_core::hud::Look::themed(&palette).pill()), "hud bar")
         .ok()
         .flatten();
-    let accent_round = fade::round_art(
-        &mut renderer,
-        config.appearance.accent.map(|accent| accent.color()).unwrap_or(drifter_core::menu::ACCENT),
-    );
+    let accent = config.appearance.accent.map(|accent| accent.color()).unwrap_or(drifter_core::menu::ACCENT);
+    let accent_round = fade::round_art(&mut renderer, accent);
+    let snap_art = upload_flat(&mut renderer, Some(&drifter_core::snap::preview_patch(accent)), "snap preview")
+        .ok()
+        .flatten();
 
     let (clip, clip_events) = crate::clipboard::Keeper::new(events.handle());
     let state = State {
@@ -588,6 +589,8 @@ pub fn open(
         fades: fade::Fades::default(),
         round,
         accent_round,
+        snap_art,
+        zone_glide: None,
         titles: std::collections::HashMap::new(),
         hover_since: None,
         tray_bus,

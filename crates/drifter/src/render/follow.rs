@@ -287,6 +287,9 @@ impl State {
         if accent != self.look.accent {
             self.look.accent = accent;
             self.accent_round = fade::round_art(&mut self.renderer, accent);
+            self.snap_art = upload_flat(&mut self.renderer, Some(&drifter_core::snap::preview_patch(accent)), "snap preview")
+                .ok()
+                .flatten();
         }
         if paths == self.asset_paths && !cursor_moved && !icons_moved {
             return;

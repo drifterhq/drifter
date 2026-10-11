@@ -384,6 +384,40 @@ impl State {
         }
     }
 
+    pub(super) fn snap_target(&self, zone: drifter_core::snap::Zone) -> Rect {
+        self.on_screen(self.snap.rect(zone, self.snap_view()))
+    }
+
+    pub(super) fn snap_drawn(&self) -> Option<(Rect, f32)> {
+        let target = self.snap_target(self.zone?);
+        let pace = self.window_pace;
+        let Some((from, since)) = self.zone_glide.filter(|_| pace > 0.0) else {
+            return Some((target, 1.0));
+        };
+        let t = since.elapsed().as_secs_f64() / (drifter_core::snap::GLIDE / pace);
+        Some(drifter_core::snap::glide(from, target, t, self.window_still))
+    }
+
+    pub(super) fn snap_gliding(&self) -> bool {
+        let pace = self.window_pace;
+        self.zone.is_some()
+            && pace > 0.0
+            && self
+                .zone_glide
+                .is_some_and(|(_, since)| since.elapsed().as_secs_f64() < drifter_core::snap::GLIDE / pace)
+    }
+
+    pub(super) fn snap_elements(&self, elements: &mut Vec<Skin>) {
+        let (Some((rect, alpha)), Some(art)) = (self.snap_drawn(), self.snap_art.as_ref()) else {
+            return;
+        };
+        let radius = drifter_core::snap::RADIUS;
+        for (source, target) in drifter_core::window::round_slices(rect, radius, radius) {
+            elements.push(Skin::Texture(faded(art, source, target, alpha)));
+        }
+        self.panel_shadow(rect, fade::Shadow::Modal, alpha, elements);
+    }
+
     pub(super) fn modal_shadow(&self, rect: Rect, elements: &mut Vec<Skin>) {
         self.panel_shadow(rect, fade::Shadow::Modal, 1.0, elements);
     }
