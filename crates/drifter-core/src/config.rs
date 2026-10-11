@@ -465,6 +465,14 @@ pub struct DockConfig {
     pub fit: bool,
     #[serde(default)]
     pub hover: DockHover,
+    #[serde(default = "magnify")]
+    pub magnify: u32,
+}
+
+pub const MAGNIFY: (u32, u32) = (110, 200);
+
+fn magnify() -> u32 {
+    150
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
@@ -473,15 +481,17 @@ pub enum DockHover {
     Off,
     #[default]
     Lift,
+    Magnify,
 }
 
 impl DockHover {
-    pub const ALL: [DockHover; 2] = [DockHover::Off, DockHover::Lift];
+    pub const ALL: [DockHover; 3] = [DockHover::Off, DockHover::Lift, DockHover::Magnify];
 
     pub fn word(self) -> &'static str {
         match self {
             DockHover::Off => "off",
             DockHover::Lift => "lift",
+            DockHover::Magnify => "magnify",
         }
     }
 }
@@ -501,6 +511,7 @@ impl Default for DockConfig {
             spacing: None,
             fit: false,
             hover: DockHover::Lift,
+            magnify: magnify(),
         }
     }
 }
@@ -1742,6 +1753,12 @@ impl Config {
             return Err(ConfigError::Invalid(
                 "appearance cursor_size is pixels from 8 to 256".into(),
             ));
+        }
+        if !(MAGNIFY.0..=MAGNIFY.1).contains(&self.dock.magnify) {
+            return Err(ConfigError::Invalid(format!(
+                "dock magnify is percent from {} to {}",
+                MAGNIFY.0, MAGNIFY.1
+            )));
         }
         let (least, most) = crate::power::COUNTDOWN_RANGE;
         if !(least..=most).contains(&self.power.countdown) {

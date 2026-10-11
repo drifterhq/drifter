@@ -3536,3 +3536,6 @@ Your computer will restart automatically.
 
 Your computer will shut down automatically.
 = El equipo se apagará automáticamente.
+
+Magnify
+= Ampliar

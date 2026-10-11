@@ -658,7 +658,11 @@ pub struct State {
     dock_hover: std::collections::HashMap<drifter_core::dock::Slot, (f64, f64, bool)>,
     dock_dots: std::collections::HashMap<String, (f64, f64)>,
     dock_hover_mode: drifter_core::DockHover,
+    dock_magnify: f64,
+    dock_lens: (f64, f64),
     dock_wound: Instant,
+    dock_slides: std::collections::HashMap<String, dock::Slide>,
+    dock_ghosts: Vec<(TextureBuffer<Tex>, Rect, Instant)>,
     lit: Option<lit::Lit>,
     ghosts: Vec<ghost::Ghost>,
     kept: std::collections::HashMap<u64, (Tex, Vec2)>,
@@ -734,6 +738,7 @@ impl State {
             || self.hud_busy()
             || self.snap_gliding()
             || self.dock_winding()
+            || self.dock_gliding()
             || self.lit_moving()
             || self.search_moving()
             || self.pad_moving()

@@ -987,7 +987,7 @@ impl State {
         if name.is_empty() || self.app_icons.contains_key(&name) || self.no_icon.contains(&name) {
             return;
         }
-        let wanted = self.dock.icon as u32;
+        let wanted = self.dock_side();
         let art = crate::apps::find(&name)
             .and_then(|entry| entry.icon)
             .and_then(|path| drifter_core::image::load_sized(&path, dense(wanted)).ok())

@@ -3533,3 +3533,6 @@ Your computer will restart automatically.
 
 Your computer will shut down automatically.
 = L’ordinateur va s’éteindre automatiquement.
+
+Magnify
+= Agrandir

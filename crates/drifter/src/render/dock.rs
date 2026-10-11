@@ -2,6 +2,23 @@ use super::*;
 use drifter_core::dock::same_app;
 
 const SETTINGS_DOT: &str = "\u{0}settings";
+
+pub(super) fn raster_side(icon: f64, config: &Config) -> u32 {
+    let grow = match config.dock.hover {
+        drifter_core::DockHover::Magnify => f64::from(config.dock.magnify) / 100.0,
+        _ => 1.0,
+    };
+    (icon * grow).round() as u32
+}
+
+pub(super) struct Slide {
+    from: f64,
+    to: f64,
+    since: Instant,
+    born: Instant,
+    seen: bool,
+    art: Option<(TextureBuffer<Tex>, Rect)>,
+}
 const DRAG_START: f64 = 6.0;
 const BAR_HIDING: i32 = 1;
 const BAR_SIZE: i32 = 2;
@@ -277,6 +294,25 @@ impl State {
             (true, Some(band)) => self.dock.at(band, self.pointer, apps.len(), hidden),
             _ => None,
         };
+        let lens_goal = match self.dock_hover_mode == drifter_core::DockHover::Magnify
+            && pace > 0.0
+            && !self.window_still
+            && self.dock_drag.is_none()
+        {
+            true => match self.dock_band() {
+                Some(band) => match self.dock.at(band, self.pointer, apps.len(), hidden) {
+                    Some(_) => 1.0,
+                    None => 0.0,
+                },
+                None => 0.0,
+            },
+            false => 0.0,
+        };
+        let lens_seconds = match pace > 0.0 {
+            true => HOVER_SECONDS / pace,
+            false => 0.0,
+        };
+        self.dock_lens = (step(self.dock_lens.0, lens_goal, dt, lens_seconds), lens_goal);
         if !lifts {
             self.dock_hover.clear();
         }
@@ -316,8 +352,82 @@ impl State {
         }
     }
 
+    pub(super) fn dock_side(&self) -> u32 {
+        let grow = match self.dock_hover_mode {
+            drifter_core::DockHover::Magnify => self.dock_magnify,
+            _ => 1.0,
+        };
+        (self.dock.icon * grow).round() as u32
+    }
+
+    fn slide_progress(&self, since: Instant) -> f64 {
+        match self.window_pace {
+            pace if pace <= 0.0 => 1.0,
+            pace => since.elapsed().as_secs_f64() / (drifter_core::dock::GLIDE / pace),
+        }
+    }
+
+    fn slide_slot(&mut self, key: &str, target: Rect) -> (Rect, f32) {
+        let now = Instant::now();
+        let still = self.window_pace <= 0.0 || self.window_still;
+        let x = target.origin.x;
+        let shown = |slide: &Slide, t: f64| match still {
+            true => slide.to,
+            false => drifter_core::dock::glide(slide.from, slide.to, t, true),
+        };
+        let t = self.dock_slides.get(key).map_or(1.0, |slide| self.slide_progress(slide.since));
+        let born = self.dock_slides.get(key).map_or(0.0, |slide| self.slide_progress(slide.born));
+        let slide = self.dock_slides.entry(key.to_string()).or_insert(Slide {
+            from: x,
+            to: x,
+            since: now,
+            born: now,
+            seen: true,
+            art: None,
+        });
+        slide.seen = true;
+        if (slide.to - x).abs() > 0.5 {
+            slide.from = shown(slide, t);
+            slide.to = x;
+            slide.since = now;
+            return (Rect::new(Vec2::new(slide.from, target.origin.y), target.size), drifter_core::motion::smooth(born) as f32);
+        }
+        let alpha = drifter_core::motion::smooth(born) as f32;
+        (Rect::new(Vec2::new(shown(slide, t).round(), target.origin.y), target.size), alpha)
+    }
+
+    fn sweep_dock(&mut self, elements: &mut Vec<Skin>) {
+        let now = Instant::now();
+        let gone: Vec<String> = self.dock_slides.iter().filter(|(_, slide)| !slide.seen).map(|(key, _)| key.clone()).collect();
+        for key in gone {
+            if let Some(Some((art, rect))) = self.dock_slides.remove(&key).map(|slide| slide.art)
+                && self.window_pace > 0.0
+            {
+                self.dock_ghosts.push((art, rect, now));
+            }
+        }
+        let ghosts = std::mem::take(&mut self.dock_ghosts);
+        for (art, rect, since) in ghosts {
+            let t = self.slide_progress(since);
+            if t >= 1.0 {
+                continue;
+            }
+            elements.push(Skin::Texture(element(&art, rect, 1.0 - drifter_core::motion::smooth(t) as f32)));
+            self.dock_ghosts.push((art, rect, since));
+        }
+    }
+
+    pub(super) fn dock_gliding(&self) -> bool {
+        !self.dock_ghosts.is_empty()
+            || self
+                .dock_slides
+                .values()
+                .any(|slide| self.slide_progress(slide.since) < 1.0 || self.slide_progress(slide.born) < 1.0)
+    }
+
     pub(super) fn dock_winding(&self) -> bool {
-        self.dock_hover.values().any(|(level, goal, _)| level != goal)
+        self.dock_lens.0 != self.dock_lens.1
+            || self.dock_hover.values().any(|(level, goal, _)| level != goal)
             || self.dock_dots.values().any(|(level, goal)| level != goal)
     }
 
@@ -735,6 +845,46 @@ impl State {
         let order = self.dock_order(count);
         let slot_of = |index: usize| order.iter().position(|held| *held == Some(index));
 
+        let mut keyed: Vec<(Slot, String)> = Vec::new();
+        for (index, app) in apps.iter().enumerate() {
+            if let Some(slot) = slot_of(index) {
+                keyed.push((Slot::Pinned(slot), format!("app:{}", app.key)));
+            }
+        }
+        for (index, name) in hidden.iter().enumerate() {
+            let nth = hidden[..index].iter().filter(|held| *held == name).count();
+            keyed.push((Slot::Minimized(index), format!("min:{name}:{nth}")));
+        }
+        if self.dock.settings {
+            keyed.push((Slot::Settings, "settings".to_string()));
+        }
+        if self.dock.trash {
+            keyed.push((Slot::Trash, "trash".to_string()));
+        }
+        for slide in self.dock_slides.values_mut() {
+            slide.seen = false;
+        }
+        let lens = self.dock_lens.0;
+        let lensed: std::collections::HashMap<Slot, Rect> = match lens > 0.0 {
+            true => {
+                let amount = 1.0 + (self.dock_magnify - 1.0) * drifter_core::motion::smooth(lens);
+                self.dock.magnified(band, count, hidden.len(), self.pointer.x, amount).into_iter().collect()
+            }
+            false => std::collections::HashMap::new(),
+        };
+        let mut placed: std::collections::HashMap<Slot, (Rect, f32, f64, String)> = std::collections::HashMap::new();
+        for (slot, key) in keyed {
+            let target = self.dock.slot_rect(band, count, hidden.len(), slot);
+            let (mut shown, alpha) = self.slide_slot(&key, target);
+            if let Some(big) = lensed.get(&slot) {
+                shown = Rect::new(Vec2::new(shown.origin.x + big.origin.x - target.origin.x, big.origin.y), big.size);
+            }
+            placed.insert(slot, (shown, alpha, shown.center().x - target.center().x, key));
+        }
+        let at = |slot: Slot| placed.get(&slot).map_or((Rect::new(Vec2::ZERO, Vec2::ZERO), 0.0), |(rect, alpha, _, _)| (*rect, *alpha));
+        let shift = |slot: Slot| placed.get(&slot).map_or(0.0, |(_, _, dx, _)| *dx);
+        let mut drawn: Vec<(String, TextureBuffer<Tex>, Rect)> = Vec::new();
+
         if let Some(drag) = self.dock_drag.as_ref()
             && let Some(app) = apps.get(drag.from)
             && let Some(buffer) = self.dock_icon(app)
@@ -751,7 +901,7 @@ impl State {
                 continue;
             };
             let lift = self.bounce_of(&app.key) + self.hover_of(Slot::Pinned(slot));
-            let rect = self.dock.slot_rect(band, count, hidden.len(), Slot::Pinned(slot));
+            let rect = at(Slot::Pinned(slot)).0;
             let rect = Rect::new(rect.origin + Vec2::new(0.0, lift), rect.size);
             if let Some((name, badge)) = self.badge_for(&app.key) {
                 badges.push((name, badge, rect));
@@ -775,26 +925,29 @@ impl State {
                 continue;
             };
             let lift = self.bounce_of(&app.key) + self.hover_of(Slot::Pinned(slot));
-            let rect = self.dock.slot_rect(band, count, hidden.len(), Slot::Pinned(slot));
+            let (rect, alpha) = at(Slot::Pinned(slot));
             let rect = Rect::new(rect.origin + Vec2::new(0.0, lift), rect.size);
             if drifter_core::launchpad::is_button(&app.launch) {
                 let hot = self.dock.at(band, self.pointer, count, hidden.len()) == Some(Slot::Pinned(slot));
                 if let Some((buffer, shown)) = self.dock_logo_frame(rect, hot) {
-                    elements.push(Skin::Texture(element(&buffer, shown, 1.0)));
+                    elements.push(Skin::Texture(element(&buffer, shown, alpha)));
                     continue;
                 }
             }
             if let Some(buffer) = self.dock_icon(app) {
-                elements.push(Skin::Texture(element(&buffer, rect, 1.0)));
+                elements.push(Skin::Texture(element(&buffer, rect, alpha)));
+                drawn.push((format!("app:{}", app.key), buffer, rect));
             }
         }
         for (index, window) in hidden.iter().enumerate() {
             if let Some(buffer) = self.app_icons.get(window.as_str()) {
-                let rect = self
-                    .dock
-                    .slot_rect(band, count, hidden.len(), Slot::Minimized(index));
+                let (rect, alpha) = at(Slot::Minimized(index));
                 let lift = Vec2::new(0.0, self.hover_of(Slot::Minimized(index)));
-                elements.push(Skin::Texture(element(buffer, Rect::new(rect.origin + lift, rect.size), 1.0)));
+                let rect = Rect::new(rect.origin + lift, rect.size);
+                elements.push(Skin::Texture(element(buffer, rect, alpha)));
+                if let Some((_, _, _, key)) = placed.get(&Slot::Minimized(index)) {
+                    drawn.push((key.clone(), buffer.clone(), rect));
+                }
             }
         }
         if let Some(buffer) = self.dot.as_ref() {
@@ -807,18 +960,20 @@ impl State {
                     let rect = self
                         .dock
                         .dot_rect(band, count, hidden.len(), Slot::Pinned(slot));
-                    elements.push(Skin::Texture(element(buffer, rect, shown)));
+                    let rect = Rect::new(rect.origin + Vec2::new(shift(Slot::Pinned(slot)), 0.0), rect.size);
+                    elements.push(Skin::Texture(element(buffer, rect, shown * at(Slot::Pinned(slot)).1)));
                 }
             }
         }
         if let (true, Some(buffer)) = (self.dock.settings, self.cog.as_ref()) {
-            let rect = self.dock.slot_rect(band, count, hidden.len(), Slot::Settings);
+            let (rect, alpha) = at(Slot::Settings);
             let rect = Rect::new(rect.origin + Vec2::new(0.0, self.hover_of(Slot::Settings)), rect.size);
-            elements.push(Skin::Texture(element(buffer, rect, 1.0)));
+            elements.push(Skin::Texture(element(buffer, rect, alpha)));
             let shown = self.dot_of(SETTINGS_DOT);
             if let (true, Some(dot)) = (shown > 0.0, self.dot.as_ref()) {
                 let spot = self.dock.dot_rect(band, count, hidden.len(), Slot::Settings);
-                elements.push(Skin::Texture(element(dot, spot, shown)));
+                let spot = Rect::new(spot.origin + Vec2::new(shift(Slot::Settings), 0.0), spot.size);
+                elements.push(Skin::Texture(element(dot, spot, shown * alpha)));
             }
         }
         if self.dock.trash {
@@ -827,16 +982,27 @@ impl State {
                 false => self.trash.clone(),
             };
             if let Some(buffer) = art {
-                let rect = self.dock.slot_rect(band, count, hidden.len(), Slot::Trash);
+                let (rect, alpha) = at(Slot::Trash);
                 let rect = Rect::new(rect.origin + Vec2::new(0.0, self.hover_of(Slot::Trash)), rect.size);
-                elements.push(Skin::Texture(element(&buffer, rect, 1.0)));
+                elements.push(Skin::Texture(element(&buffer, rect, alpha)));
             }
+        }
+        let rules = self.dock.dividers(band, count, hidden.len());
+        let mut moved_rules = Vec::new();
+        for (index, rule) in rules.into_iter().enumerate() {
+            moved_rules.push(self.slide_slot(&format!("rule:{index}"), rule));
         }
         if let Some(buffer) = self.rule.as_ref() {
-            for rule in self.dock.dividers(band, count, hidden.len()) {
-                elements.push(Skin::Texture(fill(buffer, rule, 1.0)));
+            for (rule, alpha) in moved_rules {
+                elements.push(Skin::Texture(fill(buffer, rule, alpha)));
             }
         }
+        for (key, art, rect) in drawn {
+            if let Some(slide) = self.dock_slides.get_mut(&key) {
+                slide.art = Some((art, rect));
+            }
+        }
+        self.sweep_dock(elements);
     }
 
     fn dock_icon(&self, app: &DockApp) -> Option<TextureBuffer<Tex>> {
@@ -853,7 +1019,7 @@ impl State {
 
     fn full_trash(&mut self) -> Option<TextureBuffer<Tex>> {
         if self.trash_full_art.is_none() {
-            let side = self.dock.icon as u32;
+            let side = self.dock_side();
             let themed = drifter_core::icon::find("user-trash-full", None, dense(side))
                 .and_then(|path| drifter_core::image::load_sized(&path, dense(side)).ok())
                 .map(|image| image.scaled(dense(side), dense(side)));

@@ -306,7 +306,7 @@ pub fn open(
     };
 
     let trash_look = Dock::themed(&palette).with_icon(config.dock_icon());
-    let side = trash_look.icon as u32;
+    let side = dock::raster_side(trash_look.icon, config);
     let (trash, cog, spare) = load_dock_art(&mut renderer, config, side, &palette);
     let shadow_image = drifter_core::window::shadow_patch(chrome.radius, drifter_core::window::SHADOW_BLUR);
     let window_shadow = upload_flat(&mut renderer, Some(&shadow_image), "window shadow")?
@@ -600,7 +600,11 @@ pub fn open(
         dock_hover: std::collections::HashMap::new(),
         dock_dots: std::collections::HashMap::new(),
         dock_hover_mode: config.dock.hover,
+        dock_magnify: f64::from(config.dock.magnify) / 100.0,
+        dock_lens: (0.0, 0.0),
         dock_wound: Instant::now(),
+        dock_slides: std::collections::HashMap::new(),
+        dock_ghosts: Vec::new(),
         lit: None,
         ghosts: Vec::new(),
         kept: std::collections::HashMap::new(),

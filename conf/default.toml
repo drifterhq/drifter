@@ -160,8 +160,10 @@ apps = true
 # true makes the dock only as wide as its icons plus the padding.
 # false spans the whole screen.
 fit = false
-# What an icon does under the pointer: "off" or "lift".
+# What an icon does under the pointer: "off", "lift" or "magnify".
 hover = "lift"
+# How big "magnify" makes the icon under the pointer, in percent, 110 to 200.
+magnify = 150
 
 [window]
 # Which end of the title bar holds the buttons: left or right.

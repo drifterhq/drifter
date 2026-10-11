@@ -107,6 +107,45 @@ impl Dock {
         Rect::new(Vec2::new(x, y).round(), Vec2::splat(self.icon))
     }
 
+    pub fn slots(&self, pinned: usize, minimized: usize) -> Vec<Slot> {
+        let mut slots: Vec<Slot> = (0..pinned).map(Slot::Pinned).collect();
+        slots.extend((0..minimized).map(Slot::Minimized));
+        if self.settings {
+            slots.push(Slot::Settings);
+        }
+        if self.trash {
+            slots.push(Slot::Trash);
+        }
+        slots
+    }
+
+    pub fn magnified(&self, band: Rect, pinned: usize, minimized: usize, pointer_x: f64, amount: f64) -> Vec<(Slot, Rect)> {
+        let reach = self.icon * 2.5;
+        let rest: Vec<(Slot, Rect)> = self
+            .slots(pinned, minimized)
+            .into_iter()
+            .map(|slot| (slot, self.slot_rect(band, pinned, minimized, slot)))
+            .collect();
+        let sizes: Vec<f64> = rest
+            .iter()
+            .map(|(_, rect)| {
+                let away = ((rect.center().x - pointer_x).abs() / reach).min(1.0);
+                let fall = ((away * std::f64::consts::PI).cos() + 1.0) / 2.0;
+                self.icon * (1.0 + (amount - 1.0) * fall)
+            })
+            .collect();
+        let total: f64 = sizes.iter().map(|size| size - self.icon).sum();
+        let mut before = 0.0;
+        rest.into_iter()
+            .zip(sizes)
+            .map(|((slot, rect), size)| {
+                let x = rect.origin.x + before - total / 2.0;
+                before += size - self.icon;
+                (slot, Rect::new(Vec2::new(x, rect.max().y - size), Vec2::splat(size)))
+            })
+            .collect()
+    }
+
     pub fn dividers(&self, band: Rect, pinned: usize, minimized: usize) -> Vec<Rect> {
         let mut rules = Vec::new();
         let tall = self.icon * 0.6;
@@ -442,6 +481,21 @@ pub fn bounce(seconds: f64, icon: f64) -> f64 {
 
 pub const BOUNCES: u32 = 4;
 
+pub const GLIDE: f64 = 0.22;
+
+pub fn glide(from: f64, to: f64, t: f64, bounce: bool) -> f64 {
+    let t = t.clamp(0.0, 1.0);
+    let shape = match bounce {
+        true => crate::drawer::ease(t),
+        false => crate::motion::smooth(t),
+    };
+    match t {
+        t if t >= 1.0 => to,
+        t if t <= 0.0 => from,
+        _ => from + (to - from) * shape,
+    }
+}
+
 pub const HOVER_LIFT: f64 = 4.0;
 pub const HOVER_SECONDS: f64 = 0.15;
 pub const DOT_SECONDS: f64 = 0.2;
@@ -547,6 +601,55 @@ fn slot_cut(dx: f64, py: f64, unit: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn magnify_at_1_matches_slot_rect() {
+        let dock = Dock::default();
+        let band = Rect::new(Vec2::ZERO, Vec2::new(1920.0, 60.0));
+        for (slot, rect) in dock.magnified(band, 4, 2, 900.0, 1.0) {
+            assert_eq!(rect, dock.slot_rect(band, 4, 2, slot));
+        }
+    }
+
+    #[test]
+    fn the_magnified_icon_under_the_pointer_is_biggest_and_the_row_stays_centered() {
+        let dock = Dock::default();
+        let band = Rect::new(Vec2::ZERO, Vec2::new(1920.0, 60.0));
+        let under = dock.slot_rect(band, 5, 0, Slot::Pinned(2));
+        let row = dock.magnified(band, 5, 0, under.center().x, 1.5);
+        let biggest = row.iter().max_by(|a, b| a.1.size.x.total_cmp(&b.1.size.x)).unwrap();
+        assert_eq!(biggest.0, Slot::Pinned(2));
+        assert!((biggest.1.size.x - dock.icon * 1.5).abs() < 1e-6);
+        assert!(row.iter().all(|(_, rect)| (rect.max().y - under.max().y).abs() < 1e-6), "bottoms stay on the line");
+        let rest_middle = (dock.slot_rect(band, 5, 0, Slot::Pinned(0)).origin.x + dock.slot_rect(band, 5, 0, Slot::Trash).max().x) / 2.0;
+        let middle = (row.first().unwrap().1.origin.x + row.last().unwrap().1.max().x) / 2.0;
+        assert!((middle - rest_middle).abs() < 1.0, "the row stays centred");
+        for pair in row.windows(2) {
+            assert!(pair[1].1.origin.x >= pair[0].1.max().x - 1e-6, "no overlap");
+        }
+    }
+
+    #[test]
+    fn a_glide_starts_at_from_and_ends_at_to() {
+        for bounce in [true, false] {
+            assert_eq!(glide(100.0, 160.0, 0.0, bounce), 100.0);
+            assert_eq!(glide(100.0, 160.0, 1.0, bounce), 160.0);
+            assert_eq!(glide(100.0, 160.0, 7.0, bounce), 160.0);
+            let mid = glide(100.0, 160.0, 0.5, bounce);
+            assert!(mid > 100.0 && mid < 175.0);
+        }
+        assert!((1..100).all(|i| glide(100.0, 160.0, f64::from(i) / 100.0, false) <= 160.0), "no bounce, no overshoot");
+    }
+
+    #[test]
+    fn the_row_recentres_by_half_a_step_when_one_app_opens() {
+        let dock = Dock::default();
+        let band = Rect::new(Vec2::ZERO, Vec2::new(1920.0, 60.0));
+        let before = dock.slot_rect(band, 3, 0, Slot::Pinned(0));
+        let after = dock.slot_rect(band, 4, 0, Slot::Pinned(0));
+        let step = dock.icon + dock.gap;
+        assert!((before.origin.x - after.origin.x - step / 2.0).abs() <= 1.0);
+    }
 
     #[test]
     fn a_hover_lifts_a_few_pixels_and_settles() {

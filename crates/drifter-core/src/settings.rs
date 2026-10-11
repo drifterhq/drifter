@@ -297,6 +297,7 @@ pub struct Model {
     pub dock_pad: f64,
     pub dock_fit: bool,
     pub dock_hover: crate::config::DockHover,
+    pub dock_magnify: u32,
     pub dock_gap: f64,
     pub glance: usize,
     pub shows: [bool; 6],
@@ -474,6 +475,7 @@ impl Model {
             dock_pad: config.dock_padding(),
             dock_fit: config.dock.fit,
             dock_hover: config.dock.hover,
+            dock_magnify: config.dock.magnify,
             dock_gap: config.dock_spacing(),
             glance: crate::glance::Style::parse(&config.tray.style)
                 .ok()
@@ -1210,7 +1212,7 @@ impl Model {
                             Id::DockHover,
                             crate::lang::t("Hover"),
                             Control::Segments {
-                                options: vec![crate::lang::t("Off"), crate::lang::t("Lift")],
+                                options: vec![crate::lang::t("Off"), crate::lang::t("Lift"), crate::lang::t("Magnify")],
                                 chosen: crate::config::DockHover::ALL
                                     .iter()
                                     .position(|h| *h == self.dock_hover)
@@ -1218,6 +1220,18 @@ impl Model {
                             },
                         )
                         .detail(crate::lang::t("What an icon does under the pointer")),
+                        Row::new(
+                            Id::DockMagnify,
+                            crate::lang::t("Magnify"),
+                            Control::Slider {
+                                least: f64::from(crate::config::MAGNIFY.0),
+                                most: f64::from(crate::config::MAGNIFY.1),
+                                value: f64::from(self.dock_magnify),
+                                unit: "%",
+                                zero: None,
+                            },
+                        )
+                        .enabled(self.dock_hover == crate::config::DockHover::Magnify),
                         ],
                         footer: None,
                         thumbs: None,
@@ -1872,7 +1886,11 @@ impl Model {
             (Id::DockIcon, Value::Number(n)) => self.dock_icon = n.round().clamp(16.0, 128.0),
             (Id::DockPadding, Value::Number(n)) => self.dock_pad = n.round().clamp(0.0, 40.0),
             (Id::DockFit, Value::Switch(on)) => self.dock_fit = on,
-            (Id::DockHover, Value::Choice(n)) => self.dock_hover = crate::config::DockHover::ALL[n.min(1)],
+            (Id::DockHover, Value::Choice(n)) => self.dock_hover = crate::config::DockHover::ALL[n.min(2)],
+            (Id::DockMagnify, Value::Number(n)) => {
+                let (least, most) = crate::config::MAGNIFY;
+                self.dock_magnify = n.round().clamp(f64::from(least), f64::from(most)) as u32
+            }
             (Id::DockSpacing, Value::Number(n)) => self.dock_gap = n.round().clamp(0.0, 48.0),
             (Id::Glance, Value::Choice(at)) => self.glance = at.min(crate::glance::Style::ALL.len() - 1),
             (Id::AutoEntry(at), Value::Switch(on)) => {
@@ -2198,6 +2216,9 @@ impl Model {
         }
         if self.dock_hover != before.dock_hover {
             put(&mut doc, "dock", "hover", word(self.dock_hover.word()));
+        }
+        if self.dock_magnify != before.dock_magnify {
+            put(&mut doc, "dock", "magnify", int(f64::from(self.dock_magnify)));
         }
         if self.automatic != before.automatic {
             put(
@@ -2580,6 +2601,7 @@ pub enum Id {
     DockPadding,
     DockFit,
     DockHover,
+    DockMagnify,
     DockSpacing,
     Glance,
     Dock(usize),
@@ -4734,11 +4756,13 @@ mod tests {
         after.set(Id::DockIcon, Value::Number(40.0));
         after.set(Id::DockPadding, Value::Number(12.0));
         after.set(Id::DockFit, Value::Switch(true));
-        after.set(Id::DockHover, Value::Choice(0));
+        after.set(Id::DockHover, Value::Choice(2));
+        after.set(Id::DockMagnify, Value::Number(400.0));
         let back = Config::parse(&after.write(&before, text).unwrap()).unwrap();
         assert_eq!(back.dock_height(), 64.0);
         assert!(back.dock.fit);
-        assert_eq!(back.dock.hover, crate::config::DockHover::Off);
+        assert_eq!(back.dock.hover, crate::config::DockHover::Magnify);
+        assert_eq!(back.dock.magnify, 200, "the amount clamps");
         back.validate().unwrap();
     }
 

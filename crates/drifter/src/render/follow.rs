@@ -328,7 +328,7 @@ impl State {
             self.chrome.follow(&config.window);
         }
         if paths[3] != self.asset_paths[3] {
-            let side = self.dock.icon as u32;
+            let side = self.dock_side();
             let (trash, cog, spare) = load_dock_art(&mut self.renderer, config, side, &self.palette);
             self.trash_full_art = None;
             self.dock_art_dir = config.dock_dir();
@@ -337,7 +337,7 @@ impl State {
             self.dock_spare = spare;
         }
         if icons_moved || paths[3] != self.asset_paths[3] {
-            let side = self.dock.icon as u32;
+            let side = self.dock_side();
             match dock_items(&mut self.renderer, config, side, self.dock_spare.as_ref()) {
                 Ok(pinned) => {
                     self.pinned = pinned;
@@ -387,7 +387,7 @@ impl State {
         self.skin = skin;
         self.chrome = chrome;
         self.chrome.follow(&config.window);
-        let side = self.dock.icon as u32;
+        let side = self.dock_side();
         let (trash, cog, spare) = load_dock_art(&mut self.renderer, config, side, &palette);
         self.trash_full_art = None;
         self.badge_art.clear();
@@ -696,15 +696,17 @@ impl State {
         self.apps_chosen = config.apps.clone();
         let wanted = (config.dock.clone(), config.apps.clone());
         self.dock_fit = config.dock.fit;
+        let raster = self.dock_side();
         self.dock_hover_mode = config.dock.hover;
+        self.dock_magnify = f64::from(config.dock.magnify) / 100.0;
         self.dock_pad = config.dock_padding();
         self.dock.margin = dock_margin(config);
         let resized = self.dock.with_icon(config.dock_icon());
         self.dock.gap = config.dock_spacing();
-        let regrown = resized.icon != self.dock.icon;
+        let regrown = resized.icon != self.dock.icon || raster != super::dock::raster_side(resized.icon, config);
         if regrown {
             self.dock = resized.spaced(config.dock_spacing());
-            let side = self.dock.icon as u32;
+            let side = self.dock_side();
             let (trash, cog, spare) = load_dock_art(&mut self.renderer, config, side, &self.palette);
             self.trash = trash;
             self.cog = cog;
@@ -718,7 +720,7 @@ impl State {
             }
         }
         if self.pinned_from != wanted || regrown {
-            let side = self.dock.icon as u32;
+            let side = self.dock_side();
             match dock_items(&mut self.renderer, config, side, self.dock_spare.as_ref()) {
                 Ok(pinned) => {
                     self.pinned = pinned;

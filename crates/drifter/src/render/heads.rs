@@ -626,7 +626,7 @@ impl State {
                     }
                     Err(error) => log!("drifter: {error}"),
                 }
-                let side = self.dock.icon as u32;
+                let side = self.dock_side();
                 match dock_items(&mut self.renderer, &config, side, self.dock_spare.as_ref()) {
                     Ok(pinned) => self.pinned = pinned,
                     Err(error) => log!("drifter: {error}"),
