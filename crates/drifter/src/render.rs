@@ -731,6 +731,7 @@ impl State {
             || self.snap_gliding()
             || self.dock_winding()
             || self.lit_moving()
+            || self.search_moving()
             || self.windows.iter().any(|window| window.lit != self.lit_target(window.id))
             || self.thumb_moving()
             || self.welcome_busy()

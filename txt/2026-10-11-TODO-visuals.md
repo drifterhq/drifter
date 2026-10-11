@@ -239,7 +239,7 @@ How motion works today (all items use this):
     - `lit` is cleared when its pane closes (check in `lit_rect`). `lit_moving()` in `animating()`.
   - Tests: control.rs `hit_rect`; glance.rs `row_rect` (tests at :265-299); render/tests.rs: Spotlight with results, pointer over row 1, `state.lit` targets `row_rect(1)` and no repaint lane was claimed.
 
-- [ ] **13 [LOW] Spotlight height eases.**
+- [x] **13 [LOW] Spotlight height eases.**
   - Waits on: G2.
   - It jumps when the result count changes. `Look::size` (search.rs:208-214), `paint_search` (render/search.rs:58-95) sets rect at :78, swaps art at :89-92, drawn at render.rs:867-870. Origin is fixed (search.rs:216-221).
   - Fix: `Search` (render/search.rs:4-11) gets `height: (f64, Instant)`, `prior: Option<(TextureBuffer<Tex>, Rect)>`, `SEARCH_EASE 0.16`. In the done closure, record the drawn height and keep the old art when shrinking. Draw in two slices to keep the bottom corners (radius 16, search.rs:246): top `faded(art, (0, 0, w, h - r), ..)`, bottom `faded(art, (0, art_h - r, w, r), (o + (0, h - r), (w, r)))`. Use `prior` while `h > new height`. `modal_shadow` on `(o, (w, h))`. `search_moving()` in `animating()`. Pace 0: no ease.

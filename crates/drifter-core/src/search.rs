@@ -205,6 +205,18 @@ impl Look {
         }
     }
 
+    pub fn slices(art: Vec2, height: f64, radius: f64) -> [(Rect, Rect); 2] {
+        let radius = radius.min(height / 2.0).min(art.y / 2.0).max(0.0);
+        let top = (height - radius).min(art.y - radius).max(0.0);
+        [
+            (Rect::new(Vec2::ZERO, Vec2::new(art.x, top)), Rect::new(Vec2::ZERO, Vec2::new(art.x, top))),
+            (
+                Rect::new(Vec2::new(0.0, art.y - radius), Vec2::new(art.x, radius)),
+                Rect::new(Vec2::new(0.0, top), Vec2::new(art.x, radius)),
+            ),
+        ]
+    }
+
     pub fn size(&self, results: usize) -> Vec2 {
         let list = match results {
             0 => 0.0,
@@ -325,6 +337,19 @@ fn glyph(canvas: &mut Canvas, spot: Rect, kind: Kind, ink: [u8; 3]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn two_slices_cover_the_height_and_keep_the_bottom_corners() {
+        let art = Vec2::new(600.0, 400.0);
+        for height in [120.0, 250.0, 400.0] {
+            let [(top_src, top_dst), (bottom_src, bottom_dst)] = Look::slices(art, height, 16.0);
+            assert_eq!(top_dst.size.y + bottom_dst.size.y, height, "they cover {height}");
+            assert_eq!(bottom_dst.origin.y, top_dst.max().y, "no gap");
+            assert_eq!(bottom_src.max().y, art.y, "the bottom comes from the last rows");
+            assert_eq!(bottom_src.size, bottom_dst.size, "no stretch");
+            assert_eq!(top_src.size, top_dst.size);
+        }
+    }
 
     fn item(kind: Kind, title: &str, extra: &str) -> Found {
         Found {

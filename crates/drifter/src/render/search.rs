@@ -8,7 +8,12 @@ pub(super) struct Search {
     pub selected: usize,
     pub art: Option<(TextureBuffer<Tex>, Rect)>,
     pub lane: worker::Lane,
+    pub height: (f64, Instant),
+    pub prior: Option<(TextureBuffer<Tex>, Rect)>,
 }
+
+const SEARCH_EASE: f64 = 0.16;
+const SEARCH_RADIUS: f64 = 16.0;
 
 impl State {
     pub(super) fn toggle_search(&mut self) {
@@ -24,6 +29,8 @@ impl State {
             selected: 0,
             art: None,
             lane: worker::Lane::default(),
+            height: (0.0, Instant::now()),
+            prior: None,
         });
         self.paint_search();
         let apps = self.installed_apps();
@@ -87,11 +94,58 @@ impl State {
                 Some(image)
             },
             move |state, art| {
+                let shown = state.search_height();
                 if let Some(open) = state.search.as_mut() {
-                    open.art = Some((art, rect));
+                    let old = open.art.replace((art, rect));
+                    match shown {
+                        Some(shown) if (shown - rect.size.y).abs() > 0.5 => {
+                            open.height = (shown, Instant::now());
+                            open.prior = old.filter(|(_, was)| was.size.y > rect.size.y);
+                        }
+                        Some(_) => {}
+                        None => open.height = (rect.size.y, Instant::now()),
+                    }
                 }
             },
         );
+    }
+
+    pub(super) fn search_height(&self) -> Option<f64> {
+        let open = self.search.as_ref()?;
+        let (_, rect) = open.art.as_ref()?;
+        let pace = self.window_pace;
+        if pace <= 0.0 {
+            return Some(rect.size.y);
+        }
+        let (from, since) = open.height;
+        let t = since.elapsed().as_secs_f64() / (SEARCH_EASE / pace);
+        Some(from + (rect.size.y - from) * drifter_core::motion::smooth(t))
+    }
+
+    pub(super) fn search_moving(&self) -> bool {
+        let Some(open) = self.search.as_ref() else {
+            return false;
+        };
+        self.window_pace > 0.0
+            && open.art.is_some()
+            && open.height.1.elapsed().as_secs_f64() < SEARCH_EASE / self.window_pace
+    }
+
+    pub(super) fn search_layers(&self) -> Option<(Vec<(TextureBuffer<Tex>, Rect, Rect)>, Rect)> {
+        let open = self.search.as_ref()?;
+        let (art, rect) = open.art.as_ref()?;
+        let height = self.search_height()?;
+        let (art, size) = match open.prior.as_ref().filter(|_| height > rect.size.y + 0.5) {
+            Some((prior, was)) => (prior, was.size),
+            None => (art, rect.size),
+        };
+        let frame = Rect::new(rect.origin, Vec2::new(rect.size.x, height));
+        let parts = drifter_core::search::Look::slices(size, height, SEARCH_RADIUS)
+            .into_iter()
+            .filter(|(source, _)| source.size.y > 0.0)
+            .map(|(source, target)| (art.clone(), source, Rect::new(rect.origin + target.origin, target.size)))
+            .collect();
+        Some((parts, frame))
     }
 
     pub(super) fn search_key(&mut self, key: LockKey) {

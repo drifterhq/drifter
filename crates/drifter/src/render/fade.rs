@@ -58,6 +58,7 @@ pub(super) struct Layer {
     source: Option<Rect>,
     scales: bool,
     shadow: Shadow,
+    shade: Option<Rect>,
 }
 
 impl Layer {
@@ -68,6 +69,7 @@ impl Layer {
             source: None,
             scales: true,
             shadow,
+            shade: None,
         }
     }
 }
@@ -124,7 +126,21 @@ impl State {
                 Some((layers, frame))
             }
             Pane::Tip => self.tip.as_ref().and_then(|(art, rect)| one(art, *rect, Shadow::Tip)),
-            Pane::Search => self.search.as_ref()?.art.as_ref().and_then(|(art, rect)| one(art, *rect, Shadow::Modal)),
+            Pane::Search => {
+                let (parts, frame) = self.search_layers()?;
+                let mut layers: Vec<Layer> = parts
+                    .into_iter()
+                    .map(|(art, source, rect)| Layer {
+                        source: Some(source),
+                        ..Layer::new(&art, rect, Shadow::None)
+                    })
+                    .collect();
+                if let Some(first) = layers.first_mut() {
+                    first.shadow = Shadow::Modal;
+                    first.shade = Some(frame);
+                }
+                Some((layers, frame))
+            }
             Pane::Launchpad => self.launchpad.as_ref().and_then(|pad| one(pad.art.as_ref()?, pad.rect, Shadow::Modal)),
             Pane::Control => self.control.as_ref().and_then(|open| one(open.art.as_ref()?, open.rect, Shadow::Menu)),
             Pane::Notes => self.notes_panel.as_ref().and_then(|(art, rect, _)| one(art, *rect, Shadow::Menu)),
@@ -328,16 +344,18 @@ impl State {
         }
         let centre = frame.center();
         self.lit_elements(pane, centre, scale, alpha, elements);
+        let place = |rect: Rect, scales: bool| match scales && scale != 1.0 {
+            true => Rect::new(centre + (rect.origin - centre) * scale, rect.size * scale),
+            false => rect,
+        };
         for layer in &layers {
-            let drawn = match layer.scales && scale != 1.0 {
-                true => Rect::new(centre + (layer.rect.origin - centre) * scale, layer.rect.size * scale),
-                false => layer.rect,
-            };
+            let drawn = place(layer.rect, layer.scales);
             match layer.source {
                 Some(source) => elements.push(Skin::Texture(faded(&layer.art, source, drawn, alpha))),
                 None => elements.push(Skin::Texture(element(&layer.art, drawn, alpha))),
             }
-            self.panel_shadow(drawn, layer.shadow, alpha, elements);
+            let shade = layer.shade.map_or(drawn, |rect| place(rect, layer.scales));
+            self.panel_shadow(shade, layer.shadow, alpha, elements);
         }
     }
 
