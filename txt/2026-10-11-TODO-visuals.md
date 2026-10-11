@@ -64,7 +64,7 @@ How motion works today (all items use this):
 
 ## Tier 1: small changes, big effect
 
-- [ ] **1 [HIGH] Fade every panel in and out from one place.**
+- [x] **1 [HIGH] Fade every panel in and out from one place.**
   - Waits on: G1, G2, G3.
   - Today 14 panels draw at alpha 1.0 and drop in one frame. Draw sites: render.rs:815-826 (prompt + haze, HUD, cards), 867-870 (search), 875-910 (popover, launchpad, control, notes, charges, glance, glance card, tip), `switch_elements` overlays.rs:461-477, `alert_elements` deskmenu.rs:676-683.
   - State fields: popover :576, tip :599, search :533, launchpad :534, control :524, notes_panel :528, charges :529, glance_panel :530, glance_card :516, hud :655, cards :654, switch :581, alert :579, prompt_art :637, prompt_haze :638. Also desk_menu :577: it grows in already but vanishes on close.

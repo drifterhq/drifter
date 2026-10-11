@@ -754,12 +754,37 @@ fn a_hud_on_screen_does_not_slow_an_animation() {
         level: 0.5,
         muted: false,
     });
-    pump(&mut run.screen, |state| state.hud.is_some());
+    pump(&mut run.screen, |state| state.hud.is_some() && !state.fades_busy());
     let state = &mut run.screen.state;
     assert!(state.hud.is_some(), "the HUD is up");
     assert!(state.waiting() > Some(super::TICK), "a still HUD waits for its end");
     state.dock_logo.hot = true;
     assert_eq!(state.waiting(), Some(super::TICK), "an animation ticks with the HUD up");
+}
+
+#[test]
+fn a_closed_panel_fades_out_then_leaves_no_trace() {
+    let mut run = start("pane-fade", &Config::default(), None);
+    let closed = run.shot("pane-closed");
+    run.screen.state.show_hud(drifter_core::hud::Reading {
+        gauge: drifter_core::hud::Gauge::Brightness,
+        level: 0.8,
+        muted: false,
+    });
+    pump(&mut run.screen, |state| state.hud.is_some() && !state.fades_busy());
+    let open = run.shot("pane-open");
+    assert_ne!(open.rgba, closed.rgba, "the HUD shows");
+    run.screen.state.hud = None;
+    run.screen.state.watch_panes(Instant::now());
+    run.screen.state.kick_now();
+    let leaving = run.shot("pane-leaving");
+    assert_ne!(leaving.rgba, closed.rgba, "the HUD fades out instead of vanishing");
+    assert!(run.screen.state.fades_busy(), "the fade keeps frames coming");
+    let until = Instant::now() + Duration::from_millis(200);
+    pump(&mut run.screen, |_| Instant::now() >= until);
+    run.screen.state.watch_panes(Instant::now());
+    let gone = run.shot("pane-gone");
+    assert_eq!(gone.rgba, closed.rgba, "nothing is left once the fade ends");
 }
 
 #[test]

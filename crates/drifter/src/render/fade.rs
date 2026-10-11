@@ -1,6 +1,85 @@
+use std::collections::HashMap;
+
 use super::*;
+use drifter_core::motion::{appear, vanish};
 
 pub(super) const ROUND_PATCH: f64 = 12.0;
+const FADE_IN: f64 = 0.16;
+const FADE_OUT: f64 = 0.12;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) enum Pane {
+    Menu,
+    DeskMenu,
+    Tip,
+    Search,
+    Launchpad,
+    Control,
+    Notes,
+    Charges,
+    Glance,
+    GlanceCard,
+    Hud,
+    Card(u32),
+    Switch,
+    Alert,
+    Prompt,
+}
+
+impl Pane {
+    const FIXED: [Pane; 14] = [
+        Pane::Menu,
+        Pane::DeskMenu,
+        Pane::Tip,
+        Pane::Search,
+        Pane::Launchpad,
+        Pane::Control,
+        Pane::Notes,
+        Pane::Charges,
+        Pane::Glance,
+        Pane::GlanceCard,
+        Pane::Hud,
+        Pane::Switch,
+        Pane::Alert,
+        Pane::Prompt,
+    ];
+
+    fn grows_itself(self) -> bool {
+        matches!(self, Pane::Menu | Pane::DeskMenu)
+    }
+}
+
+#[derive(Clone)]
+pub(super) struct Layer {
+    art: TextureBuffer<Tex>,
+    rect: Rect,
+    scales: bool,
+    shadow: Shadow,
+}
+
+impl Layer {
+    fn new(art: &TextureBuffer<Tex>, rect: Rect, shadow: Shadow) -> Layer {
+        Layer {
+            art: art.clone(),
+            rect,
+            scales: true,
+            shadow,
+        }
+    }
+}
+
+struct Fader {
+    born: Instant,
+    last: Vec<Layer>,
+    frame: Rect,
+    gone: Option<Instant>,
+}
+
+#[derive(Default)]
+pub(super) struct Fades {
+    panes: HashMap<Pane, Fader>,
+}
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Shadow {
@@ -27,6 +106,171 @@ pub(super) fn round_art(renderer: &mut Painter, color: [u8; 3]) -> Option<Textur
 }
 
 impl State {
+    fn pane_layers(&self, pane: Pane) -> Option<(Vec<Layer>, Rect)> {
+        let one = |art: &TextureBuffer<Tex>, rect: Rect, shadow: Shadow| Some((vec![Layer::new(art, rect, shadow)], rect));
+        match pane {
+            Pane::Menu => self.popover.as_ref().and_then(|open| Some((open.art.as_ref()?, open.rect))).and_then(|(art, rect)| one(art, rect, Shadow::None)),
+            Pane::DeskMenu => {
+                let open = self.desk_menu.as_ref()?;
+                let frame = open.arts.iter().map(|(_, rect)| *rect).reduce(|a, b| {
+                    let origin = a.origin.min(b.origin);
+                    Rect::new(origin, a.max().max(b.max()) - origin)
+                })?;
+                let layers = open.arts.iter().map(|(art, rect)| Layer::new(art, *rect, Shadow::Menu)).collect();
+                Some((layers, frame))
+            }
+            Pane::Tip => self.tip.as_ref().and_then(|(art, rect)| one(art, *rect, Shadow::None)),
+            Pane::Search => self.search.as_ref()?.art.as_ref().and_then(|(art, rect)| one(art, *rect, Shadow::Modal)),
+            Pane::Launchpad => self.launchpad.as_ref().and_then(|pad| one(pad.art.as_ref()?, pad.rect, Shadow::Modal)),
+            Pane::Control => self.control.as_ref().and_then(|open| one(open.art.as_ref()?, open.rect, Shadow::None)),
+            Pane::Notes => self.notes_panel.as_ref().and_then(|(art, rect, _)| one(art, *rect, Shadow::None)),
+            Pane::Charges => self.charges.as_ref().and_then(|panel| one(panel.art.as_ref()?, panel.rect, Shadow::None)),
+            Pane::Glance => self.glance_panel.as_ref().and_then(|panel| one(panel.art.as_ref()?, panel.rect, Shadow::None)),
+            Pane::GlanceCard => self.glance_card.as_ref().and_then(|(art, rect)| one(art, *rect, Shadow::Modal)),
+            Pane::Hud => self.hud.as_ref().and_then(|(art, rect, _)| one(art, *rect, Shadow::None)),
+            Pane::Card(id) => {
+                let (card, rect) = self.cards.iter().zip(self.card_rects()).find(|(card, _)| card.note.id == id)?;
+                one(&card.art, rect, Shadow::None)
+            }
+            Pane::Switch => {
+                let open = self.switch.as_ref()?;
+                let art = open.art.as_ref()?;
+                let panel = open.layout.panel;
+                let mut layers = Vec::new();
+                for (index, icon) in open.icons.iter().enumerate() {
+                    if let Some(icon) = icon {
+                        let rect = open.layout.icon_rect(index);
+                        layers.push(Layer::new(icon, Rect::new(panel.origin + rect.origin, rect.size), Shadow::None));
+                    }
+                }
+                layers.push(Layer::new(art, panel, Shadow::None));
+                Some((layers, panel))
+            }
+            Pane::Alert => self.alert.as_ref().and_then(|open| one(open.art.as_ref()?, open.rect, Shadow::Modal)),
+            Pane::Prompt => {
+                let (art, rect) = self.prompt_art.as_ref()?;
+                let mut layers = vec![Layer::new(art, *rect, Shadow::None)];
+                if let Some(haze) = self.prompt_haze.as_ref() {
+                    layers.push(Layer {
+                        scales: false,
+                        ..Layer::new(haze, Rect::new(Vec2::ZERO, self.screen), Shadow::None)
+                    });
+                }
+                Some((layers, *rect))
+            }
+        }
+    }
+
+    pub(super) fn watch_panes(&mut self, now: Instant) {
+        let mut seen: Vec<Pane> = Pane::FIXED.to_vec();
+        seen.extend(self.cards.iter().map(|card| Pane::Card(card.note.id)));
+        let pace = self.window_pace;
+        for pane in seen.iter().copied() {
+            match self.pane_layers(pane) {
+                Some((layers, frame)) => {
+                    let look = self.fades.panes.get(&pane).map(|fader| self.pane_look(pane, fader, now).0);
+                    let fader = self.fades.panes.entry(pane).or_insert_with(|| Fader {
+                        born: now,
+                        last: Vec::new(),
+                        frame,
+                        gone: None,
+                    });
+                    if fader.gone.take().is_some() {
+                        let shown = f64::from(look.unwrap_or(0.0));
+                        fader.born = now - Duration::from_secs_f64(shown * FADE_IN / pace.max(0.01));
+                    }
+                    fader.last = layers;
+                    fader.frame = frame;
+                }
+                None => {
+                    if let Some(fader) = self.fades.panes.get_mut(&pane)
+                        && fader.gone.is_none()
+                    {
+                        fader.gone = Some(now);
+                    }
+                }
+            }
+        }
+        let cards: Vec<u32> = self.cards.iter().map(|card| card.note.id).collect();
+        for (pane, fader) in self.fades.panes.iter_mut() {
+            if let Pane::Card(id) = pane
+                && !cards.contains(id)
+                && fader.gone.is_none()
+            {
+                fader.gone = Some(now);
+            }
+        }
+        self.fades.panes.retain(|_, fader| match fader.gone {
+            None => true,
+            Some(gone) => pace > 0.0 && now.duration_since(gone).as_secs_f64() < FADE_OUT / pace,
+        });
+    }
+
+    fn pane_look(&self, pane: Pane, fader: &Fader, now: Instant) -> (f32, f64) {
+        let pace = self.window_pace;
+        if pace <= 0.0 {
+            return (1.0, 1.0);
+        }
+        let (alpha, scale) = match fader.gone {
+            Some(gone) => vanish(now.duration_since(gone).as_secs_f64() / (FADE_OUT / pace), self.window_still),
+            None if pane.grows_itself() => (1.0, 1.0),
+            None => appear(now.duration_since(fader.born).as_secs_f64() / (FADE_IN / pace), self.window_still),
+        };
+        (alpha as f32, scale)
+    }
+
+    pub(super) fn drop_ghosts(&mut self) {
+        self.watch_panes(Instant::now());
+        self.fades.panes.retain(|_, fader| fader.gone.is_none());
+    }
+
+    pub(super) fn fades_busy(&self) -> bool {
+        let now = Instant::now();
+        self.fades.panes.iter().any(|(pane, fader)| {
+            fader.gone.is_some() || (!pane.grows_itself() && self.pane_look(*pane, fader, now).0 < 1.0)
+        })
+    }
+
+    pub(super) fn pane_elements(&self, pane: Pane, elements: &mut Vec<Skin>) {
+        let now = Instant::now();
+        let fader = self.fades.panes.get(&pane);
+        let live = match pane {
+            Pane::DeskMenu => None,
+            _ => self.pane_layers(pane),
+        };
+        let (layers, frame) = match (live, fader) {
+            (Some(live), _) => live,
+            (None, Some(fader)) if fader.gone.is_some() => (fader.last.clone(), fader.frame),
+            _ => return,
+        };
+        let (alpha, scale) = fader.map_or((1.0, 1.0), |fader| self.pane_look(pane, fader, now));
+        if alpha <= 0.0 {
+            return;
+        }
+        let centre = frame.center();
+        for layer in &layers {
+            let drawn = match layer.scales && scale != 1.0 {
+                true => Rect::new(centre + (layer.rect.origin - centre) * scale, layer.rect.size * scale),
+                false => layer.rect,
+            };
+            elements.push(Skin::Texture(element(&layer.art, drawn, alpha)));
+            self.panel_shadow(drawn, layer.shadow, alpha, elements);
+        }
+    }
+
+    pub(super) fn card_elements(&self, elements: &mut Vec<Skin>) {
+        for card in &self.cards {
+            self.pane_elements(Pane::Card(card.note.id), elements);
+        }
+        for pane in self.fades.panes.keys() {
+            if let Pane::Card(id) = pane
+                && !self.cards.iter().any(|card| card.note.id == *id)
+            {
+                self.pane_elements(*pane, elements);
+            }
+        }
+    }
+
     pub(super) fn round_fill(
         &self,
         patch: &TextureBuffer<Tex>,

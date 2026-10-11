@@ -632,6 +632,7 @@ pub struct State {
     config_path: PathBuf,
     zone: Option<Zone>,
     plain: Option<TextureBuffer<Tex>>,
+    fades: fade::Fades,
     round: Option<TextureBuffer<Tex>>,
     accent_round: Option<TextureBuffer<Tex>>,
     titles: std::collections::HashMap<String, (TextureBuffer<Tex>, Vec2)>,
@@ -698,6 +699,7 @@ impl State {
             || self.windows.iter().any(|window| window.closed_at.is_some())
             || self.dock_drag.is_some()
             || self.desk_menu_busy()
+            || self.fades_busy()
             || self.thumb_moving()
             || self.welcome_busy()
             || self.dock_logo.hot
@@ -822,18 +824,9 @@ impl State {
         elements.extend(layer);
         if live {
             self.shooter_elements(&mut elements);
-            if let Some((art, rect)) = self.prompt_art.as_ref() {
-                elements.push(Skin::Texture(element(art, *rect, 1.0)));
-                if let Some(haze) = self.prompt_haze.as_ref() {
-                    elements.push(Skin::Texture(element(haze, Rect::new(Vec2::ZERO, self.screen), 1.0)));
-                }
-            }
-            if let Some((art, rect, _)) = self.hud.as_ref() {
-                elements.push(Skin::Texture(element(art, *rect, 1.0)));
-            }
-            for (card, rect) in self.cards.iter().zip(self.card_rects()) {
-                elements.push(Skin::Texture(element(&card.art, rect, 1.0)));
-            }
+            self.pane_elements(fade::Pane::Prompt, &mut elements);
+            self.pane_elements(fade::Pane::Hud, &mut elements);
+            self.card_elements(&mut elements);
             self.switch_elements(&mut elements);
         }
         self.layer_elements(
@@ -874,51 +867,25 @@ impl State {
             elements.push(Skin::Texture(fill(buffer, target, 0.12)));
         }
 
-        if let Some((art, rect)) = self.search.as_ref().and_then(|open| open.art.as_ref()).filter(|_| live) {
-            elements.push(Skin::Texture(element(art, *rect, 1.0)));
-            self.modal_shadow(*rect, &mut elements);
-        }
         if live {
+            self.pane_elements(fade::Pane::Search, &mut elements);
             self.alert_elements(&mut elements);
             self.desk_menu_elements(&mut elements);
-        }
-        if let Some(open) = self.popover.as_ref().filter(|_| live && self.shooter.is_none())
-            && let Some(art) = open.art.as_ref()
-        {
-            elements.push(Skin::Texture(element(art, open.rect, 1.0)));
-        }
-        if let Some(pad) = self.launchpad.as_ref().filter(|_| live)
-            && let Some(art) = pad.art.as_ref()
-        {
-            elements.push(Skin::Texture(element(art, pad.rect, 1.0)));
-            self.modal_shadow(pad.rect, &mut elements);
-        }
-        if let Some(open) = self.control.as_ref().filter(|_| live)
-            && let Some(art) = open.art.as_ref()
-        {
-            elements.push(Skin::Texture(element(art, open.rect, 1.0)));
-        }
-        if let Some((art, rect, _)) = self.notes_panel.as_ref().filter(|_| live) {
-            elements.push(Skin::Texture(element(art, *rect, 1.0)));
-        }
-        if let Some(panel) = self.charges.as_ref().filter(|_| live)
-            && let Some(art) = panel.art.as_ref()
-        {
-            elements.push(Skin::Texture(element(art, panel.rect, 1.0)));
-        }
-        if let Some(panel) = self.glance_panel.as_ref().filter(|_| live)
-            && let Some(art) = panel.art.as_ref()
-        {
-            elements.push(Skin::Texture(element(art, panel.rect, 1.0)));
-        }
-        if let Some((art, rect)) = self.glance_card.as_ref().filter(|_| live) {
-            elements.push(Skin::Texture(element(art, *rect, 1.0)));
-            self.modal_shadow(*rect, &mut elements);
-        }
-        if let Some((art, rect)) = self.tip.as_ref().filter(|_| live) {
-            elements.push(Skin::Texture(element(art, *rect, 1.0)));
-        }
-        if live {
+            self.pane_elements(fade::Pane::DeskMenu, &mut elements);
+            if self.shooter.is_none() {
+                self.pane_elements(fade::Pane::Menu, &mut elements);
+            }
+            for pane in [
+                fade::Pane::Launchpad,
+                fade::Pane::Control,
+                fade::Pane::Notes,
+                fade::Pane::Charges,
+                fade::Pane::Glance,
+                fade::Pane::GlanceCard,
+                fade::Pane::Tip,
+            ] {
+                self.pane_elements(pane, &mut elements);
+            }
             self.welcome_elements(&mut elements);
         }
 
@@ -1239,6 +1206,7 @@ impl State {
         if self.hud.as_ref().is_some_and(|(_, _, until)| now >= *until) {
             self.hud = None;
         }
+        self.watch_panes(now);
         self.expire_cards(now);
         self.settle_welcome();
         self.wind_titles();

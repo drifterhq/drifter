@@ -582,6 +582,7 @@ pub fn open(
         },
         zone: None,
         plain,
+        fades: fade::Fades::default(),
         round,
         accent_round,
         titles: std::collections::HashMap::new(),

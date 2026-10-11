@@ -89,6 +89,21 @@ impl Motion {
     }
 }
 
+pub const FROM_SCALE: f64 = 0.96;
+
+pub fn appear(t: f64, reduce: bool) -> (f64, f64) {
+    let shown = smooth(t);
+    let scale = match reduce {
+        true => 1.0,
+        false => FROM_SCALE + (1.0 - FROM_SCALE) * shown,
+    };
+    (shown, scale)
+}
+
+pub fn vanish(t: f64, reduce: bool) -> (f64, f64) {
+    appear(1.0 - t.clamp(0.0, 1.0), reduce)
+}
+
 pub fn smooth(t: f64) -> f64 {
     let t = t.clamp(0.0, 1.0);
     1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t)
@@ -124,6 +139,18 @@ mod tests {
 
     use super::*;
     use crate::geom::Vec2;
+
+    #[test]
+    fn appear_starts_clear_and_small_and_ends_solid_and_whole() {
+        assert_eq!(appear(0.0, false), (0.0, FROM_SCALE));
+        assert_eq!(appear(1.0, false), (1.0, 1.0));
+        assert_eq!(appear(0.0, true), (0.0, 1.0), "reduce motion keeps the size");
+        let (alpha, scale) = appear(0.5, false);
+        assert!(alpha > 0.5 && alpha < 1.0 && scale > FROM_SCALE && scale < 1.0);
+        assert_eq!(vanish(0.0, false), (1.0, 1.0));
+        assert_eq!(vanish(1.0, false), (0.0, FROM_SCALE));
+        assert_eq!(vanish(2.0, true), (0.0, 1.0));
+    }
 
     #[test]
     fn reduce_motion_keeps_the_fade_but_not_the_move() {

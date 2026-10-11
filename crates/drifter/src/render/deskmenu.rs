@@ -673,11 +673,6 @@ impl State {
     }
 
     pub(super) fn alert_elements(&self, elements: &mut Vec<Skin>) {
-        if let Some(open) = self.alert.as_ref()
-            && let Some(art) = open.art.as_ref()
-        {
-            elements.push(Skin::Texture(element(art, open.rect, 1.0)));
-            self.modal_shadow(open.rect, elements);
-        }
+        self.pane_elements(fade::Pane::Alert, elements);
     }
 }

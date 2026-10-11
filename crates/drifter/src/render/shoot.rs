@@ -64,6 +64,7 @@ impl State {
         self.notes_panel = None;
         self.charges = None;
         self.glance_panel = None;
+        self.drop_ghosts();
         self.shooter = Some(Shooter {
             tool,
             bar: None,
@@ -379,6 +380,7 @@ impl State {
     }
 
     pub(super) fn take_still(&mut self, area: Option<Rect>) {
+        self.drop_ghosts();
         self.shot_crop = area;
         self.shot_wanted = true;
         self.kick_now();

@@ -459,21 +459,7 @@ impl State {
     }
 
     pub(super) fn switch_elements(&self, elements: &mut Vec<Skin>) {
-        let Some(open) = self.switch.as_ref() else {
-            return;
-        };
-        let Some(art) = open.art.as_ref() else {
-            return;
-        };
-        let panel = open.layout.panel;
-        for (index, icon) in open.icons.iter().enumerate() {
-            if let Some(icon) = icon {
-                let rect = open.layout.icon_rect(index);
-                let rect = Rect::new(panel.origin + rect.origin, rect.size);
-                elements.push(Skin::Texture(element(icon, rect, 1.0)));
-            }
-        }
-        elements.push(Skin::Texture(element(art, panel, 1.0)));
+        self.pane_elements(super::fade::Pane::Switch, elements);
     }
 
 }
