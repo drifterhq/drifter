@@ -4,8 +4,7 @@ use drifter_core::power::Action;
 
 const OPEN_DELAY: Duration = Duration::from_millis(140);
 const PANEL_FADE: f64 = 0.12;
-const GROW_WAIT: f64 = 0.02;
-const GROW: f64 = 0.2;
+use drifter_core::menu::{GROW, GROW_WAIT, grown};
 
 #[derive(Clone)]
 pub(super) enum Pick {
@@ -117,7 +116,7 @@ impl State {
             picks,
             arts: Vec::new(),
             keys: Vec::new(),
-            opened: vec![Instant::now()],
+            opened: Vec::new(),
             anchor: at,
             pending: None,
             lane: worker::Lane::default(),
@@ -332,18 +331,8 @@ impl State {
             let gone = open.opened.get(level).map_or(f64::MAX, |at| at.elapsed().as_secs_f64());
             let (drop, shown) = match (level, instant) {
                 (_, true) => (*rect, 1.0),
-                (0, false) if fade_only => (*rect, (((gone - GROW_WAIT) / GROW).clamp(0.0, 1.0) * 1.6).min(1.0)),
+                (0, false) => grown(*rect, open.anchor, gone, false, fade_only),
                 (_, false) if fade_only => (*rect, (gone / PANEL_FADE).min(1.0)),
-                (0, false) => {
-                    let t = ((gone - GROW_WAIT) / GROW).clamp(0.0, 1.0);
-                    let grow = drifter_core::motion::smooth(t);
-                    let scale = 0.35 + 0.65 * grow;
-                    let anchor = open.anchor;
-                    (
-                        Rect::new(anchor + (rect.origin - anchor) * scale, rect.size * scale),
-                        (t * 1.6).min(1.0),
-                    )
-                }
                 _ => {
                     let shown = (gone / PANEL_FADE).min(1.0);
                     (Rect::new(rect.origin + Vec2::new(0.0, 6.0 * (1.0 - shown)), rect.size), shown)
@@ -352,12 +341,13 @@ impl State {
             if shown <= 0.0 {
                 continue;
             }
-            match drop.size == rect.size {
-                true => elements.push(Skin::Texture(element(art, drop, shown as f32))),
-                false => elements.push(Skin::Texture(faded(art, Rect::new(Vec2::ZERO, rect.size), drop, shown as f32))),
-            }
-            self.panel_shadow(drop, fade::Shadow::Menu, shown as f32, elements);
+            self.menu_skin(art, drop, shown as f32, elements);
         }
+    }
+
+    pub(super) fn menu_skin(&self, art: &TextureBuffer<Tex>, drop: Rect, shown: f32, elements: &mut Vec<Skin>) {
+        elements.push(Skin::Texture(element(art, drop, shown)));
+        self.panel_shadow(drop, fade::Shadow::Menu, shown, elements);
     }
 
     pub(super) fn desk_menu_busy(&self) -> bool {

@@ -430,7 +430,8 @@ impl State {
             .unwrap_or(Rect::new(Vec2::ZERO, bar.size));
         let size = self.menu_look().size(&items, self.font.as_deref());
         let at = Vec2::new(bar.origin.x + options.origin.x, bar.origin.y - size.y - 8.0);
-        self.open_popover(items, at, Target::Shooter);
+        let from = Vec2::new(bar.origin.x + options.center().x, bar.origin.y);
+        self.open_popover_from(items, at, from, Target::Shooter);
     }
 
     pub(super) fn shooter_menu_pick(&mut self, id: i32) {
@@ -817,11 +818,7 @@ impl State {
         let Some((_, inks)) = self.shot_inks.as_ref() else {
             return;
         };
-        if let Some(open) = self.popover.as_ref()
-            && let Some(art) = open.art.as_ref()
-        {
-            elements.push(Skin::Texture(element(art, open.rect, 1.0)));
-        }
+        self.popover_elements(elements);
         if let Some((art, rect)) = shooter.bar.as_ref() {
             elements.push(Skin::Texture(element(art, *rect, 1.0)));
             self.modal_shadow(*rect, elements);

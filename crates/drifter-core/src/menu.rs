@@ -2,6 +2,23 @@ use crate::geom::{Rect, Vec2};
 use crate::image::Image;
 use crate::text::Font;
 
+pub const GROW_WAIT: f64 = 0.02;
+pub const GROW: f64 = 0.2;
+
+pub fn grown(rect: Rect, anchor: Vec2, gone: f64, instant: bool, reduce: bool) -> (Rect, f64) {
+    if instant {
+        return (rect, 1.0);
+    }
+    let t = ((gone - GROW_WAIT) / GROW).clamp(0.0, 1.0);
+    let alpha = (t * 1.6).min(1.0);
+    if reduce {
+        return (rect, alpha);
+    }
+    let anchor = anchor.clamp(rect.origin, rect.max());
+    let scale = 0.35 + 0.65 * crate::motion::smooth(t);
+    (Rect::new(anchor + (rect.origin - anchor) * scale, rect.size * scale), alpha)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Item {
     pub id: i32,
@@ -361,6 +378,24 @@ pub(crate) fn stamp(image: &mut Image, text: &Image, at: Vec2) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_menu_grows_from_where_it_was_opened() {
+        let rect = Rect::new(Vec2::new(100.0, 100.0), Vec2::new(200.0, 300.0));
+        let click = Vec2::new(90.0, 95.0);
+        let (first, shown) = grown(rect, click, 0.0, false, false);
+        assert_eq!(shown, 0.0);
+        assert_eq!(first.origin, rect.origin, "the click is clamped to the menu corner");
+        assert!((first.size.x - rect.size.x * 0.35).abs() < 1e-9, "it starts small");
+        assert_eq!(grown(rect, click, GROW_WAIT + GROW, false, false), (rect, 1.0));
+        assert_eq!(grown(rect, click, 0.0, true, false), (rect, 1.0), "no animation shows it whole");
+        let (still, fading) = grown(rect, click, GROW_WAIT + GROW / 4.0, false, true);
+        assert_eq!(still, rect, "reduce motion keeps the size");
+        assert!(fading > 0.0 && fading < 1.0, "but still fades");
+        let middle = Vec2::new(200.0, 250.0);
+        let (mid, _) = grown(rect, middle, GROW_WAIT + GROW / 2.0, false, false);
+        assert!(mid.contains(middle) && mid.size.x < rect.size.x, "it grows out of the point");
+    }
 
     #[test]
     fn a_submenu_starts_with_back_and_a_rule() {

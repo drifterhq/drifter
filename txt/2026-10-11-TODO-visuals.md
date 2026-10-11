@@ -86,7 +86,7 @@ How motion works today (all items use this):
   - Screenshot catch: `take_still` (shoot.rs:381-385) captures the same frame, so a panel closed just before a shot shows as a ghost. Call `self.fades.drop_ghosts()` in `open_shooter` (shoot.rs:60-66) and `take_still`.
   - Tests: motion.rs `pub fn appear(t, reduce) -> (f64, f64)` with `appear_starts_clear_and_small_and_ends_solid_and_whole`. render/tests.rs `a_closed_panel_fades_out_then_leaves_no_trace`, modelled on tests.rs:662-746: show the HUD, set `hud = None`, `kick_now()`, shot still differs; pump 200 ms, shot equals closed.
 
-- [ ] **2 [HIGH] All menus grow from the click point with the desk menu's shadow.**
+- [x] **2 [HIGH] All menus grow from the click point with the desk menu's shadow.**
   - Waits on: G2.
   - Desk menu grow: deskmenu.rs:332-348 (level 0 scales 0.35 to 1 about `anchor`, alpha `(t * 1.6).min(1)`, `GROW_WAIT 0.02`, `GROW 0.2` at :7-8). Shadow: :356-359.
   - Popover (render.rs:326-334) has no anchor and no time. Opened by `open_popover` (bars.rs:44-61). Drawn flat at render.rs:875-879, 787-791 (over lock) and shoot.rs:818-822.

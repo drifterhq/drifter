@@ -42,15 +42,27 @@ impl State {
     }
 
     pub(super) fn open_popover(&mut self, items: Vec<Item>, at: Vec2, target: Target) {
+        self.open_popover_from(items, at, at, target);
+    }
+
+    pub(super) fn open_popover_from(&mut self, items: Vec<Item>, at: Vec2, from: Vec2, target: Target) {
         if items.is_empty() || (self.lock.is_some() && !matches!(target, Target::Desktop)) {
             return;
         }
         let look = self.menu_look();
         let size = look.size(&items, self.note_head.as_deref());
         let rect = look.rect(at, size, self.screen);
+        let (anchor, opened) = match self.popover.as_ref() {
+            Some(was) if std::mem::discriminant(&was.target) == std::mem::discriminant(&target) => {
+                (was.anchor, was.opened)
+            }
+            _ => (from, None),
+        };
         self.popover = Some(Popover {
             items,
             rect,
+            anchor,
+            opened,
             art: None,
             target,
             hover: None,
@@ -96,9 +108,31 @@ impl State {
                 if let Some(open) = state.popover.as_mut() {
                     open.art = Some(art);
                     open.hover = want;
+                    open.opened.get_or_insert_with(Instant::now);
                 }
             },
         );
+    }
+
+    pub(super) fn popover_elements(&self, elements: &mut Vec<Skin>) {
+        let Some(open) = self.popover.as_ref() else {
+            return;
+        };
+        let Some(art) = open.art.as_ref() else {
+            return;
+        };
+        let gone = open.opened.map_or(f64::MAX, |at| at.elapsed().as_secs_f64() * self.window_pace);
+        let instant = self.window_pace <= 0.0;
+        let (drop, shown) = drifter_core::menu::grown(open.rect, open.anchor, gone, instant, self.window_still);
+        if shown > 0.0 {
+            self.menu_skin(art, drop, shown as f32, elements);
+        }
+    }
+
+    pub(super) fn popover_busy(&self) -> bool {
+        self.popover.as_ref().and_then(|open| open.opened).is_some_and(|at| {
+            at.elapsed().as_secs_f64() * self.window_pace < drifter_core::menu::GROW_WAIT + drifter_core::menu::GROW
+        })
     }
 
     pub(super) fn press_popover(&mut self) -> bool {

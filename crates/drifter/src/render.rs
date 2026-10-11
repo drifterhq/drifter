@@ -330,6 +330,8 @@ struct Pending {
 struct Popover {
     items: Vec<Item>,
     rect: Rect,
+    anchor: Vec2,
+    opened: Option<Instant>,
     art: Option<TextureBuffer<Tex>>,
     target: Target,
     hover: Option<usize>,
@@ -700,6 +702,7 @@ impl State {
             || self.dock_drag.is_some()
             || self.desk_menu_busy()
             || self.fades_busy()
+            || self.popover_busy()
             || self.thumb_moving()
             || self.welcome_busy()
             || self.dock_logo.hot
@@ -796,11 +799,7 @@ impl State {
             self.cursor_count = elements.len();
             if live {
                 self.alert_elements(&mut elements);
-                if let Some(open) = self.popover.as_ref()
-                    && let Some(art) = open.art.as_ref()
-                {
-                    elements.push(Skin::Texture(element(art, open.rect, 1.0)));
-                }
+                self.popover_elements(&mut elements);
             }
             elements.extend(self.lock_elements(1.0));
             return elements;
@@ -873,6 +872,7 @@ impl State {
             self.desk_menu_elements(&mut elements);
             self.pane_elements(fade::Pane::DeskMenu, &mut elements);
             if self.shooter.is_none() {
+                self.popover_elements(&mut elements);
                 self.pane_elements(fade::Pane::Menu, &mut elements);
             }
             for pane in [

@@ -109,7 +109,7 @@ impl State {
     fn pane_layers(&self, pane: Pane) -> Option<(Vec<Layer>, Rect)> {
         let one = |art: &TextureBuffer<Tex>, rect: Rect, shadow: Shadow| Some((vec![Layer::new(art, rect, shadow)], rect));
         match pane {
-            Pane::Menu => self.popover.as_ref().and_then(|open| Some((open.art.as_ref()?, open.rect))).and_then(|(art, rect)| one(art, rect, Shadow::None)),
+            Pane::Menu => self.popover.as_ref().and_then(|open| Some((open.art.as_ref()?, open.rect))).and_then(|(art, rect)| one(art, rect, Shadow::Menu)),
             Pane::DeskMenu => {
                 let open = self.desk_menu.as_ref()?;
                 let frame = open.arts.iter().map(|(_, rect)| *rect).reduce(|a, b| {
@@ -234,9 +234,9 @@ impl State {
     pub(super) fn pane_elements(&self, pane: Pane, elements: &mut Vec<Skin>) {
         let now = Instant::now();
         let fader = self.fades.panes.get(&pane);
-        let live = match pane {
-            Pane::DeskMenu => None,
-            _ => self.pane_layers(pane),
+        let live = match pane.grows_itself() {
+            true => None,
+            false => self.pane_layers(pane),
         };
         let (layers, frame) = match (live, fader) {
             (Some(live), _) => live,
