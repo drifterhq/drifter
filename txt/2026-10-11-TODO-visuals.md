@@ -109,7 +109,7 @@ How motion works today (all items use this):
   - Ship order: if item 1 is not done yet, call `panel_shadow` directly after each art push.
   - Test: render/tests.rs `an_open_menu_casts_a_shadow` (clone tests.rs:496-517): 4 px below `rect.max().y` is not background, 60 px below is.
 
-- [ ] **4 [BUG] Long window titles are squashed, not cut.**
+- [x] **4 [BUG] Long window titles are squashed, not cut.**
   - Waits on: nothing.
   - windows.rs:345-354: `width = size.x.min(room)` and `element()` stretches the whole title texture into it (`None` source, render.rs:1801-1813).
   - Fix:

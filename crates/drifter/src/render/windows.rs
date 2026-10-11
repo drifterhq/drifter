@@ -349,9 +349,11 @@ impl State {
                     bar.center().x - width / 2.0,
                     bar.origin.y + (bar.size.y - size.y) / 2.0,
                 );
-                let rect = Rect::new(at.round(), Vec2::new(width, size.y));
                 let dim = fade * if awake { 1.0 } else { 0.55 };
-                elements.push(Skin::Texture(element(buffer, show(rect), dim)));
+                for (source, offset, alpha) in drifter_core::window::title_cut(*size, room) {
+                    let rect = Rect::new(at.round() + Vec2::new(offset, 0.0), source.size);
+                    elements.push(Skin::Texture(faded(buffer, source, show(rect), dim * alpha)));
+                }
             }
         }
 

@@ -202,6 +202,29 @@ impl Chrome {
     }
 }
 
+pub const TITLE_FADE: f64 = 24.0;
+pub const TITLE_FADE_STEPS: usize = 8;
+
+pub fn title_cut(art: Vec2, room: f64) -> Vec<(Rect, f64, f32)> {
+    let room = room.max(0.0);
+    if art.x <= room {
+        return vec![(Rect::new(Vec2::ZERO, art), 0.0, 1.0)];
+    }
+    let fade = TITLE_FADE.min(room);
+    let solid = room - fade;
+    let step = fade / TITLE_FADE_STEPS as f64;
+    let mut out = Vec::new();
+    if solid > 0.0 {
+        out.push((Rect::new(Vec2::ZERO, Vec2::new(solid, art.y)), 0.0, 1.0));
+    }
+    for i in 0..TITLE_FADE_STEPS {
+        let x = solid + step * i as f64;
+        let alpha = 1.0 - crate::motion::smooth((i as f64 + 0.5) / TITLE_FADE_STEPS as f64);
+        out.push((Rect::new(Vec2::new(x, 0.0), Vec2::new(step, art.y)), x, alpha as f32));
+    }
+    out
+}
+
 fn rounded(size: Vec2, corners: [f64; 4], color: [u8; 3], alpha: u8, shade: f64) -> Image {
     let width = size.x.round().max(1.0) as u32;
     let height = size.y.round().max(1.0) as u32;
@@ -688,6 +711,27 @@ mod tests {
         let half = shadow_slices(frame, corner, 0.5, 0.0);
         let narrow = half.iter().map(|(_, d)| d.origin.x).fold(f64::MAX, f64::min);
         assert_eq!(narrow, frame.origin.x - SHADOW_BLUR * 0.5, "the shadow shrinks with the zoom");
+    }
+
+    #[test]
+    fn a_long_title_is_cut_not_squashed_and_fades_at_its_end() {
+        let art = Vec2::new(400.0, 16.0);
+        let room = 250.0;
+        let slices = title_cut(art, room);
+        let width: f64 = slices.iter().map(|(source, _, _)| source.size.x).sum();
+        assert!((width - room).abs() < 1e-9, "the slices fill the room: {width}");
+        let mut x = 0.0;
+        for (source, offset, _) in &slices {
+            assert!(source.max().x <= art.x, "no slice reads past the art");
+            assert_eq!(source.origin.x, *offset, "drawn at the size it is read, no squash");
+            assert_eq!(*offset, x, "no gap");
+            x += source.size.x;
+        }
+        assert_eq!(slices[0].2, 1.0);
+        assert!(slices.last().unwrap().2 < 0.2, "the end fades out");
+        assert!(slices.windows(2).all(|pair| pair[1].2 <= pair[0].2));
+        let short = title_cut(Vec2::new(100.0, 16.0), room);
+        assert_eq!(short, vec![(Rect::new(Vec2::ZERO, Vec2::new(100.0, 16.0)), 0.0, 1.0)]);
     }
 
     #[test]
