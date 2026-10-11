@@ -119,18 +119,18 @@ impl State {
                 let layers = open.arts.iter().map(|(art, rect)| Layer::new(art, *rect, Shadow::Menu)).collect();
                 Some((layers, frame))
             }
-            Pane::Tip => self.tip.as_ref().and_then(|(art, rect)| one(art, *rect, Shadow::None)),
+            Pane::Tip => self.tip.as_ref().and_then(|(art, rect)| one(art, *rect, Shadow::Tip)),
             Pane::Search => self.search.as_ref()?.art.as_ref().and_then(|(art, rect)| one(art, *rect, Shadow::Modal)),
             Pane::Launchpad => self.launchpad.as_ref().and_then(|pad| one(pad.art.as_ref()?, pad.rect, Shadow::Modal)),
-            Pane::Control => self.control.as_ref().and_then(|open| one(open.art.as_ref()?, open.rect, Shadow::None)),
-            Pane::Notes => self.notes_panel.as_ref().and_then(|(art, rect, _)| one(art, *rect, Shadow::None)),
-            Pane::Charges => self.charges.as_ref().and_then(|panel| one(panel.art.as_ref()?, panel.rect, Shadow::None)),
-            Pane::Glance => self.glance_panel.as_ref().and_then(|panel| one(panel.art.as_ref()?, panel.rect, Shadow::None)),
+            Pane::Control => self.control.as_ref().and_then(|open| one(open.art.as_ref()?, open.rect, Shadow::Menu)),
+            Pane::Notes => self.notes_panel.as_ref().and_then(|(art, rect, _)| one(art, *rect, Shadow::Menu)),
+            Pane::Charges => self.charges.as_ref().and_then(|panel| one(panel.art.as_ref()?, panel.rect, Shadow::Menu)),
+            Pane::Glance => self.glance_panel.as_ref().and_then(|panel| one(panel.art.as_ref()?, panel.rect, Shadow::Menu)),
             Pane::GlanceCard => self.glance_card.as_ref().and_then(|(art, rect)| one(art, *rect, Shadow::Modal)),
-            Pane::Hud => self.hud.as_ref().and_then(|(art, rect, _)| one(art, *rect, Shadow::None)),
+            Pane::Hud => self.hud.as_ref().and_then(|(art, rect, _)| one(art, *rect, Shadow::Menu)),
             Pane::Card(id) => {
                 let (card, rect) = self.cards.iter().zip(self.card_rects()).find(|(card, _)| card.note.id == id)?;
-                one(&card.art, rect, Shadow::None)
+                one(&card.art, rect, Shadow::Menu)
             }
             Pane::Switch => {
                 let open = self.switch.as_ref()?;
@@ -143,13 +143,13 @@ impl State {
                         layers.push(Layer::new(icon, Rect::new(panel.origin + rect.origin, rect.size), Shadow::None));
                     }
                 }
-                layers.push(Layer::new(art, panel, Shadow::None));
+                layers.push(Layer::new(art, panel, Shadow::Modal));
                 Some((layers, panel))
             }
             Pane::Alert => self.alert.as_ref().and_then(|open| one(open.art.as_ref()?, open.rect, Shadow::Modal)),
             Pane::Prompt => {
                 let (art, rect) = self.prompt_art.as_ref()?;
-                let mut layers = vec![Layer::new(art, *rect, Shadow::None)];
+                let mut layers = vec![Layer::new(art, *rect, Shadow::Modal)];
                 if let Some(haze) = self.prompt_haze.as_ref() {
                     layers.push(Layer {
                         scales: false,

@@ -517,6 +517,32 @@ fn a_framed_window_casts_a_soft_shadow_that_fades_out() {
 }
 
 #[test]
+fn an_open_menu_casts_a_shadow() {
+    let mut run = start("menu-shadow", &Config::default(), None);
+    let item = |id: i32, label: &str| drifter_core::menu::Item {
+        id,
+        label: label.to_string(),
+        enabled: true,
+        separator: false,
+        children: false,
+    };
+    let at = Vec2::new(f64::from(SIZE.0) / 3.0, f64::from(SIZE.1) / 4.0);
+    run.screen
+        .state
+        .open_popover(vec![item(1, "Open"), item(2, "Close")], at, super::Target::Desktop);
+    pump(&mut run.screen, |state| {
+        state.popover.as_ref().is_some_and(|open| open.art.is_some()) && !state.popover_busy()
+    });
+    let rect = run.screen.state.popover.as_ref().expect("the menu is open").rect;
+    let image = run.shot("menu-shadow");
+    let x = rect.center().x.round() as u32;
+    let near = pixel(&image, x, (rect.max().y + 4.0).round() as u32);
+    let far = pixel(&image, x, (rect.max().y + 60.0).round() as u32);
+    assert!(!is_background(near), "just under the menu is shaded: {near:?}");
+    assert!(is_background(far), "far below the menu is untouched: {far:?}");
+}
+
+#[test]
 fn zooming_all_the_way_out_shows_the_whole_world_and_no_further() {
     let mut run = start("world-out", &Config::default(), Some(pattern(1600, 1200)));
     let state = &mut run.screen.state;

@@ -101,7 +101,7 @@ How motion works today (all items use this):
     6. `popover_busy()` in `animating()`.
   - Test: unit test for `grown()` (t 0 = tiny rect at anchor, t 1 = full rect, instant = full rect). Move `grown` to core menu.rs to test it there (tests at menu.rs:361-577).
 
-- [ ] **3 [MED] Add the missing shadows.**
+- [x] **3 [MED] Add the missing shadows.**
   - Waits on: G3 (and 1 for the fade).
   - No shadow today: popover (render.rs:875-879), tip (:908-910), control (:886-890), notes (:891-893), charges (:894-898), glance panel (:899-903), HUD (:821-823), and also cards (:824-826), switcher (overlays.rs:461-477), password prompt (:815-820).
   - Have one: search (:869), launchpad (:884), glance card (:906), alert (deskmenu.rs:681), screenshot bar (shoot.rs:825), desk menu (deskmenu.rs:356-359).
