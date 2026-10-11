@@ -718,6 +718,7 @@ impl State {
         self.autostart = config.login.autostart;
         let paper = Paper::from(config);
         if paper.set != self.paper.set {
+            self.paper_from = Some(self.pointer);
             match paper.set.clone() {
                 Some(path) => self.load_wallpaper(path),
                 None => self.wallpaper = None,

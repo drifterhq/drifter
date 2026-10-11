@@ -126,6 +126,13 @@ impl State {
     }
 
     fn wallpaper_snapshot(&mut self) -> Option<(smithay::backend::renderer::gles::GlesTexture, (i32, i32))> {
+        let mut paper = self.wallpaper.take()?;
+        let shot = self.shoot_paper(&mut paper);
+        self.wallpaper = Some(paper);
+        shot
+    }
+
+    pub(super) fn shoot_paper(&mut self, paper: &mut Backdrop) -> Option<(smithay::backend::renderer::gles::GlesTexture, (i32, i32))> {
         use smithay::backend::renderer::Bind;
         use smithay::backend::renderer::damage::OutputDamageTracker;
         use smithay::utils::{Buffer as BufferCoord, Physical, Size};
@@ -134,7 +141,6 @@ impl State {
         let view = (self.mode, self.screen, self.world, self.camera);
         let clock = self.paper_clock();
         let mut pieces = Vec::new();
-        let paper = self.wallpaper.as_mut()?;
         paper_pieces(&mut self.renderer, paper, view, 1.0, (clock, None), &mut pieces);
         let shown: Vec<Shown> = pieces
             .into_iter()

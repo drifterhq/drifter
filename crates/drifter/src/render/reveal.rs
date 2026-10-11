@@ -32,6 +32,51 @@ void main() {
 }
 ";
 
+#[allow(clippy::too_many_arguments)]
+fn masked(
+    program: &GlesTexProgram,
+    renderer: &mut Painter,
+    slot: &mut Option<(super::wallpaper::Sheet, (i32, i32))>,
+    shot: &GlesTexture,
+    size: (i32, i32),
+    screen: Vec2,
+    from: Vec2,
+    t: f64,
+) -> Result<(), String> {
+    if slot.as_ref().is_none_or(|(_, held)| *held != size) {
+        *slot = Some((super::wallpaper::sheet(renderer, size)?, size));
+    }
+    let (Some((sheet, _)), Painter::Gles(gles)) = (slot.as_mut(), renderer) else {
+        return Err("a reveal needs the gles renderer".to_string());
+    };
+    let radius = drifter_core::motion::reveal_radius(from, screen, t, FEATHER);
+    let area = smithay::utils::Rectangle::from_size(size.into());
+    let uniforms = [
+        Uniform::new("S", (screen.x as f32, screen.y as f32)),
+        Uniform::new("O", (from.x as f32, from.y as f32)),
+        Uniform::new("Q", radius as f32),
+        Uniform::new("F", FEATHER as f32),
+    ];
+    let mut target = gles.bind(&mut sheet.texture).map_err(|e| e.to_string())?;
+    let mut frame = gles.render(&mut target, size.into(), Transform::Normal).map_err(|e| e.to_string())?;
+    frame.clear(Color32F::TRANSPARENT, &[area]).map_err(|e| e.to_string())?;
+    frame
+        .render_texture_from_to(
+            shot,
+            smithay::utils::Rectangle::from_size((f64::from(size.0), f64::from(size.1)).into()),
+            area,
+            &[area],
+            &[],
+            Transform::Normal,
+            1.0,
+            Some(program),
+            &uniforms,
+        )
+        .map_err(|e| e.to_string())?;
+    let _ = frame.finish().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 pub(super) struct Reveal {
     program: GlesTexProgram,
     sheet: Option<(super::wallpaper::Sheet, (i32, i32))>,
@@ -75,47 +120,54 @@ impl State {
         let size = (whole.x as i32, whole.y as i32);
         let t = since.elapsed().as_secs_f64() / REVEAL.as_secs_f64();
         let from = self.reveal_from.unwrap_or(self.screen / 2.0);
-        let radius = drifter_core::motion::reveal_radius(from, self.screen, t, FEATHER);
         let screen = self.screen;
         let Some(Some(reveal)) = self.reveal.as_mut() else {
             return;
         };
-        if reveal.sheet.as_ref().is_none_or(|(_, held)| *held != size) {
-            reveal.sheet = super::wallpaper::sheet(&mut self.renderer, size).ok().map(|sheet| (sheet, size));
-        }
-        let (Some((sheet, _)), Painter::Gles(gles)) = (reveal.sheet.as_mut(), &mut self.renderer) else {
-            return;
-        };
-        let area = smithay::utils::Rectangle::from_size(size.into());
-        let uniforms = [
-            Uniform::new("S", (screen.x as f32, screen.y as f32)),
-            Uniform::new("O", (from.x as f32, from.y as f32)),
-            Uniform::new("Q", radius as f32),
-            Uniform::new("F", FEATHER as f32),
-        ];
-        let painted = (|| -> Result<(), String> {
-            let mut target = gles.bind(&mut sheet.texture).map_err(|e| e.to_string())?;
-            let mut frame = gles.render(&mut target, size.into(), Transform::Normal).map_err(|e| e.to_string())?;
-            frame.clear(Color32F::TRANSPARENT, &[area]).map_err(|e| e.to_string())?;
-            frame
-                .render_texture_from_to(
-                    &shot,
-                    smithay::utils::Rectangle::from_size((f64::from(size.0), f64::from(size.1)).into()),
-                    area,
-                    &[area],
-                    &[],
-                    Transform::Normal,
-                    1.0,
-                    Some(&reveal.program),
-                    &uniforms,
-                )
-                .map_err(|e| e.to_string())?;
-            let _ = frame.finish().map_err(|e| e.to_string())?;
-            Ok(())
-        })();
-        if let Err(error) = painted {
+        if let Err(error) = masked(&reveal.program, &mut self.renderer, &mut reveal.sheet, &shot, size, screen, from, t) {
             log!("drifter: no reveal: {error}");
             self.style_tex.clear();
+        }
+    }
+
+    pub(super) fn shoot_paper_for_reveal(&mut self, old: &mut Backdrop) {
+        let from = self.paper_from.take().unwrap_or(self.screen / 2.0);
+        if !self.reveals() {
+            return;
+        }
+        if let Some((shot, size)) = self.shoot_paper(old) {
+            self.paper_reveal = Some((shot, size, from, Instant::now()));
+        }
+    }
+
+    pub(super) fn paper_reveal_elements(&mut self, elements: &mut Vec<Skin>) -> bool {
+        let Some((shot, size, from, since)) = self.paper_reveal.clone() else {
+            return false;
+        };
+        let t = since.elapsed().as_secs_f64() / REVEAL.as_secs_f64();
+        if t >= 1.0 {
+            self.paper_reveal = None;
+            return false;
+        }
+        let screen = self.screen;
+        let Some(Some(reveal)) = self.reveal.as_mut() else {
+            self.paper_reveal = None;
+            return false;
+        };
+        let mut slot = self.paper_sheet.take();
+        let done = masked(&reveal.program, &mut self.renderer, &mut slot, &shot, size, screen, from, t);
+        self.paper_sheet = slot;
+        match (done, self.paper_sheet.as_ref()) {
+            (Ok(()), Some((sheet, _))) => {
+                elements.push(Skin::Texture(element(&sheet.buffer, Rect::new(Vec2::ZERO, screen), 1.0)));
+                true
+            }
+            (Err(error), _) => {
+                log!("drifter: no wallpaper reveal: {error}");
+                self.paper_reveal = None;
+                false
+            }
+            _ => false,
         }
     }
 

@@ -698,6 +698,9 @@ pub struct State {
     style_tex: Vec<(usize, smithay::backend::renderer::gles::GlesTexture)>,
     reveal: Option<Option<reveal::Reveal>>,
     reveal_from: Option<Vec2>,
+    paper_reveal: Option<(smithay::backend::renderer::gles::GlesTexture, (i32, i32), Vec2, Instant)>,
+    paper_sheet: Option<(wallpaper::Sheet, (i32, i32))>,
+    paper_from: Option<Vec2>,
     transition: drifter_core::Transition,
     style_fade: Option<Instant>,
     shot_crop: Option<Rect>,
@@ -762,6 +765,7 @@ impl State {
             || self.switch_moving()
             || !self.ghosts.is_empty()
             || self.paper_stirring()
+            || self.paper_reveal.is_some()
             || self.windows.iter().any(|window| window.lit != self.lit_target(window.id))
             || self.thumb_moving()
             || self.welcome_busy()
@@ -1037,11 +1041,12 @@ impl State {
         }
         let clock = self.paper_clock();
         let every = self.live_every();
+        let revealing = self.paper_reveal_elements(&mut elements);
         if let Some(paper) = self.wallpaper.as_mut() {
-            let alpha = fading.unwrap_or(1.0) as f32;
+            let alpha = if revealing { 1.0 } else { fading.unwrap_or(1.0) as f32 };
             paper_pieces(&mut self.renderer, paper, view, alpha, (clock, Some(every)), &mut elements);
         }
-        if let (Some((old, _)), Some(t)) = (self.fading.as_mut(), fading)
+        if let (Some((old, _)), Some(t), false) = (self.fading.as_mut(), fading, revealing)
             && t < 1.0
         {
             paper_pieces(&mut self.renderer, old, view, 1.0, (clock, None), &mut elements);

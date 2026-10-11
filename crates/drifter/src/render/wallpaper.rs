@@ -523,8 +523,12 @@ impl State {
                 true => Live::compile(&mut self.renderer, &path),
                 false => None,
             };
-            let old = self.wallpaper.replace(Backdrop::new(pyramid, live, shader));
-            self.fading = old.map(|old| (old, Instant::now()));
+            let mut old = self.wallpaper.replace(Backdrop::new(pyramid, live, shader));
+            self.paper_reveal = None;
+            if let Some(old) = old.as_mut() {
+                self.shoot_paper_for_reveal(old);
+            }
+            self.fading = old.filter(|_| self.paper_reveal.is_none()).map(|old| (old, Instant::now()));
             self.frost_key = None;
         }
         self.paper.hour = drifter_core::shader::is_shader(&path)
