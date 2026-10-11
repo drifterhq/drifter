@@ -269,6 +269,7 @@ impl State {
         if icons_moved {
             self.app_icons.clear();
             self.no_icon.clear();
+            self.search_icons.clear();
         }
         let cursor_moved =
             (&was.cursor_theme, was.cursor_size) != (&look.cursor_theme, look.cursor_size);

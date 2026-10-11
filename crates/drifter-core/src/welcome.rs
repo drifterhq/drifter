@@ -1530,13 +1530,6 @@ fn fit(font: &Font, text: &str, room: f64) -> String {
     format!("{}…", out.trim_end())
 }
 
-pub fn icon(side: u32) -> Image {
-    let size = f64::from(side.max(16));
-    let mut canvas = Canvas::new(side.max(16), side.max(16));
-    mark(&mut canvas, Vec2::splat(size / 2.0), size * 0.42, [53, 132, 228]);
-    canvas.image
-}
-
 pub fn rounded(image: &mut Image, radius: f64) {
     let (w, h) = (f64::from(image.width), f64::from(image.height));
     for y in 0..image.height {

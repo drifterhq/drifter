@@ -67,9 +67,6 @@ impl State {
         let icons: Vec<Option<drifter_core::Image>> = results
             .iter()
             .map(|found| match (found.kind, found.icon.as_deref()) {
-                (Kind::App, None) if found.key == super::welcome::WELCOME_KEY => {
-                    Some(drifter_core::welcome::icon(side))
-                }
                 (Kind::App, Some(name)) => self.icon_now(name, side),
                 _ => None,
             })

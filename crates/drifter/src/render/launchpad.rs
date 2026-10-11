@@ -44,9 +44,6 @@ impl State {
     }
 
     fn pad_icon(&mut self, found: &Found, side: u32) -> Option<drifter_core::Image> {
-        if found.key == super::welcome::WELCOME_KEY {
-            return Some(drifter_core::welcome::icon(side));
-        }
         let name = found.icon.clone()?;
         self.icon_now(&name, side)
     }
