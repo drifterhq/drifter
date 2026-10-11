@@ -29,6 +29,10 @@ wallpaper_motion = 100
 ripple = true
 ripple_strength = 100
 
+# A .shader wallpaper stirs where the pointer moves on the bare desktop.
+# Left out, it is on for a strong graphics card and off otherwise.
+# wallpaper_pointer = true
+
 # fixed    one screen. Stays put at every zoom.
 # pan      world sized. Moves and zooms with the world.
 # parallax any size between those two. Moves slower than the world.

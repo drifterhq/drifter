@@ -311,6 +311,7 @@ pub struct Model {
     pub drift: u32,
     pub ripple: bool,
     pub ripple_strength: u32,
+    pub wallpaper_pointer: Option<bool>,
     pub pictures: Vec<PathBuf>,
     pub shaders: Vec<PathBuf>,
     pub names: HashMap<String, String>,
@@ -501,6 +502,7 @@ impl Model {
             drift: config.workspace.wallpaper_motion,
             ripple: config.workspace.ripple,
             ripple_strength: config.workspace.ripple_strength,
+            wallpaper_pointer: config.workspace.wallpaper_pointer,
             pictures: config
                 .wallpaper_folder()
                 .map(|folder| crate::wallpaper::pictures(&clean(folder)))
@@ -1726,17 +1728,28 @@ impl Model {
             1,
             Group {
                 header: Some(crate::lang::t("Shaders")),
-                rows: vec![Row::new(
-                    Id::Drift,
-                    crate::lang::t("Motion"),
-                    Control::Slider {
-                        least: 0.0,
-                        most: f64::from(crate::config::MOST_MOTION),
-                        value: f64::from(self.drift),
-                        unit: "%",
-                        zero: Some(crate::lang::t("Still")),
-                    },
-                )],
+                rows: vec![
+                    Row::new(
+                        Id::Drift,
+                        crate::lang::t("Motion"),
+                        Control::Slider {
+                            least: 0.0,
+                            most: f64::from(crate::config::MOST_MOTION),
+                            value: f64::from(self.drift),
+                            unit: "%",
+                            zero: Some(crate::lang::t("Still")),
+                        },
+                    ),
+                    Row::new(
+                        Id::WallpaperPointer,
+                        crate::lang::t("Reacts to pointer"),
+                        Control::Switch(self.wallpaper_pointer.unwrap_or_else(|| {
+                            crate::shader::strong_gpu(&std::env::var("DRIFTER_RENDERER").unwrap_or_default())
+                        })),
+                    )
+                    .detail(crate::lang::t("The shader stirs where the pointer moves on the bare desktop"))
+                    .enabled(self.drift > 0),
+                ],
                 footer: Some(
                     match self.shaders.is_empty() {
                         true => "No shaders yet. Put .shader files in ~/.local/share/drifter/shaders.",
@@ -1806,6 +1819,7 @@ impl Model {
                     n.round().clamp(f64::from(least), f64::from(most)) as u32
             }
             (Id::Ripple, Value::Switch(on)) => self.ripple = on,
+            (Id::WallpaperPointer, Value::Switch(on)) => self.wallpaper_pointer = Some(on),
             (Id::RippleStrength, Value::Number(n)) => {
                 let (weak, strong) = crate::ripple::STRENGTH;
                 self.ripple_strength = n.round().clamp(f64::from(weak), f64::from(strong)) as u32
@@ -2069,6 +2083,11 @@ impl Model {
                 "wallpaper_every",
                 int(self.every() as f64),
             );
+        }
+        if self.wallpaper_pointer != before.wallpaper_pointer
+            && let Some(on) = self.wallpaper_pointer
+        {
+            put(&mut doc, "workspace", "wallpaper_pointer", toml_edit::Value::from(on));
         }
         if self.ripple != before.ripple {
             put(&mut doc, "workspace", "ripple", toml_edit::Value::from(self.ripple));
@@ -2593,6 +2612,7 @@ pub enum Id {
     Drift,
     Ripple,
     RippleStrength,
+    WallpaperPointer,
     WallpaperMode,
     Modifier,
     Top,
@@ -4411,7 +4431,9 @@ mod tests {
         let mut after = before.clone();
         after.set(Id::Ripple, Value::Switch(false));
         after.set(Id::RippleStrength, Value::Number(5.0));
+        after.set(Id::WallpaperPointer, Value::Switch(true));
         let back = Config::parse(&after.write(&before, text).unwrap()).unwrap();
+        assert_eq!(back.workspace.wallpaper_pointer, Some(true));
         assert!(!back.workspace.ripple);
         assert_eq!(back.workspace.ripple_strength, 25, "the strength clamps");
         back.validate().unwrap();

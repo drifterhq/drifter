@@ -617,6 +617,8 @@ pub fn open(
         stows: std::collections::HashMap::new(),
         genie: None,
         minimize_effect: config.motion.minimize,
+        paper_reacts: config.workspace.wallpaper_pointer.unwrap_or_else(|| drifter_core::shader::strong_gpu(&gl)),
+        gl_name: gl.clone(),
         kept: std::collections::HashMap::new(),
         zone_glide: None,
         titles: std::collections::HashMap::new(),

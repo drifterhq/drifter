@@ -3575,3 +3575,9 @@ Reveal opens the new look in a circle from the pointer
 
 Genie
 = Flaschengeist
+
+Reacts to pointer
+= Reagiert auf den Zeiger
+
+The shader stirs where the pointer moves on the bare desktop
+= Der Shader regt sich, wo sich der Zeiger auf dem leeren Schreibtisch bewegt

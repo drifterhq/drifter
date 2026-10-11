@@ -15,6 +15,7 @@ vec3 wall(vec2 P){
   ac+=c*curtain*rays*(1.-fi*.22);
  }
  col+=ac*mix(1.15,.2,L);
+ vec2 dm=(P-M.xy)/R.y;col+=mix(A,C,.5)*M.z*.35*exp(-dot(dm,dm)*30.)*mix(1.,.3,L);
  col+=S1*.18*exp(-uv.y*5.);
  return col;
 }

@@ -3575,3 +3575,9 @@ Reveal opens the new look in a circle from the pointer
 
 Genie
 = Genio
+
+Reacts to pointer
+= Reacciona al puntero
+
+The shader stirs where the pointer moves on the bare desktop
+= El sombreador se agita donde el puntero se mueve sobre el escritorio vacío

@@ -6,6 +6,8 @@ const STRIPS: i32 = 15;
 const GPU_STILL: u32 = 240;
 const FROST_SETTLE: Duration = Duration::from_millis(150);
 const ART_KEEP: Duration = Duration::from_secs(5);
+const POINTER_REACH: f64 = 240.0;
+const POINTER_FADE: f64 = 0.8;
 
 pub(super) struct Sheet {
     pub texture: GlesTexture,
@@ -20,6 +22,8 @@ struct Art {
     cycle: Option<(f64, f64)>,
     started: Instant,
     used: Instant,
+    shown: (f64, f64),
+    lens: Option<(i32, i32, i32, i32)>,
 }
 
 pub(super) struct Live {
@@ -45,7 +49,7 @@ impl Live {
             UniformName::new("L", UniformType::_1f),
             UniformName::new("W", UniformType::_2f),
         ];
-        names.extend(["S0", "S1", "A", "B", "C"].map(|name| UniformName::new(name, UniformType::_3f)));
+        names.extend(["S0", "S1", "A", "B", "C", "M"].map(|name| UniformName::new(name, UniformType::_3f)));
         match gles.compile_custom_pixel_shader(drifter_core::shader::source(&body), &names) {
             Ok(program) => Some(Live {
                 program,
@@ -65,6 +69,7 @@ impl Live {
         paper: Vec2,
         clock: f64,
         every: Option<Duration>,
+        pointer: Option<[f32; 3]>,
     ) -> Option<(TextureBuffer<Tex>, Vec2)> {
         let div = if self.half { 2.0 } else { 1.0 };
         let size = (
@@ -73,7 +78,9 @@ impl Live {
         );
         let result = match self.arts.iter().position(|art| art.size == size) {
             Some(at) => match every {
-                Some(every) => self.advance(renderer, at, paper, clock, every),
+                Some(every) => self
+                    .advance(renderer, at, paper, clock, every)
+                    .and_then(|()| self.stir(renderer, at, paper, div, pointer)),
                 None => Ok(()),
             },
             None => self.first(renderer, size, paper, clock),
@@ -84,6 +91,38 @@ impl Live {
         let art = self.arts.iter_mut().find(|art| art.size == size)?;
         art.used = Instant::now();
         Some((art.front.buffer.clone(), Vec2::new(f64::from(size.0), f64::from(size.1))))
+    }
+
+    fn stir(&mut self, renderer: &mut Painter, at: usize, paper: Vec2, div: f64, pointer: Option<[f32; 3]>) -> Result<(), String> {
+        let art = &mut self.arts[at];
+        let (area, near) = match pointer {
+            Some(near) => {
+                let reach = (POINTER_REACH / div).ceil() as i32;
+                let x = (f64::from(near[0]) / div).round() as i32;
+                let y = ((paper.y - f64::from(near[1])) / div).round() as i32;
+                let fresh = (x - reach, y - reach, x + reach, y + reach);
+                let both = match art.lens {
+                    Some((x0, y0, x1, y1)) => (x0.min(fresh.0), y0.min(fresh.1), x1.max(fresh.2), y1.max(fresh.3)),
+                    None => fresh,
+                };
+                art.lens = Some(fresh);
+                (both, near)
+            }
+            None => match art.lens.take() {
+                Some(last) => (last, [0.0, 0.0, 0.0]),
+                None => return Ok(()),
+            },
+        };
+        let x0 = area.0.clamp(0, art.size.0);
+        let y0 = area.1.clamp(0, art.size.1);
+        let x1 = area.2.clamp(0, art.size.0);
+        let y1 = area.3.clamp(0, art.size.1);
+        if x1 <= x0 || y1 <= y0 {
+            return Ok(());
+        }
+        let size = art.size;
+        let shown = art.shown;
+        paint(&self.program, renderer, &mut art.front, size, paper, shown, Some((x0, y0, x1 - x0, y1 - y0)), near)
     }
 
     pub(super) fn wait(&self, every: Duration) -> Duration {
@@ -102,7 +141,7 @@ impl Live {
         self.arts.retain(|art| art.used.elapsed() < ART_KEEP);
         let mut front = sheet(renderer, size)?;
         let moment = (clock, drifter_core::shader::hour_now());
-        paint(&self.program, renderer, &mut front, size, paper, moment, None)?;
+        paint(&self.program, renderer, &mut front, size, paper, moment, None, [0.0, 0.0, 0.0])?;
         self.arts.push(Art {
             size,
             front,
@@ -111,6 +150,8 @@ impl Live {
             cycle: None,
             started: Instant::now(),
             used: Instant::now(),
+            shown: moment,
+            lens: None,
         });
         Ok(())
     }
@@ -141,7 +182,8 @@ impl Live {
         };
         let top = art.size.1 * art.strip / STRIPS;
         let bottom = art.size.1 * (art.strip + 1) / STRIPS;
-        let painted = paint(&self.program, renderer, &mut back, art.size, paper, moment, Some((top, bottom)));
+        let band = (0, top, art.size.0, (bottom - top).max(0));
+        let painted = paint(&self.program, renderer, &mut back, art.size, paper, moment, Some(band), [0.0, 0.0, 0.0]);
         art.back = Some(back);
         painted?;
         art.strip += 1;
@@ -149,10 +191,23 @@ impl Live {
             if let Some(back) = art.back.as_mut() {
                 std::mem::swap(&mut art.front, back);
             }
+            art.shown = moment;
             art.cycle = None;
         }
         Ok(())
     }
+}
+
+pub(super) fn live_pointer(paper: &Backdrop, view: (drifter_core::WallpaperMode, Vec2, Vec2, Camera), whole: Vec2) -> Option<[f32; 3]> {
+    let (at, since) = paper.pointer?;
+    let z = drifter_core::motion::smooth(1.0 - since.elapsed().as_secs_f64() / POINTER_FADE);
+    if z <= 0.0 {
+        return None;
+    }
+    let (mode, screen, world, camera) = view;
+    let laid = drifter_core::wallpaper::place(mode, whole, screen, world, &camera);
+    let near = drifter_core::wallpaper::pointer_in_paper(laid.source, laid.target, whole, at);
+    Some([near.x as f32, near.y as f32, z as f32])
 }
 
 pub(super) fn sheet(renderer: &mut Painter, size: (i32, i32)) -> Result<Sheet, String> {
@@ -172,7 +227,8 @@ fn paint(
     size: (i32, i32),
     paper: Vec2,
     (clock, hour): (f64, f64),
-    rows: Option<(i32, i32)>,
+    area: Option<(i32, i32, i32, i32)>,
+    pointer: [f32; 3],
 ) -> Result<(), String> {
     let Painter::Gles(gles) = renderer else {
         return Err("the live wallpaper needs the gles renderer".to_string());
@@ -184,10 +240,9 @@ fn paint(
         Uniform::new("W", (paper.x as f32, paper.y as f32)),
     ];
     uniforms.extend(sky.uniforms().map(|(name, value)| Uniform::new(name, value)));
+    uniforms.push(Uniform::new("M", (pointer[0], pointer[1], pointer[2])));
     let whole = smithay::utils::Rectangle::from_size(size.into());
-    let band = rows.map(|(top, bottom)| {
-        [smithay::utils::Rectangle::new((0, top).into(), (size.0, (bottom - top).max(0)).into())]
-    });
+    let band = area.map(|(x, y, w, h)| [smithay::utils::Rectangle::new((x, y).into(), (w, h).into())]);
     let mut target = gles.bind(&mut sheet.texture).map_err(|e| e.to_string())?;
     let mut frame = gles
         .render(&mut target, size.into(), Transform::Normal)
@@ -342,6 +397,30 @@ pub(super) fn paint_logo(
 }
 
 impl State {
+    pub(super) fn stir_paper(&mut self) {
+        let bare = !self.over_drawer() && self.surface_under().is_none() && self.grip_under().is_none();
+        let wanted = self.paper_reacts
+            && self.paper.drift > 0.0
+            && !self.window_still
+            && self.window_pace > 0.0
+            && self.lock.is_none()
+            && self.held_by_fullscreen().is_none()
+            && self.launchpad.is_none()
+            && bare;
+        if let (true, Some(paper)) = (wanted, self.wallpaper.as_mut())
+            && paper.live.is_some()
+        {
+            paper.pointer = Some((self.pointer, Instant::now()));
+        }
+    }
+
+    pub(super) fn paper_stirring(&self) -> bool {
+        self.wallpaper
+            .as_ref()
+            .and_then(|paper| paper.pointer)
+            .is_some_and(|(_, since)| since.elapsed().as_secs_f64() < POINTER_FADE + 0.05)
+    }
+
     pub(super) fn watch_wallpaper(&mut self) {
         let hour = drifter_core::night::hour_now();
         if let (Some(shown), Some(was)) = (self.paper.shown.clone(), self.paper.hour)

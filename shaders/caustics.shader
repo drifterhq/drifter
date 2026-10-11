@@ -7,6 +7,7 @@ vec3 wall(vec2 P){
  vec2 uv=P/R; float asp=R.x/R.y; vec2 p=vec2(uv.x*asp,uv.y)*3.;
  float t=T*.05;
  p+=.3*vec2(fbm(p*.5+T*.003),fbm(p*.5-T*.003+4.));
+ vec2 m=vec2(M.x/R.y,M.y/R.y)*3.;vec2 dm=p-m;p+=M.z*.25*dm*exp(-dot(dm,dm)*1.5);
  vec2 a=vor(p,t), b=vor(p*1.6+3.,t*1.2);
  float c=pow(1.-smoothstep(0.,.3,a.y-a.x),4.)*.7+pow(1.-smoothstep(0.,.3,b.y-b.x),4.)*.45;
  vec3 col=mix(mix(S1,A,.35),mix(S0,B,.25),uv.y)*mix(.5,1.,L);

@@ -203,6 +203,7 @@ struct Backdrop {
     frost: std::sync::Arc<drifter_core::frost::Frost>,
     live: Option<wallpaper::Live>,
     shader: bool,
+    pointer: Option<(Vec2, Instant)>,
 }
 
 impl Backdrop {
@@ -216,6 +217,7 @@ impl Backdrop {
             frost,
             live,
             shader,
+            pointer: None,
         }
     }
 
@@ -674,6 +676,8 @@ pub struct State {
     stows: std::collections::HashMap<u64, genie::Stow>,
     genie: Option<Option<smithay::backend::renderer::gles::GlesTexProgram>>,
     minimize_effect: drifter_core::Minimize,
+    paper_reacts: bool,
+    gl_name: String,
     kept: std::collections::HashMap<u64, (Tex, Vec2)>,
     zone_glide: Option<(Rect, Instant)>,
     titles: std::collections::HashMap<String, (TextureBuffer<Tex>, Vec2)>,
@@ -757,6 +761,7 @@ impl State {
             || self.pad_moving()
             || self.switch_moving()
             || !self.ghosts.is_empty()
+            || self.paper_stirring()
             || self.windows.iter().any(|window| window.lit != self.lit_target(window.id))
             || self.thumb_moving()
             || self.welcome_busy()
@@ -1394,6 +1399,7 @@ impl State {
         self.hover_desk_menu();
         self.hover_welcome();
         self.hover_rows();
+        self.stir_paper();
         if self.hover_since.is_none() {
             self.hover_since = Some((self.pointer, Instant::now()));
         } else if let Some((at, _)) = self.hover_since
@@ -1704,10 +1710,11 @@ fn paper_pieces(
     elements: &mut Vec<Skin>,
 ) {
     let whole = paper.paper(screen);
+    let near = wallpaper::live_pointer(paper, (mode, screen, world, camera), whole).filter(|_| every.is_some());
     if let Some((buffer, size)) = paper
         .live
         .as_mut()
-        .and_then(|live| live.show(renderer, whole, clock, every))
+        .and_then(|live| live.show(renderer, whole, clock, every, near))
     {
         let seen = drifter_core::wallpaper::place(mode, whole, screen, world, &camera)
             .seen(screen)

@@ -101,6 +101,12 @@ pub fn paper_size(image: Vec2, screen: Vec2, world: Vec2) -> Vec2 {
     (image * grow).min(world.max(screen))
 }
 
+pub fn pointer_in_paper(source: Rect, target: Rect, whole: Vec2, pointer: Vec2) -> Vec2 {
+    let x = source.origin.x + (pointer.x - target.origin.x) * source.size.x / target.size.x.max(f64::MIN_POSITIVE);
+    let y = source.origin.y + (pointer.y - target.origin.y) * source.size.y / target.size.y.max(f64::MIN_POSITIVE);
+    Vec2::new(x, whole.y - y)
+}
+
 pub fn place(
     mode: WallpaperMode,
     image: Vec2,
@@ -197,6 +203,16 @@ pub fn next_picture(
 #[cfg(test)]
 mod shader_tests {
     use super::*;
+
+    #[test]
+    fn the_pointer_maps_into_shader_space_with_y_up() {
+        let whole = Vec2::new(2560.0, 1440.0);
+        let source = Rect::new(Vec2::new(320.0, 180.0), Vec2::new(1920.0, 1080.0));
+        let target = Rect::new(Vec2::ZERO, Vec2::new(1920.0, 1080.0));
+        assert_eq!(pointer_in_paper(source, target, whole, Vec2::ZERO), Vec2::new(320.0, 1440.0 - 180.0));
+        let low = pointer_in_paper(source, target, whole, Vec2::new(0.0, 1080.0));
+        assert_eq!(low.y, 1440.0 - 1260.0, "lower on screen is lower in P");
+    }
 
     #[test]
     fn a_shader_paper_leaves_parallax_room_past_the_screen() {

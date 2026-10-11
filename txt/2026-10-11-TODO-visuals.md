@@ -421,8 +421,9 @@ Shared: smithay 0.7.0 has `compile_custom_texture_shader(src, &[UniformName])` (
   - Setting "Minimize": `[motion] minimize = "scale" | "genie"`, default scale. Row in the G2 Animation group: `Id::MinimizeEffect`, `Segments [t("Scale"), t("Genie")]`. Read into `State.minimize_effect`.
   - Tests: genie.rs `genie_at_rest_is_the_window`, `genie_ends_inside_the_slot`, `genie_narrows_toward_the_dock`. render/tests.rs `a_taskbar_sees_windows_and_can_minimize...` (tests.rs:1447) must pass on the Scale fallback.
 
-- [ ] **25 [LOW] Wallpaper shaders react to the pointer; setting.**
+- [x] **25 [LOW] Wallpaper shaders react to the pointer; setting.**
   - Waits on: G2.
+  - Done. Only the front sheet inside a 240 px box around the pointer is repainted, at the front's moment. Needs a look on a GLES device.
   - Uniforms today: `T`, `L`, `W`/`R`, `S0`, `S1`, `A`, `B`, `C` (HEAD shader.rs:16-30, names wallpaper.rs:43-48, values :181-186). `P = vec2(v.x, 1 - v.y) * R` (shader.rs:41). Files: shaders/caustics.shader:1-16, shaders/aurora.shader:1-20.
   - Low-redraw plan: `Live::advance` repaints the back sheet in 15 strips, one per frame, every `live_every()` (wallpaper.rs:126-153, 335-340; 250 ms / drift; Still = 10 s). Bare desktop test exists: bars.rs:311.
   - GPU strength: only `is_software` (start.rs:1007-1012). The GL renderer name goes to `DRIFTER_RENDERER` (start.rs:190), which Settings already reads (drifter-settings window.rs:196). `State` does not keep it.

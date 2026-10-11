@@ -27,6 +27,7 @@ uniform vec3 S1;
 uniform vec3 A;
 uniform vec3 B;
 uniform vec3 C;
+uniform vec3 M;
 #define R W
 float h(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
 float n(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);
@@ -43,6 +44,15 @@ void main(){
  gl_FragColor=vec4(clamp(c,0.,1.),1.)*alpha;
 }
 ";
+
+pub fn strong_gpu(name: &str) -> bool {
+    let name = name.to_lowercase();
+    let weak = ["intel", "uhd", "hd graphics", "iris", "mali", "adreno", "v3d", "panfrost", "llvmpipe", "software"];
+    if weak.iter().any(|word| name.contains(word)) {
+        return false;
+    }
+    ["nvidia", "geforce", "rtx", "radeon rx", "radeon pro", "arc"].iter().any(|word| name.contains(word))
+}
 
 pub fn source(body: &str) -> String {
     format!("{HEAD}{body}{FOOT}")
@@ -481,6 +491,25 @@ fn film((px, py): (f64, f64), (rx, ry): (f64, f64), time: f64, sky: &Sky) -> V3 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn strong_gpu_tells_the_pixelbook_from_the_rtx() {
+        assert!(!strong_gpu("Mesa Intel(R) UHD Graphics 615 (KBL GT2)"));
+        assert!(strong_gpu("NVIDIA GeForce RTX 4070/PCIe/SSE2"));
+        assert!(strong_gpu("AMD Radeon RX 7800 XT (radeonsi, navi32)"));
+        assert!(!strong_gpu("V3D 4.2"));
+        assert!(!strong_gpu(""));
+    }
+
+    #[test]
+    fn every_shipped_shader_can_read_the_pointer() {
+        assert!(source("vec3 wall(vec2 P){return vec3(0.);}").contains("uniform vec3 M;"));
+        let shelf = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../shaders");
+        for name in ["caustics", "aurora"] {
+            let body = std::fs::read_to_string(shelf.join(format!("{name}.shader"))).unwrap();
+            assert!(body.contains("M.z"), "{name} reacts to the pointer");
+        }
+    }
 
     fn close(a: &Sky, b: &Sky, by: f64) -> bool {
         let pairs = [(a.top, b.top), (a.bottom, b.bottom), (a.a, b.a), (a.b, b.b), (a.c, b.c)];

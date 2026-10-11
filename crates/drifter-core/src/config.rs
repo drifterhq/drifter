@@ -70,6 +70,8 @@ pub struct Workspace {
     pub ripple: bool,
     #[serde(default = "ripple_strength")]
     pub ripple_strength: u32,
+    #[serde(default)]
+    pub wallpaper_pointer: Option<bool>,
 }
 
 fn ripple_strength() -> u32 {
@@ -431,6 +433,7 @@ impl Default for Workspace {
             wallpaper_motion: default_motion(),
             ripple: true,
             ripple_strength: ripple_strength(),
+            wallpaper_pointer: None,
         }
     }
 }
