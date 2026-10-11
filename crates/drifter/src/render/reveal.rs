@@ -46,7 +46,7 @@ fn masked(
     if slot.as_ref().is_none_or(|(_, held)| *held != size) {
         *slot = Some((super::wallpaper::sheet(renderer, size)?, size));
     }
-    let (Some((sheet, _)), Painter::Gles(gles)) = (slot.as_mut(), renderer) else {
+    let (Some((sheet, _)), Painter::Gles(gles)) = (slot.as_mut(), &mut *renderer) else {
         return Err("a reveal needs the gles renderer".to_string());
     };
     let radius = drifter_core::motion::reveal_radius(from, screen, t, FEATHER);
@@ -74,6 +74,8 @@ fn masked(
         )
         .map_err(|e| e.to_string())?;
     let _ = frame.finish().map_err(|e| e.to_string())?;
+    drop(target);
+    sheet.renew(renderer);
     Ok(())
 }
 

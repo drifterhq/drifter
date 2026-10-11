@@ -14,6 +14,12 @@ pub(super) struct Sheet {
     pub buffer: TextureBuffer<Tex>,
 }
 
+impl Sheet {
+    pub fn renew(&mut self, renderer: &Painter) {
+        self.buffer = TextureBuffer::from_texture(renderer, Tex::Gles(self.texture.clone()), 1, Transform::Normal, None);
+    }
+}
+
 struct Art {
     size: (i32, i32),
     front: Sheet,
@@ -259,6 +265,8 @@ fn paint(
         )
         .map_err(|e| e.to_string())?;
     let _ = frame.finish().map_err(|e| e.to_string())?;
+    drop(target);
+    sheet.renew(renderer);
     Ok(())
 }
 
@@ -324,6 +332,8 @@ pub(super) fn paint_ripple(
         )
         .map_err(|e| e.to_string())?;
     let _ = frame.finish().map_err(|e| e.to_string())?;
+    drop(target);
+    ripple.sheet.renew(renderer);
     Ok(())
 }
 
@@ -393,6 +403,8 @@ pub(super) fn paint_logo(
         )
         .map_err(|e| e.to_string())?;
     let _ = frame.finish().map_err(|e| e.to_string())?;
+    drop(target);
+    sheet.renew(renderer);
     Ok(())
 }
 

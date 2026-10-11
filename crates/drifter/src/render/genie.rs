@@ -182,7 +182,10 @@ impl State {
                 Ok(())
             })();
             match painted {
-                Ok(()) => elements.push(Skin::Texture(element(&sheet.buffer, area, alpha as f32))),
+                Ok(()) => {
+                    sheet.renew(&self.renderer);
+                    elements.push(Skin::Texture(element(&sheet.buffer, area, alpha as f32)));
+                }
                 Err(error) => log!("drifter: no genie: {error}"),
             }
         }
