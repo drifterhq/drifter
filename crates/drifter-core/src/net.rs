@@ -19,6 +19,7 @@ pub struct Wifi {
 pub struct Gadget {
     pub mac: String,
     pub name: String,
+    pub kind: &'static str,
     pub paired: bool,
     pub connected: bool,
 }
@@ -140,7 +141,9 @@ pub fn gadgets(all: &str, paired: &str, connected: &str) -> Vec<Gadget> {
             connected: connected.contains(&mac),
             mac,
             name,
+            kind: "",
         })
+        .filter(|gadget| gadget.paired || gadget.connected || gadget.name != gadget.mac)
         .collect();
     out.sort_by(|a, b| {
         b.paired
@@ -149,6 +152,27 @@ pub fn gadgets(all: &str, paired: &str, connected: &str) -> Vec<Gadget> {
             .then(a.name.to_lowercase().cmp(&b.name.to_lowercase()))
     });
     out
+}
+
+pub fn gadget_kind(info: &str) -> &'static str {
+    let icon = info
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("Icon:"))
+        .map(str::trim)
+        .unwrap_or_default();
+    match icon {
+        "input-mouse" => "Mouse",
+        "input-keyboard" => "Keyboard",
+        "input-tablet" => "Trackpad",
+        "input-gaming" => "Game controller",
+        "audio-headset" | "audio-headphones" => "Headphones",
+        "audio-card" | "audio-speakers" => "Speaker",
+        "phone" => "Phone",
+        "computer" => "Computer",
+        "video-display" => "Display",
+        "printer" => "Printer",
+        _ => "",
+    }
 }
 
 pub fn powered(show: &str) -> Option<bool> {
@@ -498,9 +522,20 @@ mod tests {
         let found = gadgets(all, paired, connected);
         assert_eq!(found[0].name, "Headphones");
         assert!(found[0].paired && found[0].connected);
-        assert_eq!(found[1].name, "77:88:99:AA:BB:CC", "a nameless device shows its address");
-        assert_eq!(found[2].name, "trixie");
-        assert!(!found[2].paired);
+        assert_eq!(found[1].name, "trixie");
+        assert!(!found[1].paired);
+        assert_eq!(found.len(), 2, "a nameless device that is not paired stays out");
+
+        let found = gadgets(all, "Device 77:88:99:AA:BB:CC 77-88-99-AA-BB-CC\n", "");
+        assert!(found.iter().any(|gadget| gadget.name == "77:88:99:AA:BB:CC"), "a paired nameless device shows its address");
+    }
+
+    #[test]
+    fn a_device_kind_comes_from_its_icon() {
+        assert_eq!(gadget_kind("Device DE:90\n\tAlias: MX Anywhere 3\n\tIcon: input-mouse\n"), "Mouse");
+        assert_eq!(gadget_kind("\tIcon: audio-headset\n"), "Headphones");
+        assert_eq!(gadget_kind("\tIcon: something-new\n"), "");
+        assert_eq!(gadget_kind(""), "");
     }
 
     #[test]

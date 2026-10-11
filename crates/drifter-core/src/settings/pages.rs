@@ -778,7 +778,11 @@ impl Model {
                 (true, false) => (vec![Mark::Text(crate::lang::t("Connect")), Mark::Text(crate::lang::t("Remove"))], crate::lang::t("Not connected")),
                 (false, _) => (vec![Mark::Text(crate::lang::t("Pair"))], crate::lang::t("Not paired")),
             };
-            Row::new(Id::Gadget(at), &gadget.name, Control::Buttons(marks)).detail(detail)
+            let detail = match gadget.kind {
+                "" => detail.to_string(),
+                kind => format!("{}, {detail}", crate::lang::t(kind)),
+            };
+            Row::new(Id::Gadget(at), &gadget.name, Control::Buttons(marks)).detail(&detail)
         };
         let mine: Vec<Row> = blue
             .gadgets

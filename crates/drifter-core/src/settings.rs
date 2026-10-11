@@ -4693,6 +4693,7 @@ mod tests {
         let gadget = |name: &str, paired: bool, connected: bool| Gadget {
             mac: "00:11:22:33:44:55".into(),
             name: name.into(),
+            kind: "",
             paired,
             connected,
         };

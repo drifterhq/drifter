@@ -121,7 +121,7 @@ pub fn rescan() {
 
 pub fn read_blue(searching: bool) -> Option<Blue> {
     let on = net::powered(&read("bluetoothctl", &["show"])?)?;
-    let gadgets = match on {
+    let mut gadgets = match on {
         true => net::gadgets(
             &read("bluetoothctl", &["devices"]).unwrap_or_default(),
             &read("bluetoothctl", &["devices", "Paired"]).unwrap_or_default(),
@@ -129,6 +129,9 @@ pub fn read_blue(searching: bool) -> Option<Blue> {
         ),
         false => Vec::new(),
     };
+    for gadget in &mut gadgets {
+        gadget.kind = net::gadget_kind(&read("bluetoothctl", &["info", &gadget.mac]).unwrap_or_default());
+    }
     Some(Blue {
         on,
         gadgets,

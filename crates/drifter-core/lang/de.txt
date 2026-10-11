@@ -3581,3 +3581,21 @@ Reacts to pointer
 
 The shader stirs where the pointer moves on the bare desktop
 = Der Shader regt sich, wo sich der Zeiger auf dem leeren Schreibtisch bewegt
+
+Trackpad
+= Trackpad
+
+Headphones
+= Kopfhörer
+
+Speaker
+= Lautsprecher
+
+Phone
+= Telefon
+
+Game controller
+= Gamecontroller
+
+Printer
+= Drucker
