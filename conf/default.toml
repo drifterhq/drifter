@@ -51,6 +51,8 @@ accel = false
 natural = false
 # Swap the buttons. Also swaps them on the touchpad.
 left_handed = false
+# A wheel click glides in Settings, Activity and Files instead of jumping.
+smooth_scroll = true
 
 [motion]
 # How windows, panels and bars move: "off", "calm" or "full".

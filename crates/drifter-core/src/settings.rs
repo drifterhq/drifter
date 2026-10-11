@@ -2653,6 +2653,7 @@ pub enum Id {
     MouseSpeed,
     MouseAccel,
     MouseNatural,
+    SmoothScroll,
     LeftHanded,
     Animation,
     HotCorner,

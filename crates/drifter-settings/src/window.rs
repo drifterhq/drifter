@@ -133,6 +133,8 @@ pub struct Settings {
     shown: Option<std::time::Instant>,
     painted: Option<(u64, f64, f64)>,
     last: Option<(u64, drifter_core::Image)>,
+    glide: Option<drifter_core::tween::Glide>,
+    page_fade: Option<(drifter_core::Image, Option<drifter_core::tween::Fade>)>,
     side_pages: Vec<Option<drifter_core::Image>>,
     pages: Vec<Option<drifter_core::Image>>,
     sheet_pages: (u64, Vec<Option<drifter_core::Image>>),
@@ -354,6 +356,8 @@ pub fn run() -> Result<(), String> {
         shown: None,
         painted: None,
         last: None,
+        glide: None,
+        page_fade: None,
         side_pages: Vec::new(),
         pages: Vec::new(),
         sheet_pages: (0, Vec::new()),
@@ -398,10 +402,11 @@ pub fn run() -> Result<(), String> {
     while !settings.exit {
         events
             .dispatch(
-                (settings.stale || settings.unsaved).then_some(SETTLE),
+                (settings.stale || settings.unsaved || settings.moving()).then_some(SETTLE),
                 &mut settings,
             )
             .map_err(|e| format!("event loop: {e}"))?;
+        settings.step_glide();
         if settings.save_due() {
             settings.save();
         }
@@ -411,6 +416,9 @@ pub fn run() -> Result<(), String> {
     }
     Ok(())
 }
+
+const GLIDE: std::time::Duration = std::time::Duration::from_millis(150);
+const PAGE_FADE: std::time::Duration = std::time::Duration::from_millis(160);
 
 static SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
 
@@ -957,7 +965,8 @@ impl Settings {
                     .filter(|(held, _, _)| *held == key)
                     .map_or((f64::NAN, f64::NAN), |(_, at, side)| (at, side));
                 let moved = was_scroll != self.scroll || was_side != side;
-                let last = self.last.take().filter(|(held, _)| *held == key && moved);
+                let fading = self.page_fade.as_ref().is_some_and(|(_, fade)| fade.is_some());
+                let last = self.last.take().filter(|(held, _)| *held == key && (moved || fading));
                 let image = match last {
                     Some((_, mut image)) => {
                         let mut fine = true;
@@ -981,13 +990,42 @@ impl Settings {
                     }
                 };
                 self.painted = Some((key, self.scroll, side));
-                self.show_ringed(&image);
+                let shown = self.crossfade(&image);
+                self.show_ringed(shown.as_ref().unwrap_or(&image));
                 self.last = Some((key, image));
                 return;
             }
         };
         self.painted = Some((key, self.scroll, self.look.side_scroll));
         self.show(&image);
+    }
+
+    fn crossfade(&mut self, image: &drifter_core::Image) -> Option<drifter_core::Image> {
+        let (old, fade) = self.page_fade.take()?;
+        let view = self.view();
+        let area = drifter_core::Rect::new(
+            Vec2::new(self.look.sidebar, 0.0),
+            Vec2::new((view.x - self.look.sidebar).max(0.0), view.y),
+        );
+        let dense = f64::from(scale());
+        let fade = match fade {
+            Some(fade) => fade,
+            None => {
+                let (at, before) = drifter_core::tween::crop(&old, area, dense)?;
+                let (_, after) = drifter_core::tween::crop(image, area, dense)?;
+                drifter_core::tween::Fade::new(area, at, before, after, PAGE_FADE)
+            }
+        };
+        let left = fade.old_alpha(std::time::Instant::now());
+        if left <= 0.0 {
+            return None;
+        }
+        let mut canvas = drifter_core::paint::Canvas::on(image.clone());
+        let at = Vec2::new(f64::from(fade.at.0), f64::from(fade.at.1)) / dense;
+        canvas.stamp(&fade.old, at, left);
+        self.page_fade = Some((old, Some(fade)));
+        self.stale = true;
+        Some(canvas.image)
     }
 
     fn show_ringed(&mut self, image: &drifter_core::Image) {
@@ -2374,6 +2412,50 @@ impl Settings {
         }
     }
 
+    fn smooth(&self) -> bool {
+        let model = &self.model;
+        model.mouse.smooth_scroll && !model.access.reduce_motion && model.motion.animation != drifter_core::Animation::Off
+    }
+
+    fn moving(&self) -> bool {
+        self.glide.is_some() || self.page_fade.is_some()
+    }
+
+    fn wheel(&mut self, by: f64, click: bool) {
+        let page = self.sheet.is_none() && self.at.x > self.look.sidebar;
+        if !(click && page && self.smooth()) {
+            self.glide = None;
+            self.scroll_by(by);
+            return;
+        }
+        let groups = self.model.groups(self.section);
+        let most = self.look.max_scroll(self.view(), self.section, &groups);
+        let from = self.glide.map_or(self.scroll, |glide| glide.to);
+        let to = (from + by).clamp(0.0, most);
+        if to == self.scroll && self.glide.is_none() {
+            return;
+        }
+        match self.glide.as_mut() {
+            Some(glide) => glide.retarget(to, std::time::Instant::now()),
+            None => self.glide = Some(drifter_core::tween::Glide::new(self.scroll, to, GLIDE)),
+        }
+        self.stale = true;
+    }
+
+    fn step_glide(&mut self) {
+        let Some(glide) = self.glide.as_mut() else {
+            return;
+        };
+        let now = std::time::Instant::now();
+        if let Some(next) = glide.step(now, f64::from(scale())) {
+            self.scroll = next;
+            self.stale = true;
+        }
+        if glide.done(now) {
+            self.glide = None;
+        }
+    }
+
     fn scroll_by(&mut self, by: f64) {
         let size = self.view();
         if let Some(sheet) = self.sheet.as_mut() {
@@ -2438,6 +2520,11 @@ impl Settings {
     }
 
     fn go_to(&mut self, section: Section) {
+        self.glide = None;
+        self.page_fade = match (self.smooth(), self.last.as_ref(), section != self.section) {
+            (true, Some((_, image)), true) => Some((image.clone(), None)),
+            _ => None,
+        };
         self.section = section;
         self.model.focus = None;
         self.scroll = 0.0;
@@ -2998,7 +3085,7 @@ impl PointerHandler for Settings {
                     self.holding = None;
                     self.drop_monitor();
                 }
-                PointerEventKind::Axis { vertical, .. } => self.scroll_by(vertical.absolute),
+                PointerEventKind::Axis { vertical, .. } => self.wheel(vertical.absolute, vertical.discrete != 0),
                 PointerEventKind::Leave { .. } => {
                     self.holding = None;
                     self.drop_monitor();

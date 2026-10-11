@@ -294,6 +294,12 @@ impl Model {
                     )
                     .detail(crate::lang::t("The page follows the wheel")),
                     Row::new(
+                        Id::SmoothScroll,
+                        crate::lang::t("Smooth scrolling"),
+                        Control::Switch(mouse.smooth_scroll),
+                    )
+                    .detail(crate::lang::t("A wheel click glides in Settings, Activity and Files")),
+                    Row::new(
                         Id::LeftHanded,
                         crate::lang::t("Primary button"),
                         Control::Segments {
@@ -1130,6 +1136,7 @@ impl Model {
             (Id::MouseAccel, Value::Switch(on)) => self.mouse.accel = on,
             (Id::MouseNatural, Value::Switch(on)) => self.mouse.natural = on,
             (Id::LeftHanded, Value::Choice(n)) => self.mouse.left_handed = n == 1,
+            (Id::SmoothScroll, Value::Switch(on)) => self.mouse.smooth_scroll = on,
             (Id::Animation, Value::Choice(n)) => {
                 self.motion.animation = crate::config::Animation::ALL[n.min(2)]
             }
@@ -1374,6 +1381,7 @@ impl Model {
             ("accel", mouse.accel, was.accel),
             ("natural", mouse.natural, was.natural),
             ("left_handed", mouse.left_handed, was.left_handed),
+            ("smooth_scroll", mouse.smooth_scroll, was.smooth_scroll),
         ] {
             if now != then {
                 put(doc, "mouse", key, flag(now));
@@ -1554,6 +1562,7 @@ mod tests {
         let back = round_trip("", |m| {
             m.set(Id::MouseSpeed, Value::Number(8.0));
             m.set(Id::LeftHanded, Value::Choice(1));
+            m.set(Id::SmoothScroll, Value::Switch(false));
             m.set(Id::HotCorner, Value::Switch(false));
             m.set(Id::CornerWait, Value::Number(433.0));
             m.set(Id::PanSpeed, Value::Number(151.0));
@@ -1562,6 +1571,7 @@ mod tests {
         assert_eq!(back.motion.animation, crate::config::Animation::Calm);
         assert_eq!(back.mouse.speed, 8);
         assert!(back.mouse.left_handed && !back.mouse.accel);
+        assert!(!back.mouse.smooth_scroll);
         assert!(!back.motion.hot_corner);
         assert_eq!(back.motion.corner_wait, 430);
         assert_eq!(back.motion.pan_speed, 150);

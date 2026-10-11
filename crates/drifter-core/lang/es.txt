@@ -3539,3 +3539,9 @@ Your computer will shut down automatically.
 
 Magnify
 = Ampliar
+
+Smooth scrolling
+= Desplazamiento suave
+
+A wheel click glides in Settings, Activity and Files
+= Un clic de la rueda se desliza en Configuración, Actividad y Archivos

@@ -751,6 +751,14 @@ pub struct Mouse {
     pub natural: bool,
     #[serde(default)]
     pub left_handed: bool,
+    #[serde(default = "yes")]
+    pub smooth_scroll: bool,
+}
+
+impl Config {
+    pub fn smooth_scroll(&self) -> bool {
+        self.mouse.smooth_scroll && !self.access.reduce_motion && self.motion.animation != Animation::Off
+    }
 }
 
 impl Mouse {
@@ -766,6 +774,7 @@ impl Default for Mouse {
             accel: false,
             natural: false,
             left_handed: false,
+            smooth_scroll: true,
         }
     }
 }
