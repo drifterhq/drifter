@@ -320,8 +320,9 @@ How motion works today (all items use this):
   - Setting "Smooth scrolling": `[mouse] smooth_scroll: bool`, default true, in `Mouse` (config.rs:671-699). Row in the Mouse group (pages.rs:262-292): `Id::SmoothScroll`, Switch. Set at pages.rs:1077-1080, write array :1310-1318. Each app computes `smooth = smooth_scroll && !reduce && animation != Off`. Explorer reads drifter.toml at window.rs:190-191 and `watch` (:492-515, stores only appearance today); gate the glide at :1136 and :1141.
   - Tests: tween.rs `a_glide_lands_on_its_target_and_snaps_to_pixels`, `retarget_starts_from_what_is_shown`, `a_fade_runs_old_alpha_from_1_to_0`. Explorer's tests must still pass.
 
-- [ ] **20 [LOW] One menu style.**
+- [x] **20 [LOW] One menu style.**
   - Waits on: nothing.
+  - Done with the recommendation: the desk menu style wins.
   - Panel menus `menu::Look::themed`: rows 24 (menu.rs:91), radius 8 (:93), hover radius 5 (:214), label x 10 (:229), back 0.965 (:99). Desk menu `cascade::Look::themed`: rows 26 (cascade.rs:97), radius 10 (:100), hover radius 6 (:203), label x 13 (:210), back 0.96 (:104).
   - Recommendation (owner to confirm): the desk menu style wins. Radius 10 matches window chrome (window.rs:28) and drawers (drawer.rs:43). 26 px rows fit its 18 px icons.
   - Fix: menu.rs `pub const ROW: f64 = 26.0; pub const RADIUS: f64 = 10.0; pub const HOVER_RADIUS: f64 = 6.0;`. Use them at menu.rs:91, :93, :214 and cascade.rs:97, :100, :203. Also match label x (menu.rs:229 to `pad + 8.0`), rule colour and inset (menu.rs:204 to `pad + 6.0`, palette rule colour), back alpha (menu.rs:99 to 245). Keep the minimum widths.

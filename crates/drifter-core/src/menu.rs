@@ -2,6 +2,10 @@ use crate::geom::{Rect, Vec2};
 use crate::image::Image;
 use crate::text::Font;
 
+pub const ROW: f64 = 26.0;
+pub const RADIUS: f64 = 10.0;
+pub const HOVER_RADIUS: f64 = 6.0;
+
 pub const GROW_WAIT: f64 = 0.02;
 pub const GROW: f64 = 0.2;
 
@@ -97,6 +101,7 @@ pub struct Look {
     pub hover: [u8; 3],
     pub accent: [u8; 3],
     pub on_accent: [u8; 3],
+    pub rule_ink: [u8; 3],
 }
 
 pub const ACCENT: [u8; 3] = [10, 122, 255];
@@ -105,18 +110,19 @@ impl Look {
     pub fn themed(p: &crate::theme::Palette) -> Look {
         Look {
             pad: 5.0,
-            item: 24.0,
+            item: ROW,
             rule: 9.0,
-            radius: 8.0,
+            radius: RADIUS,
             least_width: 160.0,
             text: 13.0,
             ink: p.ink,
             dim: p.dim,
             back: p.back,
-            back_alpha: 246,
+            back_alpha: 245,
             hover: p.hover,
             accent: ACCENT,
             on_accent: [255, 255, 255],
+            rule_ink: p.rule,
         }
     }
 }
@@ -218,7 +224,7 @@ impl Look {
             let rect = self.item_rect(items, size, index);
             if item.separator {
                 let line = rect.origin.y + rect.size.y / 2.0;
-                paint_rule(&mut image, self.pad, size.x - self.pad, line, self.dim);
+                paint_rule(&mut image, self.pad + 6.0, size.x - self.pad - 6.0, line, self.rule_ink);
                 continue;
             }
             let lit = hover == Some(index) && item.enabled;
@@ -227,7 +233,7 @@ impl Look {
                     Vec2::new(rect.origin.x + self.pad, rect.origin.y + 1.0),
                     Vec2::new(rect.size.x - self.pad * 2.0, rect.size.y - 2.0),
                 );
-                fill_round(&mut image, bar, 5.0, self.accent);
+                fill_round(&mut image, bar, HOVER_RADIUS, self.accent);
             }
             let Some(font) = font else {
                 continue;
@@ -243,7 +249,7 @@ impl Look {
             }
             let text = font.paint(&item.label, ink);
             let at = Vec2::new(
-                rect.origin.x + self.pad * 2.0,
+                rect.origin.x + self.pad + 8.0,
                 rect.origin.y + (rect.size.y - crate::paint::logical(&text).y) / 2.0,
             );
             stamp(&mut image, &text, at);
@@ -378,6 +384,18 @@ pub(crate) fn stamp(image: &mut Image, text: &Image, at: Vec2) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn panel_and_desktop_menus_share_one_style() {
+        let palette = crate::theme::DARK;
+        let panel = Look::themed(&palette);
+        let desk = crate::cascade::Look::themed(&palette, ACCENT);
+        assert_eq!(panel.item, desk.item, "the same row height");
+        assert_eq!(panel.radius, desk.radius, "the same corners");
+        assert_eq!(panel.pad, desk.pad);
+        assert_eq!(panel.rule_ink, desk.rule_ink, "the same rule colour");
+        assert_eq!(f64::from(panel.back_alpha) / 255.0, 245.0 / 255.0);
+    }
 
     #[test]
     fn a_menu_grows_from_where_it_was_opened() {

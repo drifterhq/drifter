@@ -94,10 +94,10 @@ pub struct Look {
 impl Look {
     pub fn themed(p: &crate::theme::Palette, accent: [u8; 3]) -> Look {
         Look {
-            item: 26.0,
+            item: crate::menu::ROW,
             rule: 9.0,
             pad: 5.0,
-            radius: 10.0,
+            radius: crate::menu::RADIUS,
             icon: 18.0,
             least: 210.0,
             back: p.back,
@@ -200,7 +200,7 @@ impl Look {
                 Vec2::new(size.x - self.pad * 2.0, tall),
             );
             if lit {
-                canvas.round_rect(row, 6.0, self.accent, 1.0);
+                canvas.round_rect(row, crate::menu::HOVER_RADIUS, self.accent, 1.0);
             }
             let ink = match (lit, &entry.kind) {
                 (true, _) => [255, 255, 255],
