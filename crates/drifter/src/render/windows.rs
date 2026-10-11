@@ -21,6 +21,90 @@ impl State {
         Rect::new(self.in_world(seat.origin), seat.size / self.camera.zoom)
     }
 
+    pub(super) fn showing_of(&self, window: &crate::shell::Window) -> Showing {
+        let (shown, fade) = window
+            .motion
+            .map(|motion| motion.shape_for(window.content, self.window_still))
+            .unwrap_or((window.content, 1.0));
+        (
+            window.content,
+            shown,
+            fade,
+            window.inset,
+            (window.lit, window.restore.is_some()),
+            window.decorated && window.full.is_none(),
+            window.title.clone(),
+            window.toplevel.wl_surface().clone(),
+        )
+    }
+
+    pub(super) fn show_window(&mut self, item: Showing, shadow: bool, elements: &mut Vec<Skin>) {
+        let (content, shown, fade, inset, (lit, maximized), dressed, title, surface) = item;
+        let zoom = self.camera.zoom;
+        let stretch = match content.size.x > 0.0 {
+            true => shown.size.x / content.size.x,
+            false => 1.0,
+        };
+        let at = self
+            .camera
+            .screen_from_world(shown.origin - inset * stretch, self.screen);
+        let anchor = smithay::utils::Point::<i32, smithay::utils::Physical>::from((
+            at.x.round() as i32,
+            at.y.round() as i32,
+        ));
+        let client: Vec<WaylandSurfaceRenderElement<Painter>> =
+            render_elements_from_surface_tree(
+                &mut self.renderer,
+                &surface,
+                anchor,
+                1.0,
+                fade,
+                Kind::Unspecified,
+            );
+        if shown == content {
+            for (origin, popup) in self.popups_of(&surface, content) {
+                let at = self.camera.screen_from_world(origin, self.screen);
+                let anchor = smithay::utils::Point::<i32, smithay::utils::Physical>::from((
+                    at.x.round() as i32,
+                    at.y.round() as i32,
+                ));
+                let bare: Vec<WaylandSurfaceRenderElement<Painter>> =
+                    render_elements_from_surface_tree(
+                        &mut self.renderer,
+                        &popup,
+                        anchor,
+                        1.0,
+                        fade,
+                        Kind::Unspecified,
+                    );
+                elements.extend(bare.into_iter().map(|piece| {
+                    Skin::Client(RescaleRenderElement::from_element(piece, anchor, zoom))
+                }));
+            }
+        }
+        if dressed {
+            self.dress(shown, (lit, maximized), &title, fade, elements);
+        }
+        let edge = self.on_screen(shown);
+        self.idle_wash(edge, lit, fade, elements);
+        let crop = smithay::utils::Rectangle::<i32, smithay::utils::Physical>::new(
+            (edge.origin.x.round() as i32, edge.origin.y.round() as i32).into(),
+            (edge.size.x.round() as i32, edge.size.y.round() as i32).into(),
+        );
+        elements.extend(client.into_iter().filter_map(|piece| {
+            let scaled = RescaleRenderElement::from_element(piece, anchor, zoom * stretch);
+            smithay::backend::renderer::element::utils::CropRenderElement::from_element(
+                scaled,
+                smithay::utils::Scale::from(1.0),
+                crop,
+            )
+            .map(Skin::Clipped)
+        }));
+        if shadow && !maximized {
+            self.cast_shadow(shown, dressed, lit, fade, elements);
+        }
+    }
+
     pub(super) fn lit_target(&self, id: u64) -> f64 {
         match self.focus == Some(id) {
             true => 1.0,
@@ -36,6 +120,7 @@ impl State {
     }
 
     pub(super) fn step_windows(&mut self, dt: Duration) {
+        self.step_ghosts(dt);
         let focus = self.focus;
         for window in self.windows.iter_mut() {
             let target = if focus == Some(window.id) { 1.0 } else { 0.0 };
@@ -841,6 +926,7 @@ impl State {
         else {
             return;
         };
+        self.keep_ghost(index);
         let window = self.windows.remove(index);
         if let Some(listed) = window.listed.as_ref() {
             self.wayland.extras.toplevels.remove_toplevel(listed);

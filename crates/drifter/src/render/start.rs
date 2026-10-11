@@ -602,6 +602,8 @@ pub fn open(
         dock_hover_mode: config.dock.hover,
         dock_wound: Instant::now(),
         lit: None,
+        ghosts: Vec::new(),
+        kept: std::collections::HashMap::new(),
         zone_glide: None,
         titles: std::collections::HashMap::new(),
         hover_since: None,

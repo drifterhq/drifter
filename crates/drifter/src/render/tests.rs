@@ -609,6 +609,35 @@ fn a_swipe_turns_the_launchpad_page() {
 }
 
 #[test]
+fn a_window_that_quits_fades_out_instead_of_vanishing() {
+    let mut run = start("ghost", &Config::default(), None);
+    let (stop, client) = red_window(&mut run);
+    let content = run
+        .screen
+        .state
+        .windows
+        .iter()
+        .find(|window| window.app == "drifter-test-red")
+        .expect("the red window is placed")
+        .content;
+    let until = Instant::now() + Duration::from_millis(400);
+    pump(&mut run.screen, |_| Instant::now() >= until);
+    stop.store(true, Ordering::Relaxed);
+    let _ = client.join();
+    pump(&mut run.screen, |state| state.windows.iter().all(|window| window.app != "drifter-test-red"));
+    assert_eq!(run.screen.state.ghosts.len(), 1, "the window leaves a ghost");
+    let image = run.shot("ghost");
+    let middle = run.screen.state.on_screen(content).center();
+    assert!(
+        !is_background(pixel(&image, middle.x as u32, middle.y as u32)),
+        "the ghost still shows where the window was"
+    );
+    let until = Instant::now() + Duration::from_millis(300);
+    pump(&mut run.screen, |_| Instant::now() >= until);
+    assert!(run.screen.state.ghosts.is_empty(), "the ghost is gone once it has faded");
+}
+
+#[test]
 fn an_open_menu_casts_a_shadow() {
     let mut run = start("menu-shadow", &Config::default(), None);
     let item = |id: i32, label: &str| drifter_core::menu::Item {

@@ -263,8 +263,9 @@ How motion works today (all items use this):
   - Fix: `Switch` (render.rs:262-269) gets `ring: (Rect, Instant)`, `RING_SLIDE 0.14`. Set on open (overlays.rs:27-34) and on step before `open.at = at` (:39-41) from the drawn rect. switcher.rs: `paint(chosen: Option<usize>, ..)`, pass `None`; expose `pick_style()`. In `switch_elements` insert at overlays.rs:475 (between icons and art) a `round_fill` (radius 12, alpha 0.16) at the lerped rect. Wrap-around jumps more than one tile: snap. Reduce: fade at target. `switch_moving()` in `animating()`.
   - Test: switcher.rs `the_panel_paints_without_a_pick_when_none_is_chosen`; update `same_at_two` (:157-163).
 
-- [ ] **16 [BUG] A window closed by its app vanishes, and the close button's fade is cut short.**
+- [x] **16 [BUG] A window closed by its app vanishes, and the close button's fade is cut short.**
   - Waits on: G2.
+  - Done another way: an offscreen snapshot at destroy time found the client buffer already gone. Each frame now keeps a clone of every window's surface texture (render/ghost.rs), and the ghost draws that texture with live chrome. The per-window draw moved out of render.rs into `show_window`.
   - `toplevel_destroyed` (shell.rs:257-260) calls `window_gone` (windows.rs:779-809), which removes the window at :787 with no check of `going` or `motion`.
   - The close button starts a 150 ms fade (input.rs:456-464), but most apps destroy the toplevel in one or two frames, so `window_gone` cuts it short. Also no motion on: window list close (bars.rs:205), dock menu close (dock.rs:540-542), app-name Quit (appname.rs:141-144).
   - No snapshot exists: closing draws the live surface (render.rs:1025-1033).
