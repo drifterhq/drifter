@@ -296,6 +296,7 @@ pub struct Model {
     pub dock_icon: f64,
     pub dock_pad: f64,
     pub dock_fit: bool,
+    pub dock_hover: crate::config::DockHover,
     pub dock_gap: f64,
     pub glance: usize,
     pub shows: [bool; 6],
@@ -472,6 +473,7 @@ impl Model {
             dock_icon: config.dock_icon(),
             dock_pad: config.dock_padding(),
             dock_fit: config.dock.fit,
+            dock_hover: config.dock.hover,
             dock_gap: config.dock_spacing(),
             glance: crate::glance::Style::parse(&config.tray.style)
                 .ok()
@@ -1204,6 +1206,18 @@ impl Model {
                         .detail(crate::lang::t("Room between one icon and the next")),
                         Row::new(Id::DockFit, crate::lang::t("Fit to icons"), Control::Switch(self.dock_fit))
                             .detail(crate::lang::t("Only as wide as its icons. Off spans the whole screen")),
+                        Row::new(
+                            Id::DockHover,
+                            crate::lang::t("Hover"),
+                            Control::Segments {
+                                options: vec![crate::lang::t("Off"), crate::lang::t("Lift")],
+                                chosen: crate::config::DockHover::ALL
+                                    .iter()
+                                    .position(|h| *h == self.dock_hover)
+                                    .unwrap_or(1),
+                            },
+                        )
+                        .detail(crate::lang::t("What an icon does under the pointer")),
                         ],
                         footer: None,
                         thumbs: None,
@@ -1858,6 +1872,7 @@ impl Model {
             (Id::DockIcon, Value::Number(n)) => self.dock_icon = n.round().clamp(16.0, 128.0),
             (Id::DockPadding, Value::Number(n)) => self.dock_pad = n.round().clamp(0.0, 40.0),
             (Id::DockFit, Value::Switch(on)) => self.dock_fit = on,
+            (Id::DockHover, Value::Choice(n)) => self.dock_hover = crate::config::DockHover::ALL[n.min(1)],
             (Id::DockSpacing, Value::Number(n)) => self.dock_gap = n.round().clamp(0.0, 48.0),
             (Id::Glance, Value::Choice(at)) => self.glance = at.min(crate::glance::Style::ALL.len() - 1),
             (Id::AutoEntry(at), Value::Switch(on)) => {
@@ -2180,6 +2195,9 @@ impl Model {
         }
         if self.dock_fit != before.dock_fit {
             put(&mut doc, "dock", "fit", toml_edit::Value::from(self.dock_fit));
+        }
+        if self.dock_hover != before.dock_hover {
+            put(&mut doc, "dock", "hover", word(self.dock_hover.word()));
         }
         if self.automatic != before.automatic {
             put(
@@ -2561,6 +2579,7 @@ pub enum Id {
     DockIcon,
     DockPadding,
     DockFit,
+    DockHover,
     DockSpacing,
     Glance,
     Dock(usize),
@@ -4714,9 +4733,11 @@ mod tests {
         after.set(Id::DockIcon, Value::Number(40.0));
         after.set(Id::DockPadding, Value::Number(12.0));
         after.set(Id::DockFit, Value::Switch(true));
+        after.set(Id::DockHover, Value::Choice(0));
         let back = Config::parse(&after.write(&before, text).unwrap()).unwrap();
         assert_eq!(back.dock_height(), 64.0);
         assert!(back.dock.fit);
+        assert_eq!(back.dock.hover, crate::config::DockHover::Off);
         back.validate().unwrap();
     }
 

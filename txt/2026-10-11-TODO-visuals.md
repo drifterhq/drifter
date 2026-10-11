@@ -186,8 +186,9 @@ How motion works today (all items use this):
   - Frames already run during flights (`flight.is_some()`, render.rs:685). Hidden buttons are never clicked: the overview takes presses below zoom 1 (input.rs:677). No setting.
   - Test: window.rs `chrome_detail_fades_over_a_zoom_range` (0 at 0.70, 1 at 1.0, between at 0.78, never falls).
 
-- [ ] **10 [MED] Dock icons lift on hover; running dots fade; Dock hover setting.**
+- [x] **10 [MED] Dock icons lift on hover; running dots fade; Dock hover setting.**
   - Waits on: G2 (Magnify also waits on 18).
+  - Done: Off and Lift, dot fades, the Hover row. Magnify is added with item 18.
   - Only the Apps logo reacts (dock.rs:713, docklogo.rs:44-68, `animating()` `dock_logo.hot` at render.rs:696). Other icons: dock.rs:719-721 at alpha 1. Dots: dock.rs:731-743 and Settings dot :751-754 at alpha 1. Icons are separate elements already.
   - Fix (Lift):
     1. core dock.rs after `BOUNCES` (:443): `HOVER_LIFT 4.0`, `HOVER_SECONDS 0.15`, `DOT_SECONDS 0.2`; `hover_lift(rising, p)` (ease up, smooth down, negative = up); `step(value, goal, dt, seconds)` (as docklogo.rs:61-65); `enum DockKey { App(String), Window(u64), Settings, Trash }`; `enum DockHover { Off, Lift, Magnify }`.

@@ -160,6 +160,8 @@ apps = true
 # true makes the dock only as wide as its icons plus the padding.
 # false spans the whole screen.
 fit = false
+# What an icon does under the pointer: "off" or "lift".
+hover = "lift"
 
 [window]
 # Which end of the title bar holds the buttons: left or right.

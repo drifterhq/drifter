@@ -463,6 +463,27 @@ pub struct DockConfig {
     pub spacing: Option<f64>,
     #[serde(default)]
     pub fit: bool,
+    #[serde(default)]
+    pub hover: DockHover,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum DockHover {
+    Off,
+    #[default]
+    Lift,
+}
+
+impl DockHover {
+    pub const ALL: [DockHover; 2] = [DockHover::Off, DockHover::Lift];
+
+    pub fn word(self) -> &'static str {
+        match self {
+            DockHover::Off => "off",
+            DockHover::Lift => "lift",
+        }
+    }
 }
 
 impl Default for DockConfig {
@@ -479,6 +500,7 @@ impl Default for DockConfig {
             padding: None,
             spacing: None,
             fit: false,
+            hover: DockHover::Lift,
         }
     }
 }

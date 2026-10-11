@@ -696,6 +696,7 @@ impl State {
         self.apps_chosen = config.apps.clone();
         let wanted = (config.dock.clone(), config.apps.clone());
         self.dock_fit = config.dock.fit;
+        self.dock_hover_mode = config.dock.hover;
         self.dock_pad = config.dock_padding();
         self.dock.margin = dock_margin(config);
         let resized = self.dock.with_icon(config.dock_icon());

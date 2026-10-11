@@ -3512,3 +3512,12 @@ More
 
 How much windows in the back fade
 = Wie stark Fenster im Hintergrund verblassen
+
+Hover
+= Beim Überfahren
+
+Lift
+= Anheben
+
+What an icon does under the pointer
+= Was ein Symbol unter dem Zeiger tut

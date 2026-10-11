@@ -3512,3 +3512,12 @@ More
 
 How much windows in the back fade
 = Cuánto se atenúan las ventanas del fondo
+
+Hover
+= Al pasar el puntero
+
+Lift
+= Elevar
+
+What an icon does under the pointer
+= Lo que hace un icono bajo el puntero

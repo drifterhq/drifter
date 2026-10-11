@@ -652,6 +652,10 @@ pub struct State {
     accent_round: Option<TextureBuffer<Tex>>,
     snap_art: Option<TextureBuffer<Tex>>,
     black: Option<TextureBuffer<Tex>>,
+    dock_hover: std::collections::HashMap<drifter_core::dock::Slot, (f64, f64, bool)>,
+    dock_dots: std::collections::HashMap<String, (f64, f64)>,
+    dock_hover_mode: drifter_core::DockHover,
+    dock_wound: Instant,
     zone_glide: Option<(Rect, Instant)>,
     titles: std::collections::HashMap<String, (TextureBuffer<Tex>, Vec2)>,
     hover_since: Option<(Vec2, Instant)>,
@@ -723,6 +727,7 @@ impl State {
             || self.cards_moving()
             || self.hud_busy()
             || self.snap_gliding()
+            || self.dock_winding()
             || self.windows.iter().any(|window| window.lit != self.lit_target(window.id))
             || self.thumb_moving()
             || self.welcome_busy()
@@ -1266,6 +1271,7 @@ impl State {
         self.wind_the_thumb();
         self.wind_the_desk_menu();
         self.settle_bounces();
+        self.wind_the_dock();
         self.settle_fade();
 
         let scale = self.heads[at].scale;

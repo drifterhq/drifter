@@ -1,7 +1,7 @@
 use crate::geom::{Rect, Vec2};
 use crate::image::Image;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Slot {
     Pinned(usize),
     Minimized(usize),
@@ -442,6 +442,32 @@ pub fn bounce(seconds: f64, icon: f64) -> f64 {
 
 pub const BOUNCES: u32 = 4;
 
+pub const HOVER_LIFT: f64 = 4.0;
+pub const HOVER_SECONDS: f64 = 0.15;
+pub const DOT_SECONDS: f64 = 0.2;
+
+pub fn hover_lift(rising: bool, level: f64) -> f64 {
+    if level <= 0.0 {
+        return 0.0;
+    }
+    let shape = match rising {
+        true => crate::drawer::ease(level),
+        false => crate::motion::smooth(level),
+    };
+    -HOVER_LIFT * shape
+}
+
+pub fn step(value: f64, goal: f64, dt: f64, seconds: f64) -> f64 {
+    if seconds <= 0.0 {
+        return goal;
+    }
+    let reach = dt / seconds;
+    match value < goal {
+        true => (value + reach).min(goal),
+        false => (value - reach).max(goal),
+    }
+}
+
 pub fn badge_rect(icon: Rect, text_width: f64) -> Rect {
     let tall = (icon.size.y * 0.42).round();
     let wide = (text_width + tall * 0.55).max(tall).round();
@@ -521,6 +547,25 @@ fn slot_cut(dx: f64, py: f64, unit: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_hover_lifts_a_few_pixels_and_settles() {
+        assert_eq!(hover_lift(true, 0.0), 0.0);
+        assert_eq!(hover_lift(true, 1.0), -HOVER_LIFT, "up is negative");
+        assert_eq!(hover_lift(false, 1.0), -HOVER_LIFT);
+        assert_eq!(hover_lift(false, 0.0), 0.0);
+        let peak = (1..100).map(|i| hover_lift(true, f64::from(i) / 100.0)).fold(0.0, f64::min);
+        assert!(peak < -HOVER_LIFT && peak > -HOVER_LIFT * 1.3, "a small overshoot going up: {peak}");
+        assert!((1..100).all(|i| hover_lift(false, f64::from(i) / 100.0) >= -HOVER_LIFT), "none coming down");
+        let mut level = 0.0;
+        let mut frames = 0;
+        while level < 1.0 {
+            level = step(level, 1.0, 0.01, HOVER_SECONDS);
+            frames += 1;
+        }
+        assert!((15..=16).contains(&frames));
+        assert_eq!(step(0.4, 0.0, 0.01, 0.0), 0.0, "no time snaps");
+    }
 
     fn band() -> Rect {
         Rect::new(Vec2::new(0.0, 1016.0), Vec2::new(1920.0, 64.0))

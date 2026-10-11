@@ -3509,3 +3509,12 @@ More
 
 How much windows in the back fade
 = À quel point les fenêtres en arrière-plan s’estompent
+
+Hover
+= Au survol
+
+Lift
+= Soulever
+
+What an icon does under the pointer
+= Ce que fait une icône sous le pointeur

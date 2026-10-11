@@ -1,6 +1,7 @@
 use super::*;
 use drifter_core::dock::same_app;
 
+const SETTINGS_DOT: &str = "\u{0}settings";
 const DRAG_START: f64 = 6.0;
 const BAR_HIDING: i32 = 1;
 const BAR_SIZE: i32 = 2;
@@ -261,6 +262,73 @@ impl State {
             let arrived = elapsed > HOP && windows.iter().any(|app| same_app(key, app));
             elapsed < done && !arrived
         });
+    }
+
+    pub(super) fn wind_the_dock(&mut self) {
+        use drifter_core::dock::{DOT_SECONDS, HOVER_SECONDS, step};
+        let now = Instant::now();
+        let dt = now.duration_since(self.dock_wound).as_secs_f64().min(0.1);
+        self.dock_wound = now;
+        let pace = self.window_pace;
+        let lifts = self.dock_hover_mode == drifter_core::DockHover::Lift && pace > 0.0 && !self.window_still;
+        let apps = self.dock_apps();
+        let hidden = self.minimized().len();
+        let hovered = match (lifts && self.dock_drag.is_none(), self.dock_band()) {
+            (true, Some(band)) => self.dock.at(band, self.pointer, apps.len(), hidden),
+            _ => None,
+        };
+        if !lifts {
+            self.dock_hover.clear();
+        }
+        for (_, goal, _) in self.dock_hover.values_mut() {
+            *goal = 0.0;
+        }
+        if let Some(slot) = hovered {
+            self.dock_hover.entry(slot).or_insert((0.0, 0.0, true)).1 = 1.0;
+        }
+        for (level, goal, rising) in self.dock_hover.values_mut() {
+            if *goal != *level {
+                *rising = *goal > *level;
+            }
+            *level = step(*level, *goal, dt * pace, HOVER_SECONDS);
+        }
+        self.dock_hover.retain(|_, (level, goal, _)| *level > 0.0 || *goal > 0.0);
+
+        let mut wanted: Vec<(String, f64)> = apps
+            .iter()
+            .filter(|app| app.place.is_none())
+            .map(|app| (app.key.clone(), if self.windows_of(&app.key).is_empty() { 0.0 } else { 1.0 }))
+            .collect();
+        let settings_open = self
+            .windows
+            .iter()
+            .any(|window| window.placed && !window.going && window.app == SETTINGS_APP);
+        wanted.push((SETTINGS_DOT.to_string(), if settings_open { 1.0 } else { 0.0 }));
+        let seconds = match pace > 0.0 {
+            true => DOT_SECONDS / pace,
+            false => 0.0,
+        };
+        self.dock_dots.retain(|key, _| wanted.iter().any(|(held, _)| held == key));
+        for (key, goal) in wanted {
+            let (level, held) = self.dock_dots.entry(key).or_insert((0.0, goal));
+            *held = goal;
+            *level = step(*level, goal, dt, seconds);
+        }
+    }
+
+    pub(super) fn dock_winding(&self) -> bool {
+        self.dock_hover.values().any(|(level, goal, _)| level != goal)
+            || self.dock_dots.values().any(|(level, goal)| level != goal)
+    }
+
+    fn hover_of(&self, slot: Slot) -> f64 {
+        self.dock_hover
+            .get(&slot)
+            .map_or(0.0, |(level, _, rising)| drifter_core::dock::hover_lift(*rising, *level))
+    }
+
+    fn dot_of(&self, key: &str) -> f32 {
+        self.dock_dots.get(key).map_or(0.0, |(level, _)| *level as f32)
     }
 
     fn bounce_of(&self, key: &str) -> f64 {
@@ -682,7 +750,7 @@ impl State {
             let Some(slot) = slot_of(index) else {
                 continue;
             };
-            let lift = self.bounce_of(&app.key);
+            let lift = self.bounce_of(&app.key) + self.hover_of(Slot::Pinned(slot));
             let rect = self.dock.slot_rect(band, count, hidden.len(), Slot::Pinned(slot));
             let rect = Rect::new(rect.origin + Vec2::new(0.0, lift), rect.size);
             if let Some((name, badge)) = self.badge_for(&app.key) {
@@ -706,7 +774,7 @@ impl State {
             let Some(slot) = slot_of(index) else {
                 continue;
             };
-            let lift = self.bounce_of(&app.key);
+            let lift = self.bounce_of(&app.key) + self.hover_of(Slot::Pinned(slot));
             let rect = self.dock.slot_rect(band, count, hidden.len(), Slot::Pinned(slot));
             let rect = Rect::new(rect.origin + Vec2::new(0.0, lift), rect.size);
             if drifter_core::launchpad::is_button(&app.launch) {
@@ -725,7 +793,8 @@ impl State {
                 let rect = self
                     .dock
                     .slot_rect(band, count, hidden.len(), Slot::Minimized(index));
-                elements.push(Skin::Texture(element(buffer, rect, 1.0)));
+                let lift = Vec2::new(0.0, self.hover_of(Slot::Minimized(index)));
+                elements.push(Skin::Texture(element(buffer, Rect::new(rect.origin + lift, rect.size), 1.0)));
             }
         }
         if let Some(buffer) = self.dot.as_ref() {
@@ -733,24 +802,23 @@ impl State {
                 let Some(slot) = slot_of(index) else {
                     continue;
                 };
-                if app.place.is_none() && !self.windows_of(&app.key).is_empty() {
+                let shown = self.dot_of(&app.key);
+                if app.place.is_none() && shown > 0.0 {
                     let rect = self
                         .dock
                         .dot_rect(band, count, hidden.len(), Slot::Pinned(slot));
-                    elements.push(Skin::Texture(element(buffer, rect, 1.0)));
+                    elements.push(Skin::Texture(element(buffer, rect, shown)));
                 }
             }
         }
         if let (true, Some(buffer)) = (self.dock.settings, self.cog.as_ref()) {
             let rect = self.dock.slot_rect(band, count, hidden.len(), Slot::Settings);
+            let rect = Rect::new(rect.origin + Vec2::new(0.0, self.hover_of(Slot::Settings)), rect.size);
             elements.push(Skin::Texture(element(buffer, rect, 1.0)));
-            let open = self
-                .windows
-                .iter()
-                .any(|window| window.placed && !window.going && window.app == SETTINGS_APP);
-            if let (true, Some(dot)) = (open, self.dot.as_ref()) {
+            let shown = self.dot_of(SETTINGS_DOT);
+            if let (true, Some(dot)) = (shown > 0.0, self.dot.as_ref()) {
                 let spot = self.dock.dot_rect(band, count, hidden.len(), Slot::Settings);
-                elements.push(Skin::Texture(element(dot, spot, 1.0)));
+                elements.push(Skin::Texture(element(dot, spot, shown)));
             }
         }
         if self.dock.trash {
@@ -760,6 +828,7 @@ impl State {
             };
             if let Some(buffer) = art {
                 let rect = self.dock.slot_rect(band, count, hidden.len(), Slot::Trash);
+                let rect = Rect::new(rect.origin + Vec2::new(0.0, self.hover_of(Slot::Trash)), rect.size);
                 elements.push(Skin::Texture(element(&buffer, rect, 1.0)));
             }
         }

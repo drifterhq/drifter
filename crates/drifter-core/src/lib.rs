@@ -68,7 +68,7 @@ mod density_tests;
 
 pub use camera::Camera;
 pub use config::{
-    Accent, Animation, Access, Inactive, Appearance, AppsConfig, Assets, ButtonName, Config, DockConfig, Keyboard, Keys,
+    Accent, Animation, Access, DockHover, Inactive, Appearance, AppsConfig, Assets, ButtonName, Config, DockConfig, Keyboard, Keys,
     Launch, Lid, Modifier, Motion, Mouse, Night, NotePosition, Notify, Power, PowerKey, ShotFormat, Shots, Side,
     Style, ThreeTap, Touchpad, TrayConfig, Tunables, WallpaperMode, WallpaperOrder,
 };
