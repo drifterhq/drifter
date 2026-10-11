@@ -56,7 +56,7 @@ impl State {
         let size = look.size(&items, self.note_head.as_deref());
         let rect = look.rect(at, size, self.screen);
         let (anchor, opened) = match self.popover.as_ref() {
-            Some(was) if std::mem::discriminant(&was.target) == std::mem::discriminant(&target) => {
+            Some(was) if same_menu(&was.target, &target) => {
                 (was.anchor, was.opened)
             }
             _ => (from, None),
@@ -133,7 +133,8 @@ impl State {
     }
 
     pub(super) fn popover_busy(&self) -> bool {
-        self.popover.as_ref().and_then(|open| open.opened).is_some_and(|at| {
+        self.window_pace > 0.0
+            && self.popover.as_ref().and_then(|open| open.opened).is_some_and(|at| {
             at.elapsed().as_secs_f64() * self.window_pace < drifter_core::menu::GROW_WAIT + drifter_core::menu::GROW
         })
     }
@@ -900,5 +901,14 @@ impl State {
                 }
             },
         );
+    }
+}
+
+fn same_menu(was: &Target, now: &Target) -> bool {
+    match (was, now) {
+        (Target::Tray { service: a, .. }, Target::Tray { service: b, .. }) => a == b,
+        (Target::Window(a), Target::Window(b)) => a == b,
+        (Target::Dock(a), Target::Dock(b)) | (Target::PadApp(a), Target::PadApp(b)) | (Target::App(a), Target::App(b)) => a == b,
+        _ => std::mem::discriminant(was) == std::mem::discriminant(now),
     }
 }
