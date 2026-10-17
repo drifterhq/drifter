@@ -270,22 +270,29 @@ impl State {
     }
 
     pub(super) fn grip_under(&self) -> Option<(usize, drifter_core::window::Grip)> {
-        self.windows
-            .iter()
-            .enumerate()
-            .rev()
-            .filter(|(_, window)| {
-                window.placed
-                    && !window.hidden
-                    && !window.going
-                    && window.decorated
-                    && window.full.is_none()
-            })
-            .find_map(|(index, window)| {
-                self.chrome
-                    .grip_at(window.content, self.in_world(self.pointer), 3)
-                    .map(|grip| (index, grip))
-            })
+        let world = self.in_world(self.pointer);
+        for (index, window) in self.windows.iter().enumerate().rev() {
+            if !window.placed || window.hidden || window.going {
+                continue;
+            }
+            let root = window.toplevel.wl_surface();
+            if Self::popup_places(root, window.content)
+                .iter()
+                .any(|(_, area, _)| area.contains(world))
+            {
+                return None;
+            }
+            if window.decorated
+                && window.full.is_none()
+                && let Some(grip) = self.chrome.grip_at(window.content, world, 3)
+            {
+                return Some((index, grip));
+            }
+            if window.content.contains(world) {
+                return None;
+            }
+        }
+        None
     }
 
     pub(super) fn take_grab(&mut self) -> bool {
