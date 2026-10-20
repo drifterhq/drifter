@@ -227,11 +227,11 @@ Text needs a font, and Drifter has no toolkit to ask. It uses `assets.font` when
 
 ## Windows
 
-Drifter draws every window frame itself. Client side decorations cannot work here: the compositor owns zoom, and a client drawing its own frame has no idea what zoom it is being seen at, so its shadows, corners and hit areas would all be wrong.
+Drifter draws every window frame itself, and asks every client for a server side frame. A client that insists on its own frame still works. Its shadow is part of its surface, so it scales with the camera like the rest of the window, and the pointer reaches the whole surface, shadow strip included. That strip is where GTK and libadwaita put their resize edges.
 
 Drifter decorates a window by default and offers server side mode through `xdg-decoration`. A client that explicitly asks for client side mode is believed, and Drifter draws no frame around it, because two frames is worse than the wrong one.
 
-GTK never implemented `xdg-decoration` and always draws its own title bar. GTK 3 does obey `GTK_CSD=0`, so every app Drifter launches gets that in its environment, along with `QT_WAYLAND_DISABLE_WINDOWDECORATION=1`. An app started by hand from a terminal misses both and will carry its own chrome.
+GTK never implemented `xdg-decoration` and always draws its own title bar. GTK 3 does obey `GTK_CSD=0`, so the session script `scripts/drifter-session` exports it, along with `QT_WAYLAND_DISABLE_WINDOWDECORATION=1`, before Drifter starts. Everything started inside the session inherits both: apps from the menu, apps from a terminal, and apps that D-Bus or systemd start, because the script also passes them to `dbus-update-activation-environment`. The variables belong to the Drifter session alone, so another desktop on the same machine is left as it was. An app that ignores them, such as GTK 4 or libadwaita, draws its own frame, and Drifter lets its resize edges work.
 
 The frame is a nine piece skin, so it can be themed by replacing PNGs and never by editing code. Pieces live in the folder named by `assets.window`:
 

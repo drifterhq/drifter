@@ -15,6 +15,14 @@ export XDG_CURRENT_DESKTOP=drifter
 export XDG_SESSION_DESKTOP=drifter
 export XDG_SESSION_TYPE=wayland
 export QT_QPA_PLATFORMTHEME=${QT_QPA_PLATFORMTHEME:-gtk3}
+export GTK_CSD=0
+export QT_WAYLAND_DISABLE_WINDOWDECORATION=1
+
+if command -v dbus-update-activation-environment >/dev/null 2>&1; then
+    dbus-update-activation-environment --systemd \
+        XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE \
+        GTK_CSD QT_WAYLAND_DISABLE_WINDOWDECORATION >/dev/null 2>&1 || true
+fi
 
 recent=()
 while true; do
