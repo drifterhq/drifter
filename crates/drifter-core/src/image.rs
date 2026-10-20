@@ -82,6 +82,10 @@ impl Image {
             };
         }
 
+        if width <= self.width && height <= self.height {
+            return self.shrunk(width, height);
+        }
+
         let mut rgba = vec![0u8; (width as usize) * (height as usize) * 4];
         let across = f64::from(self.width) / f64::from(width);
         let down = f64::from(self.height) / f64::from(height);
@@ -103,6 +107,39 @@ impl Image {
             height,
             rgba,
         }
+    }
+
+    fn shrunk(&self, width: u32, height: u32) -> Image {
+        let spans = |from: u32, to: u32| -> Vec<Vec<(usize, f64)>> {
+            let step = f64::from(from) / f64::from(to);
+            (0..to)
+                .map(|i| {
+                    let (start, end) = (f64::from(i) * step, f64::from(i + 1) * step);
+                    (start.floor() as u32..(end.ceil() as u32).min(from))
+                        .map(|k| (k as usize, (end.min(f64::from(k + 1)) - start.max(f64::from(k))) / step))
+                        .filter(|(_, weight)| *weight > 0.0)
+                        .collect()
+                })
+                .collect()
+        };
+        let (columns, rows) = (spans(self.width, width), spans(self.height, height));
+        let stride = self.width as usize;
+        let mut rgba = Vec::with_capacity((width as usize) * (height as usize) * 4);
+        for row in &rows {
+            for column in &columns {
+                let mut sum = [0.0f64; 4];
+                for &(y, down) in row {
+                    for &(x, across) in column {
+                        let at = (y * stride + x) * 4;
+                        for (c, total) in sum.iter_mut().enumerate() {
+                            *total += f64::from(self.rgba[at + c]) * down * across;
+                        }
+                    }
+                }
+                rgba.extend(sum.map(|v| v.round().clamp(0.0, 255.0) as u8));
+            }
+        }
+        Image { width, height, rgba }
     }
 }
 
