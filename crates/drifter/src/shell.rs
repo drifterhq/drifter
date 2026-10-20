@@ -209,11 +209,11 @@ impl ServerDndGrabHandler for State {
     }
 
     fn finished(&mut self, _seat: Seat<Self>) {
-        self.drag_shot = None;
+        self.shot_dropped(true);
     }
 
     fn cancelled(&mut self, _seat: Seat<Self>) {
-        self.drag_shot = None;
+        self.shot_dropped(false);
     }
 }
 

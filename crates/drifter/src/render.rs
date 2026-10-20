@@ -711,7 +711,7 @@ pub struct State {
     recording: Option<shoot::Recording>,
     thumb: Option<shoot::Thumb>,
     sound_from: Option<String>,
-    own_count: usize,
+    cursor_end: usize,
     cards: Vec<Card>,
     hud: Option<Hud>,
     hud_pill: Option<TextureBuffer<Tex>>,
@@ -848,13 +848,13 @@ impl State {
 
     fn elements(&mut self) -> Vec<Skin> {
         let live = self.at == self.hand;
-        self.own_count = 0;
         if self.client_lock.is_some() {
             let mut elements = match live {
                 true => self.cursor_elements(),
                 false => Vec::new(),
             };
             self.cursor_count = elements.len();
+            self.cursor_end = self.cursor_count;
             self.client_lock_elements(&mut elements);
             return elements;
         }
@@ -865,6 +865,7 @@ impl State {
                 false => Vec::new(),
             };
             self.cursor_count = elements.len();
+            self.cursor_end = self.cursor_count;
             if live {
                 self.alert_elements(&mut elements);
                 self.popover_elements(&mut elements);
@@ -878,14 +879,14 @@ impl State {
         };
         let mut elements: Vec<Skin> = Vec::new();
         if live {
-            self.own_elements(&mut elements);
-        }
-        self.own_count = elements.len();
-        if live {
             match self.shooter_cursor() {
                 Some(cross) => elements.extend(cross),
                 None => elements.extend(self.cursor_elements()),
             }
+        }
+        self.cursor_end = elements.len();
+        if live {
+            self.own_elements(&mut elements);
         }
         self.cursor_count = elements.len();
         elements.extend(layer);
@@ -919,7 +920,7 @@ impl State {
             self.alert_elements(&mut elements);
             self.desk_menu_elements(&mut elements);
             self.pane_elements(fade::Pane::DeskMenu, &mut elements);
-            if self.shooter.is_none() {
+            if self.shooter.is_none() && !self.shot_menu_open() {
                 self.popover_elements(&mut elements);
                 self.pane_elements(fade::Pane::Menu, &mut elements);
             }

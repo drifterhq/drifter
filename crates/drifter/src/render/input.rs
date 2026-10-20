@@ -687,6 +687,9 @@ impl State {
     }
 
     pub(super) fn press_own(&mut self, code: u32) -> bool {
+        if let Some(eaten) = self.press_shot_menu() {
+            return eaten;
+        }
         if self.press_stop(code) || self.press_thumb(code) {
             return true;
         }

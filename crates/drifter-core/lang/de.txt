@@ -3599,3 +3599,9 @@ Game controller
 
 Printer
 = Drucker
+
+Save to Desktop
+= Auf dem Schreibtisch sichern
+
+Save to Documents
+= In Dokumenten sichern

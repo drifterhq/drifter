@@ -3599,3 +3599,9 @@ Game controller
 
 Printer
 = Impresora
+
+Save to Desktop
+= Guardar en el escritorio
+
+Save to Documents
+= Guardar en Documentos

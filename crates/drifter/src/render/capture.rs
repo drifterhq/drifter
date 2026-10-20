@@ -126,6 +126,16 @@ impl State {
         }
     }
 
+    fn copied_elements<'a>(&self, elements: &'a [Shown], cursor: bool) -> Vec<&'a Shown> {
+        let scene = self.cursor_count.min(elements.len());
+        let mut shown: Vec<&Shown> = match cursor {
+            true => elements[..self.cursor_end.min(scene)].iter().collect(),
+            false => Vec::new(),
+        };
+        shown.extend(&elements[scene..]);
+        shown
+    }
+
     pub(super) fn capture(&mut self, elements: &[Shown], cursor: bool) -> Result<Vec<u8>, String> {
         use smithay::backend::renderer::damage::OutputDamageTracker;
         use smithay::backend::renderer::{Bind, ExportMem};
@@ -142,13 +152,10 @@ impl State {
             .renderer
             .bind(&mut texture)
             .map_err(|e| format!("cannot draw offscreen: {e}"))?;
-        let shown = match cursor {
-            true => &elements[self.own_count.min(elements.len())..],
-            false => &elements[self.cursor_count.min(elements.len())..],
-        };
+        let shown = self.copied_elements(elements, cursor);
         let mut tracker = OutputDamageTracker::new(size, 1.0, Transform::Normal);
         tracker
-            .render_output(&mut self.renderer, &mut target, 0, shown, self.clear)
+            .render_output(&mut self.renderer, &mut target, 0, &shown, self.clear)
             .map_err(|e| format!("cannot draw offscreen: {e:?}"))?;
         let mapping = self
             .renderer
@@ -183,10 +190,7 @@ impl State {
             return Err("a screen copy buffer is not the size of the screen".to_string());
         }
         let size = Size::<i32, Physical>::from((size.w, size.h));
-        let shown = match cursor {
-            true => &elements[self.own_count.min(elements.len())..],
-            false => &elements[self.cursor_count.min(elements.len())..],
-        };
+        let shown = self.copied_elements(elements, cursor);
         let clear = self.clear;
         let mut target = self
             .renderer
@@ -194,7 +198,7 @@ impl State {
             .map_err(|e| format!("cannot draw into a screen copy buffer: {e}"))?;
         let mut tracker = OutputDamageTracker::new(size, 1.0, Transform::Normal);
         let result = tracker
-            .render_output(&mut self.renderer, &mut target, 0, shown, clear)
+            .render_output(&mut self.renderer, &mut target, 0, &shown, clear)
             .map_err(|e| format!("cannot draw into a screen copy buffer: {e:?}"))?;
         result
             .sync

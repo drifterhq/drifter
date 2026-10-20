@@ -658,7 +658,7 @@ pub fn open(
         recording: None,
         thumb: None,
         sound_from: None,
-        own_count: 0,
+        cursor_end: 0,
         drawers: [Drawer::new(Edge::Top), Drawer::new(Edge::Bottom)],
         tunables,
         overview_hold: None,

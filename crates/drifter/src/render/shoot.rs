@@ -44,6 +44,9 @@ const SHOT_COPY: i32 = 1;
 const SHOT_FOLDER: i32 = 2;
 const SHOT_OPEN: i32 = 3;
 const SHOT_DELETE: i32 = 4;
+const SHOT_DESKTOP: i32 = 5;
+const SHOT_DOCUMENTS: i32 = 6;
+const LIFTED: f64 = 0.5;
 
 pub(super) struct Inks {
     pub cross: TextureBuffer<Tex>,
@@ -629,7 +632,7 @@ impl State {
             }
             return;
         }
-        let held = thumb.rect.contains(pointer) || thumb.pressed.is_some() || menu_open;
+        let held = thumb.rect.contains(pointer) || thumb.pressed.is_some() || menu_open || self.drag_shot.is_some();
         if held {
             thumb.born = Instant::now() - Duration::from_secs_f64(THUMB_IN);
         } else if thumb.born.elapsed() >= THUMB_TIME {
@@ -667,7 +670,6 @@ impl State {
             return;
         }
         thumb.pressed = None;
-        thumb.leaving = Some(Instant::now());
         self.drag_shot = Some(path.clone());
         let world = self.in_world(pointer);
         let metadata = SourceMetadata {
@@ -682,6 +684,60 @@ impl State {
         let dh = self.wayland.handle.clone();
         let seat = self.wayland._seat.clone();
         start_dnd(&dh, &seat, self, SERIAL_COUNTER.next_serial(), Some(start), None, metadata);
+    }
+
+    pub fn shot_dropped(&mut self, landed: bool) {
+        self.drag_shot = None;
+        if landed && let Some(thumb) = self.thumb.as_mut() {
+            thumb.leaving = Some(Instant::now());
+        }
+        self.kick_now();
+    }
+
+    pub(super) fn shot_menu_open(&self) -> bool {
+        matches!(self.popover.as_ref().map(|open| &open.target), Some(Target::Shot))
+    }
+
+    pub(super) fn press_shot_menu(&mut self) -> Option<bool> {
+        if !self.shot_menu_open() {
+            return None;
+        }
+        if self.popover.as_ref().is_some_and(|open| open.rect.contains(self.pointer)) {
+            return Some(self.press_popover());
+        }
+        self.popover = None;
+        self.kick_now();
+        None
+    }
+
+    fn save_shot_to(&mut self, path: &std::path::Path, key: &str, fallback: &str) {
+        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        let folder = drifter_core::folders::user_dir(&home, key, fallback);
+        let moved = std::fs::create_dir_all(&folder)
+            .and_then(|_| drifter_core::explorer::ops::move_into(path, &folder))
+            .map_err(|error| error.to_string());
+        let Some(id) = self.notes_bus.as_ref().map(|bus| bus.next_id()) else {
+            return;
+        };
+        let (summary, body) = match moved {
+            Ok(moved) => {
+                self.note_folders.insert(id, folder.clone());
+                let name = moved.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+                (drifter_core::lang::tf("Saved to {}", &[&folder.display()]), name)
+            }
+            Err(error) => (drifter_core::lang::t("No screenshot").to_string(), error),
+        };
+        self.show_note(drifter_core::notify::Note {
+            id,
+            app: drifter_core::lang::t("Drifter").to_string(),
+            summary,
+            body,
+            actions: Vec::new(),
+            expire: Some(drifter_core::notify::DEFAULT_MS),
+            asked: -1,
+            critical: false,
+            icon: None,
+        });
     }
 
     pub(super) fn shot_menu_pick(&mut self, id: i32) {
@@ -711,8 +767,10 @@ impl State {
             SHOT_OPEN => {
                 crate::apps::launch(&["xdg-open".to_string(), path.display().to_string()], &self.socket);
             }
+            SHOT_DESKTOP => self.save_shot_to(&path, "DESKTOP", "Desktop"),
+            SHOT_DOCUMENTS => self.save_shot_to(&path, "DOCUMENTS", "Documents"),
             SHOT_DELETE => {
-                let _ = std::fs::remove_file(&path);
+                let _ = drifter_core::explorer::ops::trash(&path);
             }
             _ => {}
         }
@@ -744,10 +802,13 @@ impl State {
             };
             let items = vec![
                 item(SHOT_COPY, drifter_core::lang::t("Copy")),
+                item(SHOT_DESKTOP, drifter_core::lang::t("Save to Desktop")),
+                item(SHOT_DOCUMENTS, drifter_core::lang::t("Save to Documents")),
+                drifter_core::menu::Item::rule(90),
                 item(SHOT_FOLDER, drifter_core::lang::t("Show in Folder")),
                 item(SHOT_OPEN, drifter_core::lang::t("Open")),
-                drifter_core::menu::Item::rule(90),
-                item(SHOT_DELETE, "Delete"),
+                drifter_core::menu::Item::rule(91),
+                item(SHOT_DELETE, drifter_core::lang::t("Move to Trash")),
             ];
             self.open_popover(items, pointer, Target::Shot);
         }
@@ -768,10 +829,17 @@ impl State {
     }
 
     pub(super) fn own_elements(&self, elements: &mut Vec<Skin>) {
+        if self.shooter.is_none() && self.shot_menu_open() {
+            self.popover_elements(elements);
+        }
         if let Some((art, rect)) = self.recording.as_ref().and_then(|recording| recording.art.as_ref()) {
             elements.push(Skin::Texture(element(art, *rect, 1.0)));
         }
-        if let Some(thumb) = self.thumb.as_ref() {
+        if let Some(thumb) = self.thumb.as_ref().filter(|_| self.drag_shot.is_some()) {
+            let size = thumb.rect.size * LIFTED;
+            let rect = Rect::new(self.pointer - size / 2.0, size);
+            elements.push(Skin::Texture(element(&thumb.art, rect, 0.85)));
+        } else if let Some(thumb) = self.thumb.as_ref() {
             let shown = (thumb.born.elapsed().as_secs_f64() / THUMB_IN).min(1.0);
             let out = thumb
                 .leaving
