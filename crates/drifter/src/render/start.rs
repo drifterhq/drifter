@@ -289,6 +289,14 @@ pub fn open(
         }
         None => (None, None),
     };
+    let shown_files = match live.then(crate::filemanager::start) {
+        Some(Ok(shows)) => Some(shows),
+        Some(Err(error)) => {
+            log!("drifter: {error}");
+            None
+        }
+        None => None,
+    };
     let (media, media_readings) = match live.then(crate::media::start) {
         Some(Ok((media, readings))) => (Some(media), Some(readings)),
         Some(Err(error)) => {
@@ -755,6 +763,16 @@ pub fn open(
                 }
             })
             .map_err(|e| format!("cannot watch the tray: {e}"))?;
+    }
+
+    if let Some(shows) = shown_files {
+        handle
+            .insert_source(shows, |event, _, state: &mut State| {
+                if let ChannelEvent::Msg(show) = event {
+                    state.show_in_files(show);
+                }
+            })
+            .map_err(|e| format!("cannot watch the file manager service: {e}"))?;
     }
 
     if let Some(events) = note_events {

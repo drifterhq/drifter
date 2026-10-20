@@ -1,6 +1,39 @@
 use super::*;
 
 impl State {
+    pub(super) fn show_in_files(&mut self, show: crate::filemanager::Show) {
+        use crate::filemanager::Show;
+        use drifter_core::desktop::Role;
+        let chosen = self.apps_chosen.get(Role::Files).cloned();
+        let named = chosen
+            .as_ref()
+            .and_then(|item| item.app().map(str::to_string))
+            .or_else(|| drifter_core::desktop::system_default(Role::Files));
+        let selects = chosen.as_ref().is_none_or(|item| item.command().is_none())
+            && named.as_deref().is_some_and(|app| app.starts_with("drifter-explorer"));
+        let mut opened: Vec<std::path::PathBuf> = Vec::new();
+        let targets: Vec<std::path::PathBuf> = match show {
+            Show::Folders(folders) => folders,
+            Show::Items(items) => items
+                .into_iter()
+                .filter_map(|item| {
+                    let folder = item.parent()?.to_path_buf();
+                    if opened.contains(&folder) {
+                        return None;
+                    }
+                    opened.push(folder.clone());
+                    Some(match selects {
+                        true => item,
+                        false => folder,
+                    })
+                })
+                .collect(),
+        };
+        for target in targets {
+            crate::apps::open_folder(&target.display().to_string(), chosen.as_ref(), &self.socket);
+        }
+    }
+
     pub(super) fn open_settings(&mut self) {
         self.open_settings_at("");
     }

@@ -716,9 +716,7 @@ impl State {
                 self.thumb_leaves(id, Leave::Used);
             }
             Chore::Folder => {
-                if let Some(folder) = path.parent() {
-                    crate::apps::open_folder(&folder.display().to_string(), self.apps_chosen.get(drifter_core::desktop::Role::Files), &self.socket);
-                }
+                self.show_in_files(crate::filemanager::Show::Items(vec![path.clone()]));
                 self.thumb_leaves(id, Leave::Used);
             }
             Chore::Desktop => self.move_shot(id, &path, Some(("DESKTOP", "Desktop"))),

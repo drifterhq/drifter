@@ -35,6 +35,8 @@ mod logind;
 mod launcher;
 mod media;
 #[cfg(target_os = "linux")]
+mod filemanager;
+#[cfg(target_os = "linux")]
 mod notes;
 #[cfg(target_os = "linux")]
 mod paint;

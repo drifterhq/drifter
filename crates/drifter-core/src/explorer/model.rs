@@ -597,6 +597,10 @@ impl Model {
             Start::Home => None,
         };
         let from_last = asked.is_none() && last.is_some();
+        let (asked, shown) = match asked {
+            Some(path) if !path.is_dir() => (path.parent().map(PathBuf::from), Some(path)),
+            asked => (asked, None),
+        };
         let start = asked.or(last).unwrap_or_else(|| home.clone());
         let views_path = prefs::views_path(&prefs_path);
         let mut model = Model {
@@ -684,7 +688,7 @@ impl Model {
         model.reader.ask(Ask::Drives);
         model.open.insert(model.tree_base());
         model.refresh_places();
-        model.load(start, None);
+        model.load(start, shown);
         if from_last && model.trouble.is_some() {
             let home = model.home.clone();
             model.load(home, None);

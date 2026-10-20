@@ -83,7 +83,7 @@ pub fn read(kind: &str, bytes: &[u8]) -> Option<Held> {
     }
 }
 
-fn file_path(line: &str) -> Option<PathBuf> {
+pub fn file_path(line: &str) -> Option<PathBuf> {
     let rest = line.trim().strip_prefix("file://")?;
     let rest = rest.strip_prefix("localhost").unwrap_or(rest);
     rest.starts_with('/').then(|| PathBuf::from(decode(rest)))

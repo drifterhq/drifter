@@ -146,9 +146,11 @@ fn themed(look: &drifter_core::config::Appearance) -> Look {
 fn asked_path() -> Option<PathBuf> {
     let word = std::env::args_os().nth(1)?;
     let text = word.to_string_lossy();
-    let text = text.strip_prefix("file://").unwrap_or(&text);
-    let path = PathBuf::from(text);
-    match path.is_dir() {
+    let path = match text.starts_with("file://") {
+        true => drifter_core::explorer::clip::file_path(&text)?,
+        false => PathBuf::from(text.as_ref()),
+    };
+    match path.exists() {
         true => Some(path),
         false => path.parent().map(PathBuf::from),
     }
