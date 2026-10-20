@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -10,7 +10,7 @@ use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState};
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
 use smithay_client_toolkit::registry::{ProvidesRegistryState, RegistryState};
 use smithay_client_toolkit::shell::WaylandSurface;
-use smithay_client_toolkit::shell::xdg::XdgShell;
+use smithay_client_toolkit::shell::xdg::{XdgShell, XdgSurface};
 use smithay_client_toolkit::shell::xdg::window::{
     Window, WindowConfigure, WindowDecorations, WindowHandler,
 };
@@ -48,6 +48,8 @@ const RED: [u8; 4] = [255, 0, 0, 255];
 const BACKGROUND: [f32; 4] = [0.0, 0.0, 0.2, 1.0];
 const BLOCK: u32 = 16;
 
+static SHADOW: AtomicU32 = AtomicU32::new(0);
+
 struct Client {
     registry: RegistryState,
     outputs: OutputState,
@@ -71,6 +73,15 @@ impl Client {
         };
         for pixel in canvas.as_chunks_mut::<4>().0 {
             *pixel = [0, 0, 255, 255];
+        }
+        let shadow = SHADOW.load(Ordering::Relaxed) as i32;
+        if shadow > 0 {
+            self.window.xdg_surface().set_window_geometry(
+                shadow,
+                shadow,
+                width as i32 - shadow * 2,
+                height as i32 - shadow * 2,
+            );
         }
         let surface = self.window.wl_surface();
         surface.damage_buffer(0, 0, width as i32, height as i32);
@@ -419,6 +430,55 @@ fn a_window_that_asks_for_no_frame_draws_its_own() {
         .find(|window| window.app == "drifter-test-red")
         .expect("the red window is placed");
     assert!(!window.decorated, "a client that asks for nothing draws its own chrome");
+    stop.store(true, Ordering::Relaxed);
+    let _ = client.join();
+}
+
+#[test]
+fn a_window_that_draws_its_own_frame_takes_clicks_in_its_shadow() {
+    let mut run = start("own-shadow", &Config::default(), None);
+    SHADOW.store(24, Ordering::Relaxed);
+    let (stop, client) = red_window_with(&mut run, false, WindowDecorations::ClientOnly);
+    SHADOW.store(0, Ordering::Relaxed);
+    let (index, content) = {
+        let found = run
+            .screen
+            .state
+            .windows
+            .iter()
+            .enumerate()
+            .find(|(_, window)| window.app == "drifter-test-red")
+            .expect("the red window is placed");
+        assert!(!found.1.decorated, "the client draws its own frame");
+        (found.0, found.1.content)
+    };
+    let on = run.screen.state.on_screen(content);
+    let level = on.origin.y + on.size.y / 2.0;
+    let inside = Vec2::new(on.origin.x + on.size.x / 2.0, level);
+    let shadow = Vec2::new(on.origin.x - 12.0, level);
+    let beyond = Vec2::new(on.origin.x - 60.0, level);
+
+    run.screen.state.pointer_to(inside);
+    let hit = run
+        .screen
+        .state
+        .surface_under()
+        .expect("the window body takes the pointer");
+    assert_eq!(hit.index, Some(index));
+
+    run.screen.state.pointer_to(shadow);
+    let hit = run.screen.state.surface_under();
+    assert_eq!(
+        hit.map(|hit| hit.index),
+        Some(Some(index)),
+        "the shadow strip, where the client puts its resize edges, takes the pointer"
+    );
+
+    run.screen.state.pointer_to(beyond);
+    assert!(
+        run.screen.state.surface_under().is_none(),
+        "past the shadow the pointer belongs to the desktop"
+    );
     stop.store(true, Ordering::Relaxed);
     let _ = client.join();
 }

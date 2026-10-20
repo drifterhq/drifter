@@ -156,8 +156,43 @@ impl State {
                     popup: false,
                 });
             }
+            if let Some((surface, origin)) = Self::beyond_content(window, world) {
+                return Some(Hit {
+                    index: Some(index),
+                    layer: false,
+                    surface,
+                    origin,
+                    popup: false,
+                });
+            }
         }
         None
+    }
+
+    fn beyond_content(
+        window: &crate::shell::Window,
+        world: Vec2,
+    ) -> Option<(
+        smithay::reexports::wayland_server::protocol::wl_surface::WlSurface,
+        Vec2,
+    )> {
+        use smithay::desktop::{WindowSurfaceType, utils::under_from_surface_tree};
+
+        if window.decorated {
+            return None;
+        }
+        let origin = window.content.origin - window.inset;
+        let local = world - origin;
+        let (surface, inside) = under_from_surface_tree(
+            window.toplevel.wl_surface(),
+            (local.x, local.y).into(),
+            (0, 0),
+            WindowSurfaceType::ALL,
+        )?;
+        Some((
+            surface,
+            origin + Vec2::new(f64::from(inside.x), f64::from(inside.y)),
+        ))
     }
 
     pub(super) fn tell_pointer(&mut self, time: u32) {
@@ -288,7 +323,7 @@ impl State {
             {
                 return Some((index, grip));
             }
-            if window.content.contains(world) {
+            if window.content.contains(world) || Self::beyond_content(window, world).is_some() {
                 return None;
             }
         }
