@@ -1,5 +1,6 @@
 pub const SECONDS: f64 = 1.4;
-pub const SPEED: f64 = 1700.0;
+pub const REACH: f64 = 300.0;
+pub const SPEED: f64 = 260.0;
 pub const STRENGTH: (u32, u32) = (25, 200);
 
 const WAVELENGTH: f64 = 40.0;
@@ -7,6 +8,7 @@ const WIDTH: f64 = 30.0;
 const DAMP: f64 = 1.6;
 const BEND: f64 = 50.0;
 const SHADE: f64 = 1.5;
+const SPONGE: f64 = 90.0;
 
 pub fn source() -> String {
     let freq = std::f64::consts::TAU / WAVELENGTH;
@@ -38,7 +40,7 @@ void main() {{
   float r = length(d);
   float x = r - K * {SPEED:.1};
   float w = exp(-x * x / {two_width:.1});
-  float fade = exp(-K * {DAMP:.3}) * G;
+  float fade = exp(-K * {DAMP:.3}) * G * clamp(({REACH:.1} - r) / {SPONGE:.1}, 0.0, 1.0);
   float slope = ({freq:.5} * cos(x * {freq:.5}) - x / {width_sq:.1} * sin(x * {freq:.5})) * w * fade;
   vec2 dir = r > 0.5 ? d / r : vec2(0.0);
   vec2 bend = dir * slope * {BEND:.1};
@@ -60,9 +62,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_ring_reaches_the_screen_corner_before_it_fades() {
-        let diagonal = (1920.0f64 * 1920.0 + 1080.0 * 1080.0).sqrt();
-        assert!(SPEED * SECONDS >= diagonal, "{} < {diagonal}", SPEED * SECONDS);
+    fn the_ring_reaches_its_edge_and_stays_near_the_click() {
+        assert!(SPEED * SECONDS >= REACH, "{} < {REACH}", SPEED * SECONDS);
+        assert!(SPEED * SECONDS <= REACH * 1.5, "{} > {REACH} * 1.5", SPEED * SECONDS);
+        assert!(source().contains(&format!("{REACH:.1} - r")));
     }
 
     #[test]
