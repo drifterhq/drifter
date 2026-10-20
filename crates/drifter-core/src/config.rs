@@ -1399,16 +1399,88 @@ impl ShotFormat {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Shots {
     #[serde(default)]
     pub folder: Option<String>,
     #[serde(default)]
     pub format: ShotFormat,
+    #[serde(default)]
+    pub clipboard: bool,
+    #[serde(default)]
+    pub timer: u32,
+    #[serde(default = "yes")]
+    pub shadow: bool,
+    #[serde(default = "yes")]
+    pub sound: bool,
+    #[serde(default = "yes")]
+    pub thumbnail: bool,
+    #[serde(default)]
+    pub pointer: bool,
+    #[serde(default)]
+    pub joined: bool,
+}
+
+impl Default for Shots {
+    fn default() -> Shots {
+        Shots {
+            folder: None,
+            format: ShotFormat::default(),
+            clipboard: false,
+            timer: 0,
+            shadow: true,
+            sound: true,
+            thumbnail: true,
+            pointer: false,
+            joined: false,
+        }
+    }
 }
 
 impl Shots {
+    pub fn store(&self, text: &str) -> Result<String, String> {
+        let mut doc = text
+            .parse::<toml_edit::DocumentMut>()
+            .map_err(|error| format!("the config no longer parses: {error}"))?;
+        let table = doc
+            .entry("screenshots")
+            .or_insert(toml_edit::Item::Table(toml_edit::Table::new()));
+        let Some(table) = table.as_table_like_mut() else {
+            return Err("screenshots in the config is not a table".into());
+        };
+        let plain = Shots::default();
+        let mut set = |key: &str, value: Option<toml_edit::Value>| match value {
+            Some(value) => match table.get_mut(key).and_then(|held| held.as_value_mut()) {
+                Some(held) => {
+                    let decor = held.decor().clone();
+                    *held = value;
+                    *held.decor_mut() = decor;
+                }
+                None => {
+                    table.insert(key, toml_edit::Item::Value(value));
+                }
+            },
+            None => {
+                table.remove(key);
+            }
+        };
+        let flag = |now: bool, plain: bool| (now != plain).then(|| toml_edit::Value::from(now));
+        set("folder", self.folder.as_deref().map(toml_edit::Value::from));
+        set("format", (self.format != plain.format).then(|| toml_edit::Value::from(match self.format {
+            ShotFormat::Png => "png",
+            ShotFormat::Jpeg => "jpeg",
+        })));
+        set("clipboard", flag(self.clipboard, plain.clipboard));
+        set("timer", (self.timer != plain.timer).then(|| toml_edit::Value::from(i64::from(self.timer))));
+        set("shadow", flag(self.shadow, plain.shadow));
+        set("sound", flag(self.sound, plain.sound));
+        set("thumbnail", flag(self.thumbnail, plain.thumbnail));
+        set("pointer", flag(self.pointer, plain.pointer));
+        set("joined", flag(self.joined, plain.joined));
+        Ok(doc.to_string())
+    }
+
     pub fn folder_in(&self, home: &Path) -> PathBuf {
         match self.folder.as_deref().map(str::trim) {
             Some("") | None => crate::folders::user_dir(home, "PICTURES", "Pictures").join("Screenshots"),
@@ -2046,6 +2118,22 @@ mod tests {
     }
 
     #[test]
+    fn screenshot_options_write_only_what_differs() {
+        let mut shots = Shots::default();
+        shots.clipboard = true;
+        shots.timer = 10;
+        shots.sound = false;
+        let text = shots.store("# mine\n[screenshots]\nformat = \"jpeg\" # small\n").unwrap();
+        assert!(text.starts_with("# mine"));
+        let back = Config::parse(&text).unwrap().screenshots;
+        assert_eq!(back, shots);
+        assert!(!text.contains("shadow"));
+        let plain = Shots::default().store(&text).unwrap();
+        assert_eq!(Config::parse(&plain).unwrap().screenshots, Shots::default());
+        assert!(!plain.contains("clipboard"));
+    }
+
+    #[test]
     fn screenshots_go_to_pictures_unless_the_config_says_where() {
         let home = Path::new("/home/dh");
         let config = Config::parse("").unwrap();
@@ -2057,6 +2145,9 @@ mod tests {
         let config = Config::parse("[screenshots]\nfolder = \"/srv/shots\"\n").unwrap();
         assert_eq!(config.screenshots.folder_in(home), PathBuf::from("/srv/shots"));
         assert!(Config::parse("[screenshots]\nformat = \"gif\"\n").is_err());
+        let config = Config::parse("[screenshots]\nclipboard = true\ntimer = 5\nshadow = false\n").unwrap();
+        assert!(config.screenshots.clipboard && !config.screenshots.shadow && config.screenshots.sound);
+        assert_eq!(config.screenshots.timer, 5);
     }
 
     #[test]

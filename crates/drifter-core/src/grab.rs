@@ -209,6 +209,7 @@ pub struct Bar {
     pub dim: [u8; 3],
     pub pick: [u8; 3],
     pub accent: [u8; 3],
+    pub record: bool,
 }
 
 impl Bar {
@@ -228,6 +229,7 @@ impl Bar {
             dim: p.dim,
             pick: p.raised,
             accent,
+            record: true,
         }
     }
 
@@ -305,6 +307,7 @@ impl Bar {
             let center = rect.center();
             match slot {
                 Slot::Close => close_mark(&mut canvas, center, self.dim),
+                Slot::Tool(tool) if tool.take == Take::Video && !self.record => tool_mark(&mut canvas, tool, center, self.dim),
                 Slot::Tool(tool) => tool_mark(&mut canvas, tool, center, self.ink),
                 Slot::Options => {
                     let word = font.paint(crate::lang::t("Options"), self.ink);
@@ -396,6 +399,21 @@ fn close_mark(canvas: &mut Canvas, center: Vec2, ink: [u8; 3]) {
     }
 }
 
+pub fn tip(slot: Slot, chosen: Tool, record: bool) -> String {
+    match slot {
+        Slot::Close => crate::lang::t("Close (Esc)").to_string(),
+        Slot::Tool(tool) if tool.take == Take::Video && !record => {
+            crate::lang::tf("{} needs wf-recorder", &[&tool.label()])
+        }
+        Slot::Tool(tool) => tool.label().to_string(),
+        Slot::Options => crate::lang::t("Where to save, timer and more").to_string(),
+        Slot::Go => match chosen.take {
+            Take::Still => crate::lang::t("Capture (Enter). Hold Ctrl to copy instead").to_string(),
+            Take::Video => crate::lang::t("Record (Enter)").to_string(),
+        },
+    }
+}
+
 pub fn paint_cross(side: u32) -> Image {
     let size = f64::from(side.max(9) | 1);
     let mut canvas = Canvas::new(size as u32, size as u32);
@@ -447,26 +465,303 @@ pub fn thumb_size(shot: Vec2, widest: f64) -> Vec2 {
     (shot * scale).round().max(Vec2::splat(1.0))
 }
 
+pub const THUMB_BLUR: f64 = 12.0;
+pub const THUMB_RADIUS: f64 = 9.0;
+const THUMB_RIM: f64 = 2.5;
+
+pub fn thumb_card(art: Vec2) -> Rect {
+    Rect::new(Vec2::splat(THUMB_BLUR), art - Vec2::splat(THUMB_BLUR * 2.0))
+}
+
 pub fn paint_thumb(shot: &Image, widest: f64) -> Image {
     let inner = thumb_size(shot.size(), widest);
-    let small = shot.scaled(crate::paint::dense(inner.x), crate::paint::dense(inner.y));
-    let (rim, blur) = (3.0, 10.0);
-    let card = Rect::new(Vec2::splat(blur), inner + Vec2::splat(rim * 2.0));
-    let size = card.size + Vec2::splat(blur * 2.0);
+    let mut small = shot.scaled(crate::paint::dense(inner.x), crate::paint::dense(inner.y));
+    round_corners(&mut small, (THUMB_RADIUS - THUMB_RIM) * crate::paint::density());
+    let card = Rect::new(Vec2::splat(THUMB_BLUR), inner + Vec2::splat(THUMB_RIM * 2.0));
+    let size = card.size + Vec2::splat(THUMB_BLUR * 2.0);
     let mut canvas = Canvas::new(size.x as u32, size.y as u32);
-    canvas.shadow(card, 6.0, blur, 0.45);
-    canvas.round_rect(card, 6.0, [255, 255, 255], 1.0);
-    canvas.stamp(&small, card.origin + Vec2::splat(rim), 1.0);
+    canvas.shadow(Rect::new(card.origin + Vec2::new(0.0, 3.0), card.size), THUMB_RADIUS, THUMB_BLUR, 0.42);
+    canvas.round_rect(card, THUMB_RADIUS, [255, 255, 255], 0.96);
+    canvas.stamp(&small, card.origin + Vec2::splat(THUMB_RIM), 1.0);
+    canvas.ring(card, THUMB_RADIUS, 1.0, [0, 0, 0], 0.14);
     canvas.image
 }
 
-pub fn thumb_rect(art: Vec2, screen: Vec2) -> Rect {
-    Rect::new(screen - art - Vec2::new(14.0, 14.0), art)
+pub fn round_corners(image: &mut Image, radius: f64) {
+    let (width, height) = (f64::from(image.width), f64::from(image.height));
+    let radius = radius.min(width / 2.0).min(height / 2.0);
+    if radius <= 0.0 {
+        return;
+    }
+    let reach = radius.ceil() as u32;
+    let corners = [
+        (0, 0, Vec2::new(radius, radius)),
+        (image.width.saturating_sub(reach), 0, Vec2::new(width - radius, radius)),
+        (0, image.height.saturating_sub(reach), Vec2::new(radius, height - radius)),
+        (image.width.saturating_sub(reach), image.height.saturating_sub(reach), Vec2::new(width - radius, height - radius)),
+    ];
+    for (left, top, middle) in corners {
+        for y in top..(top + reach).min(image.height) {
+            for x in left..(left + reach).min(image.width) {
+                let p = Vec2::new(f64::from(x) + 0.5, f64::from(y) + 0.5);
+                let outside = (p.x - middle.x).signum() == (middle.x - width / 2.0).signum()
+                    && (p.y - middle.y).signum() == (middle.y - height / 2.0).signum();
+                if !outside {
+                    continue;
+                }
+                let keep = (radius - (p - middle).length() + 0.5).clamp(0.0, 1.0);
+                let at = ((y * image.width + x) * 4) as usize;
+                for channel in &mut image.rgba[at..at + 4] {
+                    *channel = (f64::from(*channel) * keep).round() as u8;
+                }
+            }
+        }
+    }
+}
+
+pub fn paint_close(side: f64) -> Image {
+    let size = side + 8.0;
+    let mut canvas = Canvas::new(size.ceil() as u32, size.ceil() as u32);
+    let center = Vec2::splat(size / 2.0);
+    let disc = Rect::from_center(center, Vec2::splat(side));
+    canvas.shadow(Rect::new(disc.origin + Vec2::new(0.0, 1.0), disc.size), side / 2.0, 4.0, 0.35);
+    canvas.circle(center, side / 2.0, [38, 38, 42], 0.92);
+    canvas.ring(disc, side / 2.0, 1.0, [255, 255, 255], 0.28);
+    let arm = side * 0.17;
+    canvas.line(center - Vec2::splat(arm), center + Vec2::splat(arm), 1.6, [255, 255, 255], 0.95);
+    canvas.line(center + Vec2::new(-arm, arm), center + Vec2::new(arm, -arm), 1.6, [255, 255, 255], 0.95);
+    canvas.image
+}
+
+pub fn paint_chip(text: &str, font: &Font) -> Image {
+    let word = font.paint(text, [255, 255, 255]);
+    let size = crate::paint::logical(&word) + Vec2::new(24.0, 12.0);
+    let pad = 8.0;
+    let mut canvas = Canvas::new((size.x + pad * 2.0).ceil() as u32, (size.y + pad * 2.0).ceil() as u32);
+    let pill = Rect::new(Vec2::splat(pad), size);
+    canvas.shadow(Rect::new(pill.origin + Vec2::new(0.0, 2.0), pill.size), size.y / 2.0, 6.0, 0.35);
+    canvas.round_rect(pill, size.y / 2.0, [28, 28, 32], 0.88);
+    canvas.stamp(&word, (pill.origin + Vec2::new(12.0, 6.0)).round(), 1.0);
+    canvas.image
+}
+
+pub fn save_shot(image: &Image, path: &Path, format: crate::config::ShotFormat) -> Result<(), String> {
+    let folder = path.parent().ok_or_else(|| "a screenshot needs a folder".to_string())?;
+    std::fs::create_dir_all(folder).map_err(|e| format!("{}: {e}", folder.display()))?;
+    let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+    let part = folder.join(format!(".{name}.part"));
+    let flat;
+    let image = match format {
+        crate::config::ShotFormat::Jpeg if image.rgba.chunks_exact(4).any(|pixel| pixel[3] != 255) => {
+            flat = on_white(image);
+            &flat
+        }
+        _ => image,
+    };
+    let written = crate::image::save_as(image, &part, format)
+        .and_then(|()| std::fs::rename(&part, path).map_err(|e| format!("{}: {e}", path.display())));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&part);
+    }
+    written
+}
+
+pub fn stash_folder(home: &Path) -> std::path::PathBuf {
+    std::env::var_os("XDG_CACHE_HOME")
+        .map(std::path::PathBuf::from)
+        .filter(|dir| dir.is_absolute())
+        .unwrap_or_else(|| home.join(".cache"))
+        .join("drifter")
+        .join("clipboard")
+}
+
+pub fn prune_stash(folder: &Path, older: std::time::Duration) {
+    let Ok(listing) = std::fs::read_dir(folder) else {
+        return;
+    };
+    for entry in listing.flatten() {
+        let stale = entry
+            .metadata()
+            .and_then(|meta| meta.modified())
+            .ok()
+            .and_then(|when| when.elapsed().ok())
+            .is_some_and(|age| age > older);
+        if stale {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+}
+
+pub fn trim_clear(image: &Image) -> Image {
+    let (width, height) = (image.width as usize, image.height as usize);
+    let seen = |x: usize, y: usize| image.rgba[(y * width + x) * 4 + 3] != 0;
+    let rows: Vec<usize> = (0..height).filter(|&y| (0..width).any(|x| seen(x, y))).collect();
+    let (Some(&top), Some(&bottom)) = (rows.first(), rows.last()) else {
+        return image.clone();
+    };
+    let columns: Vec<usize> = (0..width).filter(|&x| (top..=bottom).any(|y| seen(x, y))).collect();
+    let (Some(&left), Some(&right)) = (columns.first(), columns.last()) else {
+        return image.clone();
+    };
+    crop(
+        image,
+        Rect::new(
+            Vec2::new(left as f64, top as f64),
+            Vec2::new((right + 1 - left) as f64, (bottom + 1 - top) as f64),
+        ),
+    )
+}
+
+pub fn on_white(image: &Image) -> Image {
+    let rgba = image
+        .rgba
+        .chunks_exact(4)
+        .flat_map(|pixel| {
+            let clear = 255 - u16::from(pixel[3]);
+            [0, 1, 2].map(|c| (u16::from(pixel[c]) + clear).min(255) as u8).into_iter().chain([255])
+        })
+        .collect();
+    Image {
+        width: image.width,
+        height: image.height,
+        rgba,
+    }
+}
+
+pub fn stitch(parts: &[(Vec2, Vec2, f64, Image)]) -> Image {
+    let scale = parts.iter().map(|(_, _, scale, _)| *scale).fold(1.0, f64::max);
+    let low = parts.iter().map(|(place, ..)| *place).fold(Vec2::splat(f64::MAX), Vec2::min);
+    let high = parts.iter().map(|(place, size, ..)| *place + *size).fold(Vec2::splat(f64::MIN), Vec2::max);
+    let whole = ((high - low) * scale).round();
+    let (width, height) = (whole.x.max(1.0) as u32, whole.y.max(1.0) as u32);
+    let mut rgba = vec![0u8; (width as usize) * (height as usize) * 4];
+    for (place, size, _, image) in parts {
+        let want = (*size * scale).round();
+        let fitted;
+        let image = match (want.x as u32, want.y as u32) == (image.width, image.height) {
+            true => image,
+            false => {
+                fitted = image.scaled(want.x as u32, want.y as u32);
+                &fitted
+            }
+        };
+        let at = ((*place - low) * scale).round();
+        let (left, top) = (at.x.max(0.0) as u32, at.y.max(0.0) as u32);
+        let wide = image.width.min(width.saturating_sub(left)) as usize;
+        for y in 0..image.height.min(height.saturating_sub(top)) {
+            let from = (y * image.width) as usize * 4;
+            let to = (((top + y) * width + left) as usize) * 4;
+            rgba[to..to + wide * 4].copy_from_slice(&image.rgba[from..from + wide * 4]);
+        }
+    }
+    Image { width, height, rgba }
+}
+
+pub fn paint_countdown(digit: &Image, caption: Option<&Image>, share: f64, accent: [u8; 3]) -> Image {
+    let side = 128.0;
+    let tall = side + 34.0;
+    let mut canvas = Canvas::new(side as u32 + 24, tall as u32 + 24);
+    let center = Vec2::new(side / 2.0 + 12.0, side / 2.0 + 12.0);
+    let disc = Rect::from_center(center, Vec2::splat(side));
+    canvas.shadow(Rect::new(disc.origin + Vec2::new(0.0, 3.0), disc.size), side / 2.0, 12.0, 0.4);
+    canvas.circle(center, side / 2.0, [22, 22, 26], 0.78);
+    let ring = side / 2.0 - 10.0;
+    canvas.arc(center, ring, 5.0, 1.0, [255, 255, 255], 0.16);
+    canvas.arc(center, ring, 5.0, share, accent, 1.0);
+    let height = crate::paint::dense(62.0);
+    let width = ((f64::from(digit.width) * f64::from(height) / f64::from(digit.height.max(1))).round() as u32).max(1);
+    let small = digit.scaled(width, height);
+    canvas.stamp(&small, (center - crate::paint::logical(&small) / 2.0).round(), 1.0);
+    if let Some(caption) = caption {
+        let size = crate::paint::logical(caption);
+        let pill = Rect::new(Vec2::new(center.x - size.x / 2.0 - 10.0, disc.max().y + 8.0), size + Vec2::new(20.0, 8.0));
+        canvas.round_rect(pill, pill.size.y / 2.0, [22, 22, 26], 0.72);
+        canvas.stamp(caption, (pill.origin + Vec2::new(10.0, 4.0)).round(), 1.0);
+    }
+    canvas.image
+}
+
+pub fn png_bytes(image: &Image) -> Result<Vec<u8>, String> {
+    let mut straight = image.clone();
+    straight.straighten();
+    let mut out = Vec::new();
+    let mut encoder = png::Encoder::new(&mut out, image.width, image.height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    encoder
+        .write_header()
+        .and_then(|mut writer| writer.write_image_data(&straight.rgba))
+        .map_err(|e| e.to_string())?;
+    Ok(out)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn displays_join_side_by_side_at_the_sharpest_scale() {
+        let solid = |width: u32, height: u32, shade: u8| Image {
+            width,
+            height,
+            rgba: [shade, shade, shade, 255].repeat((width * height) as usize),
+        };
+        let parts = vec![
+            (Vec2::new(0.0, 0.0), Vec2::new(4.0, 2.0), 2.0, solid(8, 4, 10)),
+            (Vec2::new(4.0, 0.0), Vec2::new(2.0, 3.0), 1.0, solid(2, 3, 200)),
+        ];
+        let joined = stitch(&parts);
+        assert_eq!((joined.width, joined.height), (12, 6));
+        assert_eq!(joined.rgba[0], 10);
+        assert_eq!(joined.rgba[(8 * 4) as usize], 200);
+        assert_eq!(joined.rgba[((5 * 12) * 4 + 3) as usize], 0);
+    }
+
+    #[test]
+    fn a_clear_shadow_turns_white_for_jpeg() {
+        let image = Image {
+            width: 2,
+            height: 1,
+            rgba: vec![0, 0, 0, 0, 40, 20, 10, 255],
+        };
+        assert_eq!(on_white(&image).rgba, vec![255, 255, 255, 255, 40, 20, 10, 255]);
+    }
+
+    #[test]
+    fn a_clear_border_is_trimmed_away() {
+        let mut image = Image {
+            width: 6,
+            height: 5,
+            rgba: vec![0; 6 * 5 * 4],
+        };
+        for (x, y) in [(2, 1), (4, 3)] {
+            let at = (y * 6 + x) * 4;
+            image.rgba[at..at + 4].copy_from_slice(&[9, 9, 9, 255]);
+        }
+        let trimmed = trim_clear(&image);
+        assert_eq!((trimmed.width, trimmed.height), (3, 3));
+        assert_eq!(&trimmed.rgba[0..4], &[9, 9, 9, 255]);
+        let empty = Image {
+            width: 2,
+            height: 2,
+            rgba: vec![0; 16],
+        };
+        assert_eq!(trim_clear(&empty).width, 2);
+    }
+
+    #[test]
+    fn rounded_corners_clear_the_corner_and_keep_the_middle() {
+        let mut image = Image {
+            width: 20,
+            height: 20,
+            rgba: vec![255; 20 * 20 * 4],
+        };
+        round_corners(&mut image, 6.0);
+        assert_eq!(image.rgba[3], 0);
+        assert_eq!(image.rgba[(10 * 20 + 10) * 4 + 3], 255);
+        assert_eq!(image.rgba[(19 * 20 + 19) * 4 + 3], 0);
+        assert_eq!(image.rgba[(0 * 20 + 10) * 4 + 3], 255);
+    }
 
     #[test]
     fn a_drag_makes_the_same_box_from_any_corner() {

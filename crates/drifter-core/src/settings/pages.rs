@@ -891,8 +891,39 @@ impl Model {
                     },
                 )
                 .detail(crate::lang::t("PNG keeps every pixel. JPEG files are smaller")),
+                Row::new(Id::ShotClipboard, crate::lang::t("Copy to the clipboard"), Control::Switch(self.shots.clipboard))
+                    .detail(crate::lang::t("Instead of saving a file. Hold Ctrl to switch for one shot")),
+                Row::new(
+                    Id::ShotTimer,
+                    crate::lang::t("Timer"),
+                    Control::Segments {
+                        options: vec![crate::lang::t("None"), crate::lang::t("5 seconds"), crate::lang::t("10 seconds")],
+                        chosen: match self.shots.timer {
+                            0 => 0,
+                            1..=7 => 1,
+                            _ => 2,
+                        },
+                    },
+                ),
+                Row::new(Id::ShotThumbnail, crate::lang::t("Show the preview"), Control::Switch(self.shots.thumbnail))
+                    .detail(crate::lang::t("Drag it, swipe it away or right click it")),
+                Row::new(Id::ShotShadow, crate::lang::t("Window shadow"), Control::Switch(self.shots.shadow))
+                    .detail(crate::lang::t("Window shots keep their shadow and clear corners")),
+                Row::new(Id::ShotPointer, crate::lang::t("Show the pointer"), Control::Switch(self.shots.pointer)),
+                Row::new(Id::ShotSound, crate::lang::t("Play a sound"), Control::Switch(self.shots.sound)),
+                Row::new(
+                    Id::ShotJoined,
+                    crate::lang::t("With more than one display"),
+                    Control::Segments {
+                        options: vec![crate::lang::t("A file for each"), crate::lang::t("One picture")],
+                        chosen: usize::from(self.shots.joined),
+                    },
+                ),
             ],
-            footer: None,
+            footer: Some(
+                crate::lang::t("Add Ctrl to a screenshot shortcut to copy the picture instead. Over a preview: Esc closes, Enter marks up, Space opens it in your image app, Delete moves it to the Trash, Ctrl+C copies.")
+                    .into(),
+            ),
             thumbs: None,
         }
     }
@@ -1147,6 +1178,13 @@ impl Model {
                     _ => ShotFormat::Jpeg,
                 }
             }
+            (Id::ShotClipboard, Value::Switch(on)) => self.shots.clipboard = on,
+            (Id::ShotTimer, Value::Choice(n)) => self.shots.timer = [0, 5, 10][n.min(2)],
+            (Id::ShotThumbnail, Value::Switch(on)) => self.shots.thumbnail = on,
+            (Id::ShotShadow, Value::Switch(on)) => self.shots.shadow = on,
+            (Id::ShotPointer, Value::Switch(on)) => self.shots.pointer = on,
+            (Id::ShotSound, Value::Switch(on)) => self.shots.sound = on,
+            (Id::ShotJoined, Value::Choice(n)) => self.shots.joined = n == 1,
             (Id::Profile, Value::Choice(n)) => {
                 if let Some(profiles) = self.profile.as_mut() {
                     let offered: Vec<&str> = PROFILES
@@ -1545,6 +1583,21 @@ impl Model {
                 ShotFormat::Jpeg => "jpeg",
             };
             put(doc, "screenshots", "format", word(format));
+        }
+        for (key, now, then) in [
+            ("clipboard", shots.clipboard, was.clipboard),
+            ("shadow", shots.shadow, was.shadow),
+            ("sound", shots.sound, was.sound),
+            ("thumbnail", shots.thumbnail, was.thumbnail),
+            ("pointer", shots.pointer, was.pointer),
+            ("joined", shots.joined, was.joined),
+        ] {
+            if now != then {
+                put(doc, "screenshots", key, flag(now));
+            }
+        }
+        if shots.timer != was.timer {
+            put(doc, "screenshots", "timer", int(u64::from(shots.timer)));
         }
 
         let (notify, was) = (&self.notify, &before.notify);

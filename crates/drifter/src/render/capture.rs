@@ -331,55 +331,190 @@ impl State {
     }
 
     pub(super) fn screenshot(&mut self, elements: &[Shown]) {
-        let bytes = match self.capture(elements, false) {
-            Ok(shot) => shot,
+        let name = self.heads[self.at].name.clone();
+        let Some(round) = self.shot_round.as_mut() else {
+            return;
+        };
+        round.left.retain(|left| *left != name);
+        let (crop, window) = (round.crop, round.window);
+        let alone = window.and_then(|id| match self.capture_window(id) {
+            Ok(image) => Some(image),
             Err(error) => {
-                log!("drifter: no screenshot: {error}");
-                return;
+                log!("drifter: the window shot falls back to the screen: {error}");
+                None
             }
-        };
+        });
         let whole = self.physical();
-        let (width, height) = (whole.x as u32, whole.y as u32);
-        let mut rgba = Vec::with_capacity(bytes.len());
-        for pixel in bytes.as_chunks::<4>().0 {
-            rgba.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 255]);
-        }
-        let whole_image = drifter_core::Image {
-            width,
-            height,
-            rgba,
-        };
         let scale = whole.x / self.screen.x.max(1.0);
-        let image = match self.shot_crop.take() {
-            Some(rect) => drifter_core::grab::crop(
-                &whole_image,
-                Rect::new(rect.origin * scale, rect.size * scale),
-            ),
-            None => whole_image,
+        let flash = match (window.and_then(|id| self.place_of(id)), crop) {
+            (Some(index), _) => self.frame_on_screen(index),
+            (None, Some(rect)) => rect,
+            (None, None) => Rect::new(Vec2::ZERO, self.screen),
         };
-        self.show_thumb(&image);
+        let image = match alone {
+            Some(image) => Some(image),
+            None => match self.capture(elements, self.shots.pointer && self.at == self.hand) {
+                Ok(bytes) => {
+                    let mut rgba = Vec::with_capacity(bytes.len());
+                    for pixel in bytes.as_chunks::<4>().0 {
+                        rgba.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 255]);
+                    }
+                    let screen = drifter_core::Image {
+                        width: whole.x as u32,
+                        height: whole.y as u32,
+                        rgba,
+                    };
+                    Some(match crop {
+                        Some(rect) => drifter_core::grab::crop(&screen, Rect::new(rect.origin * scale, rect.size * scale)),
+                        None => screen,
+                    })
+                }
+                Err(error) => {
+                    log!("drifter: no screenshot: {error}");
+                    None
+                }
+            },
+        };
+        if let Some(image) = image {
+            self.shot_flash.push((name, flash, Instant::now()));
+            let place = self.heads[self.at].place;
+            let screen = self.screen;
+            if let Some(round) = self.shot_round.as_mut() {
+                round.got.push((place, screen, scale, image));
+            }
+        }
+        if self.shot_round.as_ref().is_some_and(|round| round.left.is_empty()) {
+            self.finish_round();
+        }
+    }
+
+    pub(super) fn finish_round(&mut self) {
+        let Some(mut round) = self.shot_round.take() else {
+            return;
+        };
+        if round.got.is_empty() {
+            self.shot_note(drifter_core::lang::t("No screenshot"), drifter_core::lang::t("The screen could not be read").to_string(), None);
+            return;
+        }
+        self.play(drifter_core::shutter::Sound::Shutter);
+        round.got.sort_by(|a, b| a.0.x.total_cmp(&b.0.x).then(a.0.y.total_cmp(&b.0.y)));
+        let joined = round.got.len() > 1 && (self.shots.joined || round.stash);
+        let pictures: Vec<drifter_core::Image> = match joined {
+            true => vec![drifter_core::grab::stitch(&round.got)],
+            false => round.got.into_iter().map(|(.., image)| image).collect(),
+        };
+        let count = pictures.len();
+        for (at, image) in pictures.into_iter().enumerate() {
+            self.keep_shot(image, round.stash, (count > 1).then_some(at + 1));
+        }
+        self.kick_now();
+    }
+
+    fn keep_shot(&mut self, image: drifter_core::Image, stash: bool, number: Option<usize>) {
         let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
-        let folder = self.shots.folder_in(&home);
+        let folder = match stash {
+            true => drifter_core::grab::stash_folder(&home),
+            false => self.shots.folder_in(&home),
+        };
         let format = self.shots.format;
         let stamp = drifter_core::tray::now("%Y-%m-%d at %H.%M.%S").unwrap_or_default();
-        let path = folder.join(drifter_core::grab::file_name(
-            drifter_core::grab::Take::Still,
-            &stamp,
-            format.extension(),
-        ));
-        let reply = self.shot_tx.clone();
-        let spawned = std::thread::Builder::new()
-            .name("drifter-screenshot".to_string())
-            .spawn(move || {
-                let saved = std::fs::create_dir_all(&folder)
-                    .map_err(|e| e.to_string())
-                    .and_then(|()| drifter_core::image::save_as(&image, &path, format))
-                    .map(|()| path);
-                let _ = reply.send(saved);
-            });
-        if let Err(error) = spawned {
-            self.shot_saved(Err(error.to_string()));
+        let mut name = drifter_core::grab::file_name(drifter_core::grab::Take::Still, &stamp, format.extension());
+        if let Some(number) = number {
+            let (stem, ext) = drifter_core::explorer::ops::split_name(&name);
+            name = format!("{stem} ({number}){ext}");
         }
+        let path = self.fresh_shot_path(&folder, &name);
+        let id = self.show_thumb(&image, path.clone(), stash, !self.shots.thumbnail);
+        if stash {
+            self.thumb_chore(id, thumbs::Chore::Copy);
+        }
+        self.background("drifter-screenshot", move || {
+            if stash {
+                drifter_core::grab::prune_stash(&folder, Duration::from_secs(24 * 60 * 60));
+            }
+            let saved = drifter_core::grab::save_shot(&image, &path, format).map(|()| path);
+            move |state: &mut State| state.shot_saved(id, saved)
+        });
+    }
+
+    fn capture_window(&mut self, id: u64) -> Result<drifter_core::Image, String> {
+        use smithay::backend::renderer::damage::OutputDamageTracker;
+        use smithay::backend::renderer::{Bind, ExportMem};
+        use smithay::utils::{Buffer as BufferCoord, Physical, Rectangle, Size};
+
+        let index = self.place_of(id).ok_or_else(|| "the window closed".to_string())?;
+        let window = &self.windows[index];
+        let frame = match window.decorated && window.full.is_none() {
+            true => self.chrome.layout(window.content).frame,
+            false => window.content,
+        };
+        let mut item = self.showing_of(window);
+        item.1 = item.0;
+        item.2 = 1.0;
+        item.4.0 = 1.0;
+        let shadow = self.shots.shadow && !item.4.1;
+        let margin = if shadow { 96.0 } else { 0.0 };
+        let size = (frame.size + Vec2::splat(margin * 2.0)).round();
+        let scale = self.heads.get(self.at).map_or(1.0, |head| head.scale);
+        let saved = (self.camera, self.screen);
+        self.camera = Camera {
+            center: frame.origin - Vec2::splat(margin) + size / 2.0,
+            zoom: 1.0,
+        };
+        self.screen = size;
+        let mut skins = Vec::new();
+        self.show_window(item, shadow, &mut skins);
+        (self.camera, self.screen) = saved;
+        let shown: Vec<Shown> = skins
+            .into_iter()
+            .map(|piece| RescaleRenderElement::from_element(piece, (0, 0).into(), scale))
+            .collect();
+        let pixels = (size * scale).round();
+        let (width, height) = (pixels.x as i32, pixels.y as i32);
+        let physical = Size::<i32, Physical>::from((width, height));
+        let buffer_size = Size::<i32, BufferCoord>::from((width, height));
+        let mut texture = self
+            .renderer
+            .canvas(DrmFourcc::Abgr8888, buffer_size)
+            .map_err(|e| format!("no offscreen buffer: {e}"))?;
+        let mut target = self
+            .renderer
+            .bind(&mut texture)
+            .map_err(|e| format!("cannot draw offscreen: {e}"))?;
+        let mut tracker = OutputDamageTracker::new(physical, 1.0, Transform::Normal);
+        tracker
+            .render_output(&mut self.renderer, &mut target, 0, &shown, Color32F::new(0.0, 0.0, 0.0, 0.0))
+            .map_err(|e| format!("cannot draw offscreen: {e:?}"))?;
+        let mapping = self
+            .renderer
+            .copy_framebuffer(&target, Rectangle::from_size(buffer_size), DrmFourcc::Abgr8888)
+            .map_err(|e| format!("cannot read the window back: {e}"))?;
+        let rgba = self
+            .renderer
+            .map_texture(&mapping)
+            .map_err(|e| format!("cannot read the window back: {e}"))?
+            .to_vec();
+        let image = drifter_core::Image {
+            width: width as u32,
+            height: height as u32,
+            rgba,
+        };
+        Ok(drifter_core::grab::trim_clear(&image))
+    }
+
+    fn fresh_shot_path(&self, folder: &std::path::Path, name: &str) -> PathBuf {
+        let taken = |path: &std::path::Path| {
+            std::fs::symlink_metadata(path).is_ok() || self.thumbs.shown.iter().any(|thumb| thumb.path == path)
+        };
+        let first = folder.join(name);
+        if !taken(&first) {
+            return first;
+        }
+        let (stem, ext) = drifter_core::explorer::ops::split_name(name);
+        (2..)
+            .map(|n| folder.join(format!("{stem} {n}{ext}")))
+            .find(|path| !taken(path))
+            .unwrap_or(first)
     }
 
     pub(super) fn disk_event(&mut self, event: crate::disks::Event) {
@@ -394,36 +529,6 @@ impl State {
             crate::disks::Event::Failed { name, error } => {
                 (drifter_core::lang::tf("{} did not open", &[&(name)]), error)
             }
-        };
-        self.show_note(drifter_core::notify::Note {
-            id,
-            app: drifter_core::lang::t("Drifter").to_string(),
-            summary,
-            body,
-            actions: Vec::new(),
-            expire: Some(drifter_core::notify::DEFAULT_MS),
-            asked: -1,
-            critical: false,
-            icon: None,
-        });
-    }
-
-    pub(super) fn shot_saved(&mut self, saved: Result<PathBuf, String>) {
-        let Some(id) = self.notes_bus.as_ref().map(|bus| bus.next_id()) else {
-            return;
-        };
-        let (summary, body) = match saved {
-            Ok(path) => {
-                if let Some(thumb) = self.thumb.as_mut() {
-                    thumb.path = Some(path);
-                    return;
-                }
-                if let Some(folder) = path.parent() {
-                    self.note_folders.insert(id, folder.to_path_buf());
-                }
-                (drifter_core::lang::t("Screenshot saved").to_string(), path.display().to_string())
-            }
-            Err(error) => (drifter_core::lang::t("No screenshot").to_string(), error),
         };
         self.show_note(drifter_core::notify::Note {
             id,

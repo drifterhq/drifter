@@ -23,6 +23,7 @@ mod heads;
 mod launchpad;
 mod lit;
 mod shoot;
+mod thumbs;
 mod speech;
 mod input;
 mod lock;
@@ -44,7 +45,7 @@ use follow::*;
 use input::*;
 use lock::*;
 pub use start::{Seat, open};
-pub use shoot::send_shot;
+pub use thumbs::send_shot;
 
 use drifter_core::camera::{Camera, Flight};
 use drifter_core::cursor::{self, Cursor};
@@ -120,6 +121,7 @@ const TICK: Duration = Duration::from_millis(8);
 const CONFIG_WATCH: Duration = Duration::from_millis(400);
 const HUD_TIME: Duration = Duration::from_millis(1500);
 const SETTINGS_APP: &str = "drifter-settings";
+const MARKUP_APP: &str = "drifter-markup";
 const SECOND_TICK: Duration = Duration::from_millis(250);
 const SETTLING: Duration = Duration::from_secs(2);
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
@@ -263,7 +265,7 @@ enum Target {
     App(String),
     Desktop,
     Shooter,
-    Shot,
+    Shot(u64),
 }
 
 struct Switch {
@@ -284,6 +286,8 @@ enum Shortcut {
     Vt(i32),
     Swallow,
     Heard(u32),
+    Thumb(thumbs::Chore),
+    StopTimer,
 }
 
 struct Paper {
@@ -653,7 +657,6 @@ pub struct State {
         PathBuf,
         Option<drifter_core::tiles::Pyramid>,
     )>,
-    shot_tx: smithay::reexports::calloop::channel::Sender<Result<PathBuf, String>>,
     chores: smithay::reexports::calloop::channel::Sender<Chore>,
     config_path: PathBuf,
     zone: Option<Zone>,
@@ -693,7 +696,9 @@ pub struct State {
     checked: smithay::reexports::calloop::channel::Sender<(String, crate::polkit::Outcome)>,
     copied: std::collections::HashSet<smithay::reexports::wayland_server::backend::ClientId>,
     cursor_count: usize,
-    shot_wanted: bool,
+    shot_round: Option<shoot::Round>,
+    shot_count: Option<shoot::Countdown>,
+    shot_flash: Vec<(String, Rect, Instant)>,
     restyle_due: Option<Box<Config>>,
     style_shots: Vec<(usize, TextureBuffer<Tex>)>,
     style_tex: Vec<(usize, smithay::backend::renderer::gles::GlesTexture)>,
@@ -704,12 +709,13 @@ pub struct State {
     paper_from: Option<Vec2>,
     transition: drifter_core::Transition,
     style_fade: Option<Instant>,
-    shot_crop: Option<Rect>,
     shot_tool: drifter_core::grab::Tool,
+    shot_clip: bool,
+    shot_window: Option<u64>,
     shot_inks: Option<([u8; 3], shoot::Inks)>,
     shooter: Option<shoot::Shooter>,
     recording: Option<shoot::Recording>,
-    thumb: Option<shoot::Thumb>,
+    thumbs: thumbs::Thumbs,
     sound_from: Option<String>,
     cursor_end: usize,
     cards: Vec<Card>,
@@ -768,7 +774,8 @@ impl State {
             || self.paper_stirring()
             || self.paper_reveal.is_some()
             || self.windows.iter().any(|window| window.lit != self.lit_target(window.id))
-            || self.thumb_moving()
+            || self.thumbs_moving()
+            || self.shots_moving()
             || self.welcome_busy()
             || self.dock_logo.hot
             || self.heads.iter().enumerate().any(|(index, head)| {
@@ -817,7 +824,7 @@ impl State {
         if let Some(hud) = self.hud.as_ref() {
             return Some(hud.until.saturating_duration_since(Instant::now()).max(TICK));
         }
-        if self.thumb.is_some() {
+        if self.thumbs_waiting() {
             return Some(Duration::from_millis(200));
         }
         if !self.cards.is_empty() {
@@ -888,6 +895,7 @@ impl State {
         if live {
             self.own_elements(&mut elements);
         }
+        self.shot_flash_elements(&mut elements);
         self.cursor_count = elements.len();
         elements.extend(layer);
         if live {
@@ -1166,7 +1174,7 @@ impl State {
 
     pub fn set_cursor(&mut self, status: smithay::input::pointer::CursorImageStatus) {
         self.client_cursor = status.clone();
-        if self.grip_under().is_none() {
+        if self.grip_under().is_none() && self.thumb_cursor().is_none() {
             self.cursor_status = status;
         }
     }
@@ -1240,7 +1248,8 @@ impl State {
         self.wind_the_light();
         self.wind_the_control();
         self.wind_the_ripple();
-        self.wind_the_thumb();
+        self.wind_the_thumbs();
+        self.wind_the_flash();
         self.wind_the_desk_menu();
         self.settle_bounces();
         self.wind_the_dock();
@@ -1281,8 +1290,7 @@ impl State {
         self.serve_copies(&shown, !empty);
         self.shoot_old_style(&shown);
         self.sync_wlr_toplevels();
-        if self.shot_wanted && at == self.hand {
-            self.shot_wanted = false;
+        if self.shot_round.as_ref().is_some_and(|round| round.left.contains(&self.heads[at].name)) {
             self.screenshot(&shown);
         }
 

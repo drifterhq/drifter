@@ -3605,3 +3605,207 @@ Save to Desktop
 
 Save to Documents
 = In Dokumenten sichern
+
+Markup
+= Markierungen
+
+Save to Screenshots
+= In Bildschirmfotos sichern
+
+Copied
+= Kopiert
+
+Cannot move to Trash
+= Kann nicht in den Papierkorb
+
+Screenshot copied
+= Bildschirmfoto kopiert
+
+Paste it anywhere
+= Füge es überall ein
+
+The screen could not be read
+= Der Bildschirm ließ sich nicht lesen
+
+Clipboard
+= Zwischenablage
+
+Other Folder…
+= Anderer Ordner …
+
+Timer
+= Timer
+
+5 Seconds
+= 5 Sekunden
+
+10 Seconds
+= 10 Sekunden
+
+5 seconds
+= 5 Sekunden
+
+10 seconds
+= 10 Sekunden
+
+Show Floating Thumbnail
+= Schwebende Vorschau zeigen
+
+Show Mouse Pointer
+= Mauszeiger zeigen
+
+Window Shadow
+= Fensterschatten
+
+Play Sounds
+= Töne abspielen
+
+All Displays in One Picture
+= Alle Bildschirme in einem Bild
+
+Sound needs pactl (pulseaudio-utils)
+= Ton braucht pactl (pulseaudio-utils)
+
+Esc to cancel
+= Esc bricht ab
+
+Screen recording needs wf-recorder
+= Bildschirmaufnahme braucht wf-recorder
+
+Install it with: {}
+= Installiere es mit: {}
+
+{} needs wf-recorder
+= {} braucht wf-recorder
+
+Close (Esc)
+= Schließen (Esc)
+
+Where to save, timer and more
+= Speicherort, Timer und mehr
+
+Capture (Enter). Hold Ctrl to copy instead
+= Aufnehmen (Eingabe). Halte Strg, um stattdessen zu kopieren
+
+Record (Enter)
+= Aufnehmen (Eingabe)
+
+Copy to the clipboard
+= In die Zwischenablage kopieren
+
+Instead of saving a file. Hold Ctrl to switch for one shot
+= Statt eine Datei zu sichern. Halte Strg, um für ein Foto zu wechseln
+
+Show the preview
+= Vorschau zeigen
+
+Drag it, swipe it away or right click it
+= Ziehe sie, wische sie weg oder klicke rechts
+
+Window shadow
+= Fensterschatten
+
+Window shots keep their shadow and clear corners
+= Fensterfotos behalten Schatten und klare Ecken
+
+Show the pointer
+= Zeiger zeigen
+
+Play a sound
+= Ton abspielen
+
+With more than one display
+= Mit mehr als einem Bildschirm
+
+A file for each
+= Eine Datei je Bildschirm
+
+One picture
+= Ein Bild
+
+Crop
+= Zuschneiden
+
+Pen
+= Stift
+
+Highlighter
+= Textmarker
+
+Arrow
+= Pfeil
+
+Rectangle
+= Rechteck
+
+Ellipse
+= Ellipse
+
+Magnifier
+= Lupe
+
+Pixelate
+= Verpixeln
+
+Red
+= Rot
+
+Orange
+= Orange
+
+Yellow
+= Gelb
+
+Green
+= Grün
+
+Blue
+= Blau
+
+Black
+= Schwarz
+
+White
+= Weiß
+
+Thin
+= Dünn
+
+Medium
+= Mittel
+
+Thick
+= Dick
+
+Small
+= Klein
+
+Copy to Clipboard
+= In die Zwischenablage kopieren
+
+Save and Close
+= Speichern und schließen
+
+Don't Save
+= Nicht speichern
+
+Save changes?
+= Änderungen speichern?
+
+Your markup is lost if you don't save it.
+= Deine Markierungen gehen verloren, wenn du sie nicht speicherst.
+
+The clipboard is not available.
+= Die Zwischenablage ist nicht verfügbar.
+
+Could not copy: {}
+= Kopieren fehlgeschlagen: {}
+
+Could not save: {}
+= Speichern fehlgeschlagen: {}
+
+Could not move it to the Trash: {}
+= In den Papierkorb legen fehlgeschlagen: {}
+
+Add Ctrl to a screenshot shortcut to copy the picture instead. Over a preview: Esc closes, Enter marks up, Space opens it in your image app, Delete moves it to the Trash, Ctrl+C copies.
+= Füge Strg zu einem Bildschirmfoto-Kürzel hinzu, um das Bild stattdessen zu kopieren. Über einer Vorschau: Esc schließt, Eingabe öffnet die Markierungen, Leertaste öffnet sie in deiner Bilder-App, Entf legt sie in den Papierkorb, Strg+C kopiert.

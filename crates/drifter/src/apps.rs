@@ -311,18 +311,18 @@ pub fn launch_in(argv: &[String], cwd: Option<&str>, socket: &str) {
     }
 }
 
-pub fn file_manager() -> Option<String> {
-    drifter_core::desktop::system_default(drifter_core::desktop::Role::Files)
+pub fn open_folder(path: &str, chosen: Option<&drifter_core::Launch>, socket: &str) {
+    open_as(path, drifter_core::desktop::Role::Files, chosen, socket);
 }
 
-pub fn open_folder(path: &str, chosen: Option<&drifter_core::Launch>, socket: &str) {
+pub fn open_as(path: &str, role: drifter_core::desktop::Role, chosen: Option<&drifter_core::Launch>, socket: &str) {
     if let Some(command) = chosen.and_then(|item| item.command()) {
         start(command, &[path], socket);
         return;
     }
     let app = chosen
         .and_then(|item| item.app().map(str::to_string))
-        .or_else(file_manager);
+        .or_else(|| drifter_core::desktop::system_default(role));
     if let Some(exec) = app.and_then(|id| find(&id)).and_then(|entry| entry.exec) {
         start(&exec, &[path], socket);
         return;
@@ -331,7 +331,7 @@ pub fn open_folder(path: &str, chosen: Option<&drifter_core::Launch>, socket: &s
         launch(&["xdg-open".to_string(), path.to_string()], socket);
         return;
     }
-    log!("drifter: no file manager is installed, so {path} cannot be opened");
+    log!("drifter: no app is installed to open {path}");
 }
 
 pub fn defaults(

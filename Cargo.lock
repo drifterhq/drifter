@@ -572,6 +572,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "drifter-markup"
+version = "0.1.0"
+dependencies = [
+ "drifter-core",
+ "png",
+ "smithay-client-toolkit",
+ "wayland-client",
+]
+
+[[package]]
 name = "drifter-settings"
 version = "0.1.0"
 dependencies = [

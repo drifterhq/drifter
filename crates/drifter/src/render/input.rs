@@ -13,9 +13,9 @@ impl State {
             return self.pointer_to(self.pointer);
         }
         let was = self.pointer;
-        if self.thumb.as_ref().is_some_and(|thumb| thumb.pressed.is_some()) {
+        if self.thumb_pressed() {
             self.pointer = inside;
-            self.drag_thumb();
+            self.move_thumb();
         }
 
         if self.modifier {
@@ -215,6 +215,8 @@ impl State {
                 Grip::Title | Grip::Button(_) => CursorIcon::Default,
             };
             self.cursor_status = CursorImageStatus::Named(icon);
+        } else if let Some(icon) = self.thumb_cursor() {
+            self.cursor_status = smithay::input::pointer::CursorImageStatus::Named(icon);
         } else if focus.is_none() {
             self.cursor_status = smithay::input::pointer::CursorImageStatus::default_named();
         } else {
@@ -690,7 +692,7 @@ impl State {
         if let Some(eaten) = self.press_shot_menu() {
             return eaten;
         }
-        if self.press_stop(code) || self.press_thumb(code) {
+        if self.press_countdown(code) || self.press_stop(code) || self.press_thumb(code) {
             return true;
         }
         if self.shooter.is_some() {
@@ -892,6 +894,20 @@ impl State {
                 {
                     names.push(keysym_word(name));
                 }
+                if state.shot_count.is_some()
+                    && names.iter().any(|name| name == "Escape")
+                {
+                    state.swallowed.push(code);
+                    return FilterResult::Intercept(Shortcut::StopTimer);
+                }
+                if state.lock.is_none()
+                    && !held.alt
+                    && !held.logo
+                    && let Some(chore) = state.thumb_key(&names, held.ctrl)
+                {
+                    state.swallowed.push(code);
+                    return FilterResult::Intercept(Shortcut::Thumb(chore));
+                }
                 let mods = Mods {
                     ctrl: held.ctrl,
                     alt: held.alt,
@@ -909,6 +925,23 @@ impl State {
                 if let Some(action) = drifter_core::shortcut::built_in(mods, &names) {
                     state.swallowed.push(code);
                     return FilterResult::Intercept(Shortcut::Do(action, false));
+                }
+                if held.ctrl {
+                    let loose = Mods { ctrl: false, ..mods };
+                    let shot = |action: Action| {
+                        matches!(action, Action::Screenshot | Action::ShotScreen | Action::ShotPart | Action::ShotBar)
+                    };
+                    let action = state
+                        .shortcuts
+                        .iter()
+                        .find(|(action, combo)| shot(*action) && combo.matches(loose, &names, false))
+                        .map(|(action, _)| *action)
+                        .or_else(|| drifter_core::shortcut::built_in(loose, &names).filter(|action| shot(*action)));
+                    if let Some(action) = action {
+                        state.swallowed.push(code);
+                        state.shot_clip = true;
+                        return FilterResult::Intercept(Shortcut::Do(action, false));
+                    }
                 }
                 if let Some((slot, _)) = state
                     .place_saves
@@ -944,6 +977,10 @@ impl State {
                 }
             }
             Some(Shortcut::Heard(sym)) => self.keep_locks(sym, pressed, before, code, time),
+            Some(Shortcut::Thumb(chore)) => self.thumb_key_chore(chore),
+            Some(Shortcut::StopTimer) => {
+                self.cancel_countdown();
+            }
             Some(Shortcut::Swallow) | None => {}
         }
         let held = keyboard.modifier_state();
@@ -1197,6 +1234,18 @@ impl State {
                         self.zoom_by(steps);
                     }
                     return;
+                }
+                if !self.thumbs.shown.is_empty() && event.source() == smithay::backend::input::AxisSource::Finger {
+                    let across = event.amount(Axis::Horizontal).unwrap_or(0.0);
+                    let down = event.amount(Axis::Vertical).unwrap_or(0.0);
+                    let stopped = across == 0.0 && down == 0.0;
+                    let finger = match self.touch.natural {
+                        true => -across,
+                        false => across,
+                    };
+                    if (across.abs() > down.abs() || stopped) && self.scroll_thumb(finger, stopped) {
+                        return;
+                    }
                 }
                 if self.launchpad.is_some() && event.source() == smithay::backend::input::AxisSource::Finger {
                     let across = event.amount(Axis::Horizontal).unwrap_or(0.0);

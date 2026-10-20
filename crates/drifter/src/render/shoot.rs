@@ -1,9 +1,40 @@
 use super::*;
 use drifter_core::grab::{self, Pick, Slot, Take, Tool};
 
-const THUMB_WIDE: f64 = 220.0;
-const THUMB_TIME: Duration = Duration::from_secs(5);
 const CROSS: u32 = 23;
+const FLASH: f64 = 0.34;
+
+pub(super) struct Round {
+    pub left: Vec<String>,
+    pub got: Vec<(Vec2, Vec2, f64, drifter_core::Image)>,
+    pub crop: Option<Rect>,
+    pub window: Option<u64>,
+    pub stash: bool,
+    pub began: Instant,
+}
+
+pub(super) struct Countdown {
+    pub tool: Tool,
+    pub area: Option<Rect>,
+    pub window: Option<u64>,
+    pub clip: bool,
+    pub began: Instant,
+    pub seconds: u32,
+    pub said: u32,
+    pub art: Option<(TextureBuffer<Tex>, Vec2, u32, f64)>,
+}
+const OPT_SHOTS: i32 = 100;
+const OPT_DESKTOP: i32 = 101;
+const OPT_DOCUMENTS: i32 = 102;
+const OPT_CLIPBOARD: i32 = 103;
+const OPT_OTHER: i32 = 104;
+const OPT_CHOOSE: i32 = 105;
+const OPT_TIMER: i32 = 200;
+const OPT_THUMBNAIL: i32 = 300;
+const OPT_POINTER: i32 = 301;
+const OPT_SHADOW: i32 = 302;
+const OPT_SOUND: i32 = 303;
+const OPT_JOINED: i32 = 304;
 
 pub(super) struct Shooter {
     pub tool: Tool,
@@ -17,6 +48,7 @@ pub(super) struct Shooter {
     pub sources: Vec<grab::Source>,
     pub bar_lane: worker::Lane,
     pub tag_lane: worker::Lane,
+    pub record: bool,
 }
 
 pub(super) struct Recording {
@@ -28,25 +60,6 @@ pub(super) struct Recording {
     pub stopping: bool,
     pub lane: worker::Lane,
 }
-
-pub(super) struct Thumb {
-    pub art: TextureBuffer<Tex>,
-    pub rect: Rect,
-    pub path: Option<PathBuf>,
-    pub born: Instant,
-    pub leaving: Option<Instant>,
-    pub pressed: Option<Vec2>,
-}
-
-const THUMB_IN: f64 = 0.25;
-const THUMB_OUT: f64 = 0.3;
-const SHOT_COPY: i32 = 1;
-const SHOT_FOLDER: i32 = 2;
-const SHOT_OPEN: i32 = 3;
-const SHOT_DELETE: i32 = 4;
-const SHOT_DESKTOP: i32 = 5;
-const SHOT_DOCUMENTS: i32 = 6;
-const LIFTED: f64 = 0.5;
 
 pub(super) struct Inks {
     pub cross: TextureBuffer<Tex>,
@@ -80,6 +93,7 @@ impl State {
             sources: Vec::new(),
             bar_lane: worker::Lane::default(),
             tag_lane: worker::Lane::default(),
+            record: drifter_core::autostart::on_path("wf-recorder"),
         });
         self.shooter_inks();
         if with_bar {
@@ -124,6 +138,7 @@ impl State {
         let plain = grab::Bar::themed(&self.palette, self.look.accent);
         grab::Bar {
             back_alpha: self.veil(plain.back_alpha),
+            record: self.shooter.as_ref().is_none_or(|shooter| shooter.record),
             ..plain
         }
     }
@@ -156,7 +171,7 @@ impl State {
         );
     }
 
-    fn frame_on_screen(&self, index: usize) -> Rect {
+    pub(super) fn frame_on_screen(&self, index: usize) -> Rect {
         let window = &self.windows[index];
         let chrome = self.chrome;
         let frame = match window.decorated && window.full.is_none() {
@@ -202,11 +217,11 @@ impl State {
             .as_ref()
             .and_then(|shooter| shooter.from)
             .map(|from| grab::drag_rect(from, self.pointer, self.screen));
+        let record = self.shooter.as_ref().is_none_or(|shooter| shooter.record);
         let words = match (tool.pick, dragging) {
             (_, Some(rect)) => Some(grab::size_tag(rect)),
-            (Pick::Portion, None) if !on_bar => {
-                Some(format!("{}  {}", self.pointer.x.round(), self.pointer.y.round()))
-            }
+            (_, None) if on_bar => hover.map(|slot| grab::tip(slot, tool, record)),
+            (Pick::Portion, None) => Some(format!("{}  {}", self.pointer.x.round(), self.pointer.y.round())),
             _ => None,
         };
         let Some(shooter) = self.shooter.as_mut() else {
@@ -259,6 +274,7 @@ impl State {
             LockKey::Clear => {
                 self.shooter = None;
                 self.popover = None;
+                self.shot_clip = false;
             }
             LockKey::Letter(' ') => {
                 if let Some(shooter) = self.shooter.as_mut() {
@@ -290,7 +306,11 @@ impl State {
         {
             let rect = *rect;
             match self.bar_look().hit(self.pointer - rect.origin) {
-                Some(Slot::Close) => self.shooter = None,
+                Some(Slot::Close) => {
+                    self.shooter = None;
+                    self.shot_clip = false;
+                }
+                Some(Slot::Tool(tool)) if tool.take == Take::Video && !shooter.record => self.needs_recorder(),
                 Some(Slot::Tool(tool)) => {
                     if let Some(shooter) = self.shooter.as_mut() {
                         shooter.tool = tool;
@@ -301,6 +321,7 @@ impl State {
                     self.paint_shooter_bar();
                 }
                 Some(Slot::Options) => self.shooter_options(rect),
+                Some(Slot::Go) if shooter.tool.take == Take::Video && !shooter.record => self.needs_recorder(),
                 Some(Slot::Go) => self.shoot(),
                 None => {}
             }
@@ -311,8 +332,9 @@ impl State {
             Pick::Screen => self.shoot(),
             Pick::Window => {
                 if let Some(index) = self.window_under_pointer() {
-                    self.raise(index);
+                    let index = self.raise(index);
                     let rect = self.frame_on_screen(index);
+                    self.shot_window = Some(self.windows[index].id);
                     self.fire(Some(rect));
                 }
             }
@@ -349,6 +371,19 @@ impl State {
         }
     }
 
+    fn needs_recorder(&mut self) {
+        let install = [("apt", "sudo apt install wf-recorder"), ("dnf", "sudo dnf install wf-recorder"), ("pacman", "sudo pacman -S wf-recorder"), ("zypper", "sudo zypper install wf-recorder")]
+            .into_iter()
+            .find(|(tool, _)| drifter_core::autostart::on_path(tool))
+            .map(|(_, line)| line)
+            .unwrap_or("wf-recorder");
+        self.shot_note(
+            drifter_core::lang::t("Screen recording needs wf-recorder"),
+            drifter_core::lang::tf("Install it with: {}", &[&install]),
+            None,
+        );
+    }
+
     fn shoot(&mut self) {
         let Some(shooter) = self.shooter.as_ref() else {
             return;
@@ -357,7 +392,8 @@ impl State {
             Pick::Screen => None,
             Pick::Window => match self.window_under_pointer() {
                 Some(index) => {
-                    self.raise(index);
+                    let index = self.raise(index);
+                    self.shot_window = Some(self.windows[index].id);
                     Some(self.frame_on_screen(index))
                 }
                 None => return,
@@ -374,19 +410,212 @@ impl State {
         let Some(shooter) = self.shooter.take() else {
             return;
         };
+        self.shot_clip = self.shot_clip || self.wayland.keyboard.modifier_state().ctrl;
         self.popover = None;
         self.shot_tool = shooter.tool;
+        if self.shots.timer > 0 {
+            self.count_down(shooter.tool, area);
+            return;
+        }
         match shooter.tool.take {
             Take::Still => self.take_still(area),
-            Take::Video => self.start_recording(area),
+            Take::Video => {
+                self.shot_window = None;
+                self.shot_clip = false;
+                self.start_recording(area);
+            }
         }
     }
 
     pub(super) fn take_still(&mut self, area: Option<Rect>) {
+        if self.shot_round.is_some() {
+            return;
+        }
         self.drop_ghosts();
-        self.shot_crop = area;
-        self.shot_wanted = true;
+        self.shooter_inks();
+        let window = self.shot_window.take();
+        let left: Vec<String> = match area.is_some() || window.is_some() {
+            true => self.heads.get(self.hand).map(|head| vec![head.name.clone()]).unwrap_or_default(),
+            false => self
+                .heads
+                .iter()
+                .filter(|head| self.mirror_source(head).is_none())
+                .map(|head| head.name.clone())
+                .collect(),
+        };
+        self.shot_round = Some(Round {
+            left,
+            got: Vec::new(),
+            crop: area,
+            window,
+            stash: self.shots.clipboard != std::mem::take(&mut self.shot_clip),
+            began: Instant::now(),
+        });
         self.kick_now();
+    }
+
+    fn count_down(&mut self, tool: Tool, area: Option<Rect>) {
+        let seconds = self.shots.timer.min(60);
+        self.shot_count = Some(Countdown {
+            tool,
+            area,
+            window: self.shot_window.take(),
+            clip: std::mem::take(&mut self.shot_clip),
+            began: Instant::now(),
+            seconds,
+            said: 0,
+            art: None,
+        });
+        self.shooter_inks();
+        self.wind_the_countdown();
+    }
+
+    pub(super) fn wind_the_countdown(&mut self) {
+        let Some(count) = self.shot_count.as_ref() else {
+            return;
+        };
+        let total = f64::from(count.seconds);
+        let gone = count.began.elapsed().as_secs_f64();
+        if gone >= total {
+            let Some(count) = self.shot_count.take() else {
+                return;
+            };
+            self.shot_window = count.window;
+            self.shot_clip = count.clip;
+            match count.tool.take {
+                Take::Still => self.take_still(count.area),
+                Take::Video => {
+                    self.shot_window = None;
+                    self.shot_clip = false;
+                    self.start_recording(count.area);
+                }
+            }
+            return;
+        }
+        let left = (total - gone).ceil().max(1.0) as u32;
+        let share = (total - gone) / total;
+        if count.said != left {
+            self.play(drifter_core::shutter::Sound::Tick);
+            if let Some(count) = self.shot_count.as_mut() {
+                count.said = left;
+            }
+        }
+        let Some(count) = self.shot_count.as_ref() else {
+            return;
+        };
+        let stale = count.art.as_ref().is_none_or(|(_, _, said, drawn)| *said != left || (drawn - share).abs() > 0.004);
+        if !stale {
+            return;
+        }
+        let Some(big) = self.lock_big.clone() else {
+            return;
+        };
+        let caption = self.font.as_ref().map(|font| font.paint(drifter_core::lang::t("Esc to cancel"), [255, 255, 255]));
+        let image = grab::paint_countdown(&big.paint(&left.to_string(), [255, 255, 255]), caption.as_ref(), share, self.look.accent);
+        let size = drifter_core::paint::logical(&image);
+        if let Ok(Some(art)) = upload(&mut self.renderer, Some(&image), "countdown")
+            && let Some(count) = self.shot_count.as_mut()
+        {
+            count.art = Some((art, size, left, share));
+        }
+    }
+
+    pub(super) fn countdown_rect(&self) -> Option<Rect> {
+        let count = self.shot_count.as_ref()?;
+        let (_, size, _, _) = count.art.as_ref()?;
+        let middle = match (count.window.and_then(|id| self.place_of(id)), count.area) {
+            (Some(index), _) => self.frame_on_screen(index).center(),
+            (None, Some(area)) => area.center(),
+            (None, None) => self.screen / 2.0,
+        };
+        Some(Rect::new((middle - *size / 2.0).round(), *size))
+    }
+
+    pub(super) fn cancel_countdown(&mut self) -> bool {
+        if self.shot_count.take().is_none() {
+            return false;
+        }
+        self.kick_now();
+        true
+    }
+
+    pub(super) fn press_countdown(&mut self, code: u32) -> bool {
+        if self.countdown_rect().is_some_and(|rect| rect.contains(self.pointer)) {
+            if code == BTN_LEFT {
+                self.cancel_countdown();
+            }
+            return true;
+        }
+        false
+    }
+
+    pub(super) fn play(&self, sound: drifter_core::shutter::Sound) {
+        if !self.shots.sound {
+            return;
+        }
+        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        let folder = drifter_core::grab::stash_folder(&home).with_file_name("sounds");
+        self.background("drifter-sound", move || {
+            let path = folder.join(sound.file_name());
+            let wav = sound.wav();
+            let fresh = std::fs::metadata(&path).is_ok_and(|meta| meta.len() == wav.len() as u64);
+            if !fresh {
+                let part = folder.join(format!(".{}.part", sound.file_name()));
+                let _ = std::fs::create_dir_all(&folder)
+                    .and_then(|()| std::fs::write(&part, &wav))
+                    .and_then(|()| std::fs::rename(&part, &path));
+            }
+            let file = path.display().to_string();
+            for player in [vec!["pw-play", file.as_str()], vec!["paplay", file.as_str()], vec!["aplay", "-q", file.as_str()]] {
+                let spawned = std::process::Command::new(player[0])
+                    .args(&player[1..])
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn();
+                if let Ok(mut child) = spawned {
+                    let _ = child.wait();
+                    break;
+                }
+            }
+            |_: &mut State| {}
+        });
+    }
+
+    pub(super) fn shot_flash_elements(&self, elements: &mut Vec<Skin>) {
+        let Some((_, inks)) = self.shot_inks.as_ref() else {
+            return;
+        };
+        let Some(head) = self.heads.get(self.at) else {
+            return;
+        };
+        for (name, rect, since) in &self.shot_flash {
+            if *name != head.name {
+                continue;
+            }
+            let t = (since.elapsed().as_secs_f64() / FLASH).min(1.0);
+            let alpha = (1.0 - drifter_core::motion::smooth(t)) * 0.7;
+            if alpha > 0.0 {
+                elements.push(Skin::Texture(fill(&inks.sides[0], *rect, alpha as f32)));
+            }
+        }
+    }
+
+    pub(super) fn wind_the_flash(&mut self) {
+        self.shot_flash.retain(|(_, _, since)| since.elapsed().as_secs_f64() < FLASH);
+        if self.shot_count.is_some() {
+            self.wind_the_countdown();
+        }
+        if let Some(round) = self.shot_round.as_ref()
+            && round.began.elapsed() > Duration::from_millis(1500)
+        {
+            log!("drifter: a display did not draw in time, so the screenshot leaves it out");
+            self.finish_round();
+        }
+    }
+
+    pub(super) fn shots_moving(&self) -> bool {
+        !self.shot_flash.is_empty() || self.shot_count.is_some() || self.shot_round.is_some()
     }
 
     fn shooter_options(&mut self, bar: Rect) {
@@ -396,33 +625,102 @@ impl State {
                 .env("LC_ALL", "C")
                 .stderr(std::process::Stdio::null())
                 .output()
-                .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
-                .unwrap_or_default();
+                .ok()
+                .filter(|out| out.status.success())
+                .map(|out| String::from_utf8_lossy(&out.stdout).into_owned());
             move |state: &mut State| {
                 if state.shooter.is_some() {
-                    state.shooter_sources(bar, &listing);
+                    state.shooter_sources(bar, listing.as_deref());
                 }
             }
         });
     }
 
-    fn shooter_sources(&mut self, bar: Rect, listing: &str) {
-        let sources = grab::sources(listing);
+    fn shot_place(&self) -> i32 {
+        if self.shots.clipboard {
+            return OPT_CLIPBOARD;
+        }
+        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        let folder = self.shots.folder_in(&home);
+        let named = |key: &str, fallback: &str| drifter_core::folders::user_dir(&home, key, fallback) == folder;
+        match self.shots.folder.is_none() {
+            true => OPT_SHOTS,
+            false if named("DESKTOP", "Desktop") => OPT_DESKTOP,
+            false if named("DOCUMENTS", "Documents") => OPT_DOCUMENTS,
+            false => OPT_OTHER,
+        }
+    }
+
+    fn shooter_sources(&mut self, bar: Rect, listing: Option<&str>) {
+        use drifter_core::lang::t;
+        use drifter_core::menu::Item;
+        let video = self.shooter.as_ref().is_some_and(|shooter| shooter.tool.take == Take::Video);
         let mark = |on: bool, label: &str| match on {
-            true => format!("• {label}"),
-            false => format!("   {label}"),
+            true => format!("•  {label}"),
+            false => format!("    {label}"),
         };
-        let mut items = vec![drifter_core::menu::Item {
+        let head = |id: i32, label: &str| Item {
             enabled: false,
-            ..drifter_core::menu::Item::line(-10, drifter_core::lang::t("Sound"))
-        }];
-        items.push(drifter_core::menu::Item::line(0, &mark(self.sound_from.is_none(), drifter_core::lang::t("None"))));
-        for (at, source) in sources.iter().enumerate() {
-            let on = self.sound_from.as_deref() == Some(source.name.as_str());
-            items.push(drifter_core::menu::Item::line(at as i32 + 1, &mark(on, &source.label)));
+            ..Item::line(id, label)
+        };
+        let mut items = Vec::new();
+        let place = self.shot_place();
+        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        let other = match place {
+            OPT_OTHER => {
+                let folder = self.shots.folder_in(&home);
+                let name = folder.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
+                Some(name)
+            }
+            _ => None,
+        };
+        items.push(head(-10, t("Save to")));
+        items.push(Item::line(OPT_SHOTS, &mark(place == OPT_SHOTS, t("Screenshots"))));
+        items.push(Item::line(OPT_DESKTOP, &mark(place == OPT_DESKTOP, t("Desktop"))));
+        items.push(Item::line(OPT_DOCUMENTS, &mark(place == OPT_DOCUMENTS, t("Documents"))));
+        if !video {
+            items.push(Item::line(OPT_CLIPBOARD, &mark(place == OPT_CLIPBOARD, t("Clipboard"))));
+        }
+        if let Some(name) = other.as_deref() {
+            items.push(Item::line(OPT_OTHER, &mark(true, name)));
+        }
+        items.push(Item::line(OPT_CHOOSE, &mark(false, t("Other Folder…"))));
+        items.push(Item::rule(-11));
+        items.push(head(-12, t("Timer")));
+        for (id, label) in [(OPT_TIMER, t("None")), (OPT_TIMER + 5, t("5 Seconds")), (OPT_TIMER + 10, t("10 Seconds"))] {
+            items.push(Item::line(id, &mark(self.shots.timer == (id - OPT_TIMER) as u32, label)));
+        }
+        items.push(Item::rule(-13));
+        items.push(head(-14, t("Options")));
+        let toggles = [
+            (OPT_THUMBNAIL, self.shots.thumbnail, t("Show Floating Thumbnail")),
+            (OPT_POINTER, self.shots.pointer, t("Show Mouse Pointer")),
+            (OPT_SHADOW, self.shots.shadow, t("Window Shadow")),
+            (OPT_SOUND, self.shots.sound, t("Play Sounds")),
+        ];
+        for (id, on, label) in toggles {
+            items.push(Item::line(id, &mark(on, label)));
+        }
+        if self.heads.iter().filter(|head| head.mirror.is_none()).count() > 1 {
+            items.push(Item::line(OPT_JOINED, &mark(self.shots.joined, t("All Displays in One Picture"))));
+        }
+        let sources = listing.map(grab::sources);
+        if video {
+            items.push(Item::rule(-15));
+            items.push(head(-16, t("Sound")));
+            match sources.as_ref() {
+                Some(sources) => {
+                    items.push(Item::line(0, &mark(self.sound_from.is_none(), t("None"))));
+                    for (at, source) in sources.iter().enumerate() {
+                        let on = self.sound_from.as_deref() == Some(source.name.as_str());
+                        items.push(Item::line(at as i32 + 1, &mark(on, &source.label)));
+                    }
+                }
+                None => items.push(head(-17, t("Sound needs pactl (pulseaudio-utils)"))),
+            }
         }
         if let Some(shooter) = self.shooter.as_mut() {
-            shooter.sources = sources;
+            shooter.sources = sources.unwrap_or_default();
         }
         let look = self.bar_look();
         let options = look
@@ -432,25 +730,83 @@ impl State {
             .map(|(rect, _)| rect)
             .unwrap_or(Rect::new(Vec2::ZERO, bar.size));
         let size = self.menu_look().size(&items, self.font.as_deref());
-        let at = Vec2::new(bar.origin.x + options.origin.x, bar.origin.y - size.y - 8.0);
+        let top = (bar.origin.y - size.y - 8.0).max(4.0);
+        let at = Vec2::new(bar.origin.x + options.origin.x, top);
         let from = Vec2::new(bar.origin.x + options.center().x, bar.origin.y);
         self.open_popover_from(items, at, from, Target::Shooter);
     }
 
     pub(super) fn shooter_menu_pick(&mut self, id: i32) {
         self.popover = None;
-        let chosen = match id {
-            0 => None,
-            id => self
-                .shooter
-                .as_ref()
-                .and_then(|shooter| shooter.sources.get(id as usize - 1))
-                .map(|source| source.name.clone()),
-        };
-        if id >= 0 {
-            self.sound_from = chosen;
+        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+        let before = self.shots.clone();
+        match id {
+            0..OPT_SHOTS => {
+                self.sound_from = match id {
+                    0 => None,
+                    id => self
+                        .shooter
+                        .as_ref()
+                        .and_then(|shooter| shooter.sources.get(id as usize - 1))
+                        .map(|source| source.name.clone()),
+                };
+            }
+            OPT_SHOTS => {
+                self.shots.folder = None;
+                self.shots.clipboard = false;
+            }
+            OPT_DESKTOP | OPT_DOCUMENTS => {
+                let (key, fallback) = match id {
+                    OPT_DESKTOP => ("DESKTOP", "Desktop"),
+                    _ => ("DOCUMENTS", "Documents"),
+                };
+                let folder = drifter_core::folders::user_dir(&home, key, fallback);
+                let shown = match folder.strip_prefix(&home) {
+                    Ok(rest) => format!("~/{}", rest.display()),
+                    Err(_) => folder.display().to_string(),
+                };
+                self.shots.folder = Some(shown);
+                self.shots.clipboard = false;
+            }
+            OPT_CLIPBOARD => self.shots.clipboard = true,
+            OPT_OTHER => self.shots.clipboard = false,
+            OPT_CHOOSE => {
+                self.shooter = None;
+                self.shot_clip = false;
+                self.open_settings_at("shortcuts");
+            }
+            OPT_JOINED => self.shots.joined = !self.shots.joined,
+            OPT_THUMBNAIL => self.shots.thumbnail = !self.shots.thumbnail,
+            OPT_POINTER => self.shots.pointer = !self.shots.pointer,
+            OPT_SHADOW => self.shots.shadow = !self.shots.shadow,
+            OPT_SOUND => self.shots.sound = !self.shots.sound,
+            id if (OPT_TIMER..=OPT_TIMER + 10).contains(&id) => self.shots.timer = (id - OPT_TIMER) as u32,
+            _ => {}
+        }
+        if self.shots != before {
+            self.store_shots();
         }
         self.kick_now();
+    }
+
+    fn store_shots(&mut self) {
+        let path = self.config_path.clone();
+        let written = std::fs::read_to_string(&path)
+            .or_else(|error| match error.kind() {
+                std::io::ErrorKind::NotFound => Ok(String::new()),
+                _ => Err(error),
+            })
+            .map_err(|error| format!("cannot read {}: {error}", path.display()))
+            .and_then(|text| self.shots.store(&text))
+            .and_then(|text| {
+                let fresh = path.with_extension("toml.new");
+                std::fs::write(&fresh, text)
+                    .and_then(|()| std::fs::rename(&fresh, &path))
+                    .map_err(|error| format!("cannot write {}: {error}", path.display()))
+            });
+        if let Err(error) = written {
+            log!("drifter: the screenshot options are not saved: {error}");
+        }
     }
 
     fn start_recording(&mut self, area: Option<Rect>) {
@@ -480,10 +836,12 @@ impl State {
         let child = match spawned {
             Ok(child) => child,
             Err(error) => {
-                self.recording_done(Err(format!("screen recording needs wf-recorder: {error}")));
+                self.needs_recorder();
+                log!("drifter: wf-recorder did not start: {error}");
                 return;
             }
         };
+        self.play(drifter_core::shutter::Sound::Start);
         self.recording = Some(Recording {
             child,
             path,
@@ -579,6 +937,9 @@ impl State {
     }
 
     fn recording_done(&mut self, saved: Result<PathBuf, String>) {
+        if saved.is_ok() {
+            self.play(drifter_core::shutter::Sound::Stop);
+        }
         let Some(id) = self.notes_bus.as_ref().map(|bus| bus.next_id()) else {
             return;
         };
@@ -604,218 +965,6 @@ impl State {
         });
     }
 
-    pub(super) fn show_thumb(&mut self, shot: &drifter_core::Image) {
-        let image = grab::paint_thumb(shot, THUMB_WIDE);
-        let rect = grab::thumb_rect(drifter_core::paint::logical(&image), self.screen);
-        let Ok(Some(art)) = upload(&mut self.renderer, Some(&image), "thumbnail") else {
-            return;
-        };
-        self.thumb = Some(Thumb {
-            art,
-            rect,
-            path: None,
-            born: Instant::now(),
-            leaving: None,
-            pressed: None,
-        });
-    }
-
-    pub(super) fn wind_the_thumb(&mut self) {
-        let pointer = self.pointer;
-        let menu_open = matches!(self.popover.as_ref().map(|open| &open.target), Some(Target::Shot));
-        let Some(thumb) = self.thumb.as_mut() else {
-            return;
-        };
-        if let Some(since) = thumb.leaving {
-            if since.elapsed().as_secs_f64() >= THUMB_OUT {
-                self.thumb = None;
-            }
-            return;
-        }
-        let held = thumb.rect.contains(pointer) || thumb.pressed.is_some() || menu_open || self.drag_shot.is_some();
-        if held {
-            thumb.born = Instant::now() - Duration::from_secs_f64(THUMB_IN);
-        } else if thumb.born.elapsed() >= THUMB_TIME {
-            thumb.leaving = Some(Instant::now());
-        }
-    }
-
-    pub(super) fn release_thumb(&mut self) {
-        let Some(thumb) = self.thumb.as_mut() else {
-            return;
-        };
-        if thumb.pressed.take().is_some()
-            && thumb.rect.contains(self.pointer)
-            && let Some(path) = thumb.path.clone()
-        {
-            thumb.leaving = Some(Instant::now());
-            crate::apps::launch(&["xdg-open".to_string(), path.display().to_string()], &self.socket);
-        }
-    }
-
-    pub(super) fn drag_thumb(&mut self) {
-        use smithay::input::pointer::GrabStartData;
-        use smithay::utils::SERIAL_COUNTER;
-        use smithay::wayland::selection::data_device::{SourceMetadata, start_dnd};
-        use smithay::reexports::wayland_server::protocol::wl_data_device_manager::DndAction;
-
-        let pointer = self.pointer;
-        let Some(thumb) = self.thumb.as_mut() else {
-            return;
-        };
-        let (Some(from), Some(path)) = (thumb.pressed, thumb.path.clone()) else {
-            return;
-        };
-        if (pointer - from).length() < 6.0 {
-            return;
-        }
-        thumb.pressed = None;
-        self.drag_shot = Some(path.clone());
-        let world = self.in_world(pointer);
-        let metadata = SourceMetadata {
-            mime_types: vec!["text/uri-list".to_string(), shot_mime(&path).to_string()],
-            dnd_action: DndAction::Copy,
-        };
-        let start = GrabStartData {
-            focus: None,
-            button: BTN_LEFT,
-            location: (world.x, world.y).into(),
-        };
-        let dh = self.wayland.handle.clone();
-        let seat = self.wayland._seat.clone();
-        start_dnd(&dh, &seat, self, SERIAL_COUNTER.next_serial(), Some(start), None, metadata);
-    }
-
-    pub fn shot_dropped(&mut self, landed: bool) {
-        self.drag_shot = None;
-        if landed && let Some(thumb) = self.thumb.as_mut() {
-            thumb.leaving = Some(Instant::now());
-        }
-        self.kick_now();
-    }
-
-    pub(super) fn shot_menu_open(&self) -> bool {
-        matches!(self.popover.as_ref().map(|open| &open.target), Some(Target::Shot))
-    }
-
-    pub(super) fn press_shot_menu(&mut self) -> Option<bool> {
-        if !self.shot_menu_open() {
-            return None;
-        }
-        if self.popover.as_ref().is_some_and(|open| open.rect.contains(self.pointer)) {
-            return Some(self.press_popover());
-        }
-        self.popover = None;
-        self.kick_now();
-        None
-    }
-
-    fn save_shot_to(&mut self, path: &std::path::Path, key: &str, fallback: &str) {
-        let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
-        let folder = drifter_core::folders::user_dir(&home, key, fallback);
-        let moved = std::fs::create_dir_all(&folder)
-            .and_then(|_| drifter_core::explorer::ops::move_into(path, &folder))
-            .map_err(|error| error.to_string());
-        let Some(id) = self.notes_bus.as_ref().map(|bus| bus.next_id()) else {
-            return;
-        };
-        let (summary, body) = match moved {
-            Ok(moved) => {
-                self.note_folders.insert(id, folder.clone());
-                let name = moved.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
-                (drifter_core::lang::tf("Saved to {}", &[&folder.display()]), name)
-            }
-            Err(error) => (drifter_core::lang::t("No screenshot").to_string(), error),
-        };
-        self.show_note(drifter_core::notify::Note {
-            id,
-            app: drifter_core::lang::t("Drifter").to_string(),
-            summary,
-            body,
-            actions: Vec::new(),
-            expire: Some(drifter_core::notify::DEFAULT_MS),
-            asked: -1,
-            critical: false,
-            icon: None,
-        });
-    }
-
-    pub(super) fn shot_menu_pick(&mut self, id: i32) {
-        self.popover = None;
-        let Some(path) = self.thumb.as_ref().and_then(|thumb| thumb.path.clone()) else {
-            return;
-        };
-        match id {
-            SHOT_COPY => {
-                if let Ok(bytes) = std::fs::read(&path) {
-                    let mime = shot_mime(&path).to_string();
-                    let dh = self.wayland.handle.clone();
-                    let seat = self.wayland._seat.clone();
-                    smithay::wayland::selection::data_device::set_data_device_selection(
-                        &dh,
-                        &seat,
-                        vec![mime.clone()],
-                        std::sync::Arc::new(vec![(mime, bytes)]),
-                    );
-                }
-            }
-            SHOT_FOLDER => {
-                if let Some(folder) = path.parent() {
-                    crate::apps::open_folder(&folder.display().to_string(), self.apps_chosen.get(drifter_core::desktop::Role::Files), &self.socket);
-                }
-            }
-            SHOT_OPEN => {
-                crate::apps::launch(&["xdg-open".to_string(), path.display().to_string()], &self.socket);
-            }
-            SHOT_DESKTOP => self.save_shot_to(&path, "DESKTOP", "Desktop"),
-            SHOT_DOCUMENTS => self.save_shot_to(&path, "DOCUMENTS", "Documents"),
-            SHOT_DELETE => {
-                let _ = drifter_core::explorer::ops::trash(&path);
-            }
-            _ => {}
-        }
-        if let Some(thumb) = self.thumb.as_mut() {
-            thumb.leaving = Some(Instant::now());
-        }
-        self.kick_now();
-    }
-
-    pub(super) fn press_thumb(&mut self, code: u32) -> bool {
-        let on = self
-            .thumb
-            .as_ref()
-            .is_some_and(|thumb| thumb.rect.contains(self.pointer));
-        if !on {
-            return false;
-        }
-        let pointer = self.pointer;
-        if code == BTN_LEFT
-            && let Some(thumb) = self.thumb.as_mut()
-        {
-            thumb.pressed = Some(pointer);
-        }
-        if code == BTN_RIGHT {
-            let ready = self.thumb.as_ref().is_some_and(|thumb| thumb.path.is_some());
-            let item = |id: i32, label: &str| drifter_core::menu::Item {
-                enabled: ready,
-                ..drifter_core::menu::Item::line(id, label)
-            };
-            let items = vec![
-                item(SHOT_COPY, drifter_core::lang::t("Copy")),
-                item(SHOT_DESKTOP, drifter_core::lang::t("Save to Desktop")),
-                item(SHOT_DOCUMENTS, drifter_core::lang::t("Save to Documents")),
-                drifter_core::menu::Item::rule(90),
-                item(SHOT_FOLDER, drifter_core::lang::t("Show in Folder")),
-                item(SHOT_OPEN, drifter_core::lang::t("Open")),
-                drifter_core::menu::Item::rule(91),
-                item(SHOT_DELETE, drifter_core::lang::t("Move to Trash")),
-            ];
-            self.open_popover(items, pointer, Target::Shot);
-        }
-        self.kick_now();
-        true
-    }
-
     pub(super) fn press_stop(&mut self, code: u32) -> bool {
         let on = self
             .recording
@@ -829,31 +978,16 @@ impl State {
     }
 
     pub(super) fn own_elements(&self, elements: &mut Vec<Skin>) {
+        if let (Some(rect), Some((art, ..))) = (self.countdown_rect(), self.shot_count.as_ref().and_then(|count| count.art.as_ref())) {
+            elements.push(Skin::Texture(element(art, rect, 1.0)));
+        }
         if self.shooter.is_none() && self.shot_menu_open() {
             self.popover_elements(elements);
         }
         if let Some((art, rect)) = self.recording.as_ref().and_then(|recording| recording.art.as_ref()) {
             elements.push(Skin::Texture(element(art, *rect, 1.0)));
         }
-        if let Some(thumb) = self.thumb.as_ref().filter(|_| self.drag_shot.is_some()) {
-            let size = thumb.rect.size * LIFTED;
-            let rect = Rect::new(self.pointer - size / 2.0, size);
-            elements.push(Skin::Texture(element(&thumb.art, rect, 0.85)));
-        } else if let Some(thumb) = self.thumb.as_ref() {
-            let shown = (thumb.born.elapsed().as_secs_f64() / THUMB_IN).min(1.0);
-            let out = thumb
-                .leaving
-                .map_or(0.0, |since| drifter_core::motion::smooth(since.elapsed().as_secs_f64() / THUMB_OUT));
-            let slide = out * (self.screen.x - thumb.rect.origin.x + 20.0);
-            let rect = Rect::new(thumb.rect.origin + Vec2::new(slide, 0.0), thumb.rect.size);
-            elements.push(Skin::Texture(element(&thumb.art, rect, (shown * (1.0 - out * 0.4)) as f32)));
-        }
-    }
-
-    pub(super) fn thumb_moving(&self) -> bool {
-        self.thumb
-            .as_ref()
-            .is_some_and(|thumb| thumb.born.elapsed() < Duration::from_millis(300) || thumb.leaving.is_some())
+        self.thumb_elements(elements);
     }
 
     pub(super) fn shooter_cursor(&self) -> Option<Vec<Skin>> {
@@ -887,6 +1021,14 @@ impl State {
             return;
         };
         self.popover_elements(elements);
+        if let (Some((_, bar)), Some(slot), Some((art, _, size))) = (shooter.bar.as_ref(), shooter.hover, shooter.tag.as_ref())
+            && bar.contains(self.pointer)
+            && let Some((spot, _)) = self.bar_look().slots().into_iter().find(|(_, each)| *each == slot)
+        {
+            let x = (bar.origin.x + spot.center().x - size.x / 2.0).clamp(4.0, self.screen.x - size.x - 4.0);
+            let at = Vec2::new(x, bar.origin.y - size.y - 8.0).round();
+            elements.push(Skin::Texture(element(art, Rect::new(at, *size), 1.0)));
+        }
         if let Some((art, rect)) = shooter.bar.as_ref() {
             elements.push(Skin::Texture(element(art, *rect, 1.0)));
             self.modal_shadow(*rect, elements);
@@ -929,24 +1071,4 @@ impl State {
             elements.push(Skin::Texture(fill(&inks.accent, rect, 0.3)));
         }
     }
-}
-
-fn shot_mime(path: &std::path::Path) -> &'static str {
-    match path.extension().and_then(|ext| ext.to_str()).map(str::to_ascii_lowercase).as_deref() {
-        Some("jpg") | Some("jpeg") => "image/jpeg",
-        _ => "image/png",
-    }
-}
-
-pub fn send_shot(path: &std::path::Path, mime: &str, fd: std::os::fd::OwnedFd) {
-    use std::io::Write as _;
-    let path = path.to_path_buf();
-    let mime = mime.to_string();
-    std::thread::spawn(move || {
-        let bytes = match mime.as_str() {
-            "text/uri-list" => drifter_core::explorer::clip::uri_list(std::slice::from_ref(&path)).into_bytes(),
-            _ => std::fs::read(&path).unwrap_or_default(),
-        };
-        let _ = std::fs::File::from(fd).write_all(&bytes);
-    });
 }

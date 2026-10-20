@@ -210,8 +210,9 @@ impl State {
                 self.shooter_menu_pick(chosen.id);
                 return true;
             }
-            Target::Shot => {
-                self.shot_menu_pick(chosen.id);
+            Target::Shot(id) => {
+                let id = *id;
+                self.shot_menu_pick(id, chosen.id);
                 return true;
             }
             Target::DockBar => {
@@ -538,6 +539,13 @@ impl State {
                 .iter()
                 .any(|rect| rect.contains(self.pointer))
             || self.over_drawer()
+            || self.over_thumbs()
+            || self.countdown_rect().is_some_and(|rect| rect.contains(self.pointer))
+            || self
+                .recording
+                .as_ref()
+                .and_then(|recording| recording.art.as_ref())
+                .is_some_and(|(_, rect)| rect.contains(self.pointer))
             || self
                 .popover
                 .as_ref()

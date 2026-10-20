@@ -6,6 +6,7 @@ use smithay::desktop::PopupKind;
 use smithay::input::{Seat, SeatHandler, SeatState};
 use smithay::reexports::wayland_server::backend::{ClientData, ClientId, DisconnectReason};
 use smithay::reexports::wayland_server::protocol::wl_buffer::WlBuffer;
+use smithay::reexports::wayland_server::protocol::wl_data_device_manager::DndAction;
 use smithay::reexports::wayland_server::protocol::wl_data_source::WlDataSource;
 use smithay::reexports::wayland_server::protocol::wl_output::WlOutput;
 use smithay::reexports::wayland_server::protocol::wl_seat::WlSeat;
@@ -189,6 +190,11 @@ impl SelectionHandler for State {
 impl DataDeviceHandler for State {
     fn data_device_state(&self) -> &DataDeviceState {
         &self.wayland.data_device
+    }
+
+    fn action_choice(&mut self, available: DndAction, preferred: DndAction) -> DndAction {
+        self.shot_drag_action(available)
+            .unwrap_or_else(|| smithay::wayland::selection::data_device::default_action_chooser(available, preferred))
     }
 }
 

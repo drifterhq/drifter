@@ -331,8 +331,6 @@ pub fn open(
         Option<drifter_core::tiles::Pyramid>,
     )>();
     let (chores, chores_rx) = smithay::reexports::calloop::channel::channel::<Chore>();
-    let (shot_tx, shot_rx) =
-        smithay::reexports::calloop::channel::channel::<Result<PathBuf, String>>();
     let (verify_tx, verify_rx) =
         smithay::reexports::calloop::channel::channel::<(u64, crate::auth::Verdict)>();
 
@@ -591,7 +589,6 @@ pub fn open(
         vt,
         paper: Paper::from(config),
         paper_tx,
-        shot_tx,
         chores,
         config_path: match live {
             true => Config::config_path(),
@@ -637,7 +634,9 @@ pub fn open(
         checked: checked_tx,
         copied: std::collections::HashSet::new(),
         cursor_count: 0,
-        shot_wanted: false,
+        shot_round: None,
+        shot_count: None,
+        shot_flash: Vec::new(),
         restyle_due: None,
         style_shots: Vec::new(),
         style_tex: Vec::new(),
@@ -648,7 +647,8 @@ pub fn open(
         paper_from: None,
         transition: config.appearance.transition,
         style_fade: None,
-        shot_crop: None,
+        shot_clip: false,
+        shot_window: None,
         shot_tool: drifter_core::grab::Tool::new(
             drifter_core::grab::Take::Still,
             drifter_core::grab::Pick::Portion,
@@ -656,7 +656,7 @@ pub fn open(
         shot_inks: None,
         shooter: None,
         recording: None,
-        thumb: None,
+        thumbs: thumbs::Thumbs::default(),
         sound_from: None,
         cursor_end: 0,
         drawers: [Drawer::new(Edge::Top), Drawer::new(Edge::Bottom)],
@@ -883,14 +883,6 @@ pub fn open(
         Err(error) if live => log!("drifter: no password prompt: {error}"),
         Err(_) => {}
     }
-
-    handle
-        .insert_source(shot_rx, |event, _, state: &mut State| {
-            if let ChannelEvent::Msg(saved) = event {
-                state.shot_saved(saved);
-            }
-        })
-        .map_err(|e| format!("cannot watch screenshots: {e}"))?;
 
     handle
         .insert_source(chores_rx, |event, _, state: &mut State| {
