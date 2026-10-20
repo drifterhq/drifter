@@ -4,3 +4,5 @@
 .DS_Store
 /conf/drifter.toml
 .playwright-mcp/
+/conf/explorer.toml
+/conf/explorer-views.toml
