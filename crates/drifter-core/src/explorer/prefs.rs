@@ -212,6 +212,10 @@ impl Default for Prefs {
 }
 
 impl Prefs {
+    pub fn sidebar_on(&self) -> bool {
+        self.tree || self.places || self.drives || self.recent
+    }
+
     pub fn path() -> PathBuf {
         crate::Config::config_path().with_file_name("explorer.toml")
     }

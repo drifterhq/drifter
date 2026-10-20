@@ -2742,6 +2742,9 @@ General
 Views
 = Ansichten
 
+Sidebar Settings
+= Seitenleisten-Einstellungen
+
 Sidebar
 = Seitenleiste
 

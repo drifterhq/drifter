@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use drifter_core::explorer::input::{self, Button, Key, Mods, Named, Ui};
 use drifter_core::explorer::look::{Art, Fonts, Look, Paint, Want};
-use drifter_core::explorer::look::Drop;
+use drifter_core::explorer::look::{Drop, Rail};
 use drifter_core::explorer::model::{Act, Drag, Effect, Model};
 use drifter_core::explorer::ops::{self, Done, Job};
 use drifter_core::explorer::clip::{self, Held};
@@ -45,6 +45,8 @@ use wayland_client::{Connection, QueueHandle};
 use crate::art::{self, Painter};
 
 const START: (u32, u32) = (1100, 700);
+const RAIL_HOLD: Duration = Duration::from_secs(3);
+const RAIL_FADE: Duration = Duration::from_millis(300);
 const SETTLE: Duration = Duration::from_millis(16);
 const FRAME_LATE: Duration = Duration::from_millis(100);
 const DOUBLE: Duration = Duration::from_millis(420);
@@ -127,6 +129,8 @@ struct Explorer {
     smooth: bool,
     tip_plan: u64,
     tip_seen: Option<Instant>,
+    rail_seen: Vec<(Rail, Instant, f64)>,
+    rail_quiet: bool,
 }
 
 fn modified(path: &std::path::Path) -> Option<std::time::SystemTime> {
@@ -329,12 +333,15 @@ pub fn run() -> Result<(), String> {
         smooth: config.smooth_scroll(),
         tip_plan: 0,
         tip_seen: None,
+        rail_seen: Vec::new(),
+        rail_quiet: false,
     };
     while !app.exit {
         events
-            .dispatch(app.busy().then_some(SETTLE), &mut app)
+            .dispatch(app.wait(), &mut app)
             .map_err(|e| format!("event loop: {e}"))?;
         app.animate();
+        app.fade_rails();
         if app.frame_free() {
             app.glide();
         }
@@ -618,7 +625,8 @@ impl Explorer {
             }
         }
         if let (Some(area), Some(image)) = (hover, before.take()) {
-            let old = crop(&image, area).filter(|_| self.model.menu.is_none() && self.model.dragging.is_none() && part.is_none());
+            let quiet = std::mem::take(&mut self.rail_quiet);
+            let old = crop(&image, area).filter(|_| self.model.menu.is_none() && self.model.dragging.is_none() && part.is_none() && !quiet);
             let image = self.look.repaint(image, size, &Paint { clip: Some(area), ..job });
             if let (Some((at, old)), Some((_, new))) = (old, crop(&image, area)) {
                 self.fade = Some(tween::Fade::new(area, at, old, new, GLOW));
@@ -694,6 +702,66 @@ impl Explorer {
             let here: std::collections::HashSet<&PathBuf> = self.model.entries.iter().map(|entry| &entry.path).collect();
             self.stamps.retain(|path, _| here.contains(path));
         }
+    }
+
+    fn wait(&self) -> Option<Duration> {
+        if self.busy() {
+            return Some(SETTLE);
+        }
+        let now = Instant::now();
+        self.rail_seen
+            .iter()
+            .filter(|(_, at, _)| now < *at + RAIL_HOLD)
+            .map(|(_, at, _)| *at + RAIL_HOLD - now)
+            .min()
+            .map(|left| left.max(SETTLE))
+    }
+
+    fn fade_rails(&mut self) {
+        use drifter_core::explorer::look::rail_hot;
+        let now = Instant::now();
+        let model = &self.model;
+        let mut rails = vec![(Rail::Body, model.scroll), (Rail::Tree, model.tree_scroll)];
+        rails.extend(model.columns.iter().enumerate().map(|(index, column)| (Rail::Column(index), column.scroll)));
+        for (rail, scroll) in rails {
+            let seen = self.rail_seen.iter_mut().find(|(each, _, _)| *each == rail);
+            let touched = rail_hot(model, rail);
+            match seen {
+                Some(seen) if touched || seen.2 != scroll => (seen.1, seen.2) = (now, scroll),
+                Some(_) => {}
+                None if touched => self.rail_seen.push((rail, now, scroll)),
+                None => self.rail_seen.push((rail, now - RAIL_HOLD - RAIL_FADE, scroll)),
+            }
+        }
+        let alphas: Vec<(Rail, f64)> = self
+            .rail_seen
+            .iter()
+            .map(|(rail, at, _)| {
+                let late = now.saturating_duration_since(*at + RAIL_HOLD).as_secs_f64();
+                (*rail, 1.0 - drifter_core::explorer::look::ease(late / RAIL_FADE.as_secs_f64()))
+            })
+            .filter(|(_, alpha)| *alpha > 0.0)
+            .collect();
+        if alphas == self.model.rails {
+            return;
+        }
+        let size = self.view();
+        let lines = self.model.lines();
+        for (rail, _, _) in &self.rail_seen {
+            let was = self.model.rails.iter().find(|(each, _)| each == rail).map(|(_, alpha)| *alpha);
+            let will = alphas.iter().find(|(each, _)| each == rail).map(|(_, alpha)| *alpha);
+            if was == will {
+                continue;
+            }
+            if let Some((area, _, _)) = self.look.rail_place(size, &self.model, &lines, *rail) {
+                let strip = drifter_core::Rect::new(Vec2::new(area.max().x - 12.0, area.origin.y), Vec2::new(12.0, area.size.y));
+                self.dirty = Some(self.dirty.map_or(strip, |had| drifter_core::explorer::look::join(had, strip)));
+                self.rail_quiet = true;
+            }
+        }
+        let columns = self.model.columns.len();
+        self.rail_seen.retain(|(rail, _, _)| !matches!(rail, Rail::Column(index) if *index >= columns));
+        self.model.rails = alphas;
     }
 
     fn busy(&self) -> bool {

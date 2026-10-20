@@ -228,6 +228,9 @@ pub fn press(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, button: Butto
                 (false, None, None) => {}
             }
         }
+        Hit::SideHead(_) if right => model.menu = Some(menu_at(model.side_menu(), at)),
+        Hit::SideHead(_) => {}
+        Hit::Line(index) if right && lines.get(index).and_then(Line::path).is_none() => model.menu = Some(menu_at(model.side_menu(), at)),
         Hit::Line(index) => {
             if let Some(path) = lines.get(index).and_then(Line::path) {
                 let path = path.to_path_buf();
@@ -733,8 +736,9 @@ pub fn scroll(model: &mut Model, ui: &Ui, lines: &[Line], at: Vec2, dx: f64, dy:
             let Some(index) = found else {
                 return false;
             };
+            let row = super::look::row_h(model);
             let column = &mut model.columns[index];
-            let most = (12.0 + column.entries.len() as f64 * super::look::ROW_H - body.size.y).max(0.0);
+            let most = (12.0 + column.entries.len() as f64 * row - body.size.y).max(0.0);
             let before = column.scroll;
             column.scroll = (column.scroll + dy).clamp(0.0, most);
             before != column.scroll
@@ -872,12 +876,13 @@ pub fn show_focus(model: &mut Model, ui: &Ui) {
         }
         Mode::Columns => {
             let dir = model.dir.clone();
+            let row = super::look::row_h(model);
             if let Some(column) = model.columns.iter_mut().find(|column| column.dir == dir) {
-                let top = 6.0 + at as f64 * super::look::ROW_H;
+                let top = 6.0 + at as f64 * row;
                 if top < column.scroll {
                     column.scroll = top - 6.0;
-                } else if top + super::look::ROW_H > column.scroll + body.size.y {
-                    column.scroll = top + super::look::ROW_H - body.size.y + 6.0;
+                } else if top + row > column.scroll + body.size.y {
+                    column.scroll = top + row - body.size.y + 6.0;
                 }
                 column.scroll = column.scroll.max(0.0);
             }
@@ -965,7 +970,7 @@ pub fn key(model: &mut Model, ui: &Ui, key: &Key) {
         }
         return;
     }
-    let side_on = model.prefs.tree || model.prefs.places || model.prefs.drives;
+    let side_on = model.prefs.sidebar_on();
     if key.named == Named::Tab && !key.ctrl && !key.alt {
         model.ring = true;
         model.pane = match (model.pane, side_on) {
@@ -1047,7 +1052,7 @@ pub fn key(model: &mut Model, ui: &Ui, key: &Key) {
     let (cols, _, _) = ui.look.grid(frame.body, model);
     let page = match mode {
         Mode::Icons => cols * ((frame.body.size.y / ui.look.grid(frame.body, model).1.y).floor() as usize).max(1),
-        _ => ((frame.body.size.y / super::look::ROW_H).floor() as usize).max(1),
+        _ => ((frame.body.size.y / super::look::row_h(model)).floor() as usize).max(1),
     } as isize;
     let across = if mode == Mode::Icons { cols as isize } else { 1 };
     if matches!(key.named, Named::Up | Named::Down | Named::Left | Named::Right | Named::Home | Named::End | Named::PageUp | Named::PageDown) {

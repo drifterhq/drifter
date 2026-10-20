@@ -20,6 +20,14 @@ pub const TABS_H: f64 = 36.0;
 pub const JOB_H: f64 = 50.0;
 pub const SPLIT_W: f64 = 6.0;
 pub const ROW_H: f64 = 26.0;
+
+pub fn row_icon(model: &Model) -> f64 {
+    (16.0 + (f64::from(model.prefs.zoom) - 32.0) * 32.0 / 224.0).round().clamp(16.0, 48.0)
+}
+
+pub fn row_h(model: &Model) -> f64 {
+    (row_icon(model) + 8.0).max(ROW_H)
+}
 pub const HEAD_H: f64 = 28.0;
 pub const LINE_H: f64 = 26.0;
 pub const COLUMN_W: f64 = 250.0;
@@ -43,6 +51,7 @@ pub struct Fonts<'a> {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Hit {
     Bar(usize),
+    SideHead(usize),
     Back,
     Forward,
     Up,
@@ -101,11 +110,18 @@ pub fn rail_thumb(area: Rect, content: f64, scroll: f64) -> Rect {
 }
 
 pub fn ringed(model: &Model, pane: super::model::Pane) -> bool {
-    model.ring && model.pane == pane && (pane == super::model::Pane::Files || model.prefs.tree || model.prefs.places || model.prefs.drives)
+    model.ring && model.pane == pane && (pane == super::model::Pane::Files || model.prefs.sidebar_on())
 }
 
 fn inset(area: Rect, by: f64) -> Rect {
     rect(area.origin.x + by, area.origin.y + by, area.size.x - by * 2.0, area.size.y - by * 2.0)
+}
+
+pub fn rail_alpha(model: &Model, rail: Rail) -> f64 {
+    match rail_hot(model, rail) {
+        true => 1.0,
+        false => model.rails.iter().find(|(each, _)| *each == rail).map_or(0.0, |(_, alpha)| *alpha),
+    }
 }
 
 pub fn rail_hot(model: &Model, rail: Rail) -> bool {
@@ -391,7 +407,7 @@ impl Look {
         let top = below + jobs.map_or(0.0, |jobs| jobs.size.y);
         let status_h = if model.prefs.status { STATUS_H } else { 0.0 };
         let tall = (size.y - top - status_h).max(0.0);
-        let side_on = model.prefs.tree || model.prefs.places || model.prefs.drives;
+        let side_on = model.prefs.sidebar_on();
         let side_w = match side_on {
             true => f64::from(model.prefs.tree_width).min(size.x * 0.5),
             false => 0.0,
@@ -465,7 +481,7 @@ impl Look {
             return false;
         };
         let (name_w, _) = self.list_widths(frame.body, model);
-        let name_x = row.origin.x + 34.0;
+        let name_x = row.origin.x + 16.0 + row_icon(model);
         let words = fonts.body.width_of(&fit(fonts.body, &entry.name, name_w - 44.0));
         at.x > name_x + words + 12.0 && at.x < row.origin.x + name_w - 8.0
     }
@@ -524,7 +540,7 @@ impl Look {
     pub fn entry_rect(&self, frame: &Frame, model: &Model, at: usize) -> Option<Rect> {
         let body = frame.body;
         match model.view.mode {
-            Mode::List => Some(rect(body.origin.x + 8.0, body.origin.y + HEAD_H + at as f64 * ROW_H - model.scroll, body.size.x - 16.0, ROW_H)),
+            Mode::List => Some(rect(body.origin.x + 8.0, body.origin.y + HEAD_H + at as f64 * row_h(model) - model.scroll, body.size.x - 16.0, row_h(model))),
             Mode::Icons => {
                 let (cols, cell, left) = self.grid(body, model);
                 let (row, col) = (at / cols, at % cols);
@@ -554,7 +570,7 @@ impl Look {
         let (first, last) = match model.view.mode {
             Mode::List => {
                 let top = body.origin.y + HEAD_H - model.scroll;
-                (((area.origin.y - top) / ROW_H).floor(), ((area.max().y - top) / ROW_H).floor())
+                (((area.origin.y - top) / row_h(model)).floor(), ((area.max().y - top) / row_h(model)).floor())
             }
             Mode::Icons => {
                 let (cols, cell, _) = self.grid(body, model);
@@ -582,7 +598,7 @@ impl Look {
     pub fn content_height(&self, frame: &Frame, model: &Model) -> f64 {
         let count = model.entries.len();
         match model.view.mode {
-            Mode::List => HEAD_H + count as f64 * ROW_H + 8.0,
+            Mode::List => HEAD_H + count as f64 * row_h(model) + 8.0,
             Mode::Icons => {
                 let (cols, cell, _) = self.grid(frame.body, model);
                 24.0 + count.div_ceil(cols) as f64 * cell.y
@@ -749,7 +765,7 @@ impl Look {
                 return Some(Hit::Eject(found));
             }
             return match lines[found] {
-                Line::Head(_) => None,
+                Line::Head(_) => Some(Hit::SideHead(found)),
                 _ => Some(Hit::Line(found)),
             };
         }
@@ -782,7 +798,7 @@ impl Look {
                     }
                     return None;
                 }
-                let index = ((at.y - body.origin.y - HEAD_H + model.scroll) / ROW_H).floor();
+                let index = ((at.y - body.origin.y - HEAD_H + model.scroll) / row_h(model)).floor();
                 match index >= 0.0 && (index as usize) < model.entries.len() {
                     true => Some(Hit::Entry(index as usize)),
                     false => Some(Hit::Space),
@@ -805,7 +821,7 @@ impl Look {
                 for (index, column) in model.columns.iter().enumerate() {
                     let area = self.column_rect(body, model, index);
                     if area.contains(at) {
-                        let row = ((at.y - area.origin.y - 6.0 + column.scroll) / ROW_H).floor();
+                        let row = ((at.y - area.origin.y - 6.0 + column.scroll) / row_h(model)).floor();
                         let row = (row >= 0.0 && (row as usize) < column.entries.len()).then_some(row as usize);
                         return Some(Hit::Column(index, row));
                     }
@@ -1022,8 +1038,8 @@ impl Look {
             Hit::Column(column, Some(row)) => {
                 let one = model.columns.get(column)?.entries.get(row)?;
                 let area = self.column_rect(frame.body, model, column);
-                let y = area.origin.y + 6.0 + row as f64 * ROW_H - model.columns[column].scroll;
-                into(&one.path, rect(area.origin.x + 6.0, y, COLUMN_W - 12.0, ROW_H), one.folder)
+                let y = area.origin.y + 6.0 + row as f64 * row_h(model) - model.columns[column].scroll;
+                into(&one.path, rect(area.origin.x + 6.0, y, COLUMN_W - 12.0, row_h(model)), one.folder)
             }
             _ => None,
         };
@@ -1407,8 +1423,8 @@ impl Look {
                     let (index, column) = model.columns.iter().enumerate().find(|(_, column)| column.entries.iter().any(|each| &each.path == path))?;
                     let row = column.entries.iter().position(|each| &each.path == path)?;
                     let area = self.column_rect(frame.body, model, index);
-                    let line = rect(area.origin.x + 6.0, area.origin.y + 6.0 + row as f64 * ROW_H - column.scroll, COLUMN_W - 12.0, ROW_H);
-                    let box_area = rect(line.origin.x + 28.0, line.origin.y + 2.0, line.size.x - 34.0, ROW_H - 4.0);
+                    let line = rect(area.origin.x + 6.0, area.origin.y + 6.0 + row as f64 * row_h(model) - column.scroll, COLUMN_W - 12.0, row_h(model));
+                    let box_area = rect(line.origin.x + 10.0 + row_icon(model), line.origin.y + 2.0, line.size.x - 16.0 - row_icon(model), row_h(model) - 4.0);
                     return Some((rect(box_area.origin.x + 4.0, box_area.origin.y, box_area.size.x - 8.0, box_area.size.y), fonts.body));
                 }
                 let index = model.index_of(path)?;
@@ -1416,7 +1432,7 @@ impl Look {
                 match model.view.mode {
                     Mode::List => {
                         let (name_w, _) = self.list_widths(frame.body, model);
-                        Some((rect(area.origin.x + 34.0, area.origin.y, name_w - 44.0, ROW_H), fonts.body))
+                        Some((rect(area.origin.x + 16.0 + row_icon(model), area.origin.y, name_w - 44.0, row_h(model)), fonts.body))
                     }
                     Mode::Icons => {
                         let zoom = f64::from(model.prefs.zoom);
@@ -1627,18 +1643,18 @@ impl Look {
                 }
             }
         }
-        self.scroll_mark(&mut canvas, local, self.tree_height(job.lines), model.tree_scroll, rail_hot(model, Rail::Tree));
+        self.scroll_mark(&mut canvas, local, self.tree_height(job.lines), model.tree_scroll, rail_hot(model, Rail::Tree), rail_alpha(model, Rail::Tree));
         canvas.image
     }
 
-    fn scroll_mark(&self, canvas: &mut Canvas, area: Rect, content: f64, scroll: f64, hot: bool) {
-        if content <= area.size.y + 1.0 {
+    fn scroll_mark(&self, canvas: &mut Canvas, area: Rect, content: f64, scroll: f64, hot: bool, alpha: f64) {
+        if content <= area.size.y + 1.0 || alpha <= 0.0 {
             return;
         }
         let thumb = rail_thumb(area, content, scroll);
         match hot {
-            true => canvas.round_rect(rect(thumb.max().x - 10.0, thumb.origin.y + 2.0, 8.0, thumb.size.y - 4.0), 4.0, self.dim, 0.75),
-            false => canvas.round_rect(rect(thumb.max().x - 7.0, thumb.origin.y + 2.0, 4.0, thumb.size.y - 4.0), 2.0, self.dim, 0.45),
+            true => canvas.round_rect(rect(thumb.max().x - 10.0, thumb.origin.y + 2.0, 8.0, thumb.size.y - 4.0), 4.0, self.dim, 0.75 * alpha),
+            false => canvas.round_rect(rect(thumb.max().x - 7.0, thumb.origin.y + 2.0, 4.0, thumb.size.y - 4.0), 2.0, self.dim, 0.45 * alpha),
         }
     }
 
@@ -1652,7 +1668,7 @@ impl Look {
                 Mode::Icons => (body, self.content_height(&frame, model), model.scroll),
                 _ => return None,
             },
-            Rail::Column(index) => (self.column_rect(body, model, index), 12.0 + model.columns.get(index)?.entries.len() as f64 * ROW_H, model.columns[index].scroll),
+            Rail::Column(index) => (self.column_rect(body, model, index), 12.0 + model.columns.get(index)?.entries.len() as f64 * row_h(model), model.columns[index].scroll),
         };
         (content > area.size.y + 1.0).then_some((area, content, scroll))
     }
@@ -1741,8 +1757,8 @@ impl Look {
         let body = frame.body;
         let (name_w, extra) = self.list_widths(body, model);
         let top = HEAD_H;
-        let first = ((model.scroll / ROW_H).floor().max(0.0)) as usize;
-        let count = (body.size.y / ROW_H).ceil() as usize + 2;
+        let first = ((model.scroll / row_h(model)).floor().max(0.0)) as usize;
+        let count = (body.size.y / row_h(model)).ceil() as usize + 2;
         for at in first..(first + count).min(model.entries.len()) {
             let entry = &model.entries[at];
             let Some(area) = self.entry_rect(frame, model, at) else {
@@ -1761,15 +1777,15 @@ impl Look {
             let ink = if picked { self.on_accent } else { self.ink };
             let dim = if picked { mix(self.on_accent, self.accent, 0.25) } else { self.dim };
             let middle = area.center().y;
-            self.entry_art(canvas, job.art, model, entry, rect(area.origin.x + 8.0, middle - 9.0, 18.0, 18.0));
-            let name_x = area.origin.x + 34.0;
+            self.entry_art(canvas, job.art, model, entry, rect(area.origin.x + 8.0, middle - row_icon(model) / 2.0, row_icon(model), row_icon(model)));
+            let name_x = area.origin.x + 16.0 + row_icon(model);
             let renaming = model.renaming.as_ref().filter(|(path, _)| path == &entry.path);
             match renaming {
                 Some((_, field)) => {
-                    let box_area = rect(name_x - 4.0, area.origin.y + 2.0, name_w - 36.0, ROW_H - 4.0);
+                    let box_area = rect(name_x - 4.0, area.origin.y + 2.0, name_w - 36.0, row_h(model) - 4.0);
                     canvas.round_rect(box_area, 4.0, self.card, 1.0);
                     canvas.ring(box_area, 4.0, 1.5, self.accent, 1.0);
-                    self.paint_field(canvas, fonts.body, field, rect(name_x, area.origin.y, name_w - 44.0, ROW_H));
+                    self.paint_field(canvas, fonts.body, field, rect(name_x, area.origin.y, name_w - 44.0, row_h(model)));
                 }
                 None => {
                     let faded = model.clip.as_ref().is_some_and(|(paths, cut)| *cut && paths.contains(&entry.path));
@@ -1818,7 +1834,7 @@ impl Look {
                 let label = fonts.small.paint_weight(name, ink, if on { 620.0 } else { 500.0 });
                 let size = logical(&label);
                 let lx = match sort {
-                    Sort::Name => x + 34.0,
+                    Sort::Name => x + 16.0 + row_icon(model),
                     Sort::Size => x + w - 16.0 - size.x,
                     _ => x + 8.0,
                 };
@@ -1842,7 +1858,7 @@ impl Look {
                 x += w;
             }
         }
-        self.scroll_mark(canvas, rect(0.0, top, body.size.x, body.size.y - top), self.content_height(frame, model) - top, model.scroll, rail_hot(model, Rail::Body));
+        self.scroll_mark(canvas, rect(0.0, top, body.size.x, body.size.y - top), self.content_height(frame, model) - top, model.scroll, rail_hot(model, Rail::Body), rail_alpha(model, Rail::Body));
     }
 
     fn wrap(&self, font: &Font, words: &str, room: f64, lines: usize) -> Vec<String> {
@@ -1929,7 +1945,7 @@ impl Look {
                 canvas.stamp(&piece, Vec2::new(area.center().x - size.x / 2.0, label_top + row as f64 * line_h).round(), 1.0);
             }
         }
-        self.scroll_mark(canvas, body, self.content_height(frame, model), model.scroll, rail_hot(model, Rail::Body));
+        self.scroll_mark(canvas, body, self.content_height(frame, model), model.scroll, rail_hot(model, Rail::Body), rail_alpha(model, Rail::Body));
     }
 
     fn paint_columns(&self, canvas: &mut Canvas, frame: &Frame, job: &Paint) {
@@ -1945,11 +1961,11 @@ impl Look {
             let chosen_next = model.columns.get(index + 1).map(|next| next.dir.clone());
             let current = column.dir == model.dir;
             for (row, entry) in column.entries.iter().enumerate() {
-                let y = area.origin.y + 6.0 + row as f64 * ROW_H - column.scroll;
-                if y + ROW_H < 0.0 || y > body.size.y {
+                let y = area.origin.y + 6.0 + row as f64 * row_h(model) - column.scroll;
+                if y + row_h(model) < 0.0 || y > body.size.y {
                     continue;
                 }
-                let line = rect(area.origin.x + 6.0, y, COLUMN_W - 12.0, ROW_H);
+                let line = rect(area.origin.x + 6.0, y, COLUMN_W - 12.0, row_h(model));
                 if !touches(frame.clip, line) {
                     continue;
                 }
@@ -1970,16 +1986,16 @@ impl Look {
                 let strong = picked && (current || index + 1 == count);
                 let ink = if strong { self.on_accent } else { self.ink };
                 let middle = line.center().y;
-                self.entry_art(canvas, job.art, model, entry, rect(line.origin.x + 6.0, middle - 9.0, 18.0, 18.0));
+                self.entry_art(canvas, job.art, model, entry, rect(line.origin.x + 6.0, middle - row_icon(model) / 2.0, row_icon(model), row_icon(model)));
                 if let Some((_, field)) = model.renaming.as_ref().filter(|(path, _)| path == &entry.path) {
-                    let box_area = rect(line.origin.x + 28.0, line.origin.y + 2.0, line.size.x - 34.0, ROW_H - 4.0);
+                    let box_area = rect(line.origin.x + 10.0 + row_icon(model), line.origin.y + 2.0, line.size.x - 16.0 - row_icon(model), row_h(model) - 4.0);
                     canvas.round_rect(box_area, 4.0, self.card, 1.0);
                     canvas.ring(box_area, 4.0, 1.5, self.accent, 1.0);
                     self.paint_field(canvas, fonts.body, field, rect(box_area.origin.x + 4.0, box_area.origin.y, box_area.size.x - 8.0, box_area.size.y));
                     continue;
                 }
-                let room = line.size.x - 34.0 - if entry.folder { 18.0 } else { 6.0 };
-                self.text(canvas, fonts.body, &entry.name, ink, Vec2::new(line.origin.x + 30.0, middle), room);
+                let room = line.size.x - 16.0 - row_icon(model) - if entry.folder { 18.0 } else { 6.0 };
+                self.text(canvas, fonts.body, &entry.name, ink, Vec2::new(line.origin.x + 12.0 + row_icon(model), middle), room);
                 if entry.folder {
                     self.chevron(canvas, Vec2::new(line.max().x - 10.0, middle), if strong { self.on_accent } else { self.dim });
                 }
@@ -1987,8 +2003,8 @@ impl Look {
             if column.entries.is_empty() {
                 self.text_center(canvas, fonts.small, crate::lang::t("Empty"), self.dim, Vec2::new(area.center().x, area.origin.y + 30.0), COLUMN_W - 20.0);
             }
-            let content = 12.0 + column.entries.len() as f64 * ROW_H;
-            self.scroll_mark(canvas, area, content, column.scroll, rail_hot(model, Rail::Column(index)));
+            let content = 12.0 + column.entries.len() as f64 * row_h(model);
+            self.scroll_mark(canvas, area, content, column.scroll, rail_hot(model, Rail::Column(index)), rail_alpha(model, Rail::Column(index)));
             canvas.round_rect(rect(area.max().x - 1.0, 0.0, 1.0, body.size.y), 0.0, self.rule, 1.0);
         }
         if let Some(one) = model.single().filter(|one| !one.folder) {
@@ -2258,7 +2274,7 @@ impl Look {
             Hit::Column(index, Some(row)) => {
                 let area = self.column_rect(frame.body, model, *index);
                 let column = model.columns.get(*index)?;
-                rect(area.origin.x + 6.0, area.origin.y + 6.0 + *row as f64 * ROW_H - column.scroll, COLUMN_W - 12.0, ROW_H)
+                rect(area.origin.x + 6.0, area.origin.y + 6.0 + *row as f64 * row_h(model) - column.scroll, COLUMN_W - 12.0, row_h(model))
             }
             Hit::Stop(id) => self.job_rows(frame.jobs?, model).into_iter().find(|(each, _)| each == id)?.1,
             Hit::Dismiss => self.dismiss_rect(frame.banner?),
@@ -3600,6 +3616,40 @@ mod repaint_tests {
     }
 
     #[test]
+    fn right_clicking_a_sidebar_heading_shows_and_hides_sections() {
+        use super::super::input::{self, Button, Mods, Ui};
+        let dir = std::env::temp_dir().join(format!("drifter-side-menu-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("work")).unwrap();
+        let mut model = Model::new(dir.join("explorer.toml"), Some(dir.join("work")));
+        model.settle_all(std::time::Duration::from_secs(5));
+        let (Ok(body), Ok(small), Ok(title)) = (crate::Font::find(None, 13.0), crate::Font::find(None, 11.5), crate::Font::find(None, 17.0)) else {
+            return;
+        };
+        let fonts = Fonts { body: &body, small: &small, title: &title };
+        let look = Look::themed(&crate::theme::DARK, [64, 128, 238]);
+        let size = Vec2::new(900.0, 600.0);
+        crate::paint::set_density(1);
+        let ui = Ui { look: &look, fonts: &fonts, size };
+        let lines = model.lines();
+        let frame = look.frame(size, &model);
+        let rects = look.line_rects(frame.side.unwrap(), &lines, model.tree_scroll);
+        let head = lines.iter().position(|line| matches!(line, Line::Head(_))).unwrap();
+        let at = rects[head].center();
+        assert_eq!(look.hit(size, &model, &lines, &fonts, at), Some(Hit::SideHead(head)));
+        input::press(&mut model, &ui, &lines, at, Button::Right, 1, Mods::default());
+        let menu = model.menu.take().expect("a heading opens the sidebar menu");
+        let checks: Vec<Option<bool>> = menu.items.iter().take(4).map(|item| item.check).collect();
+        assert_eq!(checks, vec![Some(true); 4]);
+        model.act(menu.items[0].act.clone().unwrap());
+        assert!(!model.prefs.places);
+        assert!(!model.lines().iter().any(|line| matches!(line, Line::Place { .. })));
+        model.act(menu.items[5].act.clone().unwrap());
+        assert!(matches!(model.sheet, Some(Sheet::Prefs(2))));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn a_lasso_picks_what_it_touches() {
         use super::super::input::{self, Button, Mods, Ui};
         let dir = std::env::temp_dir().join(format!("drifter-lasso-{}", std::process::id()));
@@ -3621,15 +3671,16 @@ mod repaint_tests {
         let lines = model.lines();
         let frame = look.frame(size, &model);
         let top = frame.body.origin.y + HEAD_H;
-        let start = Vec2::new(frame.body.origin.x + 300.0, top + 12.0 * ROW_H + 40.0);
+        let row = row_h(&model);
+        let start = Vec2::new(frame.body.origin.x + 300.0, top + 12.0 * row + 40.0);
         assert_eq!(look.hit(size, &model, &lines, &fonts, start), Some(Hit::Space));
         input::press(&mut model, &ui, &lines, start, Button::Left, 1, Mods::default());
-        input::motion(&mut model, &ui, &lines, Vec2::new(start.x + 40.0, top + 3.0 * ROW_H + 5.0));
+        input::motion(&mut model, &ui, &lines, Vec2::new(start.x + 40.0, top + 3.0 * row + 5.0));
         let names: Vec<String> = model.chosen().iter().map(|one| one.name.clone()).collect();
         assert_eq!(names, (13..22).map(|n| format!("file {n}.txt")).collect::<Vec<_>>());
         let art = Art::default();
         let drawn = look.paint(size, &Paint { model: &model, lines: &lines, fonts: &fonts, art: &art, clip: None });
-        input::release(&mut model, &ui, &lines, Vec2::new(start.x + 40.0, top + 3.0 * ROW_H + 5.0), false);
+        input::release(&mut model, &ui, &lines, Vec2::new(start.x + 40.0, top + 3.0 * row + 5.0), false);
         assert!(model.dragging.is_none());
         let after = look.paint(size, &Paint { model: &model, lines: &lines, fonts: &fonts, art: &art, clip: None });
         assert!(!same(&drawn, &after), "the lasso box shows while dragging");
@@ -3637,14 +3688,14 @@ mod repaint_tests {
         input::press(&mut model, &ui, &lines, start, Button::Left, 1, ctrl);
         input::motion(&mut model, &ui, &lines, Vec2::new(start.x, top + 1.0));
         assert_eq!(model.picked.len(), 12);
-        input::motion(&mut model, &ui, &lines, Vec2::new(start.x, top + 11.0 * ROW_H + 2.0));
+        input::motion(&mut model, &ui, &lines, Vec2::new(start.x, top + 11.0 * row + 2.0));
         assert_eq!(model.picked.len(), 9);
         input::release(&mut model, &ui, &lines, start, false);
         input::press(&mut model, &ui, &lines, start, Button::Left, 1, Mods::default());
         input::release(&mut model, &ui, &lines, start, false);
         assert!(model.picked.is_empty());
 
-        let blank = |row: usize| Vec2::new(frame.body.origin.x + 180.0, top + row as f64 * ROW_H + 10.0);
+        let blank = |at: usize| Vec2::new(frame.body.origin.x + 180.0, top + at as f64 * row + 10.0);
         assert!(look.row_blank(size, &model, &fonts, 2, blank(2)), "right of the name is blank");
         assert!(!look.row_blank(size, &model, &fonts, 2, Vec2::new(frame.body.origin.x + 60.0, blank(2).y)), "the name is not");
         input::press(&mut model, &ui, &lines, blank(2), Button::Left, 1, Mods::default());

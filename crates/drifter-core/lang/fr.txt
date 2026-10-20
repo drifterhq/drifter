@@ -2739,6 +2739,9 @@ General
 Views
 = Présentations
 
+Sidebar Settings
+= Réglages de la barre latérale
+
 Sidebar
 = Barre latérale
 

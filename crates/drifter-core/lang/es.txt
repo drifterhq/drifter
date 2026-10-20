@@ -2742,6 +2742,9 @@ General
 Views
 = Vistas
 
+Sidebar Settings
+= Ajustes de la barra lateral
+
 Sidebar
 = Barra lateral
 

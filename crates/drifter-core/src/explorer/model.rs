@@ -42,6 +42,7 @@ pub enum Act {
     PickAll,
     CopyPath,
     Prefs,
+    SidebarPrefs,
     Show(Mode),
     ZoomIn,
     ZoomOut,
@@ -479,6 +480,7 @@ pub struct Model {
     pub recent_stamp: Option<SystemTime>,
     pub recent_list: Option<PathBuf>,
     pub pop: f64,
+    pub rails: Vec<(super::look::Rail, f64)>,
     pub undo: Vec<Undo>,
     pub redo: Vec<Undo>,
     pub turns: HashMap<u64, bool>,
@@ -631,6 +633,7 @@ impl Model {
             recent_stamp: None,
             recent_list: (!cfg!(test)).then(|| super::recent::list_path(&home)),
             pop: 1.0,
+            rails: Vec::new(),
             undo: Vec::new(),
             redo: Vec::new(),
             turns: HashMap::new(),
@@ -2231,6 +2234,7 @@ impl Model {
                 self.say(crate::lang::t("Path copied"), false);
             }
             Act::Prefs => self.sheet = Some(Sheet::Prefs(0)),
+            Act::SidebarPrefs => self.sheet = Some(Sheet::Prefs(2)),
             Act::Show(mode) => {
                 if let Some(search) = self.search.as_mut() {
                     search.mode_before = None;
@@ -2246,10 +2250,11 @@ impl Model {
             Act::ZoomOut => self.zoom_to(self.prefs.zoom.saturating_sub(zoom_step(self.prefs.zoom - 1))),
             Act::Hidden => self.set(Pref::Hidden),
             Act::Tree => {
-                let on = !(self.prefs.tree || self.prefs.places);
+                let on = !self.prefs.sidebar_on();
                 self.prefs.tree = on;
                 self.prefs.places = on;
                 self.prefs.drives = on;
+                self.prefs.recent = on;
                 self.saved = false;
             }
             Act::Status => self.set(Pref::Status),
@@ -2463,7 +2468,7 @@ impl Model {
                 items.push(Item::new(crate::lang::t("Zoom Out"), "Ctrl+-", Act::ZoomOut).when(p.zoom > prefs::LEAST_ZOOM));
                 items.push(Item::rule());
                 items.push(Item::new(crate::lang::t("Show Hidden Files"), "Ctrl+H", Act::Hidden).checked(p.hidden));
-                items.push(Item::new(crate::lang::t("Show Sidebar"), "F9", Act::Tree).checked(p.tree || p.places));
+                items.push(Item::new(crate::lang::t("Show Sidebar"), "F9", Act::Tree).checked(p.sidebar_on()));
                 items.push(Item::new(crate::lang::t("Show Status Bar"), "", Act::Status).checked(p.status));
                 items.push(Item::rule());
                 items.push(Item::new(crate::lang::t("Reload"), "F5", Act::Reload));
@@ -2654,6 +2659,18 @@ impl Model {
         items.push(Item::new(crate::lang::t("Quick Look"), "Space", Act::QuickLook).when(one));
         items.push(Item::new(crate::lang::t("Get Info"), "Ctrl+I", Act::Info));
         items
+    }
+
+    pub fn side_menu(&self) -> Vec<Item> {
+        let p = &self.prefs;
+        vec![
+            Item::new(crate::lang::t("Places"), "", Act::Set(Pref::Places)).checked(p.places),
+            Item::new(crate::lang::t("Folders"), "", Act::Set(Pref::Tree)).checked(p.tree),
+            Item::new(crate::lang::t("Recent"), "", Act::Set(Pref::Recent)).checked(p.recent),
+            Item::new(crate::lang::t("Drives"), "", Act::Set(Pref::Drives)).checked(p.drives),
+            Item::rule(),
+            Item::new(crate::lang::t("Sidebar Settings"), "", Act::SidebarPrefs),
+        ]
     }
 
     pub fn line_menu(&mut self, path: &Path, mark: bool) -> Vec<Item> {
