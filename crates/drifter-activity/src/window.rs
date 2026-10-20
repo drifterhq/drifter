@@ -403,7 +403,10 @@ impl Activity {
 
     fn wheel(&mut self, by: f64, click: bool) {
         if !(click && self.smooth) || self.model.view == View::Hour {
-            self.glide = None;
+            if let Some(glide) = self.glide.take() {
+                self.model.scroll = glide.to;
+                self.stale = true;
+            }
             self.scroll_by(by);
             return;
         }
@@ -959,7 +962,9 @@ impl PointerHandler for Activity {
                 PointerEventKind::Motion { .. } => self.motion(),
                 PointerEventKind::Press { button, .. } if button == BTN_LEFT => self.press(),
                 PointerEventKind::Release { button, .. } if button == BTN_LEFT => self.let_go(),
-                PointerEventKind::Axis { vertical, .. } => self.wheel(vertical.absolute, vertical.discrete != 0),
+                PointerEventKind::Axis { vertical, source, .. } => {
+                    self.wheel(vertical.absolute, vertical.discrete != 0 || source == Some(wl_pointer::AxisSource::Wheel))
+                }
                 PointerEventKind::Leave { .. } => {
                     self.let_go();
                     self.over_list = false;

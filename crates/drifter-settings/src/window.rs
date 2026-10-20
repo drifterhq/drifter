@@ -2456,7 +2456,10 @@ impl Settings {
     fn wheel(&mut self, by: f64, click: bool) {
         let page = self.sheet.is_none() && self.at.x > self.look.sidebar;
         if !(click && page && self.smooth()) {
-            self.glide = None;
+            if let Some(glide) = self.glide.take() {
+                self.scroll = glide.to;
+                self.stale = true;
+            }
             self.scroll_by(by);
             return;
         }
@@ -3117,7 +3120,9 @@ impl PointerHandler for Settings {
                     self.holding = None;
                     self.drop_monitor();
                 }
-                PointerEventKind::Axis { vertical, .. } => self.wheel(vertical.absolute, vertical.discrete != 0),
+                PointerEventKind::Axis { vertical, source, .. } => {
+                    self.wheel(vertical.absolute, vertical.discrete != 0 || source == Some(wl_pointer::AxisSource::Wheel))
+                }
                 PointerEventKind::Leave { .. } => {
                     self.holding = None;
                     self.drop_monitor();
