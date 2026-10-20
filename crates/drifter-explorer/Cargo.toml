@@ -26,4 +26,5 @@ recommends = "ffmpegthumbnailer, poppler-utils, libarchive-tools"
 assets = [
     ["target/release/drifter-explorer", "usr/bin/", "755"],
     ["../../dist/drifter-explorer.desktop", "usr/share/applications/", "644"],
+    ["../../dist/drifter-mimeapps.list", "usr/share/applications/", "644"],
 ]

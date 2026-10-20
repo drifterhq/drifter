@@ -1418,12 +1418,7 @@ fn own_gecos() -> String {
 }
 
 fn mimeapps() -> PathBuf {
-    std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .filter(|path| path.is_absolute())
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
-        .unwrap_or_else(|| PathBuf::from(".config"))
-        .join("mimeapps.list")
+    drifter_core::desktop::user_mime_list()
 }
 
 fn installer() -> Option<(&'static str, bool)> {

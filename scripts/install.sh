@@ -39,6 +39,16 @@ DESKTOP
 sudo chmod 0644 /usr/share/wayland-sessions/drifter.desktop
 echo "wrote /usr/share/wayland-sessions/drifter.desktop, which runs $here/scripts/drifter-session"
 
+sudo install -d /usr/share/applications
+sed "s|^Exec=drifter-explorer|Exec=$here/target/release/drifter-explorer|" "$here/dist/drifter-explorer.desktop" |
+    sudo tee /usr/share/applications/drifter-explorer.desktop >/dev/null
+sed "s|^Exec=drifter-activity|Exec=$here/target/release/drifter-activity|" "$here/dist/drifter-activity.desktop" |
+    sudo tee /usr/share/applications/drifter-activity.desktop >/dev/null
+sudo install -m 0644 "$here/dist/drifter-mimeapps.list" /usr/share/applications/drifter-mimeapps.list
+sudo chmod 0644 /usr/share/applications/drifter-explorer.desktop /usr/share/applications/drifter-activity.desktop
+command -v update-desktop-database >/dev/null 2>&1 && sudo update-desktop-database -q /usr/share/applications || true
+echo "wrote Explorer and Activity to /usr/share/applications; folders open in Explorer in Drifter sessions"
+
 icons="${XDG_DATA_HOME:-$HOME/.local/share}/icons"
 mkdir -p "$icons"
 for theme in drifter-icons-dark drifter-icons-light; do

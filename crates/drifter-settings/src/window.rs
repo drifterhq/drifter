@@ -671,11 +671,7 @@ fn kernel(mount: &Mount) -> Option<String> {
 }
 
 fn mimeapps() -> PathBuf {
-    std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .filter(|path| path.is_absolute())
-        .unwrap_or_else(|| home().join(".config"))
-        .join("mimeapps.list")
+    drifter_core::desktop::user_mime_list()
 }
 
 fn tell_the_system(change: impl Fn(&str) -> String) {

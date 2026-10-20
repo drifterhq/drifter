@@ -312,14 +312,28 @@ impl Role {
     }
 }
 
+pub const OWN_LIST: &str = "drifter-mimeapps.list";
+
 pub fn mime_lists() -> Vec<PathBuf> {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let config = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .or_else(|| home.as_ref().map(|home| home.join(".config")));
     let mut lists = Vec::new();
-    if let Some(home) = std::env::var_os("HOME") {
-        let home = PathBuf::from(home);
-        lists.push(home.join(".config/mimeapps.list"));
-        lists.push(home.join(".local/share/applications/mimeapps.list"));
+    let mut both = |dir: PathBuf| {
+        lists.push(dir.join(OWN_LIST));
+        lists.push(dir.join("mimeapps.list"));
+    };
+    if let Some(config) = config {
+        both(config);
     }
-    lists.push(PathBuf::from("/usr/share/applications/mimeapps.list"));
+    both(PathBuf::from("/etc/xdg"));
+    if let Some(home) = home {
+        both(home.join(".local/share/applications"));
+    }
+    both(PathBuf::from("/usr/local/share/applications"));
+    both(PathBuf::from("/usr/share/applications"));
     lists.push(PathBuf::from("/usr/share/applications/defaults.list"));
     lists
 }
@@ -519,7 +533,7 @@ pub fn user_mime_list() -> PathBuf {
         .map(PathBuf::from)
         .filter(|path| path.is_absolute())
         .unwrap_or_else(|| home.join(".config"))
-        .join("mimeapps.list")
+        .join(OWN_LIST)
 }
 
 pub fn set_default(text: &str, role: Role, id: &str) -> String {
