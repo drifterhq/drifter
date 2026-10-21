@@ -34,6 +34,9 @@ const DIGIT_STAGGER: f64 = 0.055;
 const DIGIT_FROM: f64 = 0.5;
 const MORPH: f64 = 0.32;
 const MORPH_FROM: f64 = 0.6;
+const LEVEL: f64 = 0.36;
+const HUD_ICON_IN: f64 = 0.4;
+const HUD_ICON_FROM: f64 = 0.4;
 
 pub(super) struct Row {
     pub key: String,
@@ -46,6 +49,8 @@ pub(super) struct Row {
     pub bounce: bool,
     pub born: Instant,
     pub gone: Option<Instant>,
+    pub level: (f64, f64, Instant),
+    pub signal: (f64, f64, Instant),
 }
 
 pub(super) struct List {
@@ -74,6 +79,9 @@ pub(super) struct Art {
     pub accent_disc: Option<TextureBuffer<Tex>>,
     tray: Vec<TextureBuffer<Tex>>,
     dot: Option<TextureBuffer<Tex>>,
+    fills: Vec<TextureBuffer<Tex>>,
+    bars: Option<TextureBuffer<Tex>>,
+    pub glyphs: HashMap<Kind, TextureBuffer<Tex>>,
 }
 
 pub(super) struct Radio {
@@ -101,6 +109,9 @@ pub(super) struct Radio {
     pub tray_state: (usize, usize, Instant),
     pub list: Option<List>,
     pub prefs_seen: Option<std::time::SystemTime>,
+    pub mic_asked: Vec<String>,
+    pub mic_wanted: Vec<String>,
+    pub next_ask: u64,
 }
 
 impl Default for Radio {
@@ -131,6 +142,9 @@ impl Default for Radio {
             tray_state: (0, 0, long_ago),
             list: None,
             prefs_seen: None,
+            mic_asked: Vec::new(),
+            mic_wanted: Vec::new(),
+            next_ask: 1 << 40,
         }
     }
 }
@@ -188,6 +202,10 @@ impl State {
             for change in blue::changes(&before, now) {
                 match change {
                     Change::Connected(address) if !first => self.blue_connected(now, &address),
+                    Change::Disconnected(address) => {
+                        self.radio.mic_asked.retain(|each| *each != address);
+                        self.radio.mic_wanted.retain(|each| *each != address);
+                    }
                     Change::Low(address, line) => self.blue_low(now, &address, line),
                     _ => {}
                 }
@@ -279,9 +297,60 @@ impl State {
         };
         for device in blue.mine().filter(|device| !device.connected) {
             if self.radio.prefs.when(&device.address) == want && !self.radio.busy.contains(&device.address) {
+                if want == When::Mic {
+                    self.radio.mic_wanted.push(device.address.clone());
+                }
                 self.blue_connect(&device.address);
             }
         }
+        if want != When::Mic {
+            return;
+        }
+        let audio: Vec<blue::Device> = blue
+            .connected()
+            .filter(|device| device.audio || device.kind.audio())
+            .filter(|device| !self.radio.mic_asked.contains(&device.address))
+            .cloned()
+            .collect();
+        for device in audio {
+            self.radio.mic_asked.push(device.address.clone());
+            let auto = self.radio.prefs.when(&device.address) == When::Mic;
+            let sound = self.radio.prefs.sound(&device.address);
+            let address = device.address.clone();
+            self.background("bluetooth mic check", move || {
+                let card = drifter_blue::sound::card(&address);
+                let offers = card.as_ref().is_some_and(|card| !card.headset() && card.headset_profile().is_some());
+                let switched = (offers && auto).then(|| drifter_blue::sound::mic(&address, true, sound));
+                move |state: &mut State| {
+                    if let Some(Err(error)) = switched {
+                        log!("drifter: cannot turn on the mic of {address}: {error}");
+                    }
+                    if offers && !auto {
+                        state.blue_ask_mic(&device);
+                    }
+                }
+            });
+        }
+    }
+
+    fn blue_ask_mic(&mut self, device: &blue::Device) {
+        let id = self.radio.next_ask;
+        self.radio.next_ask += 1;
+        let ask = Ask {
+            id,
+            address: device.address.clone(),
+            name: device.shown_name(),
+            kind: device.kind,
+            question: blue::Question::Mic,
+        };
+        if self.radio.asks.is_empty() {
+            self.radio.asked_at = Instant::now();
+            self.radio.typed.clear();
+            self.radio.typed_at.clear();
+        }
+        self.radio.asks.push((ask, None));
+        self.paint_pairing();
+        self.kick_now();
     }
 
     fn blue_connected(&mut self, blue: &Blue, address: &str) {
@@ -293,13 +362,17 @@ impl State {
         };
         if device.kind.audio() || device.audio {
             let sound = self.radio.prefs.sound(address);
+            let mic = self.radio.mic_wanted.iter().any(|each| each == address);
             let address = address.to_string();
             self.background("bluetooth sound", move || {
                 let switched = drifter_blue::sound::make_default(&address, sound);
-                move |_: &mut State| {
-                    if let Err(error) = switched {
-                        log!("drifter: cannot switch sound to {address}: {error}");
-                    }
+                if mic && matches!(switched, Ok(true)) {
+                    let _ = drifter_blue::sound::mic(&address, true, sound);
+                }
+                move |state: &mut State| match switched {
+                    Ok(true) => state.blue_output_hud(&address),
+                    Ok(false) => {}
+                    Err(error) => log!("drifter: cannot switch sound to {address}: {error}"),
                 }
             });
         }
@@ -397,6 +470,58 @@ impl State {
         self.kick_now();
     }
 
+    pub(super) fn hud_icon_look(since: Instant, pace: f64, still: bool) -> (f64, f64) {
+        if pace <= 0.0 {
+            return (1.0, 1.0);
+        }
+        let t = since.elapsed().as_secs_f64() / (HUD_ICON_IN / pace);
+        let scale = match still {
+            true => 1.0,
+            false => HUD_ICON_FROM + (1.0 - HUD_ICON_FROM) * drifter_core::drawer::ease(t),
+        };
+        (drifter_core::motion::smooth(t), scale)
+    }
+
+    pub(super) fn blue_output_hud(&mut self, address: &str) {
+        let Some(device) = self.radio.now.as_ref().and_then(|blue| blue.find(address).cloned()) else {
+            return;
+        };
+        let Some(font) = self.font.clone() else {
+            return;
+        };
+        let icon = self.radio.art.glyphs.get(&device.kind).cloned();
+        let (level, muted) = self.volume.unwrap_or((0.5, false));
+        let reading = drifter_core::hud::Reading {
+            gauge: drifter_core::hud::Gauge::Volume,
+            level,
+            muted,
+        };
+        let look = drifter_core::hud::Look::themed(&self.palette);
+        let rect = look.rect(self.screen);
+        let name = device.shown_name();
+        self.paint_on_worker(
+            "output hud",
+            move || Some(look.paint_named(reading, &name, &font)),
+            move |state, art| {
+                let Some(art) = art else {
+                    return;
+                };
+                let now = Instant::now();
+                let to = reading.shown();
+                state.hud = Some(super::Hud {
+                    art,
+                    rect,
+                    until: now + HUD_TIME,
+                    from: to,
+                    to,
+                    since: now,
+                    icon: icon.map(|icon| (icon, now)),
+                });
+                state.kick_now();
+            },
+        );
+    }
+
     pub(super) fn blue_power(&mut self, on: bool) {
         let Some(bus) = self.radio.bus.clone() else {
             return;
@@ -483,6 +608,8 @@ impl State {
                     .enumerate()
                     .map(|(index, item)| {
                         let y = look.item_rect(&items, index).origin.y;
+                        let born = now + Duration::from_secs_f64(ROW_STAGGER * index as f64 / self.window_pace.max(0.01));
+                        let (level, signal) = item_numbers(item);
                         Row {
                             key: item.key.clone(),
                             item: item.clone(),
@@ -492,8 +619,10 @@ impl State {
                             to: y,
                             moved: now,
                             bounce: false,
-                            born: now + Duration::from_secs_f64(ROW_STAGGER * index as f64 / self.window_pace.max(0.01)),
+                            born,
                             gone: None,
+                            level: (0.0, level, born),
+                            signal: (0.0, signal, born),
                         }
                     })
                     .collect();
@@ -546,9 +675,18 @@ impl State {
                         row.moved = now;
                         row.bounce = jumped;
                     }
+                    let (level, signal) = item_numbers(item);
+                    if (row.level.1 - level).abs() > 0.01 {
+                        row.level = (eased(row.level, pace, false), level, now);
+                    }
+                    if (row.signal.1 - signal).abs() > 0.01 {
+                        row.signal = (eased(row.signal, pace, false), signal, now);
+                    }
                     row.item = item.clone();
                 }
                 None => {
+                    let born = now + Duration::from_secs_f64(ROW_STAGGER * fresh as f64 / pace);
+                    let (level, signal) = item_numbers(item);
                     list.rows.push(Row {
                         key: item.key.clone(),
                         item: item.clone(),
@@ -558,8 +696,10 @@ impl State {
                         to: y,
                         moved: now,
                         bounce: false,
-                        born: now + Duration::from_secs_f64(ROW_STAGGER * fresh as f64 / pace),
+                        born,
                         gone: None,
+                        level: (0.0, level, born),
+                        signal: (0.0, signal, born),
                     });
                     fresh += 1;
                 }
@@ -631,6 +771,8 @@ impl State {
                             || now < row.born
                             || now.duration_since(row.born).as_secs_f64() < ROW_IN / pace
                             || now.duration_since(row.moved).as_secs_f64() < ROW_MOVE / pace
+                            || row.level.2.elapsed().as_secs_f64() < LEVEL / pace
+                            || row.signal.2.elapsed().as_secs_f64() < LEVEL / pace
                     }))
         });
         let busy = open && list.is_some() && !self.radio.busy.is_empty();
@@ -641,7 +783,8 @@ impl State {
             && (self.radio.asked_at.elapsed().as_secs_f64() < (DIGIT_IN + DIGIT_STAGGER * 16.0) / pace
                 || self.radio.typed_at.iter().any(|at| at.elapsed().as_secs_f64() < DIGIT_IN / pace));
         let morph = self.radio.tray_state.2.elapsed().as_secs_f64() < MORPH / pace;
-        rows || busy || (open && popping) || panel || pill || pairing || morph || list.is_some_and(|list| list.closing)
+        let hud = self.hud.as_ref().is_some_and(|hud| hud.icon.as_ref().is_some_and(|(_, at)| at.elapsed().as_secs_f64() < HUD_ICON_IN / pace));
+        rows || busy || (open && popping) || panel || pill || pairing || morph || hud || list.is_some_and(|list| list.closing)
     }
 
     pub(super) fn blue_art(&mut self) {
@@ -672,9 +815,15 @@ impl State {
                 let tray = tray_glyphs(ink, accent);
                 let mut dot = drifter_core::paint::Canvas::new(10, 10);
                 dot.circle(Vec2::splat(5.0), 4.0, look.ink, 1.0);
-                (discs, ring, symbols, disc.image, tray, dot.image)
+                let fills: Vec<drifter_core::Image> = [5u8, 15, 100].iter().map(|level| look.battery_fill(*level)).collect();
+                let bars = look.bars_lit();
+                let glyphs: Vec<(Kind, drifter_core::Image)> = kinds
+                    .iter()
+                    .map(|kind| (*kind, drifter_core::blue::glyph(*kind, drifter_core::paint::dense(26.0), look.ink)))
+                    .collect();
+                (discs, ring, symbols, disc.image, tray, dot.image, fills, bars, glyphs)
             },
-            move |state, (discs, ring, symbols, disc, tray, dot)| {
+            move |state, (discs, ring, symbols, disc, tray, dot, fills, bars, glyphs)| {
                 let renderer = &mut state.renderer;
                 let mut art = Art {
                     key: Some(key),
@@ -700,6 +849,16 @@ impl State {
                     .filter_map(|image| upload(renderer, Some(image), "bluetooth tray").ok().flatten())
                     .collect();
                 art.dot = upload(renderer, Some(&dot), "pin dot").ok().flatten();
+                art.fills = fills
+                    .iter()
+                    .filter_map(|image| upload(renderer, Some(image), "battery fill").ok().flatten())
+                    .collect();
+                art.bars = upload(renderer, Some(&bars), "signal bars").ok().flatten();
+                for (kind, image) in glyphs {
+                    if let Ok(Some(tex)) = upload(renderer, Some(&image), "device glyph") {
+                        art.glyphs.insert(kind, tex);
+                    }
+                }
                 state.radio.art = art;
                 state.tray.blue = state.radio.now.is_some();
                 state.kick_now();
@@ -727,7 +886,7 @@ impl State {
         let look = self.control_look();
         self.on_worker(
             "bluetooth rows",
-            move || wanted.into_iter().map(|item| { let image = look.paint_item(&item, &font, &small); (item, image) }).collect::<Vec<_>>(),
+            move || wanted.into_iter().map(|item| { let image = look.paint_item_with(&item, true, &font, &small); (item, image) }).collect::<Vec<_>>(),
             move |state, painted| {
                 let Some(list) = state.radio.list.as_mut().filter(|list| list.lane.id() == id) else {
                     return;
@@ -785,20 +944,24 @@ impl State {
                 let mut y = row_y(row, now, pace.max(0.01));
                 let mut alpha = 1.0;
                 let mut squash = 1.0;
-                if !still {
+                if pace > 0.0 {
                     if now < row.born {
                         continue;
                     }
                     let t = now.duration_since(row.born).as_secs_f64() / (ROW_IN / pace);
                     if t < 1.0 {
                         alpha *= drifter_core::motion::smooth(t);
-                        y += (1.0 - drifter_core::drawer::ease(t)) * ROW_RISE;
+                        if !still {
+                            y += (1.0 - drifter_core::drawer::ease(t)) * ROW_RISE;
+                        }
                     }
                     if let Some(gone) = row.gone {
                         let t = now.duration_since(gone).as_secs_f64() / (ROW_OUT / pace);
                         let left = 1.0 - drifter_core::motion::smooth(t);
                         alpha *= left;
-                        squash = left.max(0.0);
+                        if !still {
+                            squash = left.max(0.0);
+                        }
                     }
                     if row.key == "heading:nearby" && self.radio.now.as_ref().is_some_and(|blue| blue.searching) {
                         let wave = (list.epoch.elapsed().as_secs_f64() / BREATH * std::f64::consts::TAU).cos();
@@ -822,13 +985,44 @@ impl State {
                 }
                 let shown_h = (visible - top).min(height);
                 let squashed = height * squash;
-                let rect = Rect::new(
-                    origin + Vec2::new(look.pad + shake, top + (height - squashed) / 2.0),
-                    Vec2::new(width - look.pad * 2.0, squashed.min(shown_h)),
-                );
+                let left = origin + Vec2::new(look.pad + shake, top + (height - squashed) / 2.0);
+                let rect = Rect::new(left, Vec2::new(width - look.pad * 2.0, squashed.min(shown_h)));
                 let source = Rect::new(Vec2::ZERO, Vec2::new(width - look.pad * 2.0, height.min(shown_h / squash.max(0.01))));
-                if let What::Device { kind, connected, .. } = &row.item.what {
+                if let What::Device { kind, connected, battery, bars, .. } = &row.item.what {
                     let address = row.item.address().unwrap_or_default();
+                    let fits = |part: Rect| part.max().y - origin.y <= visible && squash > 0.98;
+                    if battery.is_some() {
+                        let inner = look.battery_inner(&row.item);
+                        let level = eased(row.level, pace, still).clamp(0.0, 100.0);
+                        let place = Rect::new(left + inner.origin, Vec2::new(inner.size.x * level / 100.0, inner.size.y));
+                        if let Some(fill) = self.radio.art.fills.get(fill_class(row.level.1))
+                            && place.size.x >= 0.5
+                            && fits(place)
+                        {
+                            layers.push(fade::Layer {
+                                source: Some(Rect::new(Vec2::ZERO, place.size)),
+                                alpha: alpha as f32,
+                                ..fade::Layer::new(fill, place, fade::Shadow::None)
+                            });
+                        }
+                    } else if bars.is_some()
+                        && let Some(lit) = self.radio.art.bars.as_ref()
+                    {
+                        let area = look.bars_rect(&row.item);
+                        let level = eased(row.signal, pace, still);
+                        for step in 0..4 {
+                            let shown = (level - step as f64).clamp(0.0, 1.0);
+                            let bar = drifter_core::control::bar_source(step);
+                            let place = Rect::new(left + area.origin + bar.origin, bar.size);
+                            if shown > 0.01 && fits(place) {
+                                layers.push(fade::Layer {
+                                    source: Some(bar),
+                                    alpha: (alpha * shown * 0.9) as f32,
+                                    ..fade::Layer::new(lit, place, fade::Shadow::None)
+                                });
+                            }
+                        }
+                    }
                     let centre = origin + look.disc_at(Rect::new(Vec2::new(look.pad + shake, top), Vec2::new(width, height)));
                     if centre.y - origin.y + 16.0 <= visible {
                         if self.radio.busy.iter().any(|each| each == address)
@@ -870,21 +1064,21 @@ impl State {
 
         for tile in Tile::ALL {
             let (on, since) = open.fills[tile_index(tile) as usize];
-            let fill = fill_level(on, since, pace, still);
-            if fill <= 0.001 {
+            let (shown, scale) = fill_level(on, since, pace, still);
+            if shown <= 0.001 {
                 continue;
             }
             let centre = origin + look.dot(tile);
             if let Some(symbol) = self.radio.art.symbols.get(&tile_index(tile)) {
                 layers.push(fade::Layer {
-                    alpha: fill.clamp(0.0, 1.0) as f32,
+                    alpha: shown as f32,
                     ..fade::Layer::new(symbol, Rect::from_center(centre, Vec2::splat(30.0)), fade::Shadow::None)
                 });
             }
             if let Some(disc) = self.radio.art.accent_disc.as_ref() {
                 layers.push(fade::Layer {
-                    alpha: fill.clamp(0.0, 1.0).sqrt() as f32,
-                    ..fade::Layer::new(disc, Rect::from_center(centre, Vec2::splat(32.0 * fill)), fade::Shadow::None)
+                    alpha: shown.sqrt() as f32,
+                    ..fade::Layer::new(disc, Rect::from_center(centre, Vec2::splat(32.0 * scale)), fade::Shadow::None)
                 });
             }
         }
@@ -972,16 +1166,22 @@ impl State {
         let pill = self.radio.pill.as_ref()?;
         let art = pill.art.as_ref()?;
         let pace = self.window_pace;
-        let (alpha, scale) = match (pace <= 0.0 || self.window_still, pill.gone) {
+        let still = self.window_still;
+        let (alpha, scale) = match (pace <= 0.0, pill.gone) {
             (true, None) => (1.0, 1.0),
             (true, Some(_)) => (0.0, 1.0),
             (false, Some(gone)) => {
                 let t = gone.elapsed().as_secs_f64() / (PILL_OUT / pace);
-                (1.0 - drifter_core::motion::smooth(t), 1.0 - 0.06 * drifter_core::motion::smooth(t))
+                let shrink = if still { 0.0 } else { 0.06 };
+                (1.0 - drifter_core::motion::smooth(t), 1.0 - shrink * drifter_core::motion::smooth(t))
             }
             (false, None) => {
                 let t = pill.born.elapsed().as_secs_f64() / (PILL_IN / pace);
-                (drifter_core::motion::smooth(t), PILL_FROM + (1.0 - PILL_FROM) * drifter_core::drawer::ease(t))
+                let scale = match still {
+                    true => 1.0,
+                    false => PILL_FROM + (1.0 - PILL_FROM) * drifter_core::drawer::ease(t),
+                };
+                (drifter_core::motion::smooth(t), scale)
             }
         };
         if alpha <= 0.0 {
@@ -1093,7 +1293,7 @@ impl State {
                 true => self.radio.typed_at.get(at).copied().unwrap_or(self.radio.asked_at),
                 false => self.radio.asked_at + Duration::from_secs_f64(DIGIT_STAGGER * at as f64 / pace.max(0.01)),
             };
-            let (alpha, scale) = match still {
+            let (alpha, scale) = match pace <= 0.0 {
                 true => (1.0, 1.0),
                 false => {
                     let now = Instant::now();
@@ -1101,7 +1301,11 @@ impl State {
                         continue;
                     }
                     let t = now.duration_since(since).as_secs_f64() / (DIGIT_IN / pace);
-                    (drifter_core::motion::smooth(t), DIGIT_FROM + (1.0 - DIGIT_FROM) * drifter_core::drawer::ease(t))
+                    let scale = match still {
+                        true => 1.0,
+                        false => DIGIT_FROM + (1.0 - DIGIT_FROM) * drifter_core::drawer::ease(t),
+                    };
+                    (drifter_core::motion::smooth(t), scale)
                 }
             };
             let place = Rect::new(rect.origin + slot.origin, slot.size);
@@ -1206,6 +1410,24 @@ impl State {
             return;
         }
         let (ask, reply) = self.radio.asks.remove(0);
+        if ask.question == blue::Question::Mic {
+            if yes {
+                let sound = self.radio.prefs.sound(&ask.address);
+                let address = ask.address.clone();
+                self.background("bluetooth mic", move || {
+                    let done = drifter_blue::sound::mic(&address, true, sound);
+                    move |_: &mut State| {
+                        if let Err(error) = done {
+                            log!("drifter: cannot turn on the mic of {address}: {error}");
+                        }
+                    }
+                });
+            }
+            self.radio.asked_at = Instant::now();
+            self.paint_pairing();
+            self.kick_now();
+            return;
+        }
         let said = match (yes, &ask.question) {
             (false, _) => None,
             (true, blue::Question::Type | blue::Question::TypePin) => Some(self.radio.typed.clone()),
@@ -1261,10 +1483,11 @@ impl State {
         };
         let (now, was, since) = self.radio.tray_state;
         let pace = self.window_pace;
-        let t = match pace <= 0.0 || self.window_still {
+        let t = match pace <= 0.0 {
             true => 1.0,
             false => since.elapsed().as_secs_f64() / (MORPH / pace),
         };
+        let still = self.window_still;
         let art = &self.radio.art.tray;
         if t < 1.0
             && let Some(old) = art.get(was)
@@ -1273,8 +1496,8 @@ impl State {
             elements.push(Skin::Texture(element(old, rect, alpha as f32)));
         }
         if let Some(new) = art.get(now) {
-            let scale = MORPH_FROM + (1.0 - MORPH_FROM) * drifter_core::drawer::ease(t.min(1.0).max(0.0));
-            let scale = if t >= 1.0 { 1.0 } else { scale };
+            let scale = MORPH_FROM + (1.0 - MORPH_FROM) * drifter_core::drawer::ease(t.clamp(0.0, 1.0));
+            let scale = if t >= 1.0 || still { 1.0 } else { scale };
             let alpha = drifter_core::motion::smooth(t);
             elements.push(Skin::Texture(element(new, Rect::from_center(rect.center(), rect.size * scale), alpha as f32)));
         }
@@ -1294,19 +1517,47 @@ impl State {
     }
 }
 
+fn item_numbers(item: &Item) -> (f64, f64) {
+    match item.what {
+        What::Device { battery, bars, .. } => (battery.map_or(0.0, f64::from), bars.map_or(0.0, f64::from)),
+        _ => (0.0, 0.0),
+    }
+}
+
+fn eased((from, to, since): (f64, f64, Instant), pace: f64, still: bool) -> f64 {
+    match still || pace <= 0.0 {
+        true => to,
+        false => drifter_core::hud::eased_level(from, to, since.elapsed().as_secs_f64() / (LEVEL / pace)),
+    }
+}
+
+fn fill_class(level: f64) -> usize {
+    match level.round() as u8 {
+        0..=10 => 0,
+        11..=20 => 1,
+        _ => 2,
+    }
+}
+
 fn row_y(row: &Row, now: Instant, pace: f64) -> f64 {
     let t = now.duration_since(row.moved).as_secs_f64() / (ROW_MOVE / pace);
     drifter_core::dock::glide(row.from, row.to, t, row.bounce)
 }
 
-fn fill_level(on: bool, since: Instant, pace: f64, still: bool) -> f64 {
-    if still {
-        return if on { 1.0 } else { 0.0 };
+fn fill_level(on: bool, since: Instant, pace: f64, still: bool) -> (f64, f64) {
+    if pace <= 0.0 {
+        return if on { (1.0, 1.0) } else { (0.0, 1.0) };
     }
-    match on {
-        true => drifter_core::drawer::ease(since.elapsed().as_secs_f64() / (FILL_IN / pace)),
-        false => 1.0 - drifter_core::motion::smooth(since.elapsed().as_secs_f64() / (FILL_OUT / pace)),
-    }
+    let span = if on { FILL_IN } else { FILL_OUT };
+    let t = since.elapsed().as_secs_f64() / (span / pace);
+    let fade = drifter_core::motion::smooth(t);
+    let shown = if on { fade } else { 1.0 - fade };
+    let scale = match (still, on) {
+        (true, _) => 1.0,
+        (false, true) => drifter_core::drawer::ease(t),
+        (false, false) => 1.0 - fade,
+    };
+    (shown.clamp(0.0, 1.0), scale.max(0.0))
 }
 
 fn tray_glyphs(ink: [u8; 3], accent: [u8; 3]) -> Vec<drifter_core::Image> {

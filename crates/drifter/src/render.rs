@@ -333,6 +333,7 @@ struct Hud {
     from: f64,
     to: f64,
     since: Instant,
+    icon: Option<(TextureBuffer<Tex>, Instant)>,
 }
 
 struct Card {

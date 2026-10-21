@@ -179,6 +179,7 @@ impl State {
                     from,
                     to,
                     since: now,
+                    icon: None,
                 });
             },
         );

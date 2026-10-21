@@ -61,6 +61,7 @@ enum BlueNews {
     Now(Option<drifter_core::blue::Blue>),
     Card(String, Option<drifter_core::blue::Card>),
     Note(String),
+    Step(usize, drifter_core::blue::Step),
     Done(Option<String>),
 }
 
@@ -124,6 +125,7 @@ pub struct Settings {
     blue_bus: Option<drifter_blue::Bus>,
     blue_back: LoopSender<BlueNews>,
     blue_searching: bool,
+    step_pops: Vec<(usize, std::time::Instant)>,
     fresh: LoopSender<Fresh>,
     hands: Sender<Hand>,
     fetching: bool,
@@ -344,6 +346,7 @@ pub fn run() -> Result<(), String> {
         blue_bus: None,
         blue_back,
         blue_searching: false,
+        step_pops: Vec::new(),
         fresh,
         hands: hands(),
         fetching: false,
@@ -426,6 +429,8 @@ pub fn run() -> Result<(), String> {
 const GLIDE: std::time::Duration = std::time::Duration::from_millis(150);
 const PAGE_FADE: std::time::Duration = std::time::Duration::from_millis(160);
 const SWITCH_FLIP: std::time::Duration = std::time::Duration::from_millis(150);
+const STEP_POP: f64 = 0.38;
+const STEP_FROM: f64 = 0.35;
 
 static SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
 
@@ -737,6 +742,10 @@ impl Settings {
     }
 
     fn icon_for(&self, key: &str) -> Option<Image> {
+        if let Some(word) = key.strip_prefix("step:") {
+            let side = drifter_core::sheet::FACE_CELL as u32 * scale();
+            return Some(drifter_core::blue::step_icon(word, side, self.look.accent, self.look.off));
+        }
         if let Some(rest) = key.strip_prefix("blue:") {
             let (kind, lit) = rest.split_once(':')?;
             let side = drifter_core::sheet::FACE_CELL as u32 * scale();
@@ -999,7 +1008,8 @@ impl Settings {
                 };
                 self.painted = Some((key, self.scroll, side));
                 let shown = self.crossfade(&image);
-                let shown = self.flip_switch(shown.as_ref().unwrap_or(&image));
+                let shown = self.flip_switch(shown.as_ref().unwrap_or(&image)).or(shown);
+                let shown = self.pop_steps(shown.as_ref().unwrap_or(&image)).or(shown);
                 self.show_ringed(shown.as_ref().unwrap_or(&image));
                 self.last = Some((key, image));
                 return;
@@ -1007,6 +1017,48 @@ impl Settings {
         };
         self.painted = Some((key, self.scroll, self.look.side_scroll));
         self.show(&image);
+    }
+
+    fn pop_steps(&mut self, image: &drifter_core::Image) -> Option<drifter_core::Image> {
+        if self.step_pops.is_empty() || self.section != Section::Bluetooth {
+            return None;
+        }
+        let side = drifter_core::sheet::FACE_CELL as u32 * scale();
+        let done = drifter_core::blue::step_icon("done", side, self.look.accent, self.look.off);
+        let mut canvas = drifter_core::paint::Canvas::on(image.clone());
+        let mut settled = Vec::new();
+        for (at, since) in self.step_pops.clone() {
+            let t = match self.animates() {
+                true => since.elapsed().as_secs_f64() / STEP_POP,
+                false => 1.0,
+            };
+            if t >= 1.0 {
+                settled.push(at);
+                continue;
+            }
+            let spot = drifter_core::settings::Spot::Row(Id::BlueStep(at), 0);
+            let Some(row) = self.look.spot_rect(self.view(), self.section, &self.model, self.scroll, spot) else {
+                settled.push(at);
+                continue;
+            };
+            let cell = drifter_core::Rect::new(Vec2::new(row.origin.x + 14.0, row.center().y - 13.0), Vec2::splat(26.0));
+            let grow = STEP_FROM + (1.0 - STEP_FROM) * drifter_core::drawer::ease(t);
+            let size = (f64::from(side) * grow).round().max(1.0) as u32;
+            let scaled = done.scaled(size, size);
+            let alpha = drifter_core::motion::smooth(t * 1.6);
+            canvas.stamp(&scaled, cell.center() - drifter_core::paint::logical(&scaled) / 2.0, alpha);
+        }
+        if !settled.is_empty() {
+            self.step_pops.retain(|(at, _)| !settled.contains(at));
+            for at in settled {
+                if let Some(step) = self.model.blue_steps.get_mut(at) {
+                    step.1 = drifter_core::blue::Step::Done;
+                }
+            }
+            self.want_icon("step:done".into());
+        }
+        self.stale = true;
+        Some(canvas.image)
     }
 
     fn flip_switch(&mut self, image: &drifter_core::Image) -> Option<drifter_core::Image> {
@@ -1587,6 +1639,10 @@ impl Settings {
             Section::Bluetooth => {
                 self.model.net_note = None;
                 self.model.blue_address = false;
+                self.model.blue_naming = None;
+                if self.step_pops.is_empty() && !self.model.blue_steps.iter().any(|(_, step)| *step == drifter_core::blue::Step::Doing) {
+                    self.model.blue_steps.clear();
+                }
                 self.blue_search();
             }
             Section::Users => {
@@ -1822,16 +1878,6 @@ impl Settings {
                     }
                 }
             }
-            return;
-        }
-        if purpose == For::BlueRename {
-            let name = text(0).trim().to_string();
-            self.sheet = None;
-            if let Some(address) = self.model.blue_open.clone().filter(|_| !name.is_empty()) {
-                let note = drifter_core::lang::tf("Renaming it to {}…", &[&name]);
-                self.blue_job(note, move |bus| bus.rename(&address, &name));
-            }
-            self.stale = true;
             return;
         }
         if let For::WifiHidden = purpose {
@@ -2379,7 +2425,7 @@ impl Settings {
     }
 
     fn moving(&self) -> bool {
-        self.glide.is_some() || self.page_fade.is_some() || self.flip.is_some()
+        self.glide.is_some() || self.page_fade.is_some() || self.flip.is_some() || !self.step_pops.is_empty()
     }
 
     fn wheel(&mut self, by: f64, click: bool) {
@@ -2615,6 +2661,9 @@ impl Settings {
             return;
         }
         let Some(sheet) = self.sheet.as_mut() else {
+            if self.naming_key(event) {
+                return;
+            }
             if !self.focus_key(event) && !self.nudge(event) {
                 self.search_key(event);
             }
@@ -3179,8 +3228,24 @@ impl Settings {
                 }
             }
             BlueNews::Note(note) => self.model.net_note = Some(note),
+            BlueNews::Step(at, step) => {
+                if let Some(held) = self.model.blue_steps.get_mut(at) {
+                    held.1 = match step {
+                        drifter_core::blue::Step::Done => {
+                            self.step_pops.push((at, std::time::Instant::now()));
+                            drifter_core::blue::Step::Popping
+                        }
+                        other => other,
+                    };
+                }
+                self.load_row_icons();
+            }
             BlueNews::Done(error) => {
-                self.model.net_note = error;
+                if error.is_none() && !self.model.blue_steps.is_empty() {
+                    self.model.net_note = Some(drifter_core::lang::t("Fixed. It is set up and connected.").to_string());
+                } else {
+                    self.model.net_note = error;
+                }
                 self.blue_card();
             }
         }
@@ -3310,13 +3375,23 @@ impl Settings {
             }
             NetAsk::Rename => {
                 if let Some(device) = self.blue_open_device() {
-                    self.sheet = Some(Sheet::form(
-                        For::BlueRename,
-                        drifter_core::lang::t("Rename this device"),
-                        vec![Field::plain(drifter_core::lang::t("Name"), &device.shown_name())],
-                        drifter_core::lang::t("Save"),
-                    ));
+                    self.fade_page();
+                    self.model.blue_naming = Some(device.shown_name());
                     self.stale = true;
+                }
+            }
+            NetAsk::StopNaming => {
+                self.fade_page();
+                self.model.blue_naming = None;
+                self.stale = true;
+            }
+            NetAsk::SaveName => {
+                let name = self.model.blue_naming.take().unwrap_or_default().trim().to_string();
+                self.fade_page();
+                self.stale = true;
+                if let Some(address) = self.model.blue_open.clone().filter(|_| !name.is_empty()) {
+                    let note = drifter_core::lang::tf("Renaming it to {}…", &[&name]);
+                    self.blue_job(note, move |bus| bus.rename(&address, &name));
                 }
             }
             NetAsk::BlueKey => {
@@ -3359,42 +3434,69 @@ impl Settings {
     }
 
     fn blue_fix(&mut self, device: drifter_core::blue::Device) {
+        use drifter_core::blue::Step;
         let back = self.blue_back.clone();
         let name = device.shown_name();
         let kind = device.kind;
-        let xbox = drifter_core::blue::xbox(&device);
+        let ertm = drifter_core::blue::xbox(&device) && drifter_blue::xbox::ertm_on();
         let address = device.address.clone();
         self.model.blue_open = None;
         self.model.blue_card = None;
-        let say = move |words: String| {
-            let _ = back.send(BlueNews::Note(words));
+        self.model.blue_naming = None;
+        self.step_pops.clear();
+        let mut steps = Vec::new();
+        if ertm {
+            steps.push(drifter_core::lang::t("Change a setting older Xbox controllers need").to_string());
+        }
+        steps.push(drifter_core::lang::t("Turn Bluetooth off and on").to_string());
+        steps.push(drifter_core::lang::tf("Forget {}", &[&name]));
+        steps.push(drifter_core::lang::tf("Find {}. Put it in pairing mode now.", &[&name]));
+        steps.push(drifter_core::lang::tf("Set up {}", &[&name]));
+        self.model.blue_steps = steps.into_iter().map(|words| (words, Step::Wait)).collect();
+        self.load_row_icons();
+        let first = usize::from(ertm);
+        let step = move |at: usize, state: Step| {
+            let _ = back.send(BlueNews::Step(at, state));
         };
-        self.blue_job(drifter_core::lang::t("Fixing it. Step 1 of 4: turning Bluetooth off and on…").to_string(), move |bus| {
-            if xbox && drifter_blue::xbox::ertm_on() {
-                say(drifter_core::lang::t("Changing a setting older Xbox controllers need. Type your password if asked.").to_string());
-                drifter_blue::xbox::fix_ertm()?;
+        self.blue_job(drifter_core::lang::tf("Fixing {}…", &[&name]), move |bus| {
+            let run = |at: usize, work: &mut dyn FnMut() -> Result<(), String>| {
+                step(at, Step::Doing);
+                let done = work();
+                step(at, if done.is_ok() { Step::Done } else { Step::Failed });
+                done
+            };
+            if ertm {
+                run(0, &mut || drifter_blue::xbox::fix_ertm())?;
             }
-            bus.power(false)?;
-            bus.wait(|blue| !blue.on, std::time::Duration::from_secs(5));
-            std::thread::sleep(std::time::Duration::from_millis(600));
-            bus.power(true)?;
-            if !bus.wait(|blue| blue.on, std::time::Duration::from_secs(8)) {
-                return Err(drifter_core::lang::t("Bluetooth did not come back on. Restart the computer.").to_string());
-            }
-            say(drifter_core::lang::tf("Step 2 of 4: forgetting {}…", &[&name]));
-            let _ = bus.forget(&address);
-            say(drifter_core::lang::tf("Step 3 of 4: put {} in pairing mode now. Looking for it…", &[&name]));
-            bus.search(true)?;
-            let found = bus.wait(|blue| blue.find(&address).is_some(), std::time::Duration::from_secs(30));
-            if !found {
+            run(first, &mut || {
+                bus.power(false)?;
+                bus.wait(|blue| !blue.on, std::time::Duration::from_secs(5));
+                std::thread::sleep(std::time::Duration::from_millis(600));
+                bus.power(true)?;
+                match bus.wait(|blue| blue.on, std::time::Duration::from_secs(8)) {
+                    true => Ok(()),
+                    false => Err(drifter_core::lang::t("Bluetooth did not come back on. Restart the computer.").to_string()),
+                }
+            })?;
+            run(first + 1, &mut || {
+                let _ = bus.forget(&address);
+                Ok(())
+            })?;
+            run(first + 2, &mut || {
+                bus.search(true)?;
+                match bus.wait(|blue| blue.find(&address).is_some(), std::time::Duration::from_secs(30)) {
+                    true => Ok(()),
+                    false => {
+                        let _ = bus.search(false);
+                        Err(drifter_core::lang::tf("Drifter could not find {}. Put it in pairing mode, then press Set Up under Nearby.", &[&name]))
+                    }
+                }
+            })?;
+            run(first + 3, &mut || {
+                let paired = bus.pair(&address);
                 let _ = bus.search(false);
-                return Err(drifter_core::lang::tf("Drifter could not find {}. Put it in pairing mode, then press Set Up under Nearby.", &[&name]));
-            }
-            say(drifter_core::lang::tf("Step 4 of 4: setting up {}…", &[&name]));
-            let paired = bus.pair(&address);
-            let _ = bus.search(false);
-            paired.map_err(|error| drifter_core::blue::plain_error(&error, &name, kind))?;
-            say(drifter_core::lang::tf("{} is fixed and connected.", &[&name]));
+                paired.map_err(|error| drifter_core::blue::plain_error(&error, &name, kind))
+            })?;
             Ok(())
         });
     }
@@ -3422,6 +3524,37 @@ impl Settings {
             };
             self.blue_job(note, move |_| drifter_blue::sound::mic(&address, on, sound));
         }
+    }
+
+    fn fade_page(&mut self) {
+        if self.smooth()
+            && let Some((_, image)) = self.last.as_ref()
+        {
+            self.page_fade = Some((image.clone(), None));
+        }
+    }
+
+    fn naming_key(&mut self, event: &KeyEvent) -> bool {
+        use drifter_core::settings::NetAsk;
+        let Some(text) = self.model.blue_naming.as_mut() else {
+            return false;
+        };
+        match event.keysym {
+            Keysym::Escape => self.blue_ask(NetAsk::StopNaming),
+            Keysym::Return | Keysym::KP_Enter => self.blue_ask(NetAsk::SaveName),
+            Keysym::BackSpace => {
+                text.pop();
+            }
+            _ => {
+                if let Some(typed) = event.utf8.as_deref().filter(|typed| typed.chars().all(|c| !c.is_control())) {
+                    if text.chars().count() + typed.chars().count() <= 48 {
+                        text.push_str(typed);
+                    }
+                }
+            }
+        }
+        self.stale = true;
+        true
     }
 
     fn capture_blue(&mut self, event: &KeyEvent) {

@@ -2309,3 +2309,19 @@ fn the_real_adapter_fills_the_bluetooth_list() {
     settle(&mut run, 1500);
     assert!(!run.screen.state.radio.searching, "closing the list stops the search");
 }
+
+#[test]
+fn a_new_output_springs_its_icon_into_the_volume_hud() {
+    let mut run = start("blue-hud", &Config::default(), None);
+    run.screen.state.blue_now(Some(fake_blue(true)));
+    run.screen.state.blue_art();
+    pump(&mut run.screen, |state| !state.radio.art.glyphs.is_empty());
+    run.screen.state.volume = Some((0.6, false));
+    run.screen.state.blue_output_hud("AA:BB:CC:DD:EE:01");
+    pump(&mut run.screen, |state| state.hud.as_ref().is_some_and(|hud| hud.icon.is_some()));
+    settle(&mut run, 70);
+    run.shot("hud-in");
+    assert!(run.screen.state.blue_moving(), "the icon is still springing");
+    settle(&mut run, 500);
+    run.shot("hud-shown");
+}

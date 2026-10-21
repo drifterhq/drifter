@@ -97,6 +97,28 @@ impl Look {
         canvas.image
     }
 
+    pub fn icon_rect(&self) -> Rect {
+        Rect::new(Vec2::new(18.0, (self.size.y - 26.0) / 2.0), Vec2::splat(26.0))
+    }
+
+    pub fn paint_named(&self, reading: Reading, name: &str, font: &Font) -> Image {
+        let mut canvas = Canvas::new(self.size.x as u32, self.size.y as u32);
+        canvas.round_rect(Rect::new(Vec2::ZERO, self.size), self.size.y / 2.0, self.back, self.back_alpha);
+        let bar = self.bar();
+        canvas.round_rect(bar, 3.0, self.track, 1.0);
+        let x = self.icon_rect().max().x + 8.0;
+        let label = font.paint(&crate::control::fit(font, name, bar.origin.x - x - 8.0), self.ink);
+        canvas.stamp(&label, Vec2::new(x, (self.size.y - crate::paint::logical(&label).y) / 2.0), 1.0);
+        let words = match reading.muted {
+            true => crate::lang::t("Muted").to_string(),
+            false => format!("{}%", (reading.level * 100.0).round() as i64),
+        };
+        let value = font.paint(&words, if reading.muted { self.dim } else { self.ink });
+        let at = Vec2::new(self.size.x - 24.0 - crate::paint::logical(&value).x, (self.size.y - crate::paint::logical(&value).y) / 2.0);
+        canvas.stamp(&value, at, 1.0);
+        canvas.image
+    }
+
     pub fn pill(&self) -> Image {
         let bar = self.bar();
         let mut canvas = Canvas::new(bar.size.x as u32, bar.size.y as u32);
@@ -231,5 +253,16 @@ mod tests {
             None,
         );
         assert!(at(&muted, bar.origin.x + bar.size.x * 0.25) < 120);
+    }
+
+    #[test]
+    fn a_named_hud_leaves_room_for_the_device_icon() {
+        let look = Look::default();
+        let font = Font::find(None, 13.0).unwrap();
+        let icon = look.icon_rect();
+        assert!(icon.max().x < look.bar().origin.x);
+        crate::paint::same_at_two("named hud", || {
+            look.paint_named(Reading { gauge: Gauge::Volume, level: 0.4, muted: false }, "AirPods Pro", &font)
+        });
     }
 }

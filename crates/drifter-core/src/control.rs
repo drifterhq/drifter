@@ -437,7 +437,40 @@ impl Look {
         canvas.image
     }
 
+    pub fn battery_cell(&self, item: &Item) -> Rect {
+        let size = Vec2::new(self.width - self.pad * 2.0, item.height());
+        Rect::new(Vec2::new(size.x - 32.0, size.y / 2.0 - 5.5), Vec2::new(20.0, 11.0))
+    }
+
+    pub fn battery_inner(&self, item: &Item) -> Rect {
+        let body = self.battery_cell(item);
+        let body = Rect::new(body.origin, Vec2::new(body.size.x - 2.0, body.size.y));
+        Rect::new(body.origin + Vec2::splat(2.2), Vec2::new(body.size.x - 4.4, body.size.y - 4.4))
+    }
+
+    pub fn bars_rect(&self, item: &Item) -> Rect {
+        let size = Vec2::new(self.width - self.pad * 2.0, item.height());
+        Rect::new(Vec2::new(size.x - 30.0, size.y / 2.0 - 6.0), Vec2::new(18.0, 13.0))
+    }
+
+    pub fn battery_fill(&self, level: u8) -> Image {
+        let size = self.battery_inner(&Item { key: String::new(), what: What::Heading(String::new()) }).size;
+        let mut canvas = Canvas::new(size.x.ceil() as u32, size.y.ceil() as u32);
+        canvas.round_rect(Rect::new(Vec2::ZERO, size), 1.4, battery_color(level, self.accent), 1.0);
+        canvas.image
+    }
+
+    pub fn bars_lit(&self) -> Image {
+        let mut canvas = Canvas::new(18, 13);
+        bars(&mut canvas, Rect::new(Vec2::ZERO, Vec2::new(18.0, 13.0)), 4, self.ink, self.ink);
+        canvas.image
+    }
+
     pub fn paint_item(&self, item: &Item, font: &Font, small: &Font) -> Image {
+        self.paint_item_with(item, false, font, small)
+    }
+
+    pub fn paint_item_with(&self, item: &Item, bare: bool, font: &Font, small: &Font) -> Image {
         let size = Vec2::new(self.width - self.pad * 2.0, item.height());
         let mut canvas = Canvas::new(size.x as u32, size.y as u32);
         match &item.what {
@@ -449,22 +482,17 @@ impl Look {
                 let label = font.paint(&fit(font, text, size.x - 24.0), self.ink);
                 canvas.stamp(&label, Vec2::new(12.0, (size.y - crate::paint::logical(&label).y) / 2.0), 1.0);
             }
-            What::Device { name, note, battery, bars, .. } => {
+            What::Device { name, note, battery, bars: signal, .. } => {
                 let mut right = size.x - 10.0;
                 if let Some(level) = battery {
                     let words = small.paint(&format!("{level}%"), self.dim);
                     let width = crate::paint::logical(&words).x;
-                    let cell = Rect::new(Vec2::new(right - 22.0, size.y / 2.0 - 5.5), Vec2::new(20.0, 11.0));
-                    battery_glyph(&mut canvas, cell, *level, self.dim, self.accent);
+                    let cell = self.battery_cell(item);
+                    battery_glyph(&mut canvas, cell, if bare { 0 } else { *level }, self.dim, self.accent);
                     canvas.stamp(&words, Vec2::new(cell.origin.x - width - 5.0, (size.y - crate::paint::logical(&words).y) / 2.0), 1.0);
                     right = cell.origin.x - width - 10.0;
-                } else if let Some(bars) = bars {
-                    for step in 0..4u8 {
-                        let tall = 4.0 + f64::from(step) * 3.0;
-                        let bar = Rect::new(Vec2::new(right - 20.0 + f64::from(step) * 5.0, size.y / 2.0 + 7.0 - tall), Vec2::new(3.0, tall));
-                        let lit = step < *bars;
-                        canvas.round_rect(bar, 1.0, if lit { self.ink } else { self.off }, if lit { 0.9 } else { 1.0 });
-                    }
+                } else if let Some(lit) = signal {
+                    bars(&mut canvas, self.bars_rect(item), if bare { 0 } else { *lit }, self.ink, self.off);
                     right -= 28.0;
                 }
                 let x = 50.0;
@@ -476,6 +504,27 @@ impl Look {
             }
         }
         canvas.image
+    }
+}
+
+fn bars(canvas: &mut Canvas, area: Rect, lit: u8, on: [u8; 3], off: [u8; 3]) {
+    for step in 0..4u8 {
+        let tall = 4.0 + f64::from(step) * 3.0;
+        let bar = Rect::new(area.origin + Vec2::new(f64::from(step) * 5.0, area.size.y - tall), Vec2::new(3.0, tall));
+        let shown = step < lit;
+        canvas.round_rect(bar, 1.0, if shown { on } else { off }, if shown { 0.9 } else { 1.0 });
+    }
+}
+
+pub fn bar_source(step: usize) -> Rect {
+    Rect::new(Vec2::new(step as f64 * 5.0, 0.0), Vec2::new(3.0, 13.0))
+}
+
+fn battery_color(level: u8, good: [u8; 3]) -> [u8; 3] {
+    match level {
+        0..=10 => [255, 69, 58],
+        11..=20 => [255, 159, 10],
+        _ => good,
     }
 }
 
@@ -499,13 +548,8 @@ pub fn battery_glyph(canvas: &mut Canvas, cell: Rect, level: u8, ink: [u8; 3], g
     );
     let share = f64::from(level.min(100)) / 100.0;
     let inner = Rect::new(body.origin + Vec2::splat(2.2), Vec2::new((body.size.x - 4.4) * share, body.size.y - 4.4));
-    let fill = match level {
-        0..=10 => [255, 69, 58],
-        11..=20 => [255, 159, 10],
-        _ => good,
-    };
     if inner.size.x > 0.3 {
-        canvas.round_rect(inner, 1.4, fill, 1.0);
+        canvas.round_rect(inner, 1.4, battery_color(level, good), 1.0);
     }
 }
 

@@ -849,6 +849,56 @@ impl Prefs {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Step {
+    Wait,
+    Doing,
+    Popping,
+    Done,
+    Failed,
+}
+
+impl Step {
+    pub fn word(self) -> &'static str {
+        match self {
+            Step::Wait => "wait",
+            Step::Doing => "doing",
+            Step::Popping => "blank",
+            Step::Done => "done",
+            Step::Failed => "failed",
+        }
+    }
+}
+
+pub fn step_icon(word: &str, side: u32, accent: [u8; 3], off: [u8; 3]) -> Image {
+    use crate::geom::{Rect, Vec2};
+    crate::paint::at_density(1, || {
+        let size = f64::from(side.max(8));
+        let middle = Vec2::splat(size / 2.0);
+        let mut canvas = crate::paint::Canvas::new(side.max(8), side.max(8));
+        let white = [255, 255, 255];
+        match word {
+            "wait" => canvas.ring(Rect::new(Vec2::splat(size * 0.12), Vec2::splat(size * 0.76)), size * 0.38, size * 0.07, off, 1.0),
+            "doing" => {
+                canvas.ring(Rect::new(Vec2::splat(size * 0.12), Vec2::splat(size * 0.76)), size * 0.38, size * 0.07, off, 1.0);
+                canvas.arc(middle, size * 0.345, size * 0.08, 0.3, accent, 1.0);
+            }
+            "done" => {
+                canvas.circle(middle, size * 0.42, accent, 1.0);
+                canvas.line(Vec2::new(size * 0.30, size * 0.52), Vec2::new(size * 0.44, size * 0.65), size * 0.09, white, 1.0);
+                canvas.line(Vec2::new(size * 0.44, size * 0.65), Vec2::new(size * 0.70, size * 0.37), size * 0.09, white, 1.0);
+            }
+            "failed" => {
+                canvas.circle(middle, size * 0.42, [255, 69, 58], 1.0);
+                canvas.round_rect(Rect::new(Vec2::new(size * 0.46, size * 0.26), Vec2::new(size * 0.08, size * 0.30)), size * 0.04, white, 1.0);
+                canvas.circle(Vec2::new(size * 0.5, size * 0.68), size * 0.05, white, 1.0);
+            }
+            _ => {}
+        }
+        canvas.image
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Question {
     Confirm(u32),
@@ -856,6 +906,7 @@ pub enum Question {
     TypePin,
     Show(String, u16),
     Allow,
+    Mic,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -877,7 +928,10 @@ impl Ask {
     }
 
     pub fn title(&self) -> String {
-        crate::lang::tf("Set up {}?", &[&self.name])
+        match self.question {
+            Question::Mic => crate::lang::tf("Use the {} microphone?", &[&self.name]),
+            _ => crate::lang::tf("Set up {}?", &[&self.name]),
+        }
     }
 
     pub fn words(&self) -> String {
@@ -887,6 +941,7 @@ impl Ask {
             Question::TypePin => crate::lang::tf("Type the PIN for {}. Many devices use 0000.", &[&self.name]),
             Question::Show(_, _) => crate::lang::tf("Type this code on {}, then press Enter.", &[&self.name]),
             Question::Allow => crate::lang::tf("{} wants to connect to this computer.", &[&self.name]),
+            Question::Mic => crate::lang::t("An app wants a microphone. Mic on, sound quality will drop until the app stops.").to_string(),
         }
     }
 
@@ -1250,5 +1305,14 @@ mod tests {
         let screen = crate::geom::Vec2::new(1920.0, 1080.0);
         assert!(look.badge_rect(screen).max().x < screen.x);
         assert!((look.rect(screen, 30.0).center().x - 960.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn every_fix_step_has_a_mark() {
+        for word in ["wait", "doing", "done", "failed"] {
+            let image = step_icon(word, 26, [10, 122, 255], [70, 74, 90]);
+            assert!(image.rgba.chunks(4).any(|pixel| pixel[3] > 200), "{word} draws something");
+        }
+        assert!(step_icon("blank", 26, [0, 0, 0], [0, 0, 0]).rgba.chunks(4).all(|pixel| pixel[3] == 0));
     }
 }

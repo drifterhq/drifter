@@ -351,6 +351,8 @@ pub struct Model {
     pub blue_mic: bool,
     pub blue_prefs: crate::blue::Prefs,
     pub blue_address: bool,
+    pub blue_naming: Option<String>,
+    pub blue_steps: Vec<(String, crate::blue::Step)>,
     pub net_note: Option<String>,
     pub display_note: Option<String>,
     pub users: Option<crate::users::Users>,
@@ -370,6 +372,8 @@ pub enum NetAsk {
     Remove(usize),
     Options(usize),
     Rename,
+    SaveName,
+    StopNaming,
     BlueKey,
     Fix,
     Reset,
@@ -548,6 +552,8 @@ impl Model {
             blue_mic: false,
             blue_prefs: crate::blue::Prefs::default(),
             blue_address: false,
+            blue_naming: None,
+            blue_steps: Vec::new(),
             net_note: None,
             display_note: None,
             users: None,
@@ -2699,6 +2705,7 @@ pub enum Id {
     BlueFix,
     BlueForget,
     BlueReset,
+    BlueStep(usize),
     LargeText,
     HighContrast,
     ReduceMotion,
@@ -2855,6 +2862,7 @@ pub struct Row {
     pub icon: Option<String>,
     pub faint: bool,
     pub opens: bool,
+    pub editing: bool,
 }
 
 impl Row {
@@ -2868,6 +2876,7 @@ impl Row {
             icon: None,
             faint: false,
             opens: false,
+            editing: false,
         }
     }
 
@@ -3575,6 +3584,7 @@ impl Look {
                     - x
                     - 10.0
             }
+            Control::Note(text) if text.is_empty() => rect.max().x - x - 14.0,
             Control::Note(_) => rect.size.x * 0.32,
             Control::Swatches { colors, .. } => {
                 self.swatch_rects(rect, colors.len())
@@ -3588,6 +3598,15 @@ impl Look {
         };
         let ink = if row.faint { self.dim } else { self.ink };
         let label = fonts.body.paint(&fit(fonts.body, &row.label, room), ink);
+        if row.editing {
+            let well = Rect::new(Vec2::new(x - 8.0, rect.center().y - 15.0), Vec2::new(room + 8.0, 30.0));
+            canvas.round_rect(well, 7.0, self.accent, fade);
+            canvas.round_rect(Rect::new(well.origin + Vec2::splat(1.5), well.size - Vec2::splat(3.0)), 6.0, self.back, fade);
+            let at = Vec2::new(x, rect.center().y - crate::paint::logical(&label).y / 2.0);
+            canvas.stamp(&label, at, fade);
+            let caret = (x + crate::paint::logical(&label).x + 2.0).min(well.max().x - 4.0);
+            canvas.round_rect(Rect::new(Vec2::new(caret, rect.center().y - 8.0), Vec2::new(1.5, 16.0)), 0.7, self.accent, fade);
+        } else {
         match &row.detail {
             Some(detail) => {
                 let small = fonts.small.paint(&fit(fonts.small, detail, room), self.dim);
@@ -3600,6 +3619,7 @@ impl Look {
                 let at = Vec2::new(x, rect.center().y - crate::paint::logical(&label).y / 2.0);
                 canvas.stamp(&label, at, fade);
             }
+        }
         }
 
         match &row.control {
@@ -4782,6 +4802,18 @@ mod tests {
         assert_eq!(model.blue_prefs.sound("AA:00:00:00:00:01"), Sound::Best);
         assert_eq!(model.press(Id::BlueForget, 0), Some(Ask::Net(NetAsk::Remove(0))));
         assert_eq!(model.press(Id::BlueName, 0), Some(Ask::Net(NetAsk::Rename)));
+        model.blue_naming = Some("Pods".into());
+        let name = model.groups(Section::Bluetooth).into_iter().flat_map(|group| group.rows).find(|row| row.id == Id::BlueName).unwrap();
+        assert!(name.editing, "the name turns into a box in place");
+        assert_eq!(name.label, "Pods");
+        assert_eq!(model.press(Id::BlueName, 1), Some(Ask::Net(NetAsk::SaveName)));
+        assert_eq!(model.press(Id::BlueName, 0), Some(Ask::Net(NetAsk::StopNaming)));
+
+        model.blue_steps = vec![("Turn Bluetooth off and on".into(), crate::blue::Step::Done), ("Forget Buds".into(), crate::blue::Step::Doing)];
+        let groups = model.groups(Section::Bluetooth);
+        let fix = groups.iter().find(|group| group.header == Some("Fix It")).expect("the steps show");
+        let icons: Vec<Option<String>> = fix.rows.iter().map(|row| row.icon.clone()).collect();
+        assert_eq!(icons, [Some("step:done".to_string()), Some("step:doing".to_string())]);
     }
 
     #[test]

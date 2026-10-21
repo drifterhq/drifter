@@ -774,6 +774,24 @@ impl Model {
             footer: self.net_note.clone(),
             thumbs: None,
         }];
+        if !self.blue_steps.is_empty() {
+            groups.push(Group {
+                header: Some(crate::lang::t("Fix It")),
+                rows: self
+                    .blue_steps
+                    .iter()
+                    .enumerate()
+                    .map(|(at, (words, step))| {
+                        let mut row = Row::new(Id::BlueStep(at), words, Control::Note(String::new()));
+                        row.icon = Some(format!("step:{}", step.word()));
+                        row.faint = *step == crate::blue::Step::Wait;
+                        row
+                    })
+                    .collect(),
+                footer: None,
+                thumbs: None,
+            });
+        }
         if !blue.on {
             return groups;
         }
@@ -848,11 +866,20 @@ impl Model {
     }
 
     fn blue_options(&self, device: &crate::blue::Device) -> Group {
-        let mut rows = vec![
-            Row::new(Id::BlueName, &device.shown_name(), Control::Buttons(vec![Mark::Text(crate::lang::t("Rename"))]))
+        let mut rows = vec![match &self.blue_naming {
+            Some(text) => {
+                let mut row = Row::new(
+                    Id::BlueName,
+                    text,
+                    Control::Buttons(vec![Mark::Text(crate::lang::t("Cancel")), Mark::Text(crate::lang::t("Save"))]),
+                );
+                row.editing = true;
+                row
+            }
+            None => Row::new(Id::BlueName, &device.shown_name(), Control::Buttons(vec![Mark::Text(crate::lang::t("Rename"))]))
                 .detail(crate::lang::t("Click the name to change it"))
                 .opens(),
-        ];
+        }];
         if let Some(level) = device.battery {
             rows.push(Row::new(Id::BlueBattery, crate::lang::t("Battery"), Control::Note(format!("{level}%"))));
         }
@@ -1419,7 +1446,13 @@ impl Model {
                     (true, _, _) => NetAsk::Options(at),
                 }));
             }
-            (Id::BlueName, _) => return Some(Ask::Net(NetAsk::Rename)),
+            (Id::BlueName, index) => {
+                return Some(Ask::Net(match (self.blue_naming.is_some(), index) {
+                    (false, _) => NetAsk::Rename,
+                    (true, 0) => NetAsk::StopNaming,
+                    (true, _) => NetAsk::SaveName,
+                }));
+            }
             (Id::BlueKey, _) => return Some(Ask::Net(NetAsk::BlueKey)),
             (Id::BlueFix, _) => return Some(Ask::Net(NetAsk::Fix)),
             (Id::BlueReset, _) => return Some(Ask::Net(NetAsk::Reset)),

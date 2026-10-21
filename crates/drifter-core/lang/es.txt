@@ -4196,3 +4196,33 @@ strong signal
 
 {}% left. Charge it soon.
 = Queda {}%. Cárgalo pronto.
+
+An app wants a microphone. Mic on, sound quality will drop until the app stops.
+= Una app quiere un micrófono. Con el micrófono activo, la calidad de sonido bajará hasta que la app termine.
+
+Change a setting older Xbox controllers need
+= Cambiar un ajuste que necesitan los mandos Xbox antiguos
+
+Find {}. Put it in pairing mode now.
+= Buscar {}. Ponlo en modo de vinculación ahora.
+
+Fixed. It is set up and connected.
+= Reparado. Está configurado y conectado.
+
+Fixing {}…
+= Reparando {}…
+
+Forget {}
+= Olvidar {}
+
+Set up {}
+= Configurar {}
+
+Turn Bluetooth off and on
+= Apagar y encender Bluetooth
+
+Use Mic
+= Usar micrófono
+
+Use the {} microphone?
+= ¿Usar el micrófono de {}?

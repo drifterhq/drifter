@@ -54,7 +54,7 @@ impl Look {
             Question::Confirm(_) => 6,
             Question::Show(code, _) => code.chars().count().clamp(1, MOST_TYPED),
             Question::Type => 6,
-            Question::TypePin | Question::Allow => 0,
+            Question::TypePin | Question::Allow | Question::Mic => 0,
         }
     }
 
@@ -141,6 +141,7 @@ impl Look {
         match ask.question {
             Question::Confirm(_) => crate::lang::t("They match"),
             Question::Allow => crate::lang::t("Allow"),
+            Question::Mic => crate::lang::t("Use Mic"),
             _ => crate::lang::t("Set Up"),
         }
     }
@@ -229,7 +230,7 @@ pub fn shown(ask: &Ask, typed: &str) -> Vec<(char, bool)> {
             .map(|(at, c)| (c, at < usize::from(*entered)))
             .collect(),
         Question::Type => typed.chars().take(6).map(|c| (c, false)).collect(),
-        Question::TypePin | Question::Allow => Vec::new(),
+        Question::TypePin | Question::Allow | Question::Mic => Vec::new(),
     }
 }
 

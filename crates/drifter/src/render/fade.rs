@@ -238,6 +238,16 @@ impl State {
                 ));
             }
         }
+        if let Some((icon, since)) = hud.icon.as_ref() {
+            let look = drifter_core::hud::Look::themed(&self.palette);
+            let spot = look.icon_rect();
+            let (alpha, scale) = State::hud_icon_look(*since, self.window_pace, self.window_still);
+            let centre = hud.rect.origin + spot.center();
+            layers.push(Layer {
+                alpha: alpha as f32,
+                ..Layer::new(icon, Rect::from_center(centre, spot.size * scale), Shadow::None)
+            });
+        }
         layers.push(Layer::new(&hud.art, hud.rect, Shadow::Menu));
         Some((layers, hud.rect))
     }
