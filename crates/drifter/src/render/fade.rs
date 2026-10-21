@@ -220,7 +220,11 @@ impl State {
         let hud = self.hud.as_ref()?;
         let mut layers = Vec::new();
         if let (Some(pill), Some(level)) = (self.hud_pill.as_ref(), self.hud_level()) {
-            let bar = drifter_core::hud::Look::themed(&self.palette).bar();
+            let plain = drifter_core::hud::Look::themed(&self.palette);
+            let bar = match hud.icon.is_some() {
+                true => plain.named().bar(),
+                false => plain.bar(),
+            };
             let at = hud.rect.origin + bar.origin;
             let width = bar.size.x * level;
             let cap = 3.0_f64.min(width);
@@ -239,7 +243,7 @@ impl State {
             }
         }
         if let Some((icon, since)) = hud.icon.as_ref() {
-            let look = drifter_core::hud::Look::themed(&self.palette);
+            let look = drifter_core::hud::Look::themed(&self.palette).named();
             let spot = look.icon_rect();
             let (alpha, scale) = State::hud_icon_look(*since, self.window_pace, self.window_still);
             let centre = hud.rect.origin + spot.center();

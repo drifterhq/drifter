@@ -126,6 +126,7 @@ pub struct Settings {
     blue_back: LoopSender<BlueNews>,
     blue_searching: bool,
     step_pops: Vec<(usize, std::time::Instant)>,
+    started: std::time::Instant,
     fresh: LoopSender<Fresh>,
     hands: Sender<Hand>,
     fetching: bool,
@@ -347,6 +348,7 @@ pub fn run() -> Result<(), String> {
         blue_back,
         blue_searching: false,
         step_pops: Vec::new(),
+        started: std::time::Instant::now(),
         fresh,
         hands: hands(),
         fetching: false,
@@ -1020,7 +1022,7 @@ impl Settings {
     }
 
     fn pop_steps(&mut self, image: &drifter_core::Image) -> Option<drifter_core::Image> {
-        if self.step_pops.is_empty() || self.section != Section::Bluetooth {
+        if (self.step_pops.is_empty() && !self.step_turning()) || self.section != Section::Bluetooth {
             return None;
         }
         let side = drifter_core::sheet::FACE_CELL as u32 * scale();
@@ -1047,6 +1049,20 @@ impl Settings {
             let scaled = done.scaled(size, size);
             let alpha = drifter_core::motion::smooth(t * 1.6);
             canvas.stamp(&scaled, cell.center() - drifter_core::paint::logical(&scaled) / 2.0, alpha);
+        }
+        let turn = match self.animates() {
+            true => self.started.elapsed().as_secs_f64() / 0.9,
+            false => 0.0,
+        };
+        for (at, (_, step)) in self.model.blue_steps.iter().enumerate() {
+            if *step != drifter_core::blue::Step::Doing {
+                continue;
+            }
+            let spot = drifter_core::settings::Spot::Row(Id::BlueStep(at), 0);
+            if let Some(row) = self.look.spot_rect(self.view(), self.section, &self.model, self.scroll, spot) {
+                let middle = Vec2::new(row.origin.x + 27.0, row.center().y);
+                canvas.arc_from(middle, 26.0 * 0.345, 26.0 * 0.08, turn, 0.3, self.look.accent, 1.0);
+            }
         }
         if !settled.is_empty() {
             self.step_pops.retain(|(at, _)| !settled.contains(at));
@@ -2425,7 +2441,13 @@ impl Settings {
     }
 
     fn moving(&self) -> bool {
-        self.glide.is_some() || self.page_fade.is_some() || self.flip.is_some() || !self.step_pops.is_empty()
+        self.glide.is_some() || self.page_fade.is_some() || self.flip.is_some() || !self.step_pops.is_empty() || self.step_turning()
+    }
+
+    fn step_turning(&self) -> bool {
+        self.section == Section::Bluetooth
+            && self.sheet.is_none()
+            && self.model.blue_steps.iter().any(|(_, step)| *step == drifter_core::blue::Step::Doing)
     }
 
     fn wheel(&mut self, by: f64, click: bool) {

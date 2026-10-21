@@ -862,7 +862,7 @@ impl Step {
     pub fn word(self) -> &'static str {
         match self {
             Step::Wait => "wait",
-            Step::Doing => "doing",
+            Step::Doing => "wait",
             Step::Popping => "blank",
             Step::Done => "done",
             Step::Failed => "failed",

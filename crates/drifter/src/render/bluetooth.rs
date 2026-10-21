@@ -496,7 +496,7 @@ impl State {
             level,
             muted,
         };
-        let look = drifter_core::hud::Look::themed(&self.palette);
+        let look = drifter_core::hud::Look::themed(&self.palette).named();
         let rect = look.rect(self.screen);
         let name = device.shown_name();
         self.paint_on_worker(

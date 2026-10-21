@@ -4813,7 +4813,7 @@ mod tests {
         let groups = model.groups(Section::Bluetooth);
         let fix = groups.iter().find(|group| group.header == Some("Fix It")).expect("the steps show");
         let icons: Vec<Option<String>> = fix.rows.iter().map(|row| row.icon.clone()).collect();
-        assert_eq!(icons, [Some("step:done".to_string()), Some("step:doing".to_string())]);
+        assert_eq!(icons, [Some("step:done".to_string()), Some("step:wait".to_string())], "a step in progress turns on top of an empty ring");
     }
 
     #[test]

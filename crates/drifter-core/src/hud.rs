@@ -48,9 +48,20 @@ pub struct Look {
     pub fill: [u8; 3],
     pub ink: [u8; 3],
     pub dim: [u8; 3],
+    pub inset: f64,
 }
 
+pub const NAMED: f64 = 56.0;
+
 impl Look {
+    pub fn named(self) -> Look {
+        Look {
+            size: Vec2::new(self.size.x + NAMED, self.size.y),
+            inset: NAMED,
+            ..self
+        }
+    }
+
     pub fn themed(p: &crate::theme::Palette) -> Look {
         Look {
             size: Vec2::new(320.0, 56.0),
@@ -61,6 +72,7 @@ impl Look {
             fill: p.ink,
             ink: p.ink,
             dim: p.dim,
+            inset: 0.0,
         }
     }
 }
@@ -84,7 +96,7 @@ impl Look {
 
     pub fn bar(&self) -> Rect {
         Rect::new(
-            Vec2::new(120.0, self.size.y / 2.0 - 3.0),
+            Vec2::new(120.0 + self.inset, self.size.y / 2.0 - 3.0),
             Vec2::new(130.0, 6.0),
         )
     }
@@ -257,9 +269,10 @@ mod tests {
 
     #[test]
     fn a_named_hud_leaves_room_for_the_device_icon() {
-        let look = Look::default();
+        let look = Look::default().named();
         let font = Font::find(None, 13.0).unwrap();
         let icon = look.icon_rect();
+        assert!(look.bar().origin.x - icon.max().x > 100.0, "room for a name");
         assert!(icon.max().x < look.bar().origin.x);
         crate::paint::same_at_two("named hud", || {
             look.paint_named(Reading { gauge: Gauge::Volume, level: 0.4, muted: false }, "AirPods Pro", &font)
