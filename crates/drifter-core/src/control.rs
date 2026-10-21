@@ -28,17 +28,19 @@ pub fn paint_icon(side: u32, ink: [u8; 3]) -> Image {
 pub enum Tile {
     Wifi,
     Bluetooth,
+    AirDrop,
     Quiet,
     Dark,
 }
 
 impl Tile {
-    pub const ALL: [Tile; 4] = [Tile::Wifi, Tile::Bluetooth, Tile::Quiet, Tile::Dark];
+    pub const ALL: [Tile; 5] = [Tile::Wifi, Tile::Bluetooth, Tile::AirDrop, Tile::Quiet, Tile::Dark];
 
     pub fn label(self) -> &'static str {
         match self {
             Tile::Wifi => crate::lang::t("Wi-Fi"),
             Tile::Bluetooth => crate::lang::t("Bluetooth"),
+            Tile::AirDrop => "AirDrop",
             Tile::Quiet => crate::lang::t("Do Not Disturb"),
             Tile::Dark => crate::lang::t("Dark Mode"),
         }
@@ -50,6 +52,7 @@ pub struct Status {
     pub wifi: Option<(bool, String)>,
     pub bluetooth: Option<bool>,
     pub blue_note: String,
+    pub airdrop: Option<(bool, String)>,
     pub quiet: bool,
     pub dark: bool,
     pub light: Option<f64>,
@@ -61,6 +64,7 @@ impl Status {
         match tile {
             Tile::Wifi => self.wifi.as_ref().is_some_and(|(on, _)| *on),
             Tile::Bluetooth => self.bluetooth.unwrap_or(false),
+            Tile::AirDrop => self.airdrop.as_ref().is_some_and(|(on, _)| *on),
             Tile::Quiet => self.quiet,
             Tile::Dark => self.dark,
         }
@@ -80,6 +84,10 @@ impl Status {
                 Some(true) if self.blue_note.is_empty() => crate::lang::t("On").to_string(),
                 Some(true) => self.blue_note.clone(),
                 Some(false) => crate::lang::t("Off").to_string(),
+            },
+            Tile::AirDrop => match &self.airdrop {
+                None => crate::lang::t("Not available").to_string(),
+                Some((_, note)) => note.clone(),
             },
             Tile::Quiet | Tile::Dark => match self.on(tile) {
                 true => crate::lang::t("On").to_string(),
@@ -228,9 +236,18 @@ pub struct Look {
     pub dim: [u8; 3],
     pub off: [u8; 3],
     pub accent: [u8; 3],
+    pub airdrop: bool,
 }
 
 impl Look {
+    pub fn tiles(&self) -> Vec<Tile> {
+        Tile::ALL.into_iter().filter(|tile| *tile != Tile::AirDrop || self.airdrop).collect()
+    }
+
+    fn tile_rows(&self) -> f64 {
+        self.tiles().len().div_ceil(2) as f64
+    }
+
     pub fn themed(p: &crate::theme::Palette, accent: [u8; 3]) -> Look {
         Look {
             width: 344.0,
@@ -246,11 +263,13 @@ impl Look {
             dim: p.dim,
             off: p.off,
             accent,
+            airdrop: false,
         }
     }
 
     pub fn size(&self) -> Vec2 {
-        let tiles = self.tile * 2.0 + self.gap;
+        let rows = self.tile_rows();
+        let tiles = self.tile * rows + self.gap * (rows - 1.0);
         Vec2::new(self.width, self.pad * 2.0 + tiles + (self.gap + self.slider) * 2.0)
     }
 
@@ -302,20 +321,23 @@ impl Look {
     }
 
     pub fn tile_rect(&self, tile: Tile) -> Rect {
-        let index = Tile::ALL.iter().position(|held| *held == tile).unwrap_or(0);
+        let tiles = self.tiles();
+        let index = tiles.iter().position(|held| *held == tile).unwrap_or(0);
         let wide = (self.width - self.pad * 2.0 - self.gap) / 2.0;
         let (col, row) = (index % 2, index / 2);
+        let alone = index + 1 == tiles.len() && tiles.len() % 2 == 1;
         Rect::new(
             Vec2::new(
                 self.pad + (wide + self.gap) * col as f64,
                 self.pad + (self.tile + self.gap) * row as f64,
             ),
-            Vec2::new(wide, self.tile),
+            Vec2::new(if alone { wide * 2.0 + self.gap } else { wide }, self.tile),
         )
     }
 
     pub fn slider_rect(&self, which: usize) -> Rect {
-        let top = self.pad + self.tile * 2.0 + self.gap * 2.0;
+        let rows = self.tile_rows();
+        let top = self.pad + self.tile * rows + self.gap * rows;
         Rect::new(
             Vec2::new(self.pad, top + (self.slider + self.gap) * which as f64),
             Vec2::new(self.width - self.pad * 2.0, self.slider),
@@ -336,7 +358,7 @@ impl Look {
     }
 
     pub fn hit_rect(&self, inside: Vec2, items: &[Item]) -> Option<Rect> {
-        Tile::ALL
+        self.tiles()
             .into_iter()
             .map(|tile| self.tile_rect(tile))
             .chain([self.slider_rect(0), self.slider_rect(1)])
@@ -351,7 +373,7 @@ impl Look {
     }
 
     pub fn hit(&self, inside: Vec2, items: &[Item]) -> Option<Hit> {
-        if let Some(tile) = Tile::ALL.into_iter().find(|tile| self.tile_rect(*tile).contains(inside)) {
+        if let Some(tile) = self.tiles().into_iter().find(|tile| self.tile_rect(*tile).contains(inside)) {
             let on_dot = (inside - self.dot(tile)).length() <= 19.0;
             return Some(match (tile, on_dot) {
                 (Tile::Bluetooth, false) => Hit::More(tile),
@@ -380,7 +402,7 @@ impl Look {
         if !items.is_empty() {
             canvas.round_rect(self.list_rect(items), 12.0, self.card, 0.85);
         }
-        for tile in Tile::ALL {
+        for tile in self.tiles() {
             let rect = self.tile_rect(tile);
             canvas.round_rect(rect, 12.0, self.card, 0.85);
             let on = status.on(tile) && !bare_dots;
@@ -616,6 +638,11 @@ fn symbol(canvas: &mut Canvas, tile: Tile, at: Vec2, ink: [u8; 3]) {
             canvas.triangle([at + Vec2::new(1.0, -8.0), at + Vec2::new(6.0, -3.5), at + Vec2::new(1.0, 0.5)], ink, 1.0);
             canvas.triangle([at + Vec2::new(1.0, -0.5), at + Vec2::new(6.0, 3.5), at + Vec2::new(1.0, 8.0)], ink, 1.0);
         }
+        Tile::AirDrop => {
+            canvas.arc_from(at, 8.5, 1.7, 0.58, 0.84, ink, 1.0);
+            canvas.arc_from(at, 5.0, 1.7, 0.6, 0.8, ink, 1.0);
+            canvas.circle(at, 1.9, ink, 1.0);
+        }
         Tile::Quiet => shape(canvas, at, ink, |d, p| {
             let cut = (p - Vec2::new(4.0, -3.5)).length();
             (7.5 - d).min(cut - 6.0)
@@ -635,7 +662,7 @@ mod tests {
     #[test]
     fn hit_rect_finds_the_tile_or_slider_under_the_pointer() {
         let look = Look::themed(&crate::theme::DARK, [10, 122, 255]);
-        for tile in Tile::ALL {
+        for tile in look.tiles() {
             let rect = look.tile_rect(tile);
             assert_eq!(look.hit_rect(rect.center(), &[]), Some(rect));
         }
@@ -662,7 +689,7 @@ mod tests {
     #[test]
     fn tiles_and_sliders_are_found_by_where_the_pointer_is() {
         let look = Look::themed(&crate::theme::DARK, [10, 122, 255]);
-        for tile in Tile::ALL {
+        for tile in look.tiles() {
             assert_eq!(look.hit(look.dot(tile), &[]), Some(Hit::Tile(tile)));
         }
         let display = look.slider_rect(0);
@@ -769,6 +796,25 @@ mod tests {
         crate::paint::same_at_two("bluetooth row", || {
             let font = Font::find(None, 13.0).unwrap();
             look.paint_item(&list[1], &font, &font)
+        });
+    }
+
+    #[test]
+    fn the_airdrop_tile_only_shows_when_asked_and_the_odd_tile_spans_the_row() {
+        let plain = Look::themed(&crate::theme::DARK, [10, 122, 255]);
+        assert_eq!(plain.tiles().len(), 4);
+        let with = Look { airdrop: true, ..plain };
+        assert_eq!(with.tiles(), Tile::ALL.to_vec());
+        assert!(with.size().y > plain.size().y, "a third row of tiles");
+        let last = with.tile_rect(Tile::Dark);
+        assert!((last.size.x - (with.width - with.pad * 2.0)).abs() < 0.5, "the odd tile spans the row");
+        assert!(with.slider_rect(0).origin.y > last.max().y);
+        let status = Status { airdrop: Some((true, "Everyone, 10 min".into())), ..Status::default() };
+        assert!(status.on(Tile::AirDrop));
+        assert_eq!(status.note(Tile::AirDrop), "Everyone, 10 min");
+        crate::paint::same_at_two("airdrop tile", || {
+            let font = Font::find(None, 13.0).unwrap();
+            with.paint(&status, &font, &font)
         });
     }
 }

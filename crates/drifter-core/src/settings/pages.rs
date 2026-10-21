@@ -1328,6 +1328,8 @@ impl Model {
                 }
             }
             (Id::ShotClipboard, Value::Switch(on)) => self.shots.clipboard = on,
+            (Id::AirDropForce, Value::Switch(on)) => self.airdrop.force = on,
+            (Id::AirDropReceive, Value::Switch(on)) => self.airdrop_receiving = Some(on),
             (Id::ShotTimer, Value::Choice(n)) => self.shots.timer = [0, 5, 10][n.min(2)],
             (Id::ShotThumbnail, Value::Switch(on)) => self.shots.thumbnail = on,
             (Id::ShotShadow, Value::Switch(on)) => self.shots.shadow = on,
@@ -1495,6 +1497,9 @@ impl Model {
                 self.dock.retain(|each| *each != button);
             }
             (Id::ShotFolder, 0) => return Some(Ask::Files(For::ShotFolder)),
+            (Id::AirDropFolder, 0) => return Some(Ask::Files(For::AirDropFolder)),
+            (Id::AirDropFolder, _) => self.airdrop.folder = None,
+            (Id::AirDropOwly, _) => return Some(Ask::Net(NetAsk::OwlyPage)),
             (Id::ShotFolder, _) => self.shots.folder = None,
             (Id::Variant, _) => return Some(Ask::Choose(For::Variant)),
             (Id::IconTheme, 0) => return Some(Ask::Choose(For::IconTheme)),
@@ -1548,13 +1553,87 @@ impl Model {
     }
 
     pub fn choose_shot_folder(&mut self, folder: PathBuf) {
-        let home = std::env::var_os("HOME").map(PathBuf::from);
-        let shown = match home.as_ref().and_then(|home| folder.strip_prefix(home).ok()) {
-            Some(rest) if rest.as_os_str().is_empty() => "~".to_string(),
-            Some(rest) => format!("~/{}", rest.display()),
-            None => folder.display().to_string(),
+        self.shots.folder = Some(home_short(&folder));
+    }
+
+    pub fn choose_airdrop_folder(&mut self, folder: PathBuf) {
+        self.airdrop.folder = Some(home_short(&folder));
+    }
+
+    pub(super) fn airdrop_groups(&self) -> Vec<Group> {
+        let Some(report) = &self.airdrop_report else {
+            return vec![Group {
+                header: None,
+                rows: vec![Row::new(Id::AirDropStatus, "AirDrop", Control::Note(crate::lang::t("Checking…").to_string()))],
+                footer: None,
+                thumbs: None,
+            }];
         };
-        self.shots.folder = Some(shown);
+        let shown = report.shown(self.airdrop.force);
+        let state = match (shown, report.owly, report.ready()) {
+            (false, _, _) => crate::lang::t("Not available"),
+            (true, false, _) => crate::lang::t("Needs Owly"),
+            (true, true, false) => crate::lang::t("Not ready"),
+            (true, true, true) => crate::lang::t("Ready"),
+        };
+        let more = match (&self.net_note, report.owly, report.missing.first()) {
+            (Some(note), _, _) => Some(note.clone()),
+            (None, true, Some(missing)) => Some(missing.clone()),
+            _ => report.wifi_words().map(str::to_string),
+        };
+        let mut groups = vec![Group {
+            header: None,
+            rows: vec![Row::new(Id::AirDropStatus, "AirDrop", Control::Note(state.to_string()))],
+            footer: Some(match more {
+                Some(more) => format!("{} {more}", report.words()),
+                None => report.words(),
+            }),
+            thumbs: None,
+        }];
+        if !report.owly {
+            groups.push(Group {
+                header: Some(crate::lang::t("Owly")),
+                rows: vec![
+                    Row::new(Id::AirDropOwly, crate::lang::t("Get Owly"), Control::Buttons(vec![Mark::Text(crate::lang::t("How"))]))
+                        .detail(self.airdrop_hint),
+                ],
+                footer: Some(crate::lang::t("Owly is the free app that lets Linux speak AirDrop. Drifter uses it once it is installed.").into()),
+                thumbs: None,
+            });
+        }
+        if shown {
+            let folder = match self.airdrop.folder.as_deref() {
+                Some(folder) if !folder.trim().is_empty() => folder.to_string(),
+                _ => crate::lang::t("Your Downloads folder").to_string(),
+            };
+            let marks = match self.airdrop.folder.is_some() {
+                true => vec![Mark::Text(crate::lang::t("Choose")), Mark::Text(crate::lang::t("Reset"))],
+                false => vec![Mark::Text(crate::lang::t("Choose"))],
+            };
+            let mut receive = Row::new(
+                Id::AirDropReceive,
+                crate::lang::t("Let nearby Apple devices send to me"),
+                Control::Switch(self.airdrop_receiving.unwrap_or(false)),
+            )
+            .detail(crate::lang::t("Everyone nearby, for 10 minutes"));
+            receive.enabled = report.ready() && self.airdrop_receiving.is_some();
+            groups.push(Group {
+                header: Some(crate::lang::t("Receiving")),
+                rows: vec![receive, Row::new(Id::AirDropFolder, crate::lang::t("Save to"), Control::Buttons(marks)).detail(&folder)],
+                footer: Some(crate::lang::t("To send, right click files in Explorer and choose Share with AirDrop.").into()),
+                thumbs: None,
+            });
+        }
+        groups.push(Group {
+            header: None,
+            rows: vec![
+                Row::new(Id::AirDropForce, crate::lang::t("Show AirDrop anyway"), Control::Switch(self.airdrop.force))
+                    .detail(crate::lang::t("For a Wi-Fi card that Drifter thinks can't do AirDrop")),
+            ],
+            footer: None,
+            thumbs: None,
+        });
+        groups
     }
 
     pub fn choose_file(&mut self, purpose: For, path: PathBuf) {
@@ -1765,6 +1844,17 @@ impl Model {
             put(doc, "screenshots", "timer", int(u64::from(shots.timer)));
         }
 
+        let (airdrop, was) = (&self.airdrop, &before.airdrop);
+        if airdrop.force != was.force {
+            put(doc, "airdrop", "force", flag(airdrop.force));
+        }
+        if airdrop.folder != was.folder {
+            match &airdrop.folder {
+                Some(folder) => put(doc, "airdrop", "folder", word(folder)),
+                None => drop_key(doc, "airdrop", "folder"),
+            }
+        }
+
         let (notify, was) = (&self.notify, &before.notify);
         if notify.quiet != was.quiet {
             put(doc, "notify", "quiet", flag(notify.quiet));
@@ -1936,5 +2026,14 @@ mod tests {
         for section in Section::ALL {
             assert!(!m.groups(section).is_empty(), "{section:?}");
         }
+    }
+}
+
+fn home_short(folder: &std::path::Path) -> String {
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    match home.as_ref().and_then(|home| folder.strip_prefix(home).ok()) {
+        Some(rest) if rest.as_os_str().is_empty() => "~".to_string(),
+        Some(rest) => format!("~/{}", rest.display()),
+        None => folder.display().to_string(),
     }
 }

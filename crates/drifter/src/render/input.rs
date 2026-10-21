@@ -717,6 +717,12 @@ impl State {
         if self.press_search(code) {
             return true;
         }
+        if self.drop.share.is_some() && self.prompts.is_empty() && !self.pairing_open() {
+            if code == BTN_LEFT {
+                self.share_press();
+            }
+            return true;
+        }
         if self.pairing_open() && self.prompts.is_empty() {
             if code == BTN_LEFT {
                 self.pair_press();
@@ -1092,6 +1098,17 @@ impl State {
         {
             let key = self.read_key(event);
             self.prompt_key(key);
+            return;
+        }
+        if self.lock.is_none()
+            && self.drop.share.is_some()
+            && !self.pairing_open()
+            && let InputEvent::Keyboard { event } = &event
+        {
+            if event.state() == KeyState::Pressed {
+                let key = self.read_key(event);
+                self.share_key(key);
+            }
             return;
         }
         if self.lock.is_none()

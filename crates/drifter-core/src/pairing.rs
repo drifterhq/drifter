@@ -54,7 +54,7 @@ impl Look {
             Question::Confirm(_) => 6,
             Question::Show(code, _) => code.chars().count().clamp(1, MOST_TYPED),
             Question::Type => 6,
-            Question::TypePin | Question::Allow | Question::Mic => 0,
+            Question::TypePin | Question::Allow | Question::Mic | Question::Incoming(_) => 0,
         }
     }
 
@@ -142,6 +142,7 @@ impl Look {
             Question::Confirm(_) => crate::lang::t("They match"),
             Question::Allow => crate::lang::t("Allow"),
             Question::Mic => crate::lang::t("Use Mic"),
+            Question::Incoming(_) => crate::lang::t("Accept"),
             _ => crate::lang::t("Set Up"),
         }
     }
@@ -181,7 +182,11 @@ impl Look {
         let go = self.go_rect(size, ask);
         let cancel = self.cancel_rect(size, ask);
         canvas.round_rect(cancel, 8.0, self.off, 1.0);
-        let painted = font.paint(crate::lang::t("Cancel"), self.ink);
+        let no = match ask.question {
+            Question::Incoming(_) => crate::lang::t("Decline"),
+            _ => crate::lang::t("Cancel"),
+        };
+        let painted = font.paint(no, self.ink);
         canvas.stamp(&painted, (cancel.center() - crate::paint::logical(&painted) / 2.0).round(), 1.0);
         if let Some(go) = go {
             canvas.round_rect(go, 8.0, self.accent, 1.0);
@@ -230,7 +235,7 @@ pub fn shown(ask: &Ask, typed: &str) -> Vec<(char, bool)> {
             .map(|(at, c)| (c, at < usize::from(*entered)))
             .collect(),
         Question::Type => typed.chars().take(6).map(|c| (c, false)).collect(),
-        Question::TypePin | Question::Allow | Question::Mic => Vec::new(),
+        Question::TypePin | Question::Allow | Question::Mic | Question::Incoming(_) => Vec::new(),
     }
 }
 

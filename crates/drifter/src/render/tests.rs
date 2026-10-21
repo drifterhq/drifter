@@ -2325,3 +2325,72 @@ fn a_new_output_springs_its_icon_into_the_volume_hud() {
     settle(&mut run, 500);
     run.shot("hud-shown");
 }
+
+fn airdrop_report(driver: &str, owly: bool) -> drifter_core::airdrop::Report {
+    let card = drifter_core::airdrop::Card { iface: "wlan0".into(), driver: driver.into(), device: None };
+    let mut report = drifter_core::airdrop::Report::from_cards(&[card], owly);
+    report.owlyd = owly;
+    report
+}
+
+#[test]
+fn the_airdrop_tile_shows_only_for_a_card_that_can() {
+    let mut config = Config::default();
+    config.motion.hide_top = false;
+    let mut run = start("airdrop-tile", &config, None);
+    run.screen.state.set(Edge::Top, true);
+    run.screen.state.kick_now();
+    pump(&mut run.screen, |state| state.drawers.iter().all(|drawer| drawer.settled()) && state.clock.is_some());
+    run.screen.state.drop.report = Some(airdrop_report("ath11k_pci", true));
+    assert!(!run.screen.state.airdrop_shown());
+    assert!(!run.screen.state.control_look().airdrop, "no tile for a card that can't");
+    run.screen.state.drop.report = Some(airdrop_report("iwlwifi", true));
+    assert!(run.screen.state.airdrop_shown());
+    run.screen.state.toggle_control();
+    pump(&mut run.screen, |state| state.control.as_ref().is_some_and(|open| open.art.is_some()) && !state.fades_busy());
+    assert!(run.screen.state.control_look().airdrop);
+    run.shot("airdrop-tile");
+    run.screen.state.toggle_control();
+    run.screen.state.drop.report = Some(airdrop_report("ath11k_pci", true));
+    run.screen.state.drop.force = true;
+    assert!(run.screen.state.airdrop_shown(), "the force switch shows it anyway");
+}
+
+#[test]
+fn the_share_sheet_springs_its_devices_in() {
+    let mut run = start("airdrop-share", &Config::default(), None);
+    run.screen.state.drop.report = Some(airdrop_report("iwlwifi", false));
+    let file = run.folder.join("photo.jpg");
+    std::fs::write(&file, "x").unwrap();
+    run.screen.state.airdrop_share(vec![file]);
+    pump(&mut run.screen, |state| state.drop.share.as_ref().is_some_and(|share| share.art.is_some()));
+    settle(&mut run, 300);
+    run.shot("share-empty");
+    for (key, name, kind) in [("a1", "Studio Mac", drifter_core::blue::Kind::Computer), ("aa:bb:cc:dd:ee:01", "iPhone or iPad nearby", drifter_core::blue::Kind::Phone)] {
+        run.screen.state.airdrop_add(drifter_core::share::Target {
+            key: key.into(),
+            name: name.into(),
+            kind,
+            mac: key.contains(':').then(|| key.to_string()),
+            state: drifter_core::share::State::Idle,
+        });
+    }
+    settle(&mut run, 60);
+    run.shot("share-arriving");
+    pump(&mut run.screen, |state| state.drop.share.as_ref().is_some_and(|share| share.bubbles.iter().all(|bubble| bubble.art.is_some())));
+    settle(&mut run, 500);
+    run.shot("share-found");
+    if let Some(share) = run.screen.state.drop.share.as_mut() {
+        share.bubbles[0].target.state = drifter_core::share::State::Sending(60);
+        share.bubbles[1].target.state = drifter_core::share::State::Sent;
+        share.bubbles[1].changed = Instant::now();
+    }
+    run.screen.state.paint_share();
+    settle(&mut run, 120);
+    run.shot("share-sending");
+    settle(&mut run, 500);
+    run.shot("share-sent");
+    assert_eq!(run.screen.state.drop.share.as_ref().unwrap().bubbles.len(), 2);
+    run.screen.state.airdrop_close_share();
+    assert!(run.screen.state.drop.share.is_none());
+}

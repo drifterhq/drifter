@@ -62,6 +62,7 @@ enum BlueNews {
     Card(String, Option<drifter_core::blue::Card>),
     Note(String),
     Step(usize, drifter_core::blue::Step),
+    Air(drifter_core::airdrop::Report, &'static str, Option<bool>),
     Shake(String),
     Done(Option<String>),
 }
@@ -1535,6 +1536,12 @@ impl Settings {
                     self.stale = true;
                 }
             }
+            Section::AirDrop => {
+                self.net_ticks += 1;
+                if self.net_ticks % 3 == 0 {
+                    self.air_fetch();
+                }
+            }
             Section::Network => {
                 self.net_ticks += 1;
                 if self.net_ticks % 3 == 0 && !self.fetching {
@@ -1656,6 +1663,10 @@ impl Settings {
                         std::thread::sleep(std::time::Duration::from_secs(3));
                         let _ = done.send((false, Ok(())));
                     });
+            }
+            Section::AirDrop => {
+                self.model.net_note = None;
+                self.air_fetch();
             }
             Section::Bluetooth => {
                 self.model.net_note = None;
@@ -2135,6 +2146,11 @@ impl Settings {
                 .find(|folder| folder.is_dir())
                 .map(Path::to_path_buf)
                 .unwrap_or(pictures),
+            For::AirDropFolder => drifter_core::airdrop::received_folder(self.model.airdrop.folder.as_deref(), &home())
+                .ancestors()
+                .find(|folder| folder.is_dir())
+                .map(Path::to_path_buf)
+                .unwrap_or_else(home),
             For::Picture => near(self.model.wallpaper.as_ref()).unwrap_or(pictures),
             For::Pointer => near(self.model.assets[0].as_ref()).unwrap_or_else(home),
             For::Font => near(self.model.assets[1].as_ref())
@@ -2287,6 +2303,7 @@ impl Settings {
                 match purpose {
                     For::Folder => self.model.choose_folder(folder),
                     For::ShotFolder => self.model.choose_shot_folder(folder),
+                    For::AirDropFolder => self.model.choose_airdrop_folder(folder),
                     _ => self.model.choose_file(purpose, folder),
                 }
                 self.sheet = None;
@@ -2782,6 +2799,7 @@ impl Settings {
             self.blue_job(note.to_string(), move |bus| bus.power(on));
         }
         self.apply_blue(&before);
+        self.apply_air(&before);
         if let Some(now) = self.model.profile.as_ref()
             && before.profile.as_ref().is_some_and(|was| was.now != now.now)
         {
@@ -3287,6 +3305,17 @@ impl Settings {
                 }
             }
             BlueNews::Note(note) => self.model.net_note = Some(note),
+            BlueNews::Air(report, hint, receiving) => {
+                self.model.airdrop_report = Some(report.clone());
+                self.saved.airdrop_report = Some(report);
+                self.model.airdrop_hint = hint;
+                self.saved.airdrop_hint = hint;
+                self.model.airdrop_receiving = receiving;
+                self.saved.airdrop_receiving = receiving;
+                if self.section == Section::AirDrop && self.sheet.is_none() {
+                    self.stale = true;
+                }
+            }
             BlueNews::Shake(address) => {
                 if self.animates() {
                     self.shake = Some((address, std::time::Instant::now()));
@@ -3480,6 +3509,14 @@ impl Settings {
                     self.blue_fix(device);
                 }
             }
+            NetAsk::OwlyPage => {
+                let _ = std::process::Command::new("xdg-open")
+                    .arg(drifter_core::airdrop::OWLY_PAGE)
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn();
+            }
             NetAsk::Service => {
                 let note = drifter_core::lang::t("Starting the Bluetooth service. Type your password if asked.").to_string();
                 self.blue_job(note, |_| drifter_blue::Bus::start_service());
@@ -3571,6 +3608,48 @@ impl Settings {
             })?;
             bus.connect(&address).map_err(|error| drifter_core::blue::plain_error(&error, &name, kind))
         });
+    }
+
+    fn air_fetch(&mut self) {
+        let back = self.blue_back.clone();
+        let _ = std::thread::Builder::new().name("settings-airdrop".into()).spawn(move || {
+            let report = drifter_blue::owly::report();
+            let receiving = drifter_blue::owly::drifter_state().filter(|(_, ready, _)| *ready).map(|(_, _, on)| on);
+            let _ = back.send(BlueNews::Air(report, drifter_blue::owly::hint(), receiving));
+        });
+    }
+
+    fn apply_air(&mut self, before: &drifter_core::settings::Model) {
+        if let Some(on) = self.model.airdrop_receiving
+            && before.airdrop_receiving.is_some()
+            && before.airdrop_receiving != Some(on)
+        {
+            let back = self.blue_back.clone();
+            let _ = std::thread::Builder::new().name("settings-airdrop".into()).spawn(move || {
+                if let Err(error) = drifter_blue::owly::drifter_receive(on) {
+                    let _ = back.send(BlueNews::Note(drifter_core::lang::tf("AirDrop did not answer: {}", &[&error])));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(600));
+                let report = drifter_blue::owly::report();
+                let receiving = drifter_blue::owly::drifter_state().filter(|(_, ready, _)| *ready).map(|(_, _, on)| on);
+                let _ = back.send(BlueNews::Air(report, drifter_blue::owly::hint(), receiving));
+            });
+        }
+        let untested = self
+            .model
+            .airdrop_report
+            .as_ref()
+            .is_some_and(|report| report.owly && report.verdict != drifter_core::airdrop::Verdict::Works);
+        if self.model.airdrop.force && !before.airdrop.force && untested && !drifter_blue::owly::allows_untested() {
+            let back = self.blue_back.clone();
+            let _ = std::thread::Builder::new().name("settings-airdrop".into()).spawn(move || {
+                let said = match drifter_blue::owly::allow_untested() {
+                    Ok(()) => drifter_core::lang::t("Owly will now try this card.").to_string(),
+                    Err(error) => error,
+                };
+                let _ = back.send(BlueNews::Note(said));
+            });
+        }
     }
 
     fn apply_blue(&mut self, before: &drifter_core::settings::Model) {

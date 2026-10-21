@@ -34,6 +34,7 @@ pub enum For {
     WifiHidden,
     WifiEnterprise(usize),
     BlueKey,
+    AirDropFolder,
     ColorProfile,
     NetInfo(usize),
     MyName,
@@ -86,7 +87,7 @@ pub enum Kind {
 impl For {
     fn kind(self) -> Kind {
         match self {
-            For::Folder | For::WindowArt | For::DockArt | For::Export | For::ShotFolder => {
+            For::Folder | For::WindowArt | For::DockArt | For::Export | For::ShotFolder | For::AirDropFolder => {
                 Kind::Folders
             }
             For::Font => Kind::Fonts,
@@ -762,6 +763,7 @@ impl Sheet {
             For::Wifi(_) | For::WifiEnterprise(_) => crate::lang::t("Join a network"),
             For::WifiHidden => crate::lang::t("Join a hidden network"),
             For::BlueKey => crate::lang::t("Press the new shortcut"),
+            For::AirDropFolder => crate::lang::t("Choose where AirDrop saves files"),
             For::ColorProfile => crate::lang::t("Choose a color profile"),
             For::NetInfo(_) => crate::lang::t("Network details"),
             For::MyName => crate::lang::t("Change your full name"),

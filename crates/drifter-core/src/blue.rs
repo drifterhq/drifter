@@ -976,6 +976,7 @@ pub enum Question {
     Show(String, u16),
     Allow,
     Mic,
+    Incoming(Vec<(String, Option<u64>)>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -997,8 +998,9 @@ impl Ask {
     }
 
     pub fn title(&self) -> String {
-        match self.question {
+        match &self.question {
             Question::Mic => crate::lang::tf("Use the {} microphone?", &[&self.name]),
+            Question::Incoming(_) => crate::lang::tf("{} wants to AirDrop", &[&self.name]),
             _ => crate::lang::tf("Set up {}?", &[&self.name]),
         }
     }
@@ -1011,6 +1013,7 @@ impl Ask {
             Question::Show(_, _) => crate::lang::tf("Type this code on {}, then press Enter.", &[&self.name]),
             Question::Allow => crate::lang::tf("{} wants to connect to this computer.", &[&self.name]),
             Question::Mic => crate::lang::t("An app wants a microphone. Mic on, sound quality will drop until the app stops.").to_string(),
+            Question::Incoming(files) => incoming_words(files),
         }
     }
 
@@ -1023,6 +1026,28 @@ impl Ask {
             Question::Show(_, entered) => usize::from(entered),
             _ => 0,
         }
+    }
+}
+
+fn size_words(bytes: u64) -> String {
+    match bytes {
+        0..1_000 => crate::lang::tf("{} bytes", &[&bytes]),
+        1_000..1_000_000 => crate::lang::tf("{} KB", &[&(bytes / 1_000)]),
+        1_000_000..1_000_000_000 => format!("{:.1} MB", bytes as f64 / 1e6),
+        _ => format!("{:.1} GB", bytes as f64 / 1e9),
+    }
+}
+
+pub fn incoming_words(files: &[(String, Option<u64>)]) -> String {
+    let total: u64 = files.iter().filter_map(|(_, size)| *size).sum();
+    let what = match files {
+        [] => crate::lang::t("Something").to_string(),
+        [(name, _)] => name.clone(),
+        [(name, _), rest @ ..] => crate::lang::tf("{} and {} more", &[name, &rest.len()]),
+    };
+    match total {
+        0 => what,
+        total => format!("{what}, {}", size_words(total)),
     }
 }
 
@@ -1413,5 +1438,19 @@ mod tests {
         assert_eq!(labels, ["Mouse, 90%", "Pad, Connect", "", "Turn Bluetooth Off", "Bluetooth Settings…"]);
         let off = menu(&Blue::default());
         assert_eq!(off[0].label, "Turn Bluetooth On");
+    }
+
+    #[test]
+    fn an_airdrop_offer_reads_plainly() {
+        let ask = Ask {
+            id: 1,
+            address: String::new(),
+            name: "Jane's iPhone".into(),
+            kind: Kind::Phone,
+            question: Question::Incoming(vec![("IMG_1.HEIC".into(), Some(2_400_000)), ("IMG_2.HEIC".into(), Some(600_000))]),
+        };
+        assert_eq!(ask.title(), "Jane's iPhone wants to AirDrop");
+        assert_eq!(ask.words(), "IMG_1.HEIC and 1 more, 3.0 MB");
+        assert_eq!(incoming_words(&[("a.txt".into(), Some(12))]), "a.txt, 12 bytes");
     }
 }

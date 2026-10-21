@@ -4280,3 +4280,186 @@ Turn On the Bluetooth Service
 
 Xbox controllers report it with the xpadneo driver
 = Los mandos Xbox lo indican con el controlador xpadneo
+
+Accept
+= Aceptar
+
+Add Owly's flake: github:t4t5/owly, then services.owly.enable = true
+= Añade el flake de Owly: github:t4t5/owly, y luego services.owly.enable = true
+
+AirDrop did not answer: {}
+= AirDrop no respondió: {}
+
+AirDrop did not finish
+= AirDrop no terminó
+
+AirDrop did not finish. Try again.
+= AirDrop no terminó. Vuelve a intentarlo.
+
+AirDrop did not start
+= AirDrop no se inició
+
+AirDrop is off
+= AirDrop está apagado
+
+AirDrop needs Owly
+= AirDrop necesita Owly
+
+AirDrop stopped. Close this and try again.
+= AirDrop se detuvo. Cierra esto y vuelve a intentarlo.
+
+Another app is using AirDrop right now.
+= Otra app está usando AirDrop ahora.
+
+Build Owly from github.com/t4t5/owly
+= Compila Owly desde github.com/t4t5/owly
+
+Choose where AirDrop saves files
+= Elige dónde guarda AirDrop los archivos
+
+Decline
+= Rechazar
+
+Declined
+= Rechazado
+
+Drifter was not allowed to use the Wi-Fi radio for AirDrop.
+= Drifter no pudo usar la radio Wi-Fi para AirDrop.
+
+Everyone nearby, for 10 minutes
+= Todos los cercanos, durante 10 minutos
+
+Everyone, {} min
+= Todos, {} min
+
+Failed
+= Falló
+
+For a Wi-Fi card that Drifter thinks can't do AirDrop
+= Para una tarjeta Wi-Fi que Drifter cree que no sirve para AirDrop
+
+From {}. Saved in {}.
+= De {}. Guardado en {}.
+
+Get Owly
+= Obtener Owly
+
+How
+= Cómo
+
+Install Owly from the AUR: yay -S owly
+= Instala Owly desde AUR: yay -S owly
+
+Install the .deb from github.com/t4t5/owly/releases with sudo apt install
+= Instala el .deb de github.com/t4t5/owly/releases con sudo apt install
+
+Install the .rpm from github.com/t4t5/owly/releases with sudo dnf install
+= Instala el .rpm de github.com/t4t5/owly/releases con sudo dnf install
+
+Let nearby Apple devices send to me
+= Dejar que los dispositivos Apple cercanos me envíen
+
+Looking for nearby devices. On the iPhone, open AirDrop and choose Everyone for 10 minutes.
+= Buscando dispositivos cercanos. En el iPhone, abre AirDrop y elige Todos durante 10 minutos.
+
+Needs Owly
+= Necesita Owly
+
+Nobody has tested AirDrop on this Wi-Fi card yet ({}).
+= Nadie ha probado AirDrop con esta tarjeta Wi-Fi todavía ({}).
+
+Not ready
+= No está listo
+
+Owly
+= Owly
+
+Owly could not be started.
+= No se pudo iniciar Owly.
+
+Owly is the free app that lets Linux speak AirDrop. Drifter uses it once it is installed.
+= Owly es la app gratuita que permite a Linux hablar AirDrop. Drifter la usa una vez instalada.
+
+Owly was not told to allow this card.
+= No se le indicó a Owly que permita esta tarjeta.
+
+Owly will now try this card.
+= Owly probará ahora esta tarjeta.
+
+Owly's radio service is not installed or did not start.
+= El servicio de radio de Owly no está instalado o no se inició.
+
+Ready
+= Listo
+
+Received {}
+= Recibido {}
+
+Received {} files
+= {} archivos recibidos
+
+Receiving
+= Recibir
+
+Sending…
+= Enviando…
+
+Sent
+= Enviado
+
+Share with AirDrop
+= Compartir con AirDrop
+
+Show AirDrop anyway
+= Mostrar AirDrop de todos modos
+
+Something
+= Algo
+
+The Wi-Fi radio was given back.
+= Se devolvió la radio Wi-Fi.
+
+The device did not answer. Unlock it, open AirDrop, set it to Everyone for 10 minutes, then try again.
+= El dispositivo no respondió. Desbloquéalo, abre AirDrop, elige Todos durante 10 minutos y vuelve a intentarlo.
+
+They said no.
+= Lo rechazaron.
+
+This Wi-Fi card is known not to work with AirDrop ({}).
+= Se sabe que esta tarjeta Wi-Fi no funciona con AirDrop ({}).
+
+This Wi-Fi card works with AirDrop ({}).
+= Esta tarjeta Wi-Fi funciona con AirDrop ({}).
+
+This computer has no Wi-Fi card for AirDrop.
+= Este equipo no tiene tarjeta Wi-Fi para AirDrop.
+
+To send, right click files in Explorer and choose Share with AirDrop.
+= Para enviar, haz clic derecho en archivos en Explorer y elige Compartir con AirDrop.
+
+Turning on AirDrop…
+= Activando AirDrop…
+
+Turning on…
+= Activando…
+
+Waiting…
+= Esperando…
+
+Wi-Fi stays connected while AirDrop is on.
+= El Wi-Fi sigue conectado mientras AirDrop está activo.
+
+Wi-Fi turns off while AirDrop is on, and comes back after.
+= El Wi-Fi se apaga mientras AirDrop está activo y vuelve después.
+
+Your Downloads folder
+= Tu carpeta Descargas
+
+iPhone or iPad nearby
+= iPhone o iPad cercano
+
+{} KB
+= {} KB
+
+{} wants to AirDrop
+= {} quiere enviar por AirDrop

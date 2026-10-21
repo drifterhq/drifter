@@ -99,6 +99,7 @@ pub enum Act {
     Reveal(PathBuf),
     CopyThisPath(PathBuf),
     SendTo(String),
+    AirDrop,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -445,6 +446,7 @@ pub enum Effect {
     NewWindow(PathBuf),
     Measure(PathBuf),
     Send(String, String, Vec<PathBuf>),
+    AirDrop(Vec<PathBuf>),
     Close,
 }
 
@@ -503,6 +505,7 @@ pub struct Model {
     pub drive_watch: Vec<PathBuf>,
     pub effects: Vec<Effect>,
     pub phones: Vec<(String, String)>,
+    pub airdrop: bool,
     pub dragging: Option<Drag>,
     pub hover: Option<super::look::Hit>,
     pub tip: Option<super::look::Hit>,
@@ -661,6 +664,7 @@ impl Model {
             drive_watch: super::drives::watch_dirs(),
             effects: Vec::new(),
             phones: Vec::new(),
+            airdrop: false,
             dragging: None,
             hover: None,
             tip: None,
@@ -2288,6 +2292,12 @@ impl Model {
                     }
                 }
             }
+            Act::AirDrop => {
+                let files: Vec<PathBuf> = self.chosen().iter().filter(|each| !each.folder).map(|each| each.path.clone()).collect();
+                if !files.is_empty() {
+                    self.effects.push(Effect::AirDrop(files));
+                }
+            }
             Act::SendTo(address) => {
                 let files: Vec<PathBuf> = self.chosen().iter().filter(|each| !each.folder).map(|each| each.path.clone()).collect();
                 if let Some((_, name)) = self.phones.iter().find(|(each, _)| *each == address).cloned()
@@ -2668,6 +2678,9 @@ impl Model {
         items.push(Item::new(crate::lang::t("Duplicate"), "Ctrl+D", Act::Duplicate));
         items.push(Item::new(crate::lang::t("Compress"), "", Act::Compress));
         let files = self.chosen().iter().all(|each| !each.folder);
+        if files && self.airdrop {
+            items.push(Item::new(crate::lang::t("Share with AirDrop"), "", Act::AirDrop));
+        }
         if files && !self.phones.is_empty() {
             let phones = self.phones.iter().map(|(address, name)| Item::new(name, "", Act::SendTo(address.clone()))).collect();
             items.push(Item::more(crate::lang::t("Send with Bluetooth"), phones));
@@ -3050,6 +3063,19 @@ mod tests {
         model.effects.clear();
         model.act(Act::SendTo("AA:BB:CC:DD:EE:03".into()));
         assert_eq!(model.effects, [Effect::Send("AA:BB:CC:DD:EE:03".into(), "Pixel 8".into(), vec![work.join("b.txt")])]);
+    }
+
+    #[test]
+    fn airdrop_is_offered_only_when_drifter_shows_it() {
+        let (place, mut model) = place("airdropitem");
+        let work = place.0.join("work");
+        model.pick_only(work.join("b.txt"));
+        assert!(!model.item_menu().iter().any(|item| item.label == "Share with AirDrop"));
+        model.airdrop = true;
+        assert!(model.item_menu().iter().any(|item| item.label == "Share with AirDrop"));
+        model.effects.clear();
+        model.act(Act::AirDrop);
+        assert_eq!(model.effects, [Effect::AirDrop(vec![work.join("b.txt")])]);
     }
 
     #[test]

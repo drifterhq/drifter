@@ -43,6 +43,7 @@ pub enum Section {
     Notifications,
     Network,
     Bluetooth,
+    AirDrop,
     Sound,
     Keyboard,
     Mouse,
@@ -59,7 +60,7 @@ pub enum Section {
 }
 
 impl Section {
-    pub const ALL: [Section; 23] = [
+    pub const ALL: [Section; 24] = [
         Section::Desktop,
         Section::Wallpaper,
         Section::Appearance,
@@ -69,6 +70,7 @@ impl Section {
         Section::Notifications,
         Section::Network,
         Section::Bluetooth,
+        Section::AirDrop,
         Section::Displays,
         Section::Sound,
         Section::Power,
@@ -94,7 +96,7 @@ impl Section {
             | Section::Dock
             | Section::TopBar
             | Section::Notifications => crate::lang::t("Desktop"),
-            Section::Network | Section::Bluetooth => crate::lang::t("Network"),
+            Section::Network | Section::Bluetooth | Section::AirDrop => crate::lang::t("Network"),
             Section::Displays | Section::Sound | Section::Power => crate::lang::t("Hardware"),
             Section::Keyboard | Section::Mouse | Section::Touchpad | Section::Shortcuts => crate::lang::t("Input"),
             Section::Users | Section::Lock | Section::Access => crate::lang::t("Users & Security"),
@@ -114,6 +116,7 @@ impl Section {
             Section::Notifications => crate::lang::t("Notifications"),
             Section::Network => crate::lang::t("Wi-Fi"),
             Section::Bluetooth => crate::lang::t("Bluetooth"),
+            Section::AirDrop => "AirDrop",
             Section::Sound => crate::lang::t("Sound"),
             Section::Keyboard => crate::lang::t("Keyboard"),
             Section::Mouse => crate::lang::t("Mouse"),
@@ -142,6 +145,7 @@ impl Section {
             Section::Notifications => "alerts do not disturb history",
             Section::Network => "wifi wireless network internet password join",
             Section::Bluetooth => "bluetooth pair headphones speaker mouse keyboard devices",
+            Section::AirDrop => "airdrop share send receive files photos iphone ipad mac apple owly nearby",
             Section::Sound => "audio volume speaker headphones microphone mute",
             Section::Keyboard => "layout typing repeat caps compose",
             Section::Mouse => "pointer speed scroll buttons",
@@ -186,6 +190,7 @@ impl Section {
             Section::Notifications => [226, 64, 72],
             Section::Network => [40, 130, 230],
             Section::Bluetooth => [30, 100, 210],
+            Section::AirDrop => [20, 140, 230],
             Section::Sound => [230, 70, 130],
             Section::Keyboard => [150, 110, 220],
             Section::Mouse => [110, 120, 200],
@@ -341,6 +346,10 @@ pub struct Model {
     pub file_note: Option<String>,
     pub access: crate::config::Access,
     pub shots: crate::config::Shots,
+    pub airdrop: crate::config::AirDropConfig,
+    pub airdrop_report: Option<crate::airdrop::Report>,
+    pub airdrop_receiving: Option<bool>,
+    pub airdrop_hint: &'static str,
     pub profile: Option<Profiles>,
     pub cells: Vec<(String, String)>,
     pub places: Vec<crate::place::Place>,
@@ -379,6 +388,7 @@ pub enum NetAsk {
     Fix,
     Reset,
     Service,
+    OwlyPage,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -544,6 +554,10 @@ impl Model {
             notify: config.notify,
             access: config.access,
             shots: config.screenshots.clone(),
+            airdrop: config.airdrop.clone(),
+            airdrop_report: None,
+            airdrop_receiving: None,
+            airdrop_hint: "",
             profile: None,
             cells: Vec::new(),
             places: config.place.clone(),
@@ -1355,6 +1369,7 @@ impl Model {
             Section::Access => self.access_groups(),
             Section::Network => self.wifi_groups(),
             Section::Bluetooth => self.blue_groups(),
+            Section::AirDrop => self.airdrop_groups(),
             Section::Power => self.power_groups(),
             Section::Time => self.time_groups(),
             Section::About => self.about_groups(),
@@ -2710,6 +2725,11 @@ pub enum Id {
     BlueReset,
     BlueStep(usize),
     BlueService,
+    AirDropStatus,
+    AirDropReceive,
+    AirDropFolder,
+    AirDropOwly,
+    AirDropForce,
     LargeText,
     HighContrast,
     ReduceMotion,
@@ -4097,6 +4117,12 @@ fn paint_glyph(canvas: &mut Canvas, section: Section, icon: Rect) {
                 canvas.round_rect(r(5.0 + at * 4.5, 17.0 - tall, 3.0, tall), 1.0, white, 1.0);
             }
         }
+        Section::AirDrop => {
+            let middle = o + Vec2::new(11.0, 11.0);
+            canvas.arc_from(middle, 7.5, 1.7, 0.58, 0.84, white, 1.0);
+            canvas.arc_from(middle, 4.3, 1.7, 0.6, 0.8, white, 1.0);
+            canvas.circle(middle, 1.7, white, 1.0);
+        }
         Section::Bluetooth => {
             canvas.round_rect(r(10.0, 3.0, 2.0, 16.0), 1.0, white, 1.0);
             canvas.triangle(
@@ -4818,6 +4844,33 @@ mod tests {
         let fix = groups.iter().find(|group| group.header == Some("Fix It")).expect("the steps show");
         let icons: Vec<Option<String>> = fix.rows.iter().map(|row| row.icon.clone()).collect();
         assert_eq!(icons, [Some("step:done".to_string()), Some("step:wait".to_string())], "a step in progress turns on top of an empty ring");
+    }
+
+    #[test]
+    fn the_airdrop_page_hides_what_this_card_cannot_do_until_forced() {
+        use crate::airdrop::{Card, Report};
+        let card = |driver: &str| Card { iface: "wlan0".into(), driver: driver.into(), device: None };
+        let mut model = model(&Config::default());
+        let ids = |model: &Model| -> Vec<Id> { model.groups(Section::AirDrop).into_iter().flat_map(|g| g.rows).map(|row| row.id).collect() };
+        assert_eq!(ids(&model), [Id::AirDropStatus], "checking first");
+        model.airdrop_report = Some(Report::from_cards(&[card("ath11k_pci")], true));
+        assert_eq!(ids(&model), [Id::AirDropStatus, Id::AirDropForce], "a card that can't is hidden but can be forced");
+        model.set(Id::AirDropForce, Value::Switch(true));
+        assert!(ids(&model).contains(&Id::AirDropReceive), "forced, it shows");
+        model.airdrop_report = Some(Report::from_cards(&[card("iwlwifi")], false));
+        model.airdrop.force = false;
+        let shown = ids(&model);
+        assert!(shown.contains(&Id::AirDropOwly), "without Owly it says how to get it");
+        assert!(shown.contains(&Id::AirDropReceive));
+        assert_eq!(model.press(Id::AirDropOwly, 0), Some(Ask::Net(NetAsk::OwlyPage)));
+        assert_eq!(model.press(Id::AirDropFolder, 0), Some(Ask::Files(For::AirDropFolder)));
+        let before = model.clone();
+        model.airdrop.force = true;
+        model.airdrop.folder = Some("~/Drops".into());
+        let out = model.write(&before, "").unwrap();
+        let back = Config::parse(&out).unwrap();
+        assert!(back.airdrop.force);
+        assert_eq!(back.airdrop.folder.as_deref(), Some("~/Drops"));
     }
 
     #[test]

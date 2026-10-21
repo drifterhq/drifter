@@ -20,6 +20,8 @@ macro_rules! log {
 #[cfg(target_os = "linux")]
 mod a11y;
 #[cfg(target_os = "linux")]
+mod airdrop;
+#[cfg(target_os = "linux")]
 mod apps;
 #[cfg(target_os = "linux")]
 mod auth;

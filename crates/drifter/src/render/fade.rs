@@ -28,10 +28,11 @@ pub(super) enum Pane {
     Prompt,
     Pair,
     Pill,
+    Share,
 }
 
 impl Pane {
-    const FIXED: [Pane; 16] = [
+    const FIXED: [Pane; 17] = [
         Pane::Menu,
         Pane::DeskMenu,
         Pane::Tip,
@@ -48,6 +49,7 @@ impl Pane {
         Pane::Prompt,
         Pane::Pair,
         Pane::Pill,
+        Pane::Share,
     ];
 
     fn grows_itself(self) -> bool {
@@ -151,6 +153,7 @@ impl State {
             Pane::Control => self.control_layers(),
             Pane::Pair => self.pairing_layers(),
             Pane::Pill => self.pill_layers(),
+            Pane::Share => self.share_layers(),
             Pane::Notes => self.notes_panel.as_ref().and_then(|(art, rect, _)| one(art, *rect, Shadow::Menu)),
             Pane::Charges => self.charges.as_ref().and_then(|panel| one(panel.art.as_ref()?, panel.rect, Shadow::Menu)),
             Pane::Glance => self.glance_panel.as_ref().and_then(|panel| one(panel.art.as_ref()?, panel.rect, Shadow::Menu)),
@@ -329,6 +332,10 @@ impl State {
         let (alpha, scale) = match fader.gone {
             Some(gone) => vanish(now.duration_since(gone).as_secs_f64() / (FADE_OUT / pace), self.window_still),
             None if pane.grows_itself() || pane == Pane::Pill => (1.0, 1.0),
+            None if pane == Pane::Share => {
+                let t = (now.duration_since(fader.born).as_secs_f64() / (State::share_in() / pace)).clamp(0.0, 1.0);
+                State::share_look_in(t, self.window_still)
+            }
             None if pane == Pane::Pair => {
                 let t = (now.duration_since(fader.born).as_secs_f64() / (State::pairing_in() / pace)).clamp(0.0, 1.0);
                 State::pairing_look(t, self.window_still)

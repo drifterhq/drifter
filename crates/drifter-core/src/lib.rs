@@ -1,4 +1,5 @@
 pub mod activity;
+pub mod airdrop;
 pub mod alert;
 pub mod autostart;
 pub mod blue;
@@ -50,6 +51,7 @@ pub mod screens;
 pub mod search;
 pub mod settings;
 pub mod shader;
+pub mod share;
 pub mod shutter;
 pub mod sheet;
 pub mod shortcut;

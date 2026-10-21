@@ -252,6 +252,24 @@ pub fn run() -> Result<(), String> {
             }
         })
         .map_err(|e| format!("cannot watch folder sizes: {e}"))?;
+    let (shown, shown_rx) = loop_channel::<bool>();
+    events
+        .handle()
+        .insert_source(shown_rx, |event, _, app: &mut Explorer| {
+            if let ChannelEvent::Msg(on) = event {
+                app.model.airdrop = on;
+            }
+        })
+        .map_err(|e| format!("cannot watch AirDrop: {e}"))?;
+    let _ = std::thread::Builder::new().name("explorer-airdrop".into()).spawn(move || {
+        loop {
+            let on = drifter_blue::owly::drifter_state().is_some_and(|(shown, _, _)| shown);
+            if shown.send(on).is_err() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_secs(20));
+        }
+    });
     let (phones, phones_rx) = loop_channel::<Vec<(String, String)>>();
     events
         .handle()
@@ -554,6 +572,13 @@ impl Explorer {
                         match failed {
                             None => drifter_blue::obex::tell(&drifter_core::lang::tf("Sent {} to {}", &[&shown, &name]), ""),
                             Some(error) => drifter_blue::obex::tell(&drifter_core::lang::tf("{} did not take {}", &[&name, &shown]), &error),
+                        }
+                    });
+                }
+                Effect::AirDrop(files) => {
+                    std::thread::spawn(move || {
+                        if let Err(error) = drifter_blue::owly::drifter_send(&files) {
+                            drifter_blue::obex::tell("AirDrop", &error);
                         }
                     });
                 }

@@ -1347,9 +1347,20 @@ pub struct Config {
     #[serde(default)]
     pub screenshots: Shots,
     #[serde(default)]
+    pub airdrop: AirDropConfig,
+    #[serde(default)]
     pub welcome: Welcome,
     #[serde(skip)]
     base: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AirDropConfig {
+    #[serde(default)]
+    pub force: bool,
+    #[serde(default)]
+    pub folder: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -2131,6 +2142,14 @@ mod tests {
         let plain = Shots::default().store(&text).unwrap();
         assert_eq!(Config::parse(&plain).unwrap().screenshots, Shots::default());
         assert!(!plain.contains("clipboard"));
+    }
+
+    #[test]
+    fn airdrop_reads_its_force_switch_and_folder() {
+        let config = Config::parse("[airdrop]\nforce = true\nfolder = \"~/Drops\"\n").unwrap();
+        assert!(config.airdrop.force);
+        assert_eq!(config.airdrop.folder.as_deref(), Some("~/Drops"));
+        assert_eq!(Config::parse("").unwrap().airdrop, AirDropConfig::default());
     }
 
     #[test]

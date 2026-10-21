@@ -366,6 +366,10 @@ impl State {
             kind: device.kind,
             question: blue::Question::Mic,
         };
+        self.blue_queue_ask(ask);
+    }
+
+    pub(super) fn blue_queue_ask(&mut self, ask: Ask) {
         if self.radio.asks.is_empty() {
             self.radio.asked_at = Instant::now();
             self.radio.typed.clear();
@@ -1460,6 +1464,13 @@ impl State {
             return;
         }
         let (ask, reply) = self.radio.asks.remove(0);
+        if let blue::Question::Incoming(_) = ask.question {
+            self.airdrop_answer(yes);
+            self.radio.asked_at = Instant::now();
+            self.paint_pairing();
+            self.kick_now();
+            return;
+        }
         if ask.question == blue::Question::Mic {
             if yes {
                 let sound = self.radio.prefs.sound(&ask.address);

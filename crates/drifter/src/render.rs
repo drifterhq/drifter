@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 use crate::paint::{Painter, Scanout, Tex};
 
 mod activity;
+mod airdrop;
 mod appname;
 mod art;
 mod bars;
@@ -560,6 +561,7 @@ pub struct State {
     control_icon: Option<TextureBuffer<Tex>>,
     control_status: drifter_core::control::Status,
     radio: bluetooth::Radio,
+    drop: airdrop::Drop,
     control_stale: bool,
     notes_panel: Option<(TextureBuffer<Tex>, Rect, usize)>,
     charges: Option<charges::ChargesPanel>,
@@ -784,6 +786,7 @@ impl State {
             || self.welcome_busy()
             || self.dock_logo.hot
             || self.blue_moving()
+            || self.share_moving()
             || self.heads.iter().enumerate().any(|(index, head)| {
                 index != self.at
                     && (head.flight.is_some() || head.drawers.iter().any(|d| !d.settled()))
@@ -907,6 +910,7 @@ impl State {
         if live {
             self.shooter_elements(&mut elements);
             self.pane_elements(fade::Pane::Pair, &mut elements);
+            self.pane_elements(fade::Pane::Share, &mut elements);
             self.pane_elements(fade::Pane::Prompt, &mut elements);
             self.pane_elements(fade::Pane::Pill, &mut elements);
             self.pane_elements(fade::Pane::Hud, &mut elements);
@@ -1560,6 +1564,7 @@ impl Screen {
         }
         state.reopen_desk();
         state.start_bluetooth();
+        state.start_airdrop();
         if let Some(media) = state.media.as_ref() {
             media.read();
         }

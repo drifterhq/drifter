@@ -10,7 +10,7 @@ pub(super) struct Panel {
     pub art_height: f64,
     pub drawn: (f64, f64, Instant),
     pub pending: Option<f64>,
-    pub fills: [(bool, Instant); 4],
+    pub fills: [(bool, Instant); 5],
 }
 
 impl Panel {
@@ -41,6 +41,7 @@ impl State {
             wifi: self.control_status.wifi.clone(),
             bluetooth: self.radio.now.as_ref().map(|blue| blue.on).or(self.control_status.bluetooth),
             blue_note: self.control_status.blue_note.clone(),
+            airdrop: self.control_status.airdrop.clone(),
             quiet: self.notify.quiet,
             dark: self.palette == drifter_core::theme::DARK,
             light: self.light,
@@ -64,6 +65,7 @@ impl State {
         let plain = drifter_core::control::Look::themed(&self.palette, self.look.accent);
         drifter_core::control::Look {
             back_alpha: self.veil(plain.back_alpha),
+            airdrop: self.airdrop_shown(),
             ..plain
         }
     }
@@ -268,6 +270,7 @@ impl State {
         }
         self.blue_list_wind();
         self.blue_search_as_needed();
+        self.airdrop_wind();
     }
 
     fn flip_tile(&mut self, tile: Tile) {
@@ -293,6 +296,10 @@ impl State {
                     *held = on;
                     self.blue_power(on);
                 }
+            }
+            Tile::AirDrop => {
+                self.airdrop_receive(on);
+                return;
             }
             Tile::Quiet => {
                 self.control_status.quiet = on;
