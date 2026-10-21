@@ -1,7 +1,7 @@
 use std::io::Write;
 use std::process::{Command, Stdio};
 
-use drifter_core::net::{self, Blue, Wifi};
+use drifter_core::net::{self, Wifi};
 
 pub enum Job {
     WifiPower(bool),
@@ -10,12 +10,6 @@ pub enum Job {
     JoinEnterprise { ssid: String, user: String, password: String, domain: Option<String> },
     Leave(String),
     Forget(String),
-    BluePower(bool),
-    Search,
-    Pair { mac: String, name: String },
-    Connect(String),
-    Disconnect(String),
-    Remove(String),
 }
 
 fn read(program: &str, args: &[&str]) -> Option<String> {
@@ -119,26 +113,6 @@ pub fn rescan() {
         .status();
 }
 
-pub fn read_blue(searching: bool) -> Option<Blue> {
-    let on = net::powered(&read("bluetoothctl", &["show"])?)?;
-    let mut gadgets = match on {
-        true => net::gadgets(
-            &read("bluetoothctl", &["devices"]).unwrap_or_default(),
-            &read("bluetoothctl", &["devices", "Paired"]).unwrap_or_default(),
-            &read("bluetoothctl", &["devices", "Connected"]).unwrap_or_default(),
-        ),
-        false => Vec::new(),
-    };
-    for gadget in &mut gadgets {
-        gadget.kind = net::gadget_kind(&read("bluetoothctl", &["info", &gadget.mac]).unwrap_or_default());
-    }
-    Some(Blue {
-        on,
-        gadgets,
-        searching,
-    })
-}
-
 fn said(out: &std::process::Output) -> String {
     let text = String::from_utf8_lossy(&out.stderr).to_string()
         + &String::from_utf8_lossy(&out.stdout);
@@ -178,7 +152,7 @@ fn run_one(program: &str, args: &[&str], typed: Option<&str>) -> Result<String, 
     }
 }
 
-pub fn run(job: Job, asks: crate::agent::LoopAsks) -> Result<(), String> {
+pub fn run(job: Job) -> Result<(), String> {
     let switch = |on: bool| if on { "on" } else { "off" };
     match job {
         Job::WifiPower(on) => run_one("nmcli", &["radio", "wifi", switch(on)], None).map(drop),
@@ -232,29 +206,6 @@ pub fn run(job: Job, asks: crate::agent::LoopAsks) -> Result<(), String> {
         Job::Forget(ssid) => {
             run_one("nmcli", &["connection", "delete", "id", &ssid], None).map(drop)
         }
-        Job::BluePower(on) => run_one("bluetoothctl", &["power", switch(on)], None).map(drop),
-        Job::Search => {
-            run_one("bluetoothctl", &["--timeout", "10", "scan", "on"], None).map(drop)
-        }
-        Job::Pair { mac, name } => {
-            let tried = crate::agent::pair(&mac, &name, asks);
-            let paired = read("bluetoothctl", &["info", &mac])
-                .is_some_and(|info| info.lines().any(|line| line.trim() == "Paired: yes"));
-            if !paired {
-                return Err(match tried {
-                    Err(error) => error,
-                    Ok(_) => "It did not pair. Put it in pairing mode and try again.".to_string(),
-                });
-            }
-            run_one("bluetoothctl", &["trust", &mac], None)?;
-            let _ = run_one("bluetoothctl", &["--timeout", "10", "connect", &mac], None);
-            Ok(())
-        }
-        Job::Connect(mac) => {
-            run_one("bluetoothctl", &["--timeout", "10", "connect", &mac], None).map(drop)
-        }
-        Job::Disconnect(mac) => run_one("bluetoothctl", &["disconnect", &mac], None).map(drop),
-        Job::Remove(mac) => run_one("bluetoothctl", &["remove", &mac], None).map(drop),
     }
 }
 

@@ -717,6 +717,12 @@ impl State {
         if self.press_search(code) {
             return true;
         }
+        if self.pairing_open() && self.prompts.is_empty() {
+            if code == BTN_LEFT {
+                self.pair_press();
+            }
+            return true;
+        }
         if let Some((_, rect)) = self.prompt_art.as_ref() {
             let rect = *rect;
             if code == BTN_LEFT {
@@ -951,6 +957,12 @@ impl State {
                     state.swallowed.push(code);
                     return FilterResult::Intercept(Shortcut::SavePlace(*slot));
                 }
+                if state.lock.is_none()
+                    && let Some(address) = state.blue_key(mods, &names)
+                {
+                    state.swallowed.push(code);
+                    return FilterResult::Intercept(Shortcut::Blue(address));
+                }
                 let place = state.places.iter().position(|(_, combo)| {
                     combo
                         .as_ref()
@@ -981,6 +993,7 @@ impl State {
             Some(Shortcut::StopTimer) => {
                 self.cancel_countdown();
             }
+            Some(Shortcut::Blue(address)) => self.blue_connect(&address),
             Some(Shortcut::Swallow) | None => {}
         }
         let held = keyboard.modifier_state();
@@ -1079,6 +1092,16 @@ impl State {
         {
             let key = self.read_key(event);
             self.prompt_key(key);
+            return;
+        }
+        if self.lock.is_none()
+            && self.pairing_open()
+            && let InputEvent::Keyboard { event } = &event
+        {
+            if event.state() == KeyState::Pressed {
+                let key = self.read_key(event);
+                self.pair_key(key);
+            }
             return;
         }
         if self.lock.is_none()

@@ -7,6 +7,7 @@ mod activity;
 mod appname;
 mod art;
 mod bars;
+mod bluetooth;
 mod camera;
 mod capture;
 mod centers;
@@ -288,6 +289,7 @@ enum Shortcut {
     Heard(u32),
     Thumb(thumbs::Chore),
     StopTimer,
+    Blue(String),
 }
 
 struct Paper {
@@ -555,6 +557,7 @@ pub struct State {
     control: Option<centers::Panel>,
     control_icon: Option<TextureBuffer<Tex>>,
     control_status: drifter_core::control::Status,
+    radio: bluetooth::Radio,
     control_stale: bool,
     notes_panel: Option<(TextureBuffer<Tex>, Rect, usize)>,
     charges: Option<charges::ChargesPanel>,
@@ -778,6 +781,7 @@ impl State {
             || self.shots_moving()
             || self.welcome_busy()
             || self.dock_logo.hot
+            || self.blue_moving()
             || self.heads.iter().enumerate().any(|(index, head)| {
                 index != self.at
                     && (head.flight.is_some() || head.drawers.iter().any(|d| !d.settled()))
@@ -900,7 +904,9 @@ impl State {
         elements.extend(layer);
         if live {
             self.shooter_elements(&mut elements);
+            self.pane_elements(fade::Pane::Pair, &mut elements);
             self.pane_elements(fade::Pane::Prompt, &mut elements);
+            self.pane_elements(fade::Pane::Pill, &mut elements);
             self.pane_elements(fade::Pane::Hud, &mut elements);
             self.card_elements(&mut elements);
             self.switch_elements(&mut elements);
@@ -965,6 +971,9 @@ impl State {
         }
         if let (Some(rect), Some(buffer)) = (self.control_rect(), self.control_icon.as_ref()) {
             elements.push(Skin::Texture(element(buffer, rect, 1.0)));
+        }
+        if self.tray_band().is_some() {
+            self.blue_tray_elements(&mut elements);
         }
         if let (Some(band), Some(buffer)) = (self.tray_band(), self.power.as_ref()) {
             elements.push(Skin::Texture(element(
@@ -1548,6 +1557,7 @@ impl Screen {
             crate::apps::run(&item, &state.socket);
         }
         state.reopen_desk();
+        state.start_bluetooth();
         if let Some(media) = state.media.as_ref() {
             media.read();
         }

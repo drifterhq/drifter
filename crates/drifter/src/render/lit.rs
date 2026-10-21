@@ -33,7 +33,7 @@ impl State {
             return Some((Pane::Search, Rect::new(rect.origin + row.origin, row.size)));
         }
         if let Some(open) = self.control.as_ref().filter(|open| open.art.is_some() && open.rect.contains(pointer)) {
-            let hit = self.control_look().hit_rect(pointer - open.rect.origin)?;
+            let hit = self.control_look().hit_rect(pointer - open.rect.origin, self.shown_items())?;
             return Some((Pane::Control, Rect::new(open.rect.origin + hit.origin, hit.size)));
         }
         if let Some(panel) = self.glance_panel.as_ref().filter(|panel| panel.art.is_some()) {

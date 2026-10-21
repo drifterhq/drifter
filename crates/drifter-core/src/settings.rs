@@ -345,7 +345,12 @@ pub struct Model {
     pub cells: Vec<(String, String)>,
     pub places: Vec<crate::place::Place>,
     pub wifi: Option<crate::net::Wifi>,
-    pub blue: Option<crate::net::Blue>,
+    pub blue: Option<crate::blue::Blue>,
+    pub blue_open: Option<String>,
+    pub blue_card: Option<crate::blue::Card>,
+    pub blue_mic: bool,
+    pub blue_prefs: crate::blue::Prefs,
+    pub blue_address: bool,
     pub net_note: Option<String>,
     pub display_note: Option<String>,
     pub users: Option<crate::users::Users>,
@@ -359,11 +364,15 @@ pub enum NetAsk {
     Hidden,
     Leave(usize),
     Forget(usize),
-    Search,
     Pair(usize),
     Connect(usize),
     Disconnect(usize),
     Remove(usize),
+    Options(usize),
+    Rename,
+    BlueKey,
+    Fix,
+    Reset,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -534,6 +543,11 @@ impl Model {
             places: config.place.clone(),
             wifi: None,
             blue: None,
+            blue_open: None,
+            blue_card: None,
+            blue_mic: false,
+            blue_prefs: crate::blue::Prefs::default(),
+            blue_address: false,
             net_note: None,
             display_note: None,
             users: None,
@@ -2674,8 +2688,17 @@ pub enum Id {
     Net(usize),
     WifiHidden,
     BlueOn,
-    BlueSearch,
     Gadget(usize),
+    BlueName,
+    BlueBattery,
+    BlueWhen,
+    BlueSound,
+    BlueMic,
+    BlueKey,
+    BlueAddress,
+    BlueFix,
+    BlueForget,
+    BlueReset,
     LargeText,
     HighContrast,
     ReduceMotion,
@@ -4655,7 +4678,7 @@ mod tests {
 
     #[test]
     fn the_network_rows_ask_for_the_right_action() {
-        use crate::net::{Blue, Gadget, Net, Wifi};
+        use crate::net::{Net, Wifi};
         let mut model = model(&Config::default());
         assert_eq!(model.press(Id::Net(0), 0), None, "no wifi, nothing to press");
         let net = |ssid: &str, active: bool, known: bool| Net {
@@ -4697,29 +4720,68 @@ mod tests {
         assert_eq!(groups.iter().flat_map(|g| &g.rows).count(), 0, "no switch for a card we do not run");
         assert!(groups[0].footer.as_deref().is_some_and(|words| words.contains("Another tool")));
 
-        let gadget = |name: &str, paired: bool, connected: bool| Gadget {
-            mac: "00:11:22:33:44:55".into(),
+    }
+
+    #[test]
+    fn the_bluetooth_page_speaks_plainly_and_opens_options() {
+        use crate::blue::{Blue, Device, Kind, Sound, When};
+        let mut model = model(&Config::default());
+        let device = |name: &str, address: &str, kind: Kind, paired: bool, connected: bool| Device {
+            path: String::new(),
+            address: address.into(),
             name: name.into(),
-            kind: "",
+            named: true,
+            kind,
             paired,
             connected,
+            trusted: paired,
+            battery: connected.then_some(70),
+            rssi: (!paired).then_some(-85),
+            audio: kind.audio(),
+            sends: false,
+            classic: true,
         };
         model.blue = Some(Blue {
             on: true,
-            gadgets: vec![gadget("Buds", true, true), gadget("Mouse", true, false), gadget("Pad", false, false)],
-            searching: false,
+            searching: true,
+            devices: vec![
+                device("Buds", "AA:00:00:00:00:01", Kind::Earbuds, true, true),
+                device("Mouse", "AA:00:00:00:00:02", Kind::Mouse, true, false),
+                device("Pad", "AA:00:00:00:00:03", Kind::Trackpad, false, false),
+            ],
+            ..Blue::default()
         });
         assert_eq!(model.press(Id::Gadget(0), 0), Some(Ask::Net(NetAsk::Disconnect(0))));
         assert_eq!(model.press(Id::Gadget(1), 0), Some(Ask::Net(NetAsk::Connect(1))));
-        assert_eq!(model.press(Id::Gadget(1), 1), Some(Ask::Net(NetAsk::Remove(1))));
+        assert_eq!(model.press(Id::Gadget(1), 1), Some(Ask::Net(NetAsk::Options(1))));
         assert_eq!(model.press(Id::Gadget(2), 0), Some(Ask::Net(NetAsk::Pair(2))));
-        assert_eq!(model.press(Id::BlueSearch, 0), Some(Ask::Net(NetAsk::Search)));
-        model.blue.as_mut().unwrap().searching = true;
-        assert_eq!(model.press(Id::BlueSearch, 0), None, "one search at a time");
         let groups = model.groups(Section::Bluetooth);
         assert_eq!(groups[1].header, Some("My devices"));
-        assert_eq!(groups[1].rows.len(), 2);
-        assert_eq!(groups[2].rows.len(), 2, "the search row and the unpaired pad");
+        assert_eq!(groups[1].rows[0].detail.as_deref(), Some("Earbuds, Connected, 70%"));
+        assert_eq!(groups[2].header, Some("Nearby"));
+        assert_eq!(groups[2].rows[0].detail.as_deref(), Some("Trackpad, move closer"));
+        let words: String = groups.iter().flat_map(|group| &group.rows).map(|row| format!("{} {:?}", row.label, row.detail)).collect();
+        for jargon in ["Trusted", "Paired", "Bonded", "AA:00"] {
+            assert!(!words.contains(jargon), "{jargon} shows: {words}");
+        }
+
+        model.blue_open = Some("AA:00:00:00:00:01".into());
+        let groups = model.groups(Section::Bluetooth);
+        let options = groups.iter().find(|group| group.header == Some("Device options")).expect("the options show");
+        let ids: Vec<Id> = options.rows.iter().map(|row| row.id).collect();
+        assert!(ids.contains(&Id::BlueSound) && ids.contains(&Id::BlueMic) && ids.contains(&Id::BlueKey));
+        let address = options.rows.iter().find(|row| row.id == Id::BlueAddress).unwrap();
+        assert_eq!(address.detail.as_deref(), Some("Hidden"));
+        assert_eq!(model.press(Id::BlueAddress, 0), None);
+        let groups = model.groups(Section::Bluetooth);
+        let shown = groups.iter().flat_map(|group| &group.rows).find(|row| row.id == Id::BlueAddress).unwrap();
+        assert_eq!(shown.detail.as_deref(), Some("AA:00:00:00:00:01"), "the address shows once asked");
+        model.set(Id::BlueWhen, Value::Choice(2));
+        model.set(Id::BlueSound, Value::Choice(1));
+        assert_eq!(model.blue_prefs.when("AA:00:00:00:00:01"), When::Sound);
+        assert_eq!(model.blue_prefs.sound("AA:00:00:00:00:01"), Sound::Best);
+        assert_eq!(model.press(Id::BlueForget, 0), Some(Ask::Net(NetAsk::Remove(0))));
+        assert_eq!(model.press(Id::BlueName, 0), Some(Ask::Net(NetAsk::Rename)));
     }
 
     #[test]

@@ -404,6 +404,9 @@ impl State {
             self.toggle_control();
             return true;
         }
+        if code == BTN_LEFT && self.press_blue_tray() {
+            return true;
+        }
         if code == BTN_LEFT && self.stats_spot().is_some_and(|rect| rect.contains(self.pointer)) {
             self.toggle_glance();
             return true;
@@ -534,6 +537,7 @@ impl State {
 
     pub(super) fn over_own_parts(&self) -> bool {
         self.prompt_art.is_some()
+            || self.pairing_open()
             || self
                 .card_rects()
                 .iter()
@@ -567,6 +571,7 @@ impl State {
         self.clock
             .as_ref()
             .map(|(_, _, rect)| rect.origin.x)
+            .or_else(|| self.blue_tray_rect().map(|rect| rect.origin.x))
             .or_else(|| self.control_rect().map(|rect| rect.origin.x))
             .unwrap_or_else(|| self.tray.power_rect(band).origin.x)
     }

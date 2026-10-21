@@ -265,8 +265,8 @@ show = true
 start = []
 
 # Also start the apps that ask to start with every desktop, from
-# ~/.config/autostart and /etc/xdg/autostart. The network and Bluetooth
-# icons come from here, when nm-applet and blueman are installed.
+# ~/.config/autostart and /etc/xdg/autostart. The network icon comes
+# from here when nm-applet is installed. Bluetooth is built in.
 # Settings > Login Items turns each one on or off.
 autostart = true
 

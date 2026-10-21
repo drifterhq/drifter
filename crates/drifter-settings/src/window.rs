@@ -53,8 +53,15 @@ enum Fresh {
     Sound(Sound),
     Power(Vec<(String, String)>, Option<drifter_core::settings::Profiles>),
     Time(String, Option<bool>),
-    Net(Option<drifter_core::net::Wifi>, Option<drifter_core::net::Blue>),
+    Net(Option<drifter_core::net::Wifi>),
     Users(drifter_core::users::Users),
+}
+
+enum BlueNews {
+    Now(Option<drifter_core::blue::Blue>),
+    Card(String, Option<drifter_core::blue::Card>),
+    Note(String),
+    Done(Option<String>),
 }
 
 enum Hand {
@@ -114,8 +121,9 @@ pub struct Settings {
     mods: Modifiers,
     chores: LoopSender<Option<String>>,
     net_done: LoopSender<(bool, Result<(), String>)>,
-    asks: crate::agent::LoopAsks,
-    agent_reply: Option<std::sync::mpsc::Sender<Option<String>>>,
+    blue_bus: Option<drifter_blue::Bus>,
+    blue_back: LoopSender<BlueNews>,
+    blue_searching: bool,
     fresh: LoopSender<Fresh>,
     hands: Sender<Hand>,
     fetching: bool,
@@ -123,7 +131,6 @@ pub struct Settings {
     saved_at: Option<std::time::Instant>,
     user_done: LoopSender<(For, Result<String, String>)>,
     parked: Option<Sheet>,
-    searching: bool,
     net_ticks: u32,
     history_seen: Option<std::time::SystemTime>,
     size: (u32, u32),
@@ -250,14 +257,10 @@ pub fn run() -> Result<(), String> {
     events
         .handle()
         .insert_source(net_back, |event, _, settings: &mut Settings| {
-            if let ChannelEvent::Msg((search, result)) = event {
-                if search {
-                    settings.searching = false;
-                }
+            if let ChannelEvent::Msg((_, result)) = event {
                 settings.model.net_note = result.err();
                 settings.fetch(Section::Network);
-                let shown = matches!(settings.section, Section::Network | Section::Bluetooth);
-                if shown && settings.sheet.is_none() {
+                if settings.section == Section::Network && settings.sheet.is_none() {
                     settings.stale = true;
                 }
             }
@@ -272,15 +275,15 @@ pub fn run() -> Result<(), String> {
             }
         })
         .map_err(|e| format!("cannot watch the screen reader: {e}"))?;
-    let (asks, asks_back) = loop_channel::<crate::agent::Asked>();
+    let (blue_back, blue_news) = loop_channel::<BlueNews>();
     events
         .handle()
-        .insert_source(asks_back, |event, _, settings: &mut Settings| {
-            if let ChannelEvent::Msg(asked) = event {
-                settings.agent_asks(asked);
+        .insert_source(blue_news, |event, _, settings: &mut Settings| {
+            if let ChannelEvent::Msg(news) = event {
+                settings.blue_news(news);
             }
         })
-        .map_err(|e| format!("cannot watch Bluetooth pairing: {e}"))?;
+        .map_err(|e| format!("cannot watch Bluetooth: {e}"))?;
     let (fresh, fresh_back) = loop_channel::<Fresh>();
     events
         .handle()
@@ -338,8 +341,9 @@ pub fn run() -> Result<(), String> {
         mods: Modifiers::default(),
         chores,
         net_done,
-        asks,
-        agent_reply: None,
+        blue_bus: None,
+        blue_back,
+        blue_searching: false,
         fresh,
         hands: hands(),
         fetching: false,
@@ -347,7 +351,6 @@ pub fn run() -> Result<(), String> {
         saved_at: None,
         user_done,
         parked: None,
-        searching: false,
         net_ticks: 0,
         history_seen: None,
         size: START,
@@ -395,6 +398,7 @@ pub fn run() -> Result<(), String> {
         logo_failed: false,
     };
     settings.load_row_icons();
+    settings.start_blue();
     settings.refresh(settings.section);
     settings.take_ask(false);
     if let Some(role) = std::env::args().nth(2).and_then(|word| drifter_core::desktop::Role::from_key(&word)) {
@@ -733,6 +737,11 @@ impl Settings {
     }
 
     fn icon_for(&self, key: &str) -> Option<Image> {
+        if let Some(rest) = key.strip_prefix("blue:") {
+            let (kind, lit) = rest.split_once(':')?;
+            let side = drifter_core::sheet::FACE_CELL as u32 * scale();
+            return Some(drifter_core::blue::disc_image(drifter_core::blue::kind_from_word(kind), lit == "true", side, self.look.accent, self.look.off, self.look.ink));
+        }
         if let Some((px, path)) = drifter_core::sheet::face_of(key) {
             let image = drifter_core::image::load(&path).ok()?;
             let square = drifter_core::users::square(&image, px * scale());
@@ -788,9 +797,9 @@ impl Settings {
             .chain(&chosen)
             .map(Model::icon_key)
             .chain(
-                self.model
-                    .groups(Section::Login)
+                [Section::Login, Section::Bluetooth]
                     .into_iter()
+                    .flat_map(|section| self.model.groups(section))
                     .flat_map(|group| group.rows.into_iter().filter_map(|row| row.icon)),
             )
             .collect();
@@ -1398,6 +1407,8 @@ impl Settings {
                     self.sheet = Some(Sheet::info(For::NetInfo(at), &net.ssid, lines));
                 }
             }
+            Some(Hit::Open(Id::Gadget(at))) => self.blue_ask(drifter_core::settings::NetAsk::Options(at)),
+            Some(Hit::Open(Id::BlueName)) => self.blue_ask(drifter_core::settings::NetAsk::Rename),
             Some(Hit::Open(_)) => return,
             Some(Hit::Monitor(at)) => {
                 self.model.pick_monitor(at);
@@ -1434,7 +1445,7 @@ impl Settings {
     }
 
     fn watch(&mut self) {
-        self.settle_agent();
+        self.blue_search();
         self.take_ask(true);
         self.follow_look();
         if self.sheet.is_some() || self.holding.is_some() {
@@ -1451,7 +1462,7 @@ impl Settings {
                     self.stale = true;
                 }
             }
-            Section::Network | Section::Bluetooth => {
+            Section::Network => {
                 self.net_ticks += 1;
                 if self.net_ticks % 3 == 0 && !self.fetching {
                     self.fetch(Section::Network);
@@ -1475,7 +1486,6 @@ impl Settings {
     }
 
     fn fetch(&mut self, section: Section) {
-        let searching = self.searching;
         let job: Box<dyn FnOnce() -> Fresh + Send> = match section {
             Section::Sound => Box::new(|| Fresh::Sound(read_sound())),
             Section::Power => Box::new(|| Fresh::Power(read_cells(), read_profile())),
@@ -1483,9 +1493,8 @@ impl Settings {
                 let (zone, ntp) = read_time();
                 Fresh::Time(zone, ntp)
             }),
-            Section::Network | Section::Bluetooth => Box::new(move || {
-                Fresh::Net(crate::net::read_wifi(), crate::net::read_blue(searching))
-            }),
+            Section::Network => Box::new(move || Fresh::Net(crate::net::read_wifi())),
+            Section::Bluetooth => return,
             Section::Users => Box::new(|| Fresh::Users(crate::users::read())),
             _ => return,
         };
@@ -1534,14 +1543,12 @@ impl Settings {
                 (self.saved.zone, self.saved.ntp) = (zone, ntp);
                 Section::Time
             }
-            Fresh::Net(wifi, blue) => {
-                if wifi == self.model.wifi && blue == self.model.blue {
+            Fresh::Net(wifi) => {
+                if wifi == self.model.wifi {
                     return;
                 }
                 self.model.wifi = wifi.clone();
                 self.saved.wifi = wifi;
-                self.model.blue = blue.clone();
-                self.saved.blue = blue;
                 Section::Network
             }
             Fresh::Users(users) => {
@@ -1549,11 +1556,7 @@ impl Settings {
                 Section::Users
             }
         };
-        let here = match self.section {
-            Section::Bluetooth => Section::Network,
-            section => section,
-        };
-        if here == shown && self.sheet.is_none() {
+        if self.section == shown && self.sheet.is_none() {
             self.stale = true;
         }
     }
@@ -1583,7 +1586,8 @@ impl Settings {
             }
             Section::Bluetooth => {
                 self.model.net_note = None;
-                self.fetch(section);
+                self.model.blue_address = false;
+                self.blue_search();
             }
             Section::Users => {
                 self.model.user_note = None;
@@ -1820,14 +1824,14 @@ impl Settings {
             }
             return;
         }
-        if matches!(purpose, For::BluePin | For::BlueConfirm) {
+        if purpose == For::BlueRename {
+            let name = text(0).trim().to_string();
             self.sheet = None;
-            if let Some(reply) = self.agent_reply.take() {
-                let _ = reply.send(Some(match purpose {
-                    For::BlueConfirm => "yes".to_string(),
-                    _ => text(0),
-                }));
+            if let Some(address) = self.model.blue_open.clone().filter(|_| !name.is_empty()) {
+                let note = drifter_core::lang::tf("Renaming it to {}…", &[&name]);
+                self.blue_job(note, move |bus| bus.rename(&address, &name));
             }
+            self.stale = true;
             return;
         }
         if let For::WifiHidden = purpose {
@@ -1951,72 +1955,15 @@ impl Settings {
     }
 
     fn net_job(&mut self, job: crate::net::Job, note: String) {
-        let search = matches!(job, crate::net::Job::Search);
-        if search {
-            self.searching = true;
-            if let Some(blue) = self.model.blue.as_mut() {
-                blue.searching = true;
-            }
-        }
         self.model.net_note = Some(note);
         let done = self.net_done.clone();
-        let asks = self.asks.clone();
         let spawned = std::thread::Builder::new()
             .name("settings-net".to_string())
             .spawn(move || {
-                let _ = done.send((search, crate::net::run(job, asks)));
+                let _ = done.send((false, crate::net::run(job)));
             });
         if let Err(error) = spawned {
-            self.searching = false;
             self.model.net_note = Some(drifter_core::lang::tf("Cannot start: {}", &[&(error)]));
-        }
-    }
-
-    fn agent_asks(&mut self, asked: crate::agent::Asked) {
-        use crate::agent::Question;
-
-        if let Some(old) = self.agent_reply.take() {
-            let _ = old.send(None);
-        }
-        let sheet = match asked.question {
-            Question::Show(words) => {
-                self.model.net_note = Some(words);
-                if self.sheet.is_none() {
-                    self.stale = true;
-                }
-                return;
-            }
-            Question::Pin(name) => Sheet::form(
-                For::BluePin,
-                &drifter_core::lang::tf("Type the PIN for {}", &[&(name)]),
-                vec![Field::plain(drifter_core::lang::t("PIN code, often 0000 or 1234"), "")],
-                drifter_core::lang::t("Pair"),
-            ),
-            Question::Passkey(name) => Sheet::form(
-                For::BluePin,
-                &drifter_core::lang::tf("Type the passkey {} shows", &[&(name)]),
-                vec![Field::plain(drifter_core::lang::t("Passkey"), "")],
-                drifter_core::lang::t("Pair"),
-            ),
-            Question::Confirm(name, key) => Sheet::form(
-                For::BlueConfirm,
-                &drifter_core::lang::tf("Does {} show {}?", &[&(name), &format!("{:06}", key)]),
-                Vec::new(),
-                drifter_core::lang::t("Yes, Pair"),
-            ),
-        };
-        self.agent_reply = asked.reply;
-        self.sheet = Some(sheet);
-        self.stale = true;
-    }
-
-    fn settle_agent(&mut self) {
-        let asking = self
-            .sheet
-            .as_ref()
-            .is_some_and(|sheet| matches!(sheet.purpose(), For::BluePin | For::BlueConfirm));
-        if !asking && let Some(reply) = self.agent_reply.take() {
-            let _ = reply.send(None);
         }
     }
 
@@ -2025,7 +1972,6 @@ impl Settings {
         use drifter_core::settings::NetAsk;
 
         let net = |at: usize| self.model.wifi.as_ref().and_then(|wifi| wifi.nets.get(at).cloned());
-        let gadget = |at: usize| self.model.blue.as_ref().and_then(|blue| blue.gadgets.get(at).cloned());
         match ask {
             NetAsk::Join(at) => {
                 let Some(net) = net(at) else {
@@ -2081,25 +2027,7 @@ impl Settings {
                     drifter_core::lang::t("Join"),
                 ));
             }
-            NetAsk::Search => self.net_job(Job::Search, drifter_core::lang::t("Searching for ten seconds…").to_string()),
-            NetAsk::Pair(at) | NetAsk::Connect(at) | NetAsk::Disconnect(at) | NetAsk::Remove(at) => {
-                let Some(gadget) = gadget(at) else {
-                    return;
-                };
-                let (job, verb) = match ask {
-                    NetAsk::Pair(_) => (
-                        Job::Pair {
-                            mac: gadget.mac,
-                            name: gadget.name.clone(),
-                        },
-                        drifter_core::lang::t("Pairing with"),
-                    ),
-                    NetAsk::Connect(_) => (Job::Connect(gadget.mac), drifter_core::lang::t("Connecting to")),
-                    NetAsk::Disconnect(_) => (Job::Disconnect(gadget.mac), drifter_core::lang::t("Disconnecting")),
-                    _ => (Job::Remove(gadget.mac), drifter_core::lang::t("Removing")),
-                };
-                self.net_job(job, format!("{verb} {}…", gadget.name));
-            }
+            ask => self.blue_ask(ask),
         }
     }
 
@@ -2314,6 +2242,11 @@ impl Settings {
             Pick::Default => {
                 if let For::Shortcut(at) = purpose {
                     let _ = self.model.set_shortcut(at, None);
+                }
+                if purpose == For::BlueKey
+                    && let Some(address) = self.model.blue_open.clone()
+                {
+                    self.model.blue_prefs.set_key(&address, "");
                 }
                 self.sheet = None;
                 self.save();
@@ -2673,6 +2606,14 @@ impl Settings {
             self.capture(at, event);
             return;
         }
+        if let Some(Sheet::Capture {
+            purpose: For::BlueKey,
+            ..
+        }) = self.sheet
+        {
+            self.capture_blue(event);
+            return;
+        }
         let Some(sheet) = self.sheet.as_mut() else {
             if !self.focus_key(event) && !self.nudge(event) {
                 self.search_key(event);
@@ -2733,8 +2674,9 @@ impl Settings {
                 true => drifter_core::lang::t("Turning Bluetooth on…"),
                 false => drifter_core::lang::t("Turning Bluetooth off…"),
             };
-            self.net_job(crate::net::Job::BluePower(on), note.to_string());
+            self.blue_job(note.to_string(), move |bus| bus.power(on));
         }
+        self.apply_blue(&before);
         if let Some(now) = self.model.profile.as_ref()
             && before.profile.as_ref().is_some_and(|was| was.now != now.now)
         {
@@ -3185,4 +3127,327 @@ fn splice(
         out.rgba[into + x0 * 4..into + x1 * 4].copy_from_slice(&from.rgba[back + x0 * 4..back + x1 * 4]);
     }
     true
+}
+
+impl Settings {
+    fn start_blue(&mut self) {
+        self.model.blue_prefs = drifter_core::blue::Prefs::load();
+        self.saved.blue_prefs = self.model.blue_prefs.clone();
+        let bus = match drifter_blue::Bus::system() {
+            Ok(bus) => bus,
+            Err(error) => {
+                log!("drifter-settings: {error}");
+                return;
+            }
+        };
+        let back = self.blue_back.clone();
+        if let Err(error) = bus.watch(move |now| {
+            let _ = back.send(BlueNews::Now(now));
+        }) {
+            log!("drifter-settings: {error}");
+        }
+        self.blue_bus = Some(bus);
+    }
+
+    fn blue_news(&mut self, news: BlueNews) {
+        match news {
+            BlueNews::Now(now) => {
+                let had: Vec<String> = self.model.blue.iter().flat_map(|blue| blue.connected().map(|device| device.address.clone())).collect();
+                self.model.blue = now.clone();
+                self.saved.blue = now;
+                let open_gone = self.model.blue_open.as_deref().is_some_and(|address| {
+                    !self.model.blue.as_ref().is_some_and(|blue| blue.find(address).is_some_and(|device| device.paired))
+                });
+                if open_gone {
+                    self.model.blue_open = None;
+                    self.model.blue_card = None;
+                }
+                let joined = self.model.blue_open.as_deref().is_some_and(|address| {
+                    !had.iter().any(|each| each == address)
+                        && self.model.blue.as_ref().is_some_and(|blue| blue.find(address).is_some_and(|device| device.connected))
+                });
+                if joined {
+                    self.blue_card();
+                }
+                self.load_row_icons();
+            }
+            BlueNews::Card(address, card) => {
+                if self.model.blue_open.as_deref() == Some(address.as_str()) {
+                    self.model.blue_mic = card.as_ref().is_some_and(drifter_core::blue::Card::headset);
+                    self.saved.blue_mic = self.model.blue_mic;
+                    self.model.blue_card = card;
+                }
+            }
+            BlueNews::Note(note) => self.model.net_note = Some(note),
+            BlueNews::Done(error) => {
+                self.model.net_note = error;
+                self.blue_card();
+            }
+        }
+        if self.section == Section::Bluetooth && self.sheet.is_none() {
+            self.stale = true;
+        }
+    }
+
+    fn blue_search(&mut self) {
+        let want = self.section == Section::Bluetooth && self.model.blue.as_ref().is_some_and(|blue| blue.on);
+        if want == self.blue_searching {
+            return;
+        }
+        self.blue_searching = want;
+        let Some(bus) = self.blue_bus.clone() else {
+            return;
+        };
+        let _ = std::thread::Builder::new().name("settings-blue-search".into()).spawn(move || {
+            if let Err(error) = bus.search(want)
+                && want
+            {
+                log!("drifter-settings: Bluetooth search did not start: {error}");
+            }
+        });
+    }
+
+    fn blue_card(&mut self) {
+        let Some(address) = self.model.blue_open.clone() else {
+            return;
+        };
+        let audio = self
+            .model
+            .blue
+            .as_ref()
+            .and_then(|blue| blue.find(&address))
+            .is_some_and(|device| device.connected && (device.audio || device.kind.audio()));
+        if !audio {
+            self.model.blue_card = None;
+            return;
+        }
+        let back = self.blue_back.clone();
+        let _ = std::thread::Builder::new().name("settings-blue-card".into()).spawn(move || {
+            let card = drifter_blue::sound::card(&address);
+            let _ = back.send(BlueNews::Card(address, card));
+        });
+    }
+
+    fn blue_device(&self, at: usize) -> Option<drifter_core::blue::Device> {
+        self.model.blue.as_ref()?.devices.get(at).cloned()
+    }
+
+    fn blue_open_device(&self) -> Option<drifter_core::blue::Device> {
+        let address = self.model.blue_open.as_deref()?;
+        self.model.blue.as_ref()?.find(address).cloned()
+    }
+
+    fn blue_job(&mut self, note: String, work: impl FnOnce(&drifter_blue::Bus) -> Result<(), String> + Send + 'static) {
+        let Some(bus) = self.blue_bus.clone() else {
+            self.model.net_note = Some(drifter_core::lang::t("Cannot reach Bluetooth.").to_string());
+            return;
+        };
+        self.model.net_note = Some(note);
+        self.stale = true;
+        let back = self.blue_back.clone();
+        let spawned = std::thread::Builder::new().name("settings-blue".into()).spawn(move || {
+            let _ = back.send(BlueNews::Done(work(&bus).err()));
+        });
+        if let Err(error) = spawned {
+            self.model.net_note = Some(drifter_core::lang::tf("Cannot start: {}", &[&(error)]));
+        }
+    }
+
+    fn blue_device_job(&mut self, device: drifter_core::blue::Device, note: String, work: impl FnOnce(&drifter_blue::Bus, &str) -> Result<(), String> + Send + 'static) {
+        let name = device.shown_name();
+        let kind = device.kind;
+        let address = device.address.clone();
+        self.blue_job(note, move |bus| {
+            work(bus, &address).map_err(|error| match error.contains("Rejected") || error.contains("Canceled") {
+                true => drifter_core::lang::t("Setting it up was stopped.").to_string(),
+                false => drifter_core::blue::plain_error(&error, &name, kind),
+            })
+        });
+    }
+
+    fn blue_ask(&mut self, ask: drifter_core::settings::NetAsk) {
+        use drifter_core::settings::NetAsk;
+
+        match ask {
+            NetAsk::Pair(at) => {
+                if let Some(device) = self.blue_device(at) {
+                    let note = drifter_core::lang::tf("Setting up {}. Answer on the screen if it asks.", &[&device.shown_name()]);
+                    self.blue_device_job(device, note, |bus, address| bus.pair(address));
+                }
+            }
+            NetAsk::Connect(at) => {
+                if let Some(device) = self.blue_device(at) {
+                    let note = drifter_core::lang::tf("Connecting to {}…", &[&device.shown_name()]);
+                    self.blue_device_job(device, note, |bus, address| bus.connect(address));
+                }
+            }
+            NetAsk::Disconnect(at) => {
+                if let Some(device) = self.blue_device(at) {
+                    let note = drifter_core::lang::tf("Disconnecting {}…", &[&device.shown_name()]);
+                    self.blue_device_job(device, note, |bus, address| bus.disconnect(address));
+                }
+            }
+            NetAsk::Remove(at) => {
+                if let Some(device) = self.blue_device(at) {
+                    let note = drifter_core::lang::tf("Forgetting {}…", &[&device.shown_name()]);
+                    self.model.blue_open = None;
+                    self.model.blue_card = None;
+                    self.blue_device_job(device, note, |bus, address| bus.forget(address));
+                }
+            }
+            NetAsk::Options(at) => {
+                let Some(device) = self.blue_device(at).filter(|device| device.paired) else {
+                    return;
+                };
+                self.model.blue_address = false;
+                self.model.blue_card = None;
+                self.model.blue_open = match self.model.blue_open.as_deref() == Some(device.address.as_str()) {
+                    true => None,
+                    false => Some(device.address),
+                };
+                self.blue_card();
+                self.stale = true;
+            }
+            NetAsk::Rename => {
+                if let Some(device) = self.blue_open_device() {
+                    self.sheet = Some(Sheet::form(
+                        For::BlueRename,
+                        drifter_core::lang::t("Rename this device"),
+                        vec![Field::plain(drifter_core::lang::t("Name"), &device.shown_name())],
+                        drifter_core::lang::t("Save"),
+                    ));
+                    self.stale = true;
+                }
+            }
+            NetAsk::BlueKey => {
+                if let Some(device) = self.blue_open_device() {
+                    let now = self
+                        .model
+                        .blue_prefs
+                        .key(&device.address)
+                        .and_then(|text| drifter_core::shortcut::Combo::parse(text).ok().flatten())
+                        .map_or_else(|| drifter_core::lang::t("No shortcut").to_string(), |combo| combo.shown(drifter_core::config::Modifier::Super));
+                    let title = drifter_core::lang::tf("Shortcut to connect {}", &[&device.shown_name()]);
+                    self.sheet = Some(Sheet::capture_for(For::BlueKey, &title, &now));
+                    self.stale = true;
+                }
+            }
+            NetAsk::Fix => {
+                if let Some(device) = self.blue_open_device() {
+                    self.blue_fix(device);
+                }
+            }
+            NetAsk::Reset => {
+                let note = drifter_core::lang::t("Turning Bluetooth off and on…").to_string();
+                let back = self.blue_back.clone();
+                self.blue_job(note, move |bus| {
+                    bus.power(false)?;
+                    bus.wait(|blue| !blue.on, std::time::Duration::from_secs(5));
+                    std::thread::sleep(std::time::Duration::from_millis(600));
+                    bus.power(true)?;
+                    match bus.wait(|blue| blue.on, std::time::Duration::from_secs(8)) {
+                        true => {
+                            let _ = back.send(BlueNews::Note(drifter_core::lang::t("Bluetooth is back on.").to_string()));
+                            Ok(())
+                        }
+                        false => Err(drifter_core::lang::t("Bluetooth did not come back on. Restart the computer.").to_string()),
+                    }
+                });
+            }
+            _ => {}
+        }
+    }
+
+    fn blue_fix(&mut self, device: drifter_core::blue::Device) {
+        let back = self.blue_back.clone();
+        let name = device.shown_name();
+        let kind = device.kind;
+        let xbox = drifter_core::blue::xbox(&device);
+        let address = device.address.clone();
+        self.model.blue_open = None;
+        self.model.blue_card = None;
+        let say = move |words: String| {
+            let _ = back.send(BlueNews::Note(words));
+        };
+        self.blue_job(drifter_core::lang::t("Fixing it. Step 1 of 4: turning Bluetooth off and on…").to_string(), move |bus| {
+            if xbox && drifter_blue::xbox::ertm_on() {
+                say(drifter_core::lang::t("Changing a setting older Xbox controllers need. Type your password if asked.").to_string());
+                drifter_blue::xbox::fix_ertm()?;
+            }
+            bus.power(false)?;
+            bus.wait(|blue| !blue.on, std::time::Duration::from_secs(5));
+            std::thread::sleep(std::time::Duration::from_millis(600));
+            bus.power(true)?;
+            if !bus.wait(|blue| blue.on, std::time::Duration::from_secs(8)) {
+                return Err(drifter_core::lang::t("Bluetooth did not come back on. Restart the computer.").to_string());
+            }
+            say(drifter_core::lang::tf("Step 2 of 4: forgetting {}…", &[&name]));
+            let _ = bus.forget(&address);
+            say(drifter_core::lang::tf("Step 3 of 4: put {} in pairing mode now. Looking for it…", &[&name]));
+            bus.search(true)?;
+            let found = bus.wait(|blue| blue.find(&address).is_some(), std::time::Duration::from_secs(30));
+            if !found {
+                let _ = bus.search(false);
+                return Err(drifter_core::lang::tf("Drifter could not find {}. Put it in pairing mode, then press Set Up under Nearby.", &[&name]));
+            }
+            say(drifter_core::lang::tf("Step 4 of 4: setting up {}…", &[&name]));
+            let paired = bus.pair(&address);
+            let _ = bus.search(false);
+            paired.map_err(|error| drifter_core::blue::plain_error(&error, &name, kind))?;
+            say(drifter_core::lang::tf("{} is fixed and connected.", &[&name]));
+            Ok(())
+        });
+    }
+
+    fn apply_blue(&mut self, before: &drifter_core::settings::Model) {
+        if self.model.blue_prefs != before.blue_prefs {
+            if let Err(error) = self.model.blue_prefs.save() {
+                log!("drifter-settings: cannot save Bluetooth choices: {error}");
+            }
+        }
+        let Some(device) = self.blue_open_device() else {
+            return;
+        };
+        let sound = self.model.blue_prefs.sound(&device.address);
+        if sound != before.blue_prefs.sound(&device.address) && device.connected {
+            let address = device.address.clone();
+            let note = drifter_core::lang::tf("Sound: {}…", &[&sound.label()]);
+            self.blue_job(note, move |_| drifter_blue::sound::choose(&address, sound));
+        }
+        if self.model.blue_mic != before.blue_mic && device.connected {
+            let (address, on) = (device.address.clone(), self.model.blue_mic);
+            let note = match on {
+                true => drifter_core::lang::t("Turning the microphone on. Sound quality drops while it is on.").to_string(),
+                false => drifter_core::lang::t("Turning the microphone off…").to_string(),
+            };
+            self.blue_job(note, move |_| drifter_blue::sound::mic(&address, on, sound));
+        }
+    }
+
+    fn capture_blue(&mut self, event: &KeyEvent) {
+        let name = event.keysym.name().map(shortcut::keysym_word).unwrap_or_default();
+        if name.is_empty() || shortcut::is_modifier(&name) {
+            return;
+        }
+        let mods = Mods {
+            ctrl: self.mods.ctrl,
+            alt: self.mods.alt,
+            shift: self.mods.shift,
+            logo: self.mods.logo,
+        };
+        self.sheet = None;
+        self.stale = true;
+        if event.keysym == Keysym::Escape && mods == Mods::default() {
+            return;
+        }
+        if mods == Mods::default() {
+            self.model.net_note = Some(drifter_core::lang::t("A shortcut needs Ctrl, Alt or Super with the key.").to_string());
+            return;
+        }
+        let combo = Combo { mods, camera: false, key: name };
+        if let Some(address) = self.model.blue_open.clone() {
+            self.model.blue_prefs.set_key(&address, &combo.word());
+            self.save();
+        }
+    }
 }

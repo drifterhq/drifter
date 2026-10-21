@@ -16,6 +16,7 @@ pub struct Tray {
     pub button: f64,
     pub button_gap: f64,
     pub battery: f64,
+    pub blue: bool,
 }
 
 impl Default for Tray {
@@ -29,6 +30,7 @@ impl Default for Tray {
             button: 20.0,
             button_gap: 14.0,
             battery: 0.0,
+            blue: false,
         }
     }
 }
@@ -48,10 +50,21 @@ impl Tray {
         Rect::new(Vec2::new(x, self.centered(band, size.y)), size)
     }
 
-    pub fn clock_rect(&self, band: Rect, text: Vec2) -> Rect {
-        let left = match self.battery > 0.0 {
+    fn after_battery(&self, band: Rect) -> f64 {
+        match self.battery > 0.0 {
             true => self.control_rect(band).origin.x - self.button_gap - self.battery,
             false => self.control_rect(band).origin.x,
+        }
+    }
+
+    pub fn blue_rect(&self, band: Rect) -> Rect {
+        self.left_of(band, self.after_battery(band))
+    }
+
+    pub fn clock_rect(&self, band: Rect, text: Vec2) -> Rect {
+        let left = match self.blue {
+            true => self.blue_rect(band).origin.x,
+            false => self.after_battery(band),
         };
         let x = left - self.button_gap - text.x;
         Rect::new(Vec2::new(x, self.centered(band, text.y)), text)

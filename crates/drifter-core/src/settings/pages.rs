@@ -754,6 +754,11 @@ impl Model {
         groups
     }
 
+    pub(super) fn blue_open_device(&self) -> Option<&crate::blue::Device> {
+        let address = self.blue_open.as_deref()?;
+        self.blue.as_ref()?.find(address).filter(|device| device.paired)
+    }
+
     pub(super) fn blue_groups(&self) -> Vec<Group> {
         let Some(blue) = &self.blue else {
             return vec![Group {
@@ -772,24 +777,23 @@ impl Model {
         if !blue.on {
             return groups;
         }
-        let row = |at: usize, gadget: &crate::net::Gadget| {
-            let (marks, detail) = match (gadget.paired, gadget.connected) {
-                (true, true) => (vec![Mark::Text(crate::lang::t("Disconnect"))], crate::lang::t("Connected")),
-                (true, false) => (vec![Mark::Text(crate::lang::t("Connect")), Mark::Text(crate::lang::t("Remove"))], crate::lang::t("Not connected")),
-                (false, _) => (vec![Mark::Text(crate::lang::t("Pair"))], crate::lang::t("Not paired")),
-            };
-            let detail = match gadget.kind {
-                "" => detail.to_string(),
-                kind => format!("{}, {detail}", crate::lang::t(kind)),
-            };
-            Row::new(Id::Gadget(at), &gadget.name, Control::Buttons(marks)).detail(&detail)
-        };
+        let icon = |device: &crate::blue::Device| format!("blue:{}:{}", crate::blue::kind_word(device.kind), device.connected);
         let mine: Vec<Row> = blue
-            .gadgets
+            .devices
             .iter()
             .enumerate()
-            .filter(|(_, gadget)| gadget.paired)
-            .map(|(at, gadget)| row(at, gadget))
+            .filter(|(_, device)| device.paired)
+            .map(|(at, device)| {
+                let first = match device.connected {
+                    true => crate::lang::t("Disconnect"),
+                    false => crate::lang::t("Connect"),
+                };
+                let mut row = Row::new(Id::Gadget(at), &device.shown_name(), Control::Buttons(vec![Mark::Text(first), Mark::Text(crate::lang::t("Options"))]))
+                    .detail(&format!("{}, {}", device.kind.label(), device.note()))
+                    .opens();
+                row.icon = Some(icon(device));
+                row
+            })
             .collect();
         if !mine.is_empty() {
             groups.push(Group {
@@ -799,31 +803,123 @@ impl Model {
                 thumbs: None,
             });
         }
-        let search = match blue.searching {
-            true => Row::new(Id::BlueSearch, crate::lang::t("Searching"), Control::Buttons(Vec::new()))
-                .detail(crate::lang::t("Put the device in pairing mode")),
-            false => Row::new(
-                Id::BlueSearch,
-                crate::lang::t("Find devices"),
-                Control::Buttons(vec![Mark::Text(crate::lang::t("Search"))]),
-            )
-            .detail(crate::lang::t("Looks for ten seconds")),
-        };
-        let mut nearby = vec![search];
-        nearby.extend(
-            blue.gadgets
-                .iter()
-                .enumerate()
-                .filter(|(_, gadget)| !gadget.paired)
-                .map(|(at, gadget)| row(at, gadget)),
-        );
+        if let Some(device) = self.blue_open_device() {
+            groups.push(self.blue_options(device));
+        }
+        let nearby: Vec<Row> = blue
+            .devices
+            .iter()
+            .enumerate()
+            .filter(|(_, device)| !device.paired && device.named)
+            .map(|(at, device)| {
+                let signal = match device.rssi.map(crate::blue::bars) {
+                    Some(4 | 3) => crate::lang::t("strong signal").to_string(),
+                    Some(_) => crate::blue::closer(device.rssi).map_or_else(|| crate::lang::t("fair signal").to_string(), |hint| hint.to_lowercase()),
+                    None => String::new(),
+                };
+                let detail = match signal.is_empty() {
+                    true => device.kind.label().to_string(),
+                    false => format!("{}, {signal}", device.kind.label()),
+                };
+                let mut row = Row::new(Id::Gadget(at), &device.shown_name(), Control::Buttons(vec![Mark::Text(crate::lang::t("Set Up"))])).detail(&detail);
+                row.icon = Some(icon(device));
+                row
+            })
+            .collect();
         groups.push(Group {
             header: Some(crate::lang::t("Nearby")),
             rows: nearby,
+            footer: Some(match blue.searching {
+                true => crate::lang::t("Looking for devices. Put the one you want in pairing mode.").into(),
+                false => crate::lang::t("Drifter looks for devices while this page is open.").into(),
+            }),
+            thumbs: None,
+        });
+        groups.push(Group {
+            header: None,
+            rows: vec![
+                Row::new(Id::BlueReset, crate::lang::t("Fix Bluetooth"), Control::Buttons(vec![Mark::Text(crate::lang::t("Fix It"))]))
+                    .detail(crate::lang::t("Turns Bluetooth off and on again")),
+            ],
             footer: None,
             thumbs: None,
         });
         groups
+    }
+
+    fn blue_options(&self, device: &crate::blue::Device) -> Group {
+        let mut rows = vec![
+            Row::new(Id::BlueName, &device.shown_name(), Control::Buttons(vec![Mark::Text(crate::lang::t("Rename"))]))
+                .detail(crate::lang::t("Click the name to change it"))
+                .opens(),
+        ];
+        if let Some(level) = device.battery {
+            rows.push(Row::new(Id::BlueBattery, crate::lang::t("Battery"), Control::Note(format!("{level}%"))));
+        }
+        let when = self.blue_prefs.when(&device.address);
+        rows.push(
+            Row::new(
+                Id::BlueWhen,
+                crate::lang::t("Connect on its own"),
+                Control::Segments {
+                    options: crate::blue::When::ALL.iter().map(|when| when.short()).collect(),
+                    chosen: crate::blue::When::ALL.iter().position(|each| *each == when).unwrap_or(0),
+                },
+            )
+            .detail(when.label()),
+        );
+        if device.audio || device.kind.audio() {
+            let sound = self.blue_prefs.sound(&device.address);
+            let now = match (&self.blue_card, device.connected) {
+                (Some(card), true) if card.headset() => crate::blue::Codec::Call.words(),
+                (Some(card), true) => card.codec.map_or_else(|| crate::lang::t("Playing").to_string(), |codec| codec.words()),
+                _ => crate::lang::t("Connect it to see its sound quality").to_string(),
+            };
+            rows.push(
+                Row::new(
+                    Id::BlueSound,
+                    crate::lang::t("Sound"),
+                    Control::Segments {
+                        options: crate::blue::Sound::ALL.iter().map(|sound| sound.short()).collect(),
+                        chosen: crate::blue::Sound::ALL.iter().position(|each| *each == sound).unwrap_or(0),
+                    },
+                )
+                .detail(&format!("{}. {now}", sound.label())),
+            );
+            let mut mic = Row::new(Id::BlueMic, crate::lang::t("Use its microphone"), Control::Switch(self.blue_mic))
+                .detail(crate::lang::t("Mic on, sound quality will drop."));
+            mic.enabled = device.connected;
+            rows.push(mic);
+        }
+        let key = self.blue_prefs.key(&device.address).and_then(|text| crate::shortcut::Combo::parse(text).ok().flatten());
+        let key_words = key.map_or_else(|| crate::lang::t("No shortcut").to_string(), |combo| combo.shown(crate::config::Modifier::Super));
+        rows.push(
+            Row::new(Id::BlueKey, crate::lang::t("Connect shortcut"), Control::Buttons(vec![Mark::Text(crate::lang::t("Set"))]))
+                .detail(&key_words),
+        );
+        let address = match self.blue_address {
+            true => device.address.clone(),
+            false => crate::lang::t("Hidden").to_string(),
+        };
+        let marks = match self.blue_address {
+            true => Vec::new(),
+            false => vec![Mark::Text(crate::lang::t("Show"))],
+        };
+        rows.push(Row::new(Id::BlueAddress, crate::lang::t("Address"), Control::Buttons(marks)).detail(&address));
+        rows.push(
+            Row::new(Id::BlueFix, crate::lang::t("Not working?"), Control::Buttons(vec![Mark::Text(crate::lang::t("Fix It"))]))
+                .detail(crate::lang::t("Forgets it and sets it up again")),
+        );
+        rows.push(
+            Row::new(Id::BlueForget, crate::lang::t("Forget this device"), Control::Buttons(vec![Mark::Text(crate::lang::t("Forget"))]))
+                .detail(crate::lang::t("Removes it from this computer")),
+        );
+        Group {
+            header: Some(crate::lang::t("Device options")),
+            rows,
+            footer: None,
+            thumbs: None,
+        }
     }
 
     pub(super) fn access_groups(&self) -> Vec<Group> {
@@ -1160,6 +1256,19 @@ impl Model {
                     blue.on = on;
                 }
             }
+            (Id::BlueWhen, Value::Choice(n)) => {
+                if let Some(address) = self.blue_open.clone() {
+                    let when = crate::blue::When::ALL[n.min(crate::blue::When::ALL.len() - 1)];
+                    self.blue_prefs.set_when(&address, when);
+                }
+            }
+            (Id::BlueSound, Value::Choice(n)) => {
+                if let Some(address) = self.blue_open.clone() {
+                    let sound = crate::blue::Sound::ALL[n.min(crate::blue::Sound::ALL.len() - 1)];
+                    self.blue_prefs.set_sound(&address, sound);
+                }
+            }
+            (Id::BlueMic, Value::Switch(on)) => self.blue_mic = on,
             (Id::LargeText, Value::Switch(on)) => self.access.large_text = on,
             (Id::HighContrast, Value::Switch(on)) => self.access.high_contrast = on,
             (Id::ReduceMotion, Value::Switch(on)) => self.access.reduce_motion = on,
@@ -1301,18 +1410,27 @@ impl Model {
                 }));
             }
             (Id::WifiHidden, _) => return Some(Ask::Net(NetAsk::Hidden)),
-            (Id::BlueSearch, _) => {
-                let blue = self.blue.as_ref()?;
-                return (!blue.searching).then_some(Ask::Net(NetAsk::Search));
-            }
             (Id::Gadget(at), index) => {
-                let gadget = self.blue.as_ref()?.gadgets.get(at)?;
-                return Some(Ask::Net(match (gadget.paired, gadget.connected, index) {
+                let device = self.blue.as_ref()?.devices.get(at)?;
+                return Some(Ask::Net(match (device.paired, device.connected, index) {
                     (false, _, _) => NetAsk::Pair(at),
-                    (true, true, _) => NetAsk::Disconnect(at),
+                    (true, true, 0) => NetAsk::Disconnect(at),
                     (true, false, 0) => NetAsk::Connect(at),
-                    (true, false, _) => NetAsk::Remove(at),
+                    (true, _, _) => NetAsk::Options(at),
                 }));
+            }
+            (Id::BlueName, _) => return Some(Ask::Net(NetAsk::Rename)),
+            (Id::BlueKey, _) => return Some(Ask::Net(NetAsk::BlueKey)),
+            (Id::BlueFix, _) => return Some(Ask::Net(NetAsk::Fix)),
+            (Id::BlueReset, _) => return Some(Ask::Net(NetAsk::Reset)),
+            (Id::BlueAddress, _) => {
+                self.blue_address = true;
+                return None;
+            }
+            (Id::BlueForget, _) => {
+                let blue = self.blue.as_ref()?;
+                let at = blue.devices.iter().position(|device| Some(device.address.as_str()) == self.blue_open.as_deref())?;
+                return Some(Ask::Net(NetAsk::Remove(at)));
             }
             (Id::Place(at), 0) if at < self.places.len() => return Some(Ask::RenamePlace(at)),
             (Id::Place(at), 1) if at < self.places.len() => {

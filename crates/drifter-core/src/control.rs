@@ -1,6 +1,7 @@
 use crate::geom::{Rect, Vec2};
 use crate::image::Image;
 use crate::paint::Canvas;
+use crate::blue::{Blue, Kind};
 use crate::text::Font;
 
 pub fn paint_icon(side: u32, ink: [u8; 3]) -> Image {
@@ -48,6 +49,7 @@ impl Tile {
 pub struct Status {
     pub wifi: Option<(bool, String)>,
     pub bluetooth: Option<bool>,
+    pub blue_note: String,
     pub quiet: bool,
     pub dark: bool,
     pub light: Option<f64>,
@@ -74,7 +76,8 @@ impl Status {
             },
             Tile::Bluetooth => match self.bluetooth {
                 None => crate::lang::t("Not available").to_string(),
-                Some(true) => crate::lang::t("On").to_string(),
+                Some(true) if self.blue_note.is_empty() => crate::lang::t("On").to_string(),
+                Some(true) => self.blue_note.clone(),
                 Some(false) => crate::lang::t("Off").to_string(),
             },
             Tile::Quiet | Tile::Dark => match self.on(tile) {
@@ -88,8 +91,116 @@ impl Status {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Hit {
     Tile(Tile),
+    More(Tile),
     Light(f64),
     Volume(f64),
+    Item(usize),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum What {
+    Device {
+        name: String,
+        note: String,
+        kind: Kind,
+        connected: bool,
+        battery: Option<u8>,
+        bars: Option<u8>,
+    },
+    Heading(String),
+    Link(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Item {
+    pub key: String,
+    pub what: What,
+}
+
+impl Item {
+    pub fn height(&self) -> f64 {
+        match self.what {
+            What::Device { .. } => 46.0,
+            What::Heading(_) => 28.0,
+            What::Link(_) => 36.0,
+        }
+    }
+
+    pub fn picks(&self) -> bool {
+        !matches!(self.what, What::Heading(_))
+    }
+
+    pub fn address(&self) -> Option<&str> {
+        self.key.strip_prefix("device:")
+    }
+}
+
+pub const SETTINGS_KEY: &str = "link:settings";
+const MOST_NEARBY: usize = 6;
+
+pub fn items(blue: Option<&Blue>, busy: &[String], failed: &[String]) -> Vec<Item> {
+    let mut out = Vec::new();
+    let device = |device: &crate::blue::Device| {
+        let busy = busy.iter().any(|each| each.eq_ignore_ascii_case(&device.address));
+        let failed = failed.iter().any(|each| each.eq_ignore_ascii_case(&device.address));
+        let note = match (busy, failed, device.paired, device.connected) {
+            (true, _, false, _) => crate::lang::t("Setting up…").to_string(),
+            (true, _, true, true) => crate::lang::t("Disconnecting…").to_string(),
+            (true, _, _, _) => crate::lang::t("Connecting…").to_string(),
+            (false, true, _, _) => crate::lang::t("Did not connect").to_string(),
+            (false, false, true, _) => device.state().to_string(),
+            (false, false, false, _) => match crate::blue::closer(device.rssi) {
+                Some(hint) => format!("{}, {hint}", device.kind.label()),
+                None => device.kind.label().to_string(),
+            },
+        };
+        Item {
+            key: format!("device:{}", device.address),
+            what: What::Device {
+                name: device.shown_name(),
+                note,
+                kind: device.kind,
+                connected: device.connected,
+                battery: device.battery.filter(|_| device.connected),
+                bars: device.bars().filter(|_| !device.paired),
+            },
+        }
+    };
+    match blue {
+        None => out.push(Item {
+            key: "heading:none".into(),
+            what: What::Heading(crate::lang::t("No Bluetooth adapter found.").into()),
+        }),
+        Some(blue) if !blue.on => out.push(Item {
+            key: "heading:off".into(),
+            what: What::Heading(crate::lang::t("Bluetooth is off.").into()),
+        }),
+        Some(blue) => {
+            let mine: Vec<Item> = blue.mine().map(device).collect();
+            if !mine.is_empty() {
+                out.push(Item {
+                    key: "heading:mine".into(),
+                    what: What::Heading(crate::lang::t("My devices").into()),
+                });
+                out.extend(mine);
+            }
+            let nearby: Vec<Item> = blue.nearby().filter(|device| device.named).take(MOST_NEARBY).map(device).collect();
+            out.push(Item {
+                key: "heading:nearby".into(),
+                what: What::Heading(match (nearby.is_empty(), blue.searching) {
+                    (true, true) => crate::lang::t("Looking for devices…").into(),
+                    (true, false) => crate::lang::t("Nothing nearby").into(),
+                    (false, _) => crate::lang::t("Nearby").into(),
+                }),
+            });
+            out.extend(nearby);
+        }
+    }
+    out.push(Item {
+        key: SETTINGS_KEY.into(),
+        what: What::Link(crate::lang::t("Bluetooth Settings…").into()),
+    });
+    out
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -133,6 +244,47 @@ impl Look {
         Vec2::new(self.width, self.pad * 2.0 + tiles + (self.gap + self.slider) * 2.0)
     }
 
+    pub fn list_top(&self) -> f64 {
+        self.size().y - self.pad + self.gap
+    }
+
+    pub fn size_with(&self, items: &[Item]) -> Vec2 {
+        match items.is_empty() {
+            true => self.size(),
+            false => Vec2::new(self.width, self.list_top() + items.iter().map(Item::height).sum::<f64>() + self.pad + 8.0),
+        }
+    }
+
+    pub fn list_rect(&self, items: &[Item]) -> Rect {
+        let top = self.list_top();
+        Rect::new(
+            Vec2::new(self.pad, top),
+            Vec2::new(self.width - self.pad * 2.0, self.size_with(items).y - self.pad - top),
+        )
+    }
+
+    pub fn item_rect(&self, items: &[Item], index: usize) -> Rect {
+        let above: f64 = items.iter().take(index).map(Item::height).sum();
+        let height = items.get(index).map_or(0.0, Item::height);
+        Rect::new(
+            Vec2::new(self.pad, self.list_top() + 4.0 + above),
+            Vec2::new(self.width - self.pad * 2.0, height),
+        )
+    }
+
+    pub fn cap(&self) -> f64 {
+        self.pad + self.radius
+    }
+
+    pub fn dot(&self, tile: Tile) -> Vec2 {
+        let rect = self.tile_rect(tile);
+        Vec2::new(rect.origin.x + 26.0, rect.center().y)
+    }
+
+    pub fn disc_at(&self, item: Rect) -> Vec2 {
+        Vec2::new(item.origin.x + 25.0, item.center().y)
+    }
+
     pub fn rect(&self, under: Rect, screen: Vec2) -> Rect {
         let size = self.size();
         let x = (under.max().x - size.x).min(screen.x - size.x - 6.0).max(6.0);
@@ -173,17 +325,28 @@ impl Look {
         ((x - track.origin.x) / track.size.x.max(1.0)).clamp(0.0, 1.0)
     }
 
-    pub fn hit_rect(&self, inside: Vec2) -> Option<Rect> {
+    pub fn hit_rect(&self, inside: Vec2, items: &[Item]) -> Option<Rect> {
         Tile::ALL
             .into_iter()
             .map(|tile| self.tile_rect(tile))
             .chain([self.slider_rect(0), self.slider_rect(1)])
+            .chain(
+                items
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, item)| item.picks())
+                    .map(|(index, _)| self.item_rect(items, index)),
+            )
             .find(|rect| rect.contains(inside))
     }
 
-    pub fn hit(&self, inside: Vec2) -> Option<Hit> {
+    pub fn hit(&self, inside: Vec2, items: &[Item]) -> Option<Hit> {
         if let Some(tile) = Tile::ALL.into_iter().find(|tile| self.tile_rect(*tile).contains(inside)) {
-            return Some(Hit::Tile(tile));
+            let on_dot = (inside - self.dot(tile)).length() <= 19.0;
+            return Some(match (tile, on_dot) {
+                (Tile::Bluetooth, false) => Hit::More(tile),
+                _ => Hit::Tile(tile),
+            });
         }
         if self.slider_rect(0).contains(inside) {
             return Some(Hit::Light(self.level_at(0, inside.x)));
@@ -191,22 +354,35 @@ impl Look {
         if self.slider_rect(1).contains(inside) {
             return Some(Hit::Volume(self.level_at(1, inside.x)));
         }
-        None
+        (0..items.len())
+            .find(|index| items[*index].picks() && self.item_rect(items, *index).contains(inside))
+            .map(Hit::Item)
     }
 
     pub fn paint(&self, status: &Status, font: &Font, small: &Font) -> Image {
-        let size = self.size();
+        self.paint_with(status, &[], false, font, small)
+    }
+
+    pub fn paint_with(&self, status: &Status, items: &[Item], bare_dots: bool, font: &Font, small: &Font) -> Image {
+        let size = self.size_with(items);
         let mut canvas = Canvas::new(size.x as u32, size.y as u32);
         canvas.round_rect(Rect::new(Vec2::ZERO, size), self.radius, self.back, self.back_alpha);
+        if !items.is_empty() {
+            canvas.round_rect(self.list_rect(items), 12.0, self.card, 0.85);
+        }
         for tile in Tile::ALL {
             let rect = self.tile_rect(tile);
             canvas.round_rect(rect, 12.0, self.card, 0.85);
-            let on = status.on(tile);
-            let dot = Vec2::new(rect.origin.x + 26.0, rect.center().y);
+            let on = status.on(tile) && !bare_dots;
+            let dot = self.dot(tile);
             canvas.circle(dot, 15.0, if on { self.accent } else { self.off }, 1.0);
             symbol(&mut canvas, tile, dot, if on { [255, 255, 255] } else { self.ink });
+            if tile == Tile::Bluetooth && status.bluetooth.is_some() {
+                chevron(&mut canvas, Vec2::new(rect.max().x - 14.0, rect.center().y), !items.is_empty(), self.dim);
+            }
             let x = rect.origin.x + 50.0;
-            let room = (rect.max().x - x - 8.0).max(1.0);
+            let spare = if tile == Tile::Bluetooth { 16.0 } else { 0.0 };
+            let room = (rect.max().x - x - 8.0 - spare).max(1.0);
             let label = font.paint_weight(&fit(font, tile.label(), room), self.ink, 600.0);
             let note = small.paint(&fit(small, &status.note(tile), room), self.dim);
             canvas.stamp(&label, Vec2::new(x, rect.center().y - crate::paint::logical(&label).y - 1.0), 1.0);
@@ -235,9 +411,105 @@ impl Look {
         }
         canvas.image
     }
+
+    pub fn tile_symbol(&self, tile: Tile, ink: [u8; 3]) -> Image {
+        let mut canvas = Canvas::new(30, 30);
+        symbol(&mut canvas, tile, Vec2::splat(15.0), ink);
+        canvas.image
+    }
+
+    pub fn disc(&self, kind: Kind, lit: bool) -> Image {
+        let mut canvas = Canvas::new(32, 32);
+        canvas.circle(Vec2::splat(16.0), 15.0, if lit { self.accent } else { self.off }, 1.0);
+        let glyph = crate::blue::glyph(kind, crate::paint::dense(18.0), if lit { [255, 255, 255] } else { self.ink });
+        canvas.stamp(&glyph, Vec2::splat(7.0), 1.0);
+        canvas.image
+    }
+
+    pub fn ring_frame(&self, frame: usize, frames: usize) -> Image {
+        let mut canvas = Canvas::new(40, 40);
+        let from = frame as f64 / frames.max(1) as f64;
+        for step in 0..8 {
+            let share = 0.04;
+            let at = from - f64::from(step) * share;
+            canvas.arc_from(Vec2::splat(20.0), 18.0, 2.4, at, share + 0.01, self.accent, 1.0 - f64::from(step) / 8.0);
+        }
+        canvas.image
+    }
+
+    pub fn paint_item(&self, item: &Item, font: &Font, small: &Font) -> Image {
+        let size = Vec2::new(self.width - self.pad * 2.0, item.height());
+        let mut canvas = Canvas::new(size.x as u32, size.y as u32);
+        match &item.what {
+            What::Heading(text) => {
+                let label = small.paint_weight(&fit(small, text, size.x - 24.0), self.dim, 600.0);
+                canvas.stamp(&label, Vec2::new(12.0, size.y - crate::paint::logical(&label).y - 5.0), 1.0);
+            }
+            What::Link(text) => {
+                let label = font.paint(&fit(font, text, size.x - 24.0), self.ink);
+                canvas.stamp(&label, Vec2::new(12.0, (size.y - crate::paint::logical(&label).y) / 2.0), 1.0);
+            }
+            What::Device { name, note, battery, bars, .. } => {
+                let mut right = size.x - 10.0;
+                if let Some(level) = battery {
+                    let words = small.paint(&format!("{level}%"), self.dim);
+                    let width = crate::paint::logical(&words).x;
+                    let cell = Rect::new(Vec2::new(right - 22.0, size.y / 2.0 - 5.5), Vec2::new(20.0, 11.0));
+                    battery_glyph(&mut canvas, cell, *level, self.dim, self.accent);
+                    canvas.stamp(&words, Vec2::new(cell.origin.x - width - 5.0, (size.y - crate::paint::logical(&words).y) / 2.0), 1.0);
+                    right = cell.origin.x - width - 10.0;
+                } else if let Some(bars) = bars {
+                    for step in 0..4u8 {
+                        let tall = 4.0 + f64::from(step) * 3.0;
+                        let bar = Rect::new(Vec2::new(right - 20.0 + f64::from(step) * 5.0, size.y / 2.0 + 7.0 - tall), Vec2::new(3.0, tall));
+                        let lit = step < *bars;
+                        canvas.round_rect(bar, 1.0, if lit { self.ink } else { self.off }, if lit { 0.9 } else { 1.0 });
+                    }
+                    right -= 28.0;
+                }
+                let x = 50.0;
+                let room = (right - x).max(1.0);
+                let label = font.paint_weight(&fit(font, name, room), self.ink, 600.0);
+                let words = small.paint(&fit(small, note, room), self.dim);
+                canvas.stamp(&label, Vec2::new(x, size.y / 2.0 - crate::paint::logical(&label).y), 1.0);
+                canvas.stamp(&words, Vec2::new(x, size.y / 2.0 + 1.0), 1.0);
+            }
+        }
+        canvas.image
+    }
 }
 
-fn fit(font: &Font, text: &str, room: f64) -> String {
+fn chevron(canvas: &mut Canvas, at: Vec2, open: bool, ink: [u8; 3]) {
+    let (a, b, c) = match open {
+        false => (Vec2::new(-2.5, -5.0), Vec2::new(2.5, 0.0), Vec2::new(-2.5, 5.0)),
+        true => (Vec2::new(-5.0, -2.5), Vec2::new(0.0, 2.5), Vec2::new(5.0, -2.5)),
+    };
+    canvas.line(at + a, at + b, 1.8, ink, 1.0);
+    canvas.line(at + b, at + c, 1.8, ink, 1.0);
+}
+
+pub fn battery_glyph(canvas: &mut Canvas, cell: Rect, level: u8, ink: [u8; 3], good: [u8; 3]) {
+    let body = Rect::new(cell.origin, Vec2::new(cell.size.x - 2.0, cell.size.y));
+    canvas.ring(body, 3.0, 1.2, ink, 0.9);
+    canvas.round_rect(
+        Rect::new(Vec2::new(body.max().x + 0.5, cell.center().y - 2.0), Vec2::new(1.5, 4.0)),
+        0.7,
+        ink,
+        0.9,
+    );
+    let share = f64::from(level.min(100)) / 100.0;
+    let inner = Rect::new(body.origin + Vec2::splat(2.2), Vec2::new((body.size.x - 4.4) * share, body.size.y - 4.4));
+    let fill = match level {
+        0..=10 => [255, 69, 58],
+        11..=20 => [255, 159, 10],
+        _ => good,
+    };
+    if inner.size.x > 0.3 {
+        canvas.round_rect(inner, 1.4, fill, 1.0);
+    }
+}
+
+pub fn fit(font: &Font, text: &str, room: f64) -> String {
     if font.width_of(text) <= room {
         return text.to_string();
     }
@@ -311,11 +583,11 @@ mod tests {
         let look = Look::themed(&crate::theme::DARK, [10, 122, 255]);
         for tile in Tile::ALL {
             let rect = look.tile_rect(tile);
-            assert_eq!(look.hit_rect(rect.center()), Some(rect));
+            assert_eq!(look.hit_rect(rect.center(), &[]), Some(rect));
         }
         let slider = look.slider_rect(1);
-        assert_eq!(look.hit_rect(slider.center()), Some(slider));
-        assert_eq!(look.hit_rect(Vec2::new(1.0, 1.0)), None, "the padding is nothing");
+        assert_eq!(look.hit_rect(slider.center(), &[]), Some(slider));
+        assert_eq!(look.hit_rect(Vec2::new(1.0, 1.0), &[]), None, "the padding is nothing");
     }
 
     #[test]
@@ -337,16 +609,18 @@ mod tests {
     fn tiles_and_sliders_are_found_by_where_the_pointer_is() {
         let look = Look::themed(&crate::theme::DARK, [10, 122, 255]);
         for tile in Tile::ALL {
-            assert_eq!(look.hit(look.tile_rect(tile).center()), Some(Hit::Tile(tile)));
+            assert_eq!(look.hit(look.dot(tile), &[]), Some(Hit::Tile(tile)));
         }
         let display = look.slider_rect(0);
-        match look.hit(Vec2::new(display.max().x - 1.0, display.center().y)) {
+        match look.hit(Vec2::new(display.max().x - 1.0, display.center().y), &[]) {
             Some(Hit::Light(level)) => assert!(level > 0.95),
             other => panic!("{other:?}"),
         }
         let sound = look.slider_rect(1);
-        assert!(matches!(look.hit(Vec2::new(sound.origin.x + 1.0, sound.center().y)), Some(Hit::Volume(_))));
-        assert_eq!(look.hit(Vec2::new(1.0, 1.0)), None);
+        assert!(matches!(look.hit(Vec2::new(sound.origin.x + 1.0, sound.center().y), &[]), Some(Hit::Volume(_))));
+        assert_eq!(look.hit(Vec2::new(1.0, 1.0), &[]), None);
+        assert_eq!(look.hit(look.tile_rect(Tile::Bluetooth).center(), &[]), Some(Hit::More(Tile::Bluetooth)));
+        assert_eq!(look.hit(look.tile_rect(Tile::Wifi).center(), &[]), Some(Hit::Tile(Tile::Wifi)));
         let size = look.size();
         assert!(look.slider_rect(1).max().y <= size.y);
     }
@@ -365,5 +639,80 @@ mod tests {
         assert!(status.on(Tile::Quiet));
         assert!(!status.on(Tile::Dark));
         assert_eq!(Status::default().note(Tile::Wifi), "Not available");
+    }
+
+    fn gadget(name: &str, paired: bool, connected: bool) -> crate::blue::Device {
+        crate::blue::Device {
+            path: String::new(),
+            address: format!("AA:BB:CC:DD:EE:{:02X}", name.len()),
+            name: name.into(),
+            named: true,
+            kind: Kind::Mouse,
+            paired,
+            connected,
+            trusted: paired,
+            battery: Some(55),
+            rssi: Some(-85),
+            audio: false,
+            sends: false,
+            classic: false,
+        }
+    }
+
+    #[test]
+    fn the_list_holds_mine_then_nearby_then_settings() {
+        let blue = Blue {
+            on: true,
+            searching: true,
+            devices: vec![gadget("Mouse", true, true), gadget("Gadget", false, false)],
+            ..Blue::default()
+        };
+        let list = items(Some(&blue), &[], &[]);
+        let keys: Vec<&str> = list.iter().map(|item| item.key.as_str()).collect();
+        assert_eq!(keys, ["heading:mine", "device:AA:BB:CC:DD:EE:05", "heading:nearby", "device:AA:BB:CC:DD:EE:06", SETTINGS_KEY]);
+        match &list[1].what {
+            What::Device { note, battery, bars, .. } => {
+                assert_eq!(note, "Connected");
+                assert_eq!(*battery, Some(55));
+                assert_eq!(*bars, None);
+            }
+            other => panic!("{other:?}"),
+        }
+        match &list[3].what {
+            What::Device { note, bars, battery, .. } => {
+                assert_eq!(note, "Mouse, Move closer");
+                assert_eq!(*bars, Some(2));
+                assert_eq!(*battery, None);
+            }
+            other => panic!("{other:?}"),
+        }
+        let busy = items(Some(&blue), &["AA:BB:CC:DD:EE:06".into()], &[]);
+        assert!(matches!(&busy[3].what, What::Device { note, .. } if note == "Setting up…"));
+        let off = items(Some(&Blue::default()), &[], &[]);
+        assert_eq!(off.len(), 2);
+        assert_eq!(items(None, &[], &[])[0].key, "heading:none");
+    }
+
+    #[test]
+    fn the_list_grows_the_panel_and_its_rows_are_hit() {
+        let look = Look::themed(&crate::theme::DARK, [10, 122, 255]);
+        let blue = Blue {
+            on: true,
+            devices: vec![gadget("Mouse", true, false)],
+            ..Blue::default()
+        };
+        let list = items(Some(&blue), &[], &[]);
+        assert!(look.size_with(&list).y > look.size().y + 100.0);
+        assert_eq!(look.size_with(&[]), look.size());
+        let row = look.item_rect(&list, 1);
+        assert_eq!(look.hit(row.center(), &list), Some(Hit::Item(1)));
+        assert_eq!(look.hit(look.item_rect(&list, 0).center(), &list), None, "a heading is not a button");
+        assert_eq!(look.hit_rect(row.center(), &list), Some(row));
+        let last = look.item_rect(&list, list.len() - 1);
+        assert!(last.max().y <= look.size_with(&list).y - look.pad);
+        crate::paint::same_at_two("bluetooth row", || {
+            let font = Font::find(None, 13.0).unwrap();
+            look.paint_item(&list[1], &font, &font)
+        });
     }
 }

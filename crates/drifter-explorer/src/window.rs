@@ -252,6 +252,20 @@ pub fn run() -> Result<(), String> {
             }
         })
         .map_err(|e| format!("cannot watch folder sizes: {e}"))?;
+    let (phones, phones_rx) = loop_channel::<Vec<(String, String)>>();
+    events
+        .handle()
+        .insert_source(phones_rx, |event, _, app: &mut Explorer| {
+            if let ChannelEvent::Msg(phones) = event {
+                app.model.phones = phones;
+            }
+        })
+        .map_err(|e| format!("cannot watch Bluetooth: {e}"))?;
+    if let Ok(bus) = drifter_blue::Bus::system() {
+        let _ = bus.watch(move |now| {
+            let _ = phones.send(now.map(|blue| drifter_blue::obex::phones(&blue)).unwrap_or_default());
+        });
+    }
     let (jobs, jobs_rx) = loop_channel::<Done>();
     events
         .handle()
@@ -523,6 +537,25 @@ impl Explorer {
                     if let Err(error) = launch(&argv, &self.model.dir) {
                         self.model.say(error, true);
                     }
+                }
+                Effect::Send(address, name, files) => {
+                    std::thread::spawn(move || {
+                        let mut failed = None;
+                        for file in &files {
+                            if let Err(error) = drifter_blue::obex::send(&address, file, |_, _| {}) {
+                                failed = Some(error);
+                                break;
+                            }
+                        }
+                        let shown = match files.as_slice() {
+                            [one] => one.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default(),
+                            many => drifter_core::lang::tf("{} files", &[&many.len()]),
+                        };
+                        match failed {
+                            None => drifter_blue::obex::tell(&drifter_core::lang::tf("Sent {} to {}", &[&shown, &name]), ""),
+                            Some(error) => drifter_blue::obex::tell(&drifter_core::lang::tf("{} did not take {}", &[&name, &shown]), &error),
+                        }
+                    });
                 }
                 Effect::Close => self.exit = true,
             }

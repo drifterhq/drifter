@@ -628,13 +628,10 @@ fn the_hover_highlight_slides_between_control_tiles() {
     let state = &mut run.screen.state;
     let look = state.control_look();
     let origin = Vec2::new(200.0, 80.0);
-    state.control = Some(super::centers::Panel {
-        rect: Rect::new(origin, look.size()),
-        art: state.plain.clone(),
-        held: None,
-        last: 0,
-        lane: Default::default(),
-    });
+    let mut panel = super::centers::Panel::new(Rect::new(origin, look.size()), &Default::default());
+    panel.art = state.plain.clone();
+    panel.last = 0;
+    state.control = Some(panel);
     let first = look.tile_rect(drifter_core::control::Tile::ALL[0]);
     let second = look.tile_rect(drifter_core::control::Tile::ALL[1]);
     state.pointer_to(origin + first.center());
@@ -2121,4 +2118,194 @@ fn the_lock_screen_shows_the_wallpaper_under_a_veil_in_either_theme() {
         assert!(!is_background(corner), "the wallpaper shows under the {name} lock");
         assert_ne!(corner, pixel(&open, 10, SIZE.1 - 10), "a {name} veil tints the wallpaper");
     }
+}
+
+fn fake_blue(connected: bool) -> drifter_core::blue::Blue {
+    use drifter_core::blue::{Blue, Device, Kind};
+    let device = |name: &str, address: &str, kind: Kind, paired: bool, connected: bool, battery: Option<u8>, rssi: Option<i16>| Device {
+        path: format!("/org/bluez/hci0/dev_{}", address.replace(':', "_")),
+        address: address.into(),
+        name: name.into(),
+        named: true,
+        kind,
+        paired,
+        connected,
+        trusted: paired,
+        battery,
+        rssi,
+        audio: kind.audio(),
+        sends: false,
+        classic: true,
+    };
+    let mut blue = Blue {
+        adapter: "/org/bluez/hci0".into(),
+        on: true,
+        searching: true,
+        devices: vec![
+            device("MX Anywhere 3", "DE:90:BC:76:D7:46", Kind::Mouse, true, true, Some(90), None),
+            device("Magic Trackpad", "D0:C0:50:B8:F5:C8", Kind::Trackpad, true, true, Some(16), None),
+            device("AirPods Pro", "AA:BB:CC:DD:EE:01", Kind::Earbuds, true, connected, Some(80), None),
+            device("Xbox Wireless Controller", "EC:83:50:13:D6:CC", Kind::Controller, true, false, None, None),
+            device("JBL Flip 6", "AA:BB:CC:DD:EE:02", Kind::Speaker, false, false, None, Some(-60)),
+            device("Pixel 8", "AA:BB:CC:DD:EE:03", Kind::Phone, false, false, None, Some(-86)),
+        ],
+    };
+    blue.sort();
+    blue
+}
+
+fn settle(run: &mut Run, millis: u64) {
+    let until = Instant::now() + Duration::from_millis(millis);
+    pump(&mut run.screen, |_| Instant::now() >= until);
+}
+
+#[test]
+fn the_bluetooth_list_springs_open_and_rows_follow_the_devices() {
+    let mut config = Config::default();
+    config.motion.hide_top = false;
+    let mut run = start("blue-list", &config, None);
+    run.screen.state.set(Edge::Top, true);
+    run.screen.state.kick_now();
+    pump(&mut run.screen, |state| state.drawers.iter().all(|drawer| drawer.settled()) && state.clock.is_some());
+    run.screen.state.blue_now(Some(fake_blue(false)));
+    run.screen.state.toggle_control();
+    pump(&mut run.screen, |state| state.control.as_ref().is_some_and(|open| open.art.is_some()) && !state.fades_busy());
+    settle(&mut run, 150);
+    let closed = run.screen.state.control.as_ref().unwrap().drawn_now(&run.screen.state);
+    run.shot("blue-closed");
+    run.screen.state.blue_toggle_list();
+    for step in 0..6 {
+        settle(&mut run, 45);
+        run.shot(&format!("blue-opening-{step}"));
+    }
+    pump(&mut run.screen, |state| !state.blue_moving() || state.radio.now.as_ref().is_some_and(|blue| blue.searching));
+    settle(&mut run, 500);
+    let open = run.screen.state.control.as_ref().unwrap().drawn_now(&run.screen.state);
+    run.shot("blue-open");
+    assert!(open > closed + 200.0, "the list grows the panel: {closed} -> {open}");
+    let rows = run.screen.state.radio.list.as_ref().unwrap().rows.len();
+    assert_eq!(rows, run.screen.state.shown_items().len());
+    assert!(run.screen.state.radio.list.as_ref().unwrap().rows.iter().all(|row| row.art.is_some()), "every row is painted");
+
+    let mut later = fake_blue(true);
+    later.devices.retain(|device| device.name != "Pixel 8");
+    run.screen.state.blue_now(Some(later));
+    run.screen.state.radio.pops.insert("AA:BB:CC:DD:EE:01".into(), Instant::now());
+    for step in 0..6 {
+        settle(&mut run, 60);
+        run.shot(&format!("blue-moving-{step}"));
+    }
+    settle(&mut run, 400);
+    run.shot("blue-moved");
+    let keys: Vec<String> = run.screen.state.shown_items().iter().map(|item| item.key.clone()).collect();
+    assert!(!keys.iter().any(|key| key.contains("EE:03")), "the phone left the list");
+
+    run.screen.state.radio.busy.push("EC:83:50:13:D6:CC".into());
+    run.screen.state.radio.shakes.insert("D0:C0:50:B8:F5:C8".into(), Instant::now());
+    run.screen.state.blue_list_refresh();
+    settle(&mut run, 120);
+    run.shot("blue-busy");
+
+    run.screen.state.blue_toggle_list();
+    settle(&mut run, 80);
+    run.shot("blue-closing");
+    settle(&mut run, 400);
+    let shut = run.screen.state.control.as_ref().unwrap().drawn_now(&run.screen.state);
+    assert!((shut - closed).abs() < 1.0, "the list closes back to the panel: {shut}");
+    assert!(run.screen.state.radio.list.is_none());
+    run.shot("blue-shut");
+    run.screen.state.toggle_control();
+}
+
+#[test]
+fn the_pairing_prompt_springs_in_with_its_digits() {
+    let mut run = start("blue-pair", &Config::default(), None);
+    let ask = drifter_core::blue::Ask {
+        id: 7,
+        address: "AA:BB:CC:DD:EE:01".into(),
+        name: "AirPods Pro".into(),
+        kind: drifter_core::blue::Kind::Earbuds,
+        question: drifter_core::blue::Question::Confirm(482_913),
+    };
+    run.screen.state.blue_agent(drifter_blue::agent::Event::Ask(ask, None));
+    pump(&mut run.screen, |state| state.pairing_open());
+    for step in 0..5 {
+        settle(&mut run, 50);
+        run.shot(&format!("pair-in-{step}"));
+    }
+    settle(&mut run, 500);
+    let shown = run.shot("pair-shown");
+    assert!(run.screen.state.pairing_open());
+    run.screen.state.blue_agent(drifter_blue::agent::Event::Done(7));
+    settle(&mut run, 300);
+    let gone = run.shot("pair-gone");
+    assert_ne!(shown.rgba, gone.rgba);
+    assert!(!run.screen.state.pairing_open());
+}
+
+#[test]
+fn a_connected_device_shows_a_pill() {
+    let mut config = Config::default();
+    config.motion.hide_top = false;
+    let mut run = start("blue-pill", &config, None);
+    let blue = fake_blue(true);
+    let buds = blue.find("AA:BB:CC:DD:EE:01").unwrap().clone();
+    run.screen.state.blue_show_pill(&buds);
+    pump(&mut run.screen, |state| state.radio.pill.as_ref().is_some_and(|pill| pill.art.is_some()));
+    settle(&mut run, 80);
+    run.shot("pill-in");
+    settle(&mut run, 500);
+    run.shot("pill-shown");
+    assert!(run.screen.state.radio.pill.is_some());
+    settle(&mut run, 2600);
+    assert!(run.screen.state.radio.pill.is_none(), "the pill leaves on its own");
+}
+
+#[test]
+fn with_reduce_motion_the_bluetooth_list_opens_at_once() {
+    let mut config = Config::default();
+    config.motion.hide_top = false;
+    config.access.reduce_motion = true;
+    let mut run = start("blue-still", &config, None);
+    run.screen.state.set(Edge::Top, true);
+    run.screen.state.kick_now();
+    pump(&mut run.screen, |state| state.drawers.iter().all(|drawer| drawer.settled()) && state.clock.is_some());
+    run.screen.state.blue_now(Some(fake_blue(false)));
+    run.screen.state.toggle_control();
+    pump(&mut run.screen, |state| state.control.as_ref().is_some_and(|open| open.art.is_some()) && !state.fades_busy());
+    run.screen.state.blue_toggle_list();
+    pump(&mut run.screen, |state| {
+        state.control.as_ref().is_some_and(|open| open.art_height > state.control_look().size().y + 100.0)
+    });
+    let state = &run.screen.state;
+    let open = state.control.as_ref().unwrap();
+    assert_eq!(open.drawn_now(state), open.drawn.1, "no spring, the panel is at its size");
+    assert!(!state.blue_moving() || state.radio.now.as_ref().is_some_and(|blue| blue.searching));
+}
+
+#[test]
+#[ignore]
+fn the_real_adapter_fills_the_bluetooth_list() {
+    let mut config = Config::default();
+    config.motion.hide_top = false;
+    let mut run = start("blue-live", &config, None);
+    run.screen.state.set(Edge::Top, true);
+    run.screen.state.kick_now();
+    pump(&mut run.screen, |state| state.drawers.iter().all(|drawer| drawer.settled()) && state.clock.is_some());
+    run.screen.state.start_bluetooth();
+    pump(&mut run.screen, |state| state.radio.now.is_some());
+    assert!(run.screen.state.radio.now.is_some(), "the adapter reports in");
+    run.screen.state.toggle_control();
+    pump(&mut run.screen, |state| state.control.as_ref().is_some_and(|open| open.art.is_some()));
+    run.screen.state.blue_toggle_list();
+    settle(&mut run, 4000);
+    run.shot("blue-live");
+    let state = &run.screen.state;
+    assert!(state.radio.searching, "the list searches while it is open");
+    assert!(state.radio.now.as_ref().is_some_and(|blue| blue.searching), "BlueZ says it is searching");
+    let keys: Vec<&str> = state.shown_items().iter().map(|item| item.key.as_str()).collect();
+    println!("live list: {keys:?}");
+    run.screen.state.toggle_control();
+    settle(&mut run, 1500);
+    assert!(!run.screen.state.radio.searching, "closing the list stops the search");
 }

@@ -3809,3 +3809,387 @@ Could not move it to the Trash: {}
 
 Add Ctrl to a screenshot shortcut to copy the picture instead. Over a preview: Esc closes, Enter marks up, Space opens it in your image app, Delete moves it to the Trash, Ctrl+C copies.
 = Ajoutez Ctrl à un raccourci de capture pour copier l’image à la place. Sur un aperçu : Échap le ferme, Entrée ouvre Annoter, Espace l’ouvre dans votre app d’images, Suppr le met à la corbeille, Ctrl+C le copie.
+
+A shortcut needs Ctrl, Alt or Super with the key.
+= Un raccourci a besoin de Ctrl, Alt ou Super avec la touche.
+
+Address
+= Adresse
+
+Automatic
+= Automatique
+
+Best
+= Meilleur
+
+Best quality
+= Meilleure qualité
+
+Bluetooth Settings…
+= Réglages Bluetooth…
+
+Bluetooth did not come back on. Restart the computer.
+= Le Bluetooth ne s’est pas rallumé. Redémarrez l’ordinateur.
+
+Bluetooth is back on.
+= Le Bluetooth est rallumé.
+
+Bluetooth is blocked by a switch or airplane mode.
+= Le Bluetooth est bloqué par un interrupteur ou le mode avion.
+
+Bluetooth is off.
+= Le Bluetooth est éteint.
+
+Bluetooth is off. Turn it on, then try again.
+= Le Bluetooth est éteint. Allumez-le, puis réessayez.
+
+Bluetooth is still starting. Try again in a moment.
+= Le Bluetooth démarre encore. Réessayez dans un instant.
+
+Call quality, mic on
+= Qualité d’appel, micro activé
+
+Calls
+= Appels
+
+Cannot reach Bluetooth.
+= Impossible de joindre le Bluetooth.
+
+Cannot watch Bluetooth: {}
+= Impossible de suivre le Bluetooth : {}
+
+Changing a setting older Xbox controllers need. Type your password if asked.
+= Modification d’un réglage requis par les anciennes manettes Xbox. Tapez votre mot de passe si demandé.
+
+Check that {} shows this code.
+= Vérifiez que {} affiche ce code.
+
+Click the name to change it
+= Cliquez sur le nom pour le changer
+
+Connect it to see its sound quality
+= Connectez-le pour voir la qualité du son
+
+Connect on its own
+= Se connecter tout seul
+
+Connect shortcut
+= Raccourci de connexion
+
+Connect {}
+= Connecter {}
+
+Connecting to {}…
+= Connexion à {}…
+
+Connecting…
+= Connexion…
+
+Device
+= Appareil
+
+Device options
+= Options de l’appareil
+
+Did not connect
+= Pas connecté
+
+Disconnect {}
+= Déconnecter {}
+
+Disconnecting {}…
+= Déconnexion de {}…
+
+Disconnecting…
+= Déconnexion…
+
+Drifter could not find {}. Put it in pairing mode, then press Set Up under Nearby.
+= Drifter n’a pas trouvé {}. Mettez-le en mode d’association, puis appuyez sur Configurer sous À proximité.
+
+Drifter is already doing that. Give it a moment.
+= Drifter le fait déjà. Patientez un instant.
+
+Drifter looks for devices while this page is open.
+= Drifter cherche des appareils tant que cette page est ouverte.
+
+Earbuds
+= Écouteurs
+
+Fix Bluetooth
+= Réparer le Bluetooth
+
+Fix It
+= Réparer
+
+Fixing it. Step 1 of 4: turning Bluetooth off and on…
+= Réparation. Étape 1 sur 4 : éteindre et rallumer le Bluetooth…
+
+Forget this device
+= Oublier cet appareil
+
+Forgets it and sets it up again
+= L’oublie et le configure à nouveau
+
+Good quality
+= Bonne qualité
+
+Hidden
+= Masquée
+
+High quality
+= Haute qualité
+
+It is already set up.
+= Il est déjà configuré.
+
+Log in
+= Connexion
+
+Looking for devices. Put the one you want in pairing mode.
+= Recherche d’appareils. Mettez celui que vous voulez en mode d’association.
+
+Looking for devices…
+= Recherche d’appareils…
+
+Low delay
+= Faible latence
+
+Mic on, sound quality will drop.
+= Micro activé, la qualité du son va baisser.
+
+Move closer
+= Rapprochez-vous
+
+No
+= Non
+
+Not set up
+= Non configuré
+
+Not working?
+= Ça ne marche pas ?
+
+Nothing nearby
+= Rien à proximité
+
+Older Xbox controllers need a Bluetooth setting changed. Open Bluetooth settings and press Fix It.
+= Les anciennes manettes Xbox ont besoin d’un réglage Bluetooth modifié. Ouvrez les réglages Bluetooth et appuyez sur Réparer.
+
+Only when I ask
+= Seulement quand je le demande
+
+PIN
+= PIN
+
+Playing
+= Lecture
+
+Removes it from this computer
+= Le retire de cet ordinateur
+
+Rename this device
+= Renommer cet appareil
+
+Renaming it to {}…
+= Renommage en {}…
+
+Send with Bluetooth
+= Envoyer par Bluetooth
+
+Sending to {}…
+= Envoi vers {}…
+
+Sent {} to {}
+= {} envoyé à {}
+
+Set
+= Définir
+
+Set Up
+= Configurer
+
+Set up {}?
+= Configurer {} ?
+
+Setting it up was stopped.
+= La configuration a été arrêtée.
+
+Setting up {}. Answer on the screen if it asks.
+= Configuration de {}. Répondez à l’écran si on vous le demande.
+
+Setting up…
+= Configuration…
+
+Shortcut to connect {}
+= Raccourci pour connecter {}
+
+Sound: {}…
+= Son : {}…
+
+Standard quality
+= Qualité standard
+
+Steady
+= Stable
+
+Steady connection
+= Connexion stable
+
+Step 2 of 4: forgetting {}…
+= Étape 2 sur 4 : oubli de {}…
+
+Step 3 of 4: put {} in pairing mode now. Looking for it…
+= Étape 3 sur 4 : mettez {} en mode d’association maintenant. Recherche…
+
+Step 4 of 4: setting up {}…
+= Étape 4 sur 4 : configuration de {}…
+
+Tablet
+= Tablette
+
+The device
+= L’appareil
+
+The headphones are not connected.
+= Le casque n’est pas connecté.
+
+The phone said no, or it stopped answering.
+= Le téléphone a refusé ou ne répond plus.
+
+The setting was not changed.
+= Le réglage n’a pas été modifié.
+
+These headphones have no microphone.
+= Ce casque n’a pas de micro.
+
+These headphones offer only one choice.
+= Ce casque n’offre qu’un seul choix.
+
+They match
+= Ils correspondent
+
+Turning Bluetooth off and on…
+= Extinction et rallumage du Bluetooth…
+
+Turning the microphone off…
+= Désactivation du micro…
+
+Turning the microphone on. Sound quality drops while it is on.
+= Activation du micro. La qualité du son baisse tant qu’il est activé.
+
+Turns Bluetooth off and on again
+= Éteint et rallume le Bluetooth
+
+Type the PIN for {}. Many devices use 0000.
+= Tapez le code PIN de {}. Beaucoup d’appareils utilisent 0000.
+
+Type the code that {} shows.
+= Tapez le code affiché par {}.
+
+Type this code on {}, then press Enter.
+= Tapez ce code sur {}, puis appuyez sur Entrée.
+
+Unnamed computer
+= Ordinateur sans nom
+
+Unnamed controller
+= Manette sans nom
+
+Unnamed device
+= Appareil sans nom
+
+Unnamed display
+= Écran sans nom
+
+Unnamed earbuds
+= Écouteurs sans nom
+
+Unnamed headphones
+= Casque sans nom
+
+Unnamed keyboard
+= Clavier sans nom
+
+Unnamed mouse
+= Souris sans nom
+
+Unnamed phone
+= Téléphone sans nom
+
+Unnamed printer
+= Imprimante sans nom
+
+Unnamed speaker
+= Enceinte sans nom
+
+Unnamed tablet
+= Tablette sans nom
+
+Unnamed trackpad
+= Trackpad sans nom
+
+Unnamed watch
+= Montre sans nom
+
+Use its microphone
+= Utiliser son micro
+
+Very high quality
+= Très haute qualité
+
+Watch
+= Montre
+
+When I log in
+= Quand je me connecte
+
+When I start a call
+= Quand je lance un appel
+
+When sound plays
+= Quand du son est joué
+
+fair signal
+= signal moyen
+
+strong signal
+= signal fort
+
+{} battery is low
+= Batterie de {} faible
+
+{} did not answer. It may be linked to your phone. Turn off Bluetooth on the phone, or put {} in its case and take it out, then try again.
+= {} n’a pas répondu. Il est peut-être relié à votre téléphone. Coupez le Bluetooth du téléphone, ou rangez {} dans son étui et ressortez-le, puis réessayez.
+
+{} did not answer. Turn it on, bring it closer, then try again.
+= {} n’a pas répondu. Allumez-le, rapprochez-le, puis réessayez.
+
+{} did not connect
+= {} ne s’est pas connecté
+
+{} did not connect. Try Fix It in Bluetooth settings.
+= {} ne s’est pas connecté. Essayez Réparer dans les réglages Bluetooth.
+
+{} did not take {}
+= {} n’a pas accepté {}
+
+{} does not offer anything Drifter can use.
+= {} n’offre rien que Drifter puisse utiliser.
+
+{} is fixed and connected.
+= {} est réparé et connecté.
+
+{} is linked to another device. Turn off Bluetooth on your phone, then try again.
+= {} est relié à un autre appareil. Coupez le Bluetooth de votre téléphone, puis réessayez.
+
+{} took too long to answer. Try again.
+= {} a mis trop de temps à répondre. Réessayez.
+
+{} waited too long. Try again and answer on the device.
+= {} a attendu trop longtemps. Réessayez et répondez sur l’appareil.
+
+{} wants to connect to this computer.
+= {} veut se connecter à cet ordinateur.
+
+{}% left. Charge it soon.
+= {} % restant. Rechargez-le bientôt.

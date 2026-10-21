@@ -15,22 +15,6 @@ pub struct Wifi {
     pub nets: Vec<Net>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Gadget {
-    pub mac: String,
-    pub name: String,
-    pub kind: &'static str,
-    pub paired: bool,
-    pub connected: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Blue {
-    pub on: bool,
-    pub gadgets: Vec<Gadget>,
-    pub searching: bool,
-}
-
 pub fn terse(line: &str) -> Vec<String> {
     let mut fields = vec![String::new()];
     let mut chars = line.chars();
@@ -110,75 +94,6 @@ pub fn wifi_managed(devices: &str) -> Option<bool> {
         true => None,
         false => Some(states.iter().any(|state| state != "unmanaged")),
     }
-}
-
-pub fn devices(listed: &str) -> Vec<(String, String)> {
-    listed
-        .lines()
-        .filter_map(|line| line.strip_prefix("Device "))
-        .filter_map(|rest| {
-            let (mac, name) = rest.split_once(' ').unwrap_or((rest, ""));
-            let mac = mac.trim();
-            (mac.len() == 17).then(|| {
-                let name = name.trim();
-                let name = match name.is_empty() || name.replace('-', ":") == mac {
-                    true => mac.to_string(),
-                    false => name.to_string(),
-                };
-                (mac.to_string(), name)
-            })
-        })
-        .collect()
-}
-
-pub fn gadgets(all: &str, paired: &str, connected: &str) -> Vec<Gadget> {
-    let paired: Vec<String> = devices(paired).into_iter().map(|(mac, _)| mac).collect();
-    let connected: Vec<String> = devices(connected).into_iter().map(|(mac, _)| mac).collect();
-    let mut out: Vec<Gadget> = devices(all)
-        .into_iter()
-        .map(|(mac, name)| Gadget {
-            paired: paired.contains(&mac),
-            connected: connected.contains(&mac),
-            mac,
-            name,
-            kind: "",
-        })
-        .filter(|gadget| gadget.paired || gadget.connected || gadget.name != gadget.mac)
-        .collect();
-    out.sort_by(|a, b| {
-        b.paired
-            .cmp(&a.paired)
-            .then(b.connected.cmp(&a.connected))
-            .then(a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-    });
-    out
-}
-
-pub fn gadget_kind(info: &str) -> &'static str {
-    let icon = info
-        .lines()
-        .find_map(|line| line.trim().strip_prefix("Icon:"))
-        .map(str::trim)
-        .unwrap_or_default();
-    match icon {
-        "input-mouse" => "Mouse",
-        "input-keyboard" => "Keyboard",
-        "input-tablet" => "Trackpad",
-        "input-gaming" => "Game controller",
-        "audio-headset" | "audio-headphones" => "Headphones",
-        "audio-card" | "audio-speakers" => "Speaker",
-        "phone" => "Phone",
-        "computer" => "Computer",
-        "video-display" => "Display",
-        "printer" => "Printer",
-        _ => "",
-    }
-}
-
-pub fn powered(show: &str) -> Option<bool> {
-    show.lines()
-        .find_map(|line| line.trim().strip_prefix("Powered:"))
-        .map(|value| value.trim() == "yes")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -512,36 +427,5 @@ mod tests {
         let lines = details(&away, &aps, &dbm, None);
         assert!(lines.iter().all(|(k, _)| k != "IP address" && k != "This connection"));
         assert!(lines.contains(&("Status".to_string(), "Saved, not connected".to_string())));
-    }
-
-    #[test]
-    fn bluetooth_devices_sort_paired_first() {
-        let all = "Device 00:AA:01:00:00:00 trixie\nDevice 11:22:33:44:55:66 Headphones\nDevice 77:88:99:AA:BB:CC 77-88-99-AA-BB-CC\nnot a device\n";
-        let paired = "Device 11:22:33:44:55:66 Headphones\n";
-        let connected = "Device 11:22:33:44:55:66 Headphones\n";
-        let found = gadgets(all, paired, connected);
-        assert_eq!(found[0].name, "Headphones");
-        assert!(found[0].paired && found[0].connected);
-        assert_eq!(found[1].name, "trixie");
-        assert!(!found[1].paired);
-        assert_eq!(found.len(), 2, "a nameless device that is not paired stays out");
-
-        let found = gadgets(all, "Device 77:88:99:AA:BB:CC 77-88-99-AA-BB-CC\n", "");
-        assert!(found.iter().any(|gadget| gadget.name == "77:88:99:AA:BB:CC"), "a paired nameless device shows its address");
-    }
-
-    #[test]
-    fn a_device_kind_comes_from_its_icon() {
-        assert_eq!(gadget_kind("Device DE:90\n\tAlias: MX Anywhere 3\n\tIcon: input-mouse\n"), "Mouse");
-        assert_eq!(gadget_kind("\tIcon: audio-headset\n"), "Headphones");
-        assert_eq!(gadget_kind("\tIcon: something-new\n"), "");
-        assert_eq!(gadget_kind(""), "");
-    }
-
-    #[test]
-    fn the_adapter_power_reads_from_show() {
-        assert_eq!(powered("Controller 00:AA\n\tName: x\n\tPowered: yes\n"), Some(true));
-        assert_eq!(powered("\tPowered: no\n"), Some(false));
-        assert_eq!(powered("No default controller available\n"), None);
     }
 }

@@ -31,7 +31,9 @@ pub fn program_of(line: &str) -> Option<String> {
         .map(|name| name.to_string_lossy().into_owned())
 }
 
-const BUILT_IN: [&str; 9] = [
+const BUILT_IN: [&str; 11] = [
+    "blueman-applet",
+    "blueman-tray",
     "lxpolkit",
     "dunst",
     "mako",
@@ -320,8 +322,8 @@ mod tests {
         assert_eq!(found.argv().unwrap(), ["nm-applet", "--indicator"]);
         let already = entry(&NM.replace("Exec=nm-applet", "Exec=nm-applet --indicator")).unwrap();
         assert_eq!(already.argv().unwrap(), ["nm-applet", "--indicator"]);
-        let other = entry(&NM.replace("Exec=nm-applet", "Exec=blueman-applet")).unwrap();
-        assert_eq!(other.argv().unwrap(), ["blueman-applet"]);
+        let other = entry(&NM.replace("Exec=nm-applet", "Exec=other-applet")).unwrap();
+        assert_eq!(other.argv().unwrap(), ["other-applet"]);
     }
 
     #[test]
@@ -405,6 +407,13 @@ mod tests {
         );
         let shown = with_hidden(&format!("{NM}X-GNOME-Autostart-enabled=false\n"), false);
         assert!(entry(&shown).unwrap().on);
+    }
+
+    #[test]
+    fn blueman_does_not_start_because_drifter_has_its_own_bluetooth() {
+        let applet = "[Desktop Entry]\nName=Blueman Applet\nExec=blueman-applet\nType=Application\n";
+        assert_eq!(entry(applet), None);
+        assert_eq!(entry(&applet.replace("blueman-applet", "/usr/bin/blueman-tray")), None);
     }
 
     #[test]

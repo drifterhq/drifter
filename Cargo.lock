@@ -518,6 +518,7 @@ dependencies = [
  "accesskit_unix",
  "async-channel",
  "calloop 0.14.4",
+ "drifter-blue",
  "drifter-core",
  "drm-ffi",
  "libc",
@@ -544,6 +545,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "drifter-blue"
+version = "0.1.0"
+dependencies = [
+ "async-channel",
+ "drifter-core",
+ "zbus",
+]
+
+[[package]]
 name = "drifter-core"
 version = "0.1.0"
 dependencies = [
@@ -566,6 +576,7 @@ version = "0.1.0"
 dependencies = [
  "accesskit",
  "accesskit_unix",
+ "drifter-blue",
  "drifter-core",
  "smithay-client-toolkit",
  "wayland-client",
@@ -587,6 +598,7 @@ version = "0.1.0"
 dependencies = [
  "accesskit",
  "accesskit_unix",
+ "drifter-blue",
  "drifter-core",
  "glow",
  "khronos-egl",

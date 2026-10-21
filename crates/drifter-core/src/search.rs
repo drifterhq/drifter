@@ -12,6 +12,7 @@ pub enum Kind {
     App,
     Setting,
     File,
+    Device,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,6 +48,25 @@ pub fn settings() -> Vec<Found> {
             detail: crate::lang::t("Settings").to_string(),
             key: section.name().to_string(),
             extra: section.words().to_string(),
+            icon: None,
+        })
+        .collect()
+}
+
+pub fn devices(blue: &crate::blue::Blue) -> Vec<Found> {
+    if !blue.on {
+        return Vec::new();
+    }
+    blue.mine()
+        .map(|device| Found {
+            kind: Kind::Device,
+            title: match device.connected {
+                true => crate::lang::tf("Disconnect {}", &[&device.shown_name()]),
+                false => crate::lang::tf("Connect {}", &[&device.shown_name()]),
+            },
+            detail: crate::lang::t("Bluetooth").to_string(),
+            key: device.address.clone(),
+            extra: format!("bluetooth {} {}", device.shown_name(), device.kind.label()).to_lowercase(),
             icon: None,
         })
         .collect()
@@ -108,6 +128,7 @@ fn score(found: &Found, query: &str) -> Option<u32> {
     let title = found.title.to_lowercase();
     let kind = match found.kind {
         Kind::App => 30,
+        Kind::Device => 25,
         Kind::Setting => 20,
         Kind::File => 0,
     };
@@ -324,6 +345,10 @@ fn glyph(canvas: &mut Canvas, spot: Rect, kind: Kind, ink: [u8; 3]) {
             let cog = crate::dock::paint_cog(spot.size.x as u32, ink);
             canvas.stamp(&cog, spot.origin, 1.0);
         }
+        Kind::Device => {
+            let rune = crate::blue::svg_glyph(crate::blue::rune(), crate::paint::dense(spot.size.x * 0.8), ink);
+            canvas.stamp(&rune, spot.origin + spot.size * 0.1, 1.0);
+        }
         Kind::File | Kind::App => {
             let page = Rect::new(
                 spot.origin + Vec2::new(spot.size.x * 0.2, spot.size.y * 0.08),
@@ -441,5 +466,35 @@ mod tests {
         assert_eq!(look.row_at(second, 3), Some(1));
         assert_eq!(look.row_at(Vec2::new(5.0, 5.0), 3), None, "the field is not a row");
         assert_eq!(look.size(0).y, look.field);
+    }
+
+    #[test]
+    fn a_device_can_be_connected_from_search() {
+        use crate::blue::{Blue, Device, Kind};
+        let device = Device {
+            path: String::new(),
+            address: "AA:BB:CC:DD:EE:01".into(),
+            name: "AirPods Pro".into(),
+            named: true,
+            kind: Kind::Earbuds,
+            paired: true,
+            connected: false,
+            trusted: true,
+            battery: None,
+            rssi: None,
+            audio: true,
+            sends: false,
+            classic: true,
+        };
+        let blue = Blue {
+            on: true,
+            devices: vec![device],
+            ..Blue::default()
+        };
+        let found = devices(&blue);
+        assert_eq!(found[0].title, "Connect AirPods Pro");
+        let ranked = rank("airpods", &found);
+        assert_eq!(ranked.first().map(|found| found.key.as_str()), Some("AA:BB:CC:DD:EE:01"));
+        assert!(devices(&Blue::default()).is_empty(), "nothing to offer while Bluetooth is off");
     }
 }

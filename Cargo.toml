@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/drifter-core", "crates/drifter", "crates/drifter-settings", "crates/drifter-activity", "crates/drifter-explorer", "crates/drifter-markup"]
+members = ["crates/drifter-core", "crates/drifter", "crates/drifter-settings", "crates/drifter-activity", "crates/drifter-explorer", "crates/drifter-markup", "crates/drifter-blue"]
 resolver = "3"
 
 [workspace.package]
@@ -9,3 +9,4 @@ license = "MIT"
 
 [workspace.dependencies]
 drifter-core = { path = "crates/drifter-core" }
+drifter-blue = { path = "crates/drifter-blue" }

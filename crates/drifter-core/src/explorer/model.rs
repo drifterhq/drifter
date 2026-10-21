@@ -98,6 +98,7 @@ pub enum Act {
     OpenRecent(PathBuf),
     Reveal(PathBuf),
     CopyThisPath(PathBuf),
+    SendTo(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -443,6 +444,7 @@ pub enum Effect {
     Hold(super::clip::Held),
     NewWindow(PathBuf),
     Measure(PathBuf),
+    Send(String, String, Vec<PathBuf>),
     Close,
 }
 
@@ -500,6 +502,7 @@ pub struct Model {
     pub mounts_seen: String,
     pub drive_watch: Vec<PathBuf>,
     pub effects: Vec<Effect>,
+    pub phones: Vec<(String, String)>,
     pub dragging: Option<Drag>,
     pub hover: Option<super::look::Hit>,
     pub tip: Option<super::look::Hit>,
@@ -657,6 +660,7 @@ impl Model {
             mounts_seen: String::new(),
             drive_watch: super::drives::watch_dirs(),
             effects: Vec::new(),
+            phones: Vec::new(),
             dragging: None,
             hover: None,
             tip: None,
@@ -2284,6 +2288,15 @@ impl Model {
                     }
                 }
             }
+            Act::SendTo(address) => {
+                let files: Vec<PathBuf> = self.chosen().iter().filter(|each| !each.folder).map(|each| each.path.clone()).collect();
+                if let Some((_, name)) = self.phones.iter().find(|(each, _)| *each == address).cloned()
+                    && !files.is_empty()
+                {
+                    self.say(crate::lang::tf("Sending to {}…", &[&name]), false);
+                    self.effects.push(Effect::Send(address, name, files));
+                }
+            }
             Act::CopyThisPath(path) => {
                 self.hold(Held::Text(path.to_string_lossy().into_owned()));
                 self.say(crate::lang::t("Path copied"), false);
@@ -2654,6 +2667,11 @@ impl Model {
         items.push(self.rename_item());
         items.push(Item::new(crate::lang::t("Duplicate"), "Ctrl+D", Act::Duplicate));
         items.push(Item::new(crate::lang::t("Compress"), "", Act::Compress));
+        let files = self.chosen().iter().all(|each| !each.folder);
+        if files && !self.phones.is_empty() {
+            let phones = self.phones.iter().map(|(address, name)| Item::new(name, "", Act::SendTo(address.clone()))).collect();
+            items.push(Item::more(crate::lang::t("Send with Bluetooth"), phones));
+        }
         let archives = self.chosen().iter().all(|each| !each.folder && super::pack::kind_of(&each.name).is_some());
         if archives {
             items.push(Item::new(crate::lang::t("Extract Here"), "", Act::Extract));
@@ -3016,6 +3034,22 @@ mod tests {
         model.effects.clear();
         model.drop_on(super::super::look::Drop::Into(work.join("Photos")), vec![work.join("a.png")], true);
         assert_eq!(model.effects, [Effect::Job(2, Job::Copy { from: vec![work.join("a.png")], into: work.join("Photos"), clash: Clash::KeepBoth })]);
+    }
+
+    #[test]
+    fn a_file_can_be_sent_to_a_phone() {
+        let (place, mut model) = place("sendphone");
+        let work = place.0.join("work");
+        model.pick_only(work.join("b.txt"));
+        let none = model.item_menu();
+        assert!(!none.iter().any(|item| item.label == "Send with Bluetooth"), "no phone, no item");
+        model.phones = vec![("AA:BB:CC:DD:EE:03".into(), "Pixel 8".into())];
+        let menu = model.item_menu();
+        let send = menu.iter().find(|item| item.label == "Send with Bluetooth").expect("the item shows");
+        assert_eq!(send.kids[0].label, "Pixel 8");
+        model.effects.clear();
+        model.act(Act::SendTo("AA:BB:CC:DD:EE:03".into()));
+        assert_eq!(model.effects, [Effect::Send("AA:BB:CC:DD:EE:03".into(), "Pixel 8".into(), vec![work.join("b.txt")])]);
     }
 
     #[test]

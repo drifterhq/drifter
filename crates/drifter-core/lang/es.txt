@@ -3812,3 +3812,387 @@ Could not move it to the Trash: {}
 
 Add Ctrl to a screenshot shortcut to copy the picture instead. Over a preview: Esc closes, Enter marks up, Space opens it in your image app, Delete moves it to the Trash, Ctrl+C copies.
 = Añade Ctrl a un atajo de captura para copiar la imagen. Sobre una vista previa: Esc la cierra, Intro abre Marcar, Espacio la abre en tu app de imágenes, Supr la mueve a la papelera y Ctrl+C la copia.
+
+A shortcut needs Ctrl, Alt or Super with the key.
+= Un atajo necesita Ctrl, Alt o Super con la tecla.
+
+Address
+= Dirección
+
+Automatic
+= Automático
+
+Best
+= Mejor
+
+Best quality
+= Mejor calidad
+
+Bluetooth Settings…
+= Ajustes de Bluetooth…
+
+Bluetooth did not come back on. Restart the computer.
+= Bluetooth no volvió a encenderse. Reinicia el equipo.
+
+Bluetooth is back on.
+= Bluetooth está encendido otra vez.
+
+Bluetooth is blocked by a switch or airplane mode.
+= Bluetooth está bloqueado por un interruptor o el modo avión.
+
+Bluetooth is off.
+= Bluetooth está apagado.
+
+Bluetooth is off. Turn it on, then try again.
+= Bluetooth está apagado. Enciéndelo y vuelve a intentarlo.
+
+Bluetooth is still starting. Try again in a moment.
+= Bluetooth aún se está iniciando. Inténtalo en un momento.
+
+Call quality, mic on
+= Calidad de llamada, micrófono activo
+
+Calls
+= Llamadas
+
+Cannot reach Bluetooth.
+= No se puede acceder a Bluetooth.
+
+Cannot watch Bluetooth: {}
+= No se puede vigilar Bluetooth: {}
+
+Changing a setting older Xbox controllers need. Type your password if asked.
+= Cambiando un ajuste que necesitan los mandos Xbox antiguos. Escribe tu contraseña si se pide.
+
+Check that {} shows this code.
+= Comprueba que {} muestra este código.
+
+Click the name to change it
+= Haz clic en el nombre para cambiarlo
+
+Connect it to see its sound quality
+= Conéctalo para ver la calidad de sonido
+
+Connect on its own
+= Conectar solo
+
+Connect shortcut
+= Atajo para conectar
+
+Connect {}
+= Conectar {}
+
+Connecting to {}…
+= Conectando con {}…
+
+Connecting…
+= Conectando…
+
+Device
+= Dispositivo
+
+Device options
+= Opciones del dispositivo
+
+Did not connect
+= No se conectó
+
+Disconnect {}
+= Desconectar {}
+
+Disconnecting {}…
+= Desconectando {}…
+
+Disconnecting…
+= Desconectando…
+
+Drifter could not find {}. Put it in pairing mode, then press Set Up under Nearby.
+= Drifter no encontró {}. Ponlo en modo de vinculación y pulsa Configurar en Cerca.
+
+Drifter is already doing that. Give it a moment.
+= Drifter ya lo está haciendo. Dale un momento.
+
+Drifter looks for devices while this page is open.
+= Drifter busca dispositivos mientras esta página está abierta.
+
+Earbuds
+= Auriculares inalámbricos
+
+Fix Bluetooth
+= Reparar Bluetooth
+
+Fix It
+= Reparar
+
+Fixing it. Step 1 of 4: turning Bluetooth off and on…
+= Reparando. Paso 1 de 4: apagando y encendiendo Bluetooth…
+
+Forget this device
+= Olvidar este dispositivo
+
+Forgets it and sets it up again
+= Lo olvida y lo configura de nuevo
+
+Good quality
+= Buena calidad
+
+Hidden
+= Oculta
+
+High quality
+= Alta calidad
+
+It is already set up.
+= Ya está configurado.
+
+Log in
+= Al entrar
+
+Looking for devices. Put the one you want in pairing mode.
+= Buscando dispositivos. Pon el que quieras en modo de vinculación.
+
+Looking for devices…
+= Buscando dispositivos…
+
+Low delay
+= Bajo retardo
+
+Mic on, sound quality will drop.
+= Micrófono activo, la calidad de sonido bajará.
+
+Move closer
+= Acércate más
+
+No
+= No
+
+Not set up
+= Sin configurar
+
+Not working?
+= ¿No funciona?
+
+Nothing nearby
+= Nada cerca
+
+Older Xbox controllers need a Bluetooth setting changed. Open Bluetooth settings and press Fix It.
+= Los mandos Xbox antiguos necesitan cambiar un ajuste de Bluetooth. Abre los ajustes de Bluetooth y pulsa Reparar.
+
+Only when I ask
+= Solo cuando lo pida
+
+PIN
+= PIN
+
+Playing
+= Reproduciendo
+
+Removes it from this computer
+= Lo quita de este equipo
+
+Rename this device
+= Cambiar el nombre de este dispositivo
+
+Renaming it to {}…
+= Cambiando el nombre a {}…
+
+Send with Bluetooth
+= Enviar por Bluetooth
+
+Sending to {}…
+= Enviando a {}…
+
+Sent {} to {}
+= {} enviado a {}
+
+Set
+= Elegir
+
+Set Up
+= Configurar
+
+Set up {}?
+= ¿Configurar {}?
+
+Setting it up was stopped.
+= Se detuvo la configuración.
+
+Setting up {}. Answer on the screen if it asks.
+= Configurando {}. Responde en la pantalla si te pregunta.
+
+Setting up…
+= Configurando…
+
+Shortcut to connect {}
+= Atajo para conectar {}
+
+Sound: {}…
+= Sonido: {}…
+
+Standard quality
+= Calidad estándar
+
+Steady
+= Estable
+
+Steady connection
+= Conexión estable
+
+Step 2 of 4: forgetting {}…
+= Paso 2 de 4: olvidando {}…
+
+Step 3 of 4: put {} in pairing mode now. Looking for it…
+= Paso 3 de 4: pon {} en modo de vinculación ahora. Buscándolo…
+
+Step 4 of 4: setting up {}…
+= Paso 4 de 4: configurando {}…
+
+Tablet
+= Tableta
+
+The device
+= El dispositivo
+
+The headphones are not connected.
+= Los auriculares no están conectados.
+
+The phone said no, or it stopped answering.
+= El teléfono lo rechazó o dejó de responder.
+
+The setting was not changed.
+= El ajuste no se cambió.
+
+These headphones have no microphone.
+= Estos auriculares no tienen micrófono.
+
+These headphones offer only one choice.
+= Estos auriculares solo ofrecen una opción.
+
+They match
+= Coinciden
+
+Turning Bluetooth off and on…
+= Apagando y encendiendo Bluetooth…
+
+Turning the microphone off…
+= Apagando el micrófono…
+
+Turning the microphone on. Sound quality drops while it is on.
+= Encendiendo el micrófono. La calidad de sonido baja mientras está activo.
+
+Turns Bluetooth off and on again
+= Apaga y vuelve a encender Bluetooth
+
+Type the PIN for {}. Many devices use 0000.
+= Escribe el PIN de {}. Muchos dispositivos usan 0000.
+
+Type the code that {} shows.
+= Escribe el código que muestra {}.
+
+Type this code on {}, then press Enter.
+= Escribe este código en {} y pulsa Intro.
+
+Unnamed computer
+= Equipo sin nombre
+
+Unnamed controller
+= Mando sin nombre
+
+Unnamed device
+= Dispositivo sin nombre
+
+Unnamed display
+= Pantalla sin nombre
+
+Unnamed earbuds
+= Auriculares sin nombre
+
+Unnamed headphones
+= Cascos sin nombre
+
+Unnamed keyboard
+= Teclado sin nombre
+
+Unnamed mouse
+= Ratón sin nombre
+
+Unnamed phone
+= Teléfono sin nombre
+
+Unnamed printer
+= Impresora sin nombre
+
+Unnamed speaker
+= Altavoz sin nombre
+
+Unnamed tablet
+= Tableta sin nombre
+
+Unnamed trackpad
+= Trackpad sin nombre
+
+Unnamed watch
+= Reloj sin nombre
+
+Use its microphone
+= Usar su micrófono
+
+Very high quality
+= Muy alta calidad
+
+Watch
+= Reloj
+
+When I log in
+= Al iniciar sesión
+
+When I start a call
+= Al empezar una llamada
+
+When sound plays
+= Cuando suena algo
+
+fair signal
+= señal aceptable
+
+strong signal
+= señal fuerte
+
+{} battery is low
+= Batería baja en {}
+
+{} did not answer. It may be linked to your phone. Turn off Bluetooth on the phone, or put {} in its case and take it out, then try again.
+= {} no respondió. Puede estar vinculado a tu teléfono. Apaga Bluetooth en el teléfono, o guarda {} en su estuche y sácalo, y vuelve a intentarlo.
+
+{} did not answer. Turn it on, bring it closer, then try again.
+= {} no respondió. Enciéndelo, acércalo y vuelve a intentarlo.
+
+{} did not connect
+= {} no se conectó
+
+{} did not connect. Try Fix It in Bluetooth settings.
+= {} no se conectó. Prueba Reparar en los ajustes de Bluetooth.
+
+{} did not take {}
+= {} no aceptó {}
+
+{} does not offer anything Drifter can use.
+= {} no ofrece nada que Drifter pueda usar.
+
+{} is fixed and connected.
+= {} está reparado y conectado.
+
+{} is linked to another device. Turn off Bluetooth on your phone, then try again.
+= {} está vinculado a otro dispositivo. Apaga Bluetooth en tu teléfono y vuelve a intentarlo.
+
+{} took too long to answer. Try again.
+= {} tardó demasiado en responder. Vuelve a intentarlo.
+
+{} waited too long. Try again and answer on the device.
+= {} esperó demasiado. Vuelve a intentarlo y responde en el dispositivo.
+
+{} wants to connect to this computer.
+= {} quiere conectarse a este equipo.
+
+{}% left. Charge it soon.
+= Queda {}%. Cárgalo pronto.

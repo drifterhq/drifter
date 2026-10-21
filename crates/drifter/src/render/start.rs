@@ -517,6 +517,7 @@ pub fn open(
         control: None,
         control_icon,
         control_status: drifter_core::control::Status::default(),
+        radio: Default::default(),
         control_stale: false,
         notes_panel: None,
         charges: None,

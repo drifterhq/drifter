@@ -1,6 +1,7 @@
 pub mod activity;
 pub mod alert;
 pub mod autostart;
+pub mod blue;
 pub mod calendar;
 pub mod camera;
 pub mod cascade;
@@ -38,6 +39,7 @@ pub mod motion;
 pub mod net;
 pub mod night;
 pub mod notify;
+pub mod pairing;
 pub mod paint;
 pub mod place;
 pub mod power;

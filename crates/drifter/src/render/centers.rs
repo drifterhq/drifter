@@ -7,6 +7,27 @@ pub(super) struct Panel {
     pub held: Option<usize>,
     pub last: usize,
     pub lane: worker::Lane,
+    pub art_height: f64,
+    pub drawn: (f64, f64, Instant),
+    pub pending: Option<f64>,
+    pub fills: [(bool, Instant); 4],
+}
+
+impl Panel {
+    pub(super) fn new(rect: Rect, status: &Status) -> Panel {
+        let long_ago = Instant::now() - Duration::from_secs(60);
+        Panel {
+            rect,
+            art: None,
+            held: None,
+            last: 1,
+            lane: worker::Lane::default(),
+            art_height: rect.size.y,
+            drawn: (rect.size.y, rect.size.y, long_ago),
+            pending: None,
+            fills: Tile::ALL.map(|tile| (status.on(tile), long_ago)),
+        }
+    }
 }
 
 impl State {
@@ -18,7 +39,8 @@ impl State {
     fn control_status(&self) -> Status {
         Status {
             wifi: self.control_status.wifi.clone(),
-            bluetooth: self.control_status.bluetooth,
+            bluetooth: self.radio.now.as_ref().map(|blue| blue.on).or(self.control_status.bluetooth),
+            blue_note: self.radio.now.as_ref().map(drifter_core::blue::Blue::note).unwrap_or_default(),
             quiet: self.notify.quiet,
             dark: self.palette == drifter_core::theme::DARK,
             light: self.light,
@@ -28,10 +50,9 @@ impl State {
 
     fn refresh_radios(&self) {
         self.background("control-status", || {
-            let (wifi, bluetooth) = radios();
+            let wifi = radios();
             move |state: &mut State| {
                 state.control_status.wifi = wifi;
-                state.control_status.bluetooth = bluetooth;
                 if state.control.is_some() {
                     state.paint_control();
                 }
@@ -49,13 +70,31 @@ impl State {
 
     pub(super) fn toggle_control(&mut self) {
         if self.control.take().is_some() {
+            self.radio.list = None;
+            self.blue_search_as_needed();
             self.kick_now();
             return;
         }
         self.close_panels();
         self.control_status = self.control_status();
+        self.blue_art();
         self.paint_control();
         self.refresh_radios();
+    }
+
+    pub(super) fn control_retarget(&mut self, height: f64) {
+        let drawn = self.control.as_ref().map(|open| open.drawn_now(self));
+        let Some(open) = self.control.as_mut() else {
+            return;
+        };
+        let now = drawn.unwrap_or(height);
+        match height < open.art_height - 0.5 && self.radio.list.as_ref().is_some_and(|list| list.closing) {
+            true => {
+                open.drawn = (now, height, Instant::now());
+                open.pending = None;
+            }
+            false => open.pending = Some(height),
+        }
     }
 
     pub(super) fn paint_control(&mut self) {
@@ -68,34 +107,44 @@ impl State {
             return;
         };
         let look = self.control_look();
+        let items = self.painted_items();
+        let size = look.size_with(&items);
         let rect = match (self.control.as_ref(), self.control_rect()) {
-            (Some(open), _) => open.rect,
+            (Some(open), _) => Rect::new(open.rect.origin, size),
             (None, Some(under)) => look.rect(under, self.screen),
             (None, None) => return,
         };
         if self.control.is_none() {
-            self.control = Some(Panel {
-                rect,
-                art: None,
-                held: None,
-                last: 1,
-                lane: worker::Lane::default(),
-            });
+            let status = self.control_status.clone();
+            self.control = Some(Panel::new(rect, &status));
         }
         let status = self.control_status.clone();
+        let bare = !self.radio.art.symbols.is_empty() && self.radio.art.accent_disc.is_some();
         let frosting = self.frosting();
         self.paint_in_lane(
             "control center",
             |state| state.control.as_mut().map(|open| &mut open.lane),
             State::paint_control_art,
             move || {
-                let mut image = look.paint(&status, &font, &small);
+                let mut image = look.paint_with(&status, &items, bare, &font, &small);
                 worker::frost(&frosting, &mut image, rect.origin, look.back_alpha);
                 Some(image)
             },
-            |state, art| {
+            move |state, art| {
+                let drawn = state.control.as_ref().map(|open| open.drawn_now(state));
                 if let Some(open) = state.control.as_mut() {
                     open.art = Some(art);
+                    open.art_height = size.y;
+                    open.rect = rect;
+                    if open.pending.is_some_and(|want| (want - size.y).abs() < 0.5) {
+                        open.pending = None;
+                        open.drawn = (drawn.unwrap_or(size.y), size.y, Instant::now());
+                    } else if open.pending.is_none() && !state.radio.list.as_ref().is_some_and(|list| list.closing) {
+                        let (_, to, _) = open.drawn;
+                        if (to - size.y).abs() > 0.5 {
+                            open.drawn = (drawn.unwrap_or(size.y), size.y, Instant::now());
+                        }
+                    }
                 }
             },
         );
@@ -104,6 +153,7 @@ impl State {
     pub(super) fn close_panels(&mut self) {
         self.popover = None;
         self.control = None;
+        self.radio.list = None;
         self.notes_panel = None;
         self.glance_panel = None;
         self.charges = None;
@@ -111,17 +161,23 @@ impl State {
 
     pub(super) fn press_centers(&mut self, code: u32) -> bool {
         if let Some(open) = self.control.as_ref() {
-            let rect = open.rect;
+            let rect = Rect::new(open.rect.origin, Vec2::new(open.rect.size.x, open.drawn_now(self)));
             if !rect.contains(self.pointer) {
-                let on_button = self.control_rect().is_some_and(|button| button.contains(self.pointer));
+                let on_button = self.control_rect().is_some_and(|button| button.contains(self.pointer))
+                    || self.blue_tray_rect().is_some_and(|button| button.contains(self.pointer));
                 self.control = None;
+                self.radio.list = None;
+                self.blue_search_as_needed();
                 self.kick_now();
                 return on_button;
             }
             if code == BTN_LEFT {
                 let look = self.control_look();
-                match look.hit(self.pointer - rect.origin) {
+                let items = self.shown_items().to_vec();
+                match look.hit(self.pointer - rect.origin, &items) {
                     Some(ControlHit::Tile(tile)) => self.flip_tile(tile),
+                    Some(ControlHit::More(_)) => self.blue_toggle_list(),
+                    Some(ControlHit::Item(index)) => self.press_control_item(index),
                     Some(ControlHit::Light(level)) => {
                         if let Some(open) = self.control.as_mut() {
                             open.held = Some(0);
@@ -210,6 +266,8 @@ impl State {
         if std::mem::take(&mut self.control_stale) && self.control.is_some() {
             self.paint_control_art();
         }
+        self.blue_list_wind();
+        self.blue_search_as_needed();
     }
 
     fn flip_tile(&mut self, tile: Tile) {
@@ -233,7 +291,7 @@ impl State {
             Tile::Bluetooth => {
                 if let Some(held) = self.control_status.bluetooth.as_mut() {
                     *held = on;
-                    spawn("bluetoothctl", &["power", word]);
+                    self.blue_power(on);
                 }
             }
             Tile::Quiet => {
@@ -247,6 +305,7 @@ impl State {
                 self.save_key(|text| drifter_core::settings::write_word(text, "appearance", "style", style));
             }
         }
+        self.blue_fill(tile);
         self.paint_control();
     }
 
@@ -332,7 +391,7 @@ impl State {
 
 }
 
-fn radios() -> (Option<(bool, String)>, Option<bool>) {
+fn radios() -> Option<(bool, String)> {
     let read = |program: &str, args: &[&str]| {
         std::process::Command::new(program)
             .args(args)
@@ -354,6 +413,5 @@ fn radios() -> (Option<(bool, String)>, Option<bool>) {
             .unwrap_or_default();
         (on, name)
     });
-    let bluetooth = read("bluetoothctl", &["show"]).and_then(|text| drifter_core::net::powered(&text));
-    (wifi, bluetooth)
+    wifi
 }

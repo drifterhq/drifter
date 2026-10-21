@@ -24,7 +24,10 @@ impl State {
         self.popover = None;
         self.search = Some(Search {
             query: String::new(),
-            all: drifter_core::search::settings(),
+            all: drifter_core::search::settings()
+                .into_iter()
+                .chain(self.radio.now.as_ref().map(drifter_core::search::devices).unwrap_or_default())
+                .collect(),
             results: Vec::new(),
             selected: 0,
             art: None,
@@ -230,6 +233,7 @@ impl State {
                 crate::apps::run(&launch, &self.socket);
             }
             Kind::Setting => self.open_settings_at(&found.key),
+            Kind::Device => self.blue_connect(&found.key),
             Kind::File => {
                 let path = std::path::Path::new(&found.key);
                 match path.is_dir() {

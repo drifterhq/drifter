@@ -33,8 +33,8 @@ pub enum For {
     Wifi(usize),
     WifiHidden,
     WifiEnterprise(usize),
-    BluePin,
-    BlueConfirm,
+    BlueRename,
+    BlueKey,
     ColorProfile,
     NetInfo(usize),
     MyName,
@@ -320,8 +320,12 @@ impl Sheet {
     }
 
     pub fn capture(at: usize, title: &str, now: &str) -> Sheet {
+        Sheet::capture_for(For::Shortcut(at), title, now)
+    }
+
+    pub fn capture_for(purpose: For, title: &str, now: &str) -> Sheet {
         Sheet::Capture {
-            purpose: For::Shortcut(at),
+            purpose,
             title: title.to_string(),
             now: now.to_string(),
             note: None,
@@ -758,7 +762,8 @@ impl Sheet {
             For::Export => crate::lang::t("Choose where to save the settings"),
             For::Wifi(_) | For::WifiEnterprise(_) => crate::lang::t("Join a network"),
             For::WifiHidden => crate::lang::t("Join a hidden network"),
-            For::BluePin | For::BlueConfirm => crate::lang::t("Pair a device"),
+            For::BlueRename => crate::lang::t("Rename this device"),
+            For::BlueKey => crate::lang::t("Press the new shortcut"),
             For::ColorProfile => crate::lang::t("Choose a color profile"),
             For::NetInfo(_) => crate::lang::t("Network details"),
             For::MyName => crate::lang::t("Change your full name"),
