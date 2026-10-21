@@ -158,13 +158,17 @@ pub struct Handle {
     _bus: zbus::blocking::Connection,
 }
 
-pub fn serve(tell: impl Fn(Event) + Send + Sync + 'static) -> Result<Handle, String> {
-    let agent = Agent {
+fn agent(tell: impl Fn(Event) + Send + Sync + 'static) -> Agent {
+    Agent {
         tell: Box::new(tell),
         next: AtomicU64::new(1),
         open: std::sync::Mutex::new(Vec::new()),
         shown: std::sync::Mutex::new(None),
-    };
+    }
+}
+
+pub fn serve(tell: impl Fn(Event) + Send + Sync + 'static) -> Result<Handle, String> {
+    let agent = agent(tell);
     let bus = zbus::blocking::connection::Builder::system()
         .and_then(|builder| builder.serve_at(PATH, agent))
         .and_then(|builder| builder.build())
@@ -189,5 +193,43 @@ mod tests {
     fn the_helper_becomes_the_default_agent() {
         let handle = super::serve(|_| {}).expect("BlueZ takes the pairing helper");
         drop(handle);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_question_waits_for_the_answer_on_the_screen() {
+        use drifter_core::blue::Question;
+        use std::io::BufRead;
+        let mut daemon = std::process::Command::new("dbus-daemon")
+            .args(["--session", "--nofork", "--print-address"])
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .expect("dbus-daemon runs");
+        let mut address = String::new();
+        std::io::BufReader::new(daemon.stdout.take().unwrap()).read_line(&mut address).unwrap();
+        let address = address.trim().to_string();
+        let (seen, heard) = std::sync::mpsc::channel::<(Question, bool)>();
+        let seen = std::sync::Mutex::new(seen);
+        let agent = super::agent(move |event| {
+            if let super::Event::Ask(ask, Some(reply)) = event {
+                let yes = matches!(ask.question, Question::Confirm(482_913));
+                let _ = seen.lock().unwrap().send((ask.question.clone(), yes));
+                super::answer(&reply, yes.then(String::new));
+            }
+        });
+        let server = zbus::blocking::connection::Builder::address(address.as_str())
+            .and_then(|builder| builder.serve_at(super::PATH, agent))
+            .and_then(|builder| builder.build())
+            .expect("the helper serves");
+        let me = server.unique_name().unwrap().to_string();
+        let client = zbus::blocking::connection::Builder::address(address.as_str()).unwrap().build().unwrap();
+        let device = zbus::zvariant::ObjectPath::try_from("/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF").unwrap();
+        let yes = client.call_method(Some(me.as_str()), super::PATH, Some("org.bluez.Agent1"), "RequestConfirmation", &(&device, 482_913u32));
+        let no = client.call_method(Some(me.as_str()), super::PATH, Some("org.bluez.Agent1"), "RequestConfirmation", &(&device, 111_111u32));
+        let asked: Vec<(Question, bool)> = heard.try_iter().collect();
+        let _ = daemon.kill();
+        assert!(yes.is_ok(), "a yes on screen pairs: {yes:?}");
+        assert!(no.is_err_and(|error| error.to_string().contains("Rejected")), "a no on screen refuses");
+        assert_eq!(asked, [(Question::Confirm(482_913), true), (Question::Confirm(111_111), false)]);
     }
 }

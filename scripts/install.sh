@@ -56,6 +56,16 @@ for theme in drifter-icons-dark drifter-icons-light; do
 done
 echo "linked the Drifter icon themes into $icons"
 
+if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files bluetooth.service >/dev/null 2>&1 \
+    && ! systemctl is-enabled --quiet bluetooth.service; then
+    sudo systemctl enable --now bluetooth.service
+    echo "turned on the Bluetooth service"
+fi
+command -v bluetoothd >/dev/null 2>&1 || [ -x /usr/lib/bluetooth/bluetoothd ] || [ -x /usr/libexec/bluetooth/bluetoothd ] \
+    || echo "install BlueZ for Bluetooth: bluez and bluez-obexd (Debian, Fedora) or bluez and bluez-utils (Arch)"
+command -v pactl >/dev/null 2>&1 \
+    || echo "install pactl so Bluetooth headphones can pick their sound: pulseaudio-utils (Debian, Fedora) or libpulse (Arch)"
+
 if [ ! -x "$here/target/release/drifter" ]; then
     echo "build it before you log in: cargo build --release"
 fi

@@ -2167,7 +2167,7 @@ fn the_bluetooth_list_springs_open_and_rows_follow_the_devices() {
     run.screen.state.set(Edge::Top, true);
     run.screen.state.kick_now();
     pump(&mut run.screen, |state| state.drawers.iter().all(|drawer| drawer.settled()) && state.clock.is_some());
-    run.screen.state.blue_now(Some(fake_blue(false)));
+    run.screen.state.blue_now(Ok(fake_blue(false)));
     run.screen.state.toggle_control();
     pump(&mut run.screen, |state| state.control.as_ref().is_some_and(|open| open.art.is_some()) && !state.fades_busy());
     settle(&mut run, 150);
@@ -2189,7 +2189,7 @@ fn the_bluetooth_list_springs_open_and_rows_follow_the_devices() {
 
     let mut later = fake_blue(true);
     later.devices.retain(|device| device.name != "Pixel 8");
-    run.screen.state.blue_now(Some(later));
+    run.screen.state.blue_now(Ok(later));
     run.screen.state.radio.pops.insert("AA:BB:CC:DD:EE:01".into(), Instant::now());
     for step in 0..6 {
         settle(&mut run, 60);
@@ -2270,7 +2270,7 @@ fn with_reduce_motion_the_bluetooth_list_opens_at_once() {
     run.screen.state.set(Edge::Top, true);
     run.screen.state.kick_now();
     pump(&mut run.screen, |state| state.drawers.iter().all(|drawer| drawer.settled()) && state.clock.is_some());
-    run.screen.state.blue_now(Some(fake_blue(false)));
+    run.screen.state.blue_now(Ok(fake_blue(false)));
     run.screen.state.toggle_control();
     pump(&mut run.screen, |state| state.control.as_ref().is_some_and(|open| open.art.is_some()) && !state.fades_busy());
     run.screen.state.blue_toggle_list();
@@ -2313,7 +2313,7 @@ fn the_real_adapter_fills_the_bluetooth_list() {
 #[test]
 fn a_new_output_springs_its_icon_into_the_volume_hud() {
     let mut run = start("blue-hud", &Config::default(), None);
-    run.screen.state.blue_now(Some(fake_blue(true)));
+    run.screen.state.blue_now(Ok(fake_blue(true)));
     run.screen.state.blue_art();
     pump(&mut run.screen, |state| !state.radio.art.glyphs.is_empty());
     run.screen.state.volume = Some((0.6, false));

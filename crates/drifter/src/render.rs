@@ -267,6 +267,7 @@ enum Target {
     Desktop,
     Shooter,
     Shot(u64),
+    Bluetooth,
 }
 
 struct Switch {

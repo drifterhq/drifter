@@ -58,10 +58,11 @@ enum Fresh {
 }
 
 enum BlueNews {
-    Now(Option<drifter_core::blue::Blue>),
+    Now(drifter_core::blue::Seen),
     Card(String, Option<drifter_core::blue::Card>),
     Note(String),
     Step(usize, drifter_core::blue::Step),
+    Shake(String),
     Done(Option<String>),
 }
 
@@ -126,6 +127,7 @@ pub struct Settings {
     blue_back: LoopSender<BlueNews>,
     blue_searching: bool,
     step_pops: Vec<(usize, std::time::Instant)>,
+    shake: Option<(String, std::time::Instant)>,
     started: std::time::Instant,
     fresh: LoopSender<Fresh>,
     hands: Sender<Hand>,
@@ -348,6 +350,7 @@ pub fn run() -> Result<(), String> {
         blue_back,
         blue_searching: false,
         step_pops: Vec::new(),
+        shake: None,
         started: std::time::Instant::now(),
         fresh,
         hands: hands(),
@@ -432,6 +435,7 @@ const GLIDE: std::time::Duration = std::time::Duration::from_millis(150);
 const PAGE_FADE: std::time::Duration = std::time::Duration::from_millis(160);
 const SWITCH_FLIP: std::time::Duration = std::time::Duration::from_millis(150);
 const STEP_POP: f64 = 0.38;
+const ROW_ICON: u32 = 26;
 const STEP_FROM: f64 = 0.35;
 
 static SCALE: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
@@ -745,12 +749,12 @@ impl Settings {
 
     fn icon_for(&self, key: &str) -> Option<Image> {
         if let Some(word) = key.strip_prefix("step:") {
-            let side = drifter_core::sheet::FACE_CELL as u32 * scale();
+            let side = ROW_ICON * scale();
             return Some(drifter_core::blue::step_icon(word, side, self.look.accent, self.look.off));
         }
         if let Some(rest) = key.strip_prefix("blue:") {
             let (kind, lit) = rest.split_once(':')?;
-            let side = drifter_core::sheet::FACE_CELL as u32 * scale();
+            let side = ROW_ICON * scale();
             return Some(drifter_core::blue::disc_image(drifter_core::blue::kind_from_word(kind), lit == "true", side, self.look.accent, self.look.off, self.look.ink));
         }
         if let Some((px, path)) = drifter_core::sheet::face_of(key) {
@@ -1012,6 +1016,7 @@ impl Settings {
                 let shown = self.crossfade(&image);
                 let shown = self.flip_switch(shown.as_ref().unwrap_or(&image)).or(shown);
                 let shown = self.pop_steps(shown.as_ref().unwrap_or(&image)).or(shown);
+                let shown = self.shake_row(shown.as_ref().unwrap_or(&image)).or(shown);
                 self.show_ringed(shown.as_ref().unwrap_or(&image));
                 self.last = Some((key, image));
                 return;
@@ -1025,7 +1030,7 @@ impl Settings {
         if (self.step_pops.is_empty() && !self.step_turning()) || self.section != Section::Bluetooth {
             return None;
         }
-        let side = drifter_core::sheet::FACE_CELL as u32 * scale();
+        let side = ROW_ICON * scale();
         let done = drifter_core::blue::step_icon("done", side, self.look.accent, self.look.off);
         let mut canvas = drifter_core::paint::Canvas::on(image.clone());
         let mut settled = Vec::new();
@@ -2441,7 +2446,33 @@ impl Settings {
     }
 
     fn moving(&self) -> bool {
-        self.glide.is_some() || self.page_fade.is_some() || self.flip.is_some() || !self.step_pops.is_empty() || self.step_turning()
+        self.glide.is_some() || self.page_fade.is_some() || self.flip.is_some() || !self.step_pops.is_empty() || self.step_turning() || self.shake.is_some()
+    }
+
+    fn shake_row(&mut self, image: &drifter_core::Image) -> Option<drifter_core::Image> {
+        let (address, since) = self.shake.clone()?;
+        let t = since.elapsed().as_secs_f64() / 0.5;
+        if t >= 1.0 || self.section != Section::Bluetooth {
+            self.shake = None;
+            return None;
+        }
+        let at = self.model.blue.as_ref()?.devices.iter().position(|device| device.address == address)?;
+        let groups = self.model.groups(self.section);
+        let placed = self.look.place(self.view(), self.section, &groups, self.scroll);
+        let row = groups
+            .iter()
+            .zip(&placed)
+            .flat_map(|(group, spots)| group.rows.iter().zip(&spots.rows))
+            .find(|(row, _)| row.id == Id::Gadget(at))
+            .map(|(_, rect)| *rect)?;
+        let dense = f64::from(scale());
+        let (_, piece) = drifter_core::tween::crop(image, row, dense)?;
+        let offset = (t * std::f64::consts::TAU * 3.0).sin() * 9.0 * (1.0 - t) * (1.0 - t);
+        let mut canvas = drifter_core::paint::Canvas::on(image.clone());
+        canvas.round_rect(row, 0.0, self.look.card, 1.0);
+        canvas.stamp(&piece, row.origin + Vec2::new(offset, 0.0), 1.0);
+        self.stale = true;
+        Some(canvas.image)
     }
 
     fn step_turning(&self) -> bool {
@@ -2572,6 +2603,9 @@ impl Settings {
                 self.model.query.pop();
             }
             Keysym::Return | Keysym::KP_Enter => {
+                if self.model.query.trim().is_empty() {
+                    return;
+                }
                 if let Some(first) = self.model.shown().first().copied() {
                     self.go_to(first);
                 }
@@ -3222,8 +3256,11 @@ impl Settings {
 
     fn blue_news(&mut self, news: BlueNews) {
         match news {
-            BlueNews::Now(now) => {
+            BlueNews::Now(seen) => {
                 let had: Vec<String> = self.model.blue.iter().flat_map(|blue| blue.connected().map(|device| device.address.clone())).collect();
+                self.model.blue_missing = seen.as_ref().err().copied();
+                self.saved.blue_missing = self.model.blue_missing;
+                let now = seen.ok();
                 self.model.blue = now.clone();
                 self.saved.blue = now;
                 let open_gone = self.model.blue_open.as_deref().is_some_and(|address| {
@@ -3250,6 +3287,11 @@ impl Settings {
                 }
             }
             BlueNews::Note(note) => self.model.net_note = Some(note),
+            BlueNews::Shake(address) => {
+                if self.animates() {
+                    self.shake = Some((address, std::time::Instant::now()));
+                }
+            }
             BlueNews::Step(at, step) => {
                 if let Some(held) = self.model.blue_steps.get_mut(at) {
                     held.1 = match step {
@@ -3325,7 +3367,7 @@ impl Settings {
     }
 
     fn blue_job(&mut self, note: String, work: impl FnOnce(&drifter_blue::Bus) -> Result<(), String> + Send + 'static) {
-        let Some(bus) = self.blue_bus.clone() else {
+        let Some(bus) = self.blue_bus.clone().or_else(|| drifter_blue::Bus::system().ok()) else {
             self.model.net_note = Some(drifter_core::lang::t("Cannot reach Bluetooth.").to_string());
             return;
         };
@@ -3344,10 +3386,14 @@ impl Settings {
         let name = device.shown_name();
         let kind = device.kind;
         let address = device.address.clone();
+        let back = self.blue_back.clone();
         self.blue_job(note, move |bus| {
             work(bus, &address).map_err(|error| match error.contains("Rejected") || error.contains("Canceled") {
                 true => drifter_core::lang::t("Setting it up was stopped.").to_string(),
-                false => drifter_core::blue::plain_error(&error, &name, kind),
+                false => {
+                    let _ = back.send(BlueNews::Shake(address.clone()));
+                    drifter_core::blue::plain_error(&error, &name, kind)
+                }
             })
         });
     }
@@ -3434,6 +3480,10 @@ impl Settings {
                     self.blue_fix(device);
                 }
             }
+            NetAsk::Service => {
+                let note = drifter_core::lang::t("Starting the Bluetooth service. Type your password if asked.").to_string();
+                self.blue_job(note, |_| drifter_blue::Bus::start_service());
+            }
             NetAsk::Reset => {
                 let note = drifter_core::lang::t("Turning Bluetooth off and on…").to_string();
                 let back = self.blue_back.clone();
@@ -3515,11 +3565,11 @@ impl Settings {
                 }
             })?;
             run(first + 3, &mut || {
-                let paired = bus.pair(&address);
+                let paired = bus.set_up(&address);
                 let _ = bus.search(false);
                 paired.map_err(|error| drifter_core::blue::plain_error(&error, &name, kind))
             })?;
-            Ok(())
+            bus.connect(&address).map_err(|error| drifter_core::blue::plain_error(&error, &name, kind))
         });
     }
 

@@ -87,7 +87,9 @@ pub(super) struct Art {
 pub(super) struct Radio {
     pub bus: Option<drifter_blue::Bus>,
     agent: Option<drifter_blue::agent::Handle>,
+    agent_tried: Option<Instant>,
     pub now: Option<Blue>,
+    pub missing: Option<blue::Missing>,
     pub seen: bool,
     pub prefs: Prefs,
     pub busy: Vec<String>,
@@ -120,7 +122,9 @@ impl Default for Radio {
         Radio {
             bus: None,
             agent: None,
+            agent_tried: None,
             now: None,
+            missing: None,
             seen: false,
             prefs: Prefs::default(),
             busy: Vec::new(),
@@ -177,15 +181,6 @@ impl State {
             log!("drifter: cannot watch Bluetooth: {error}");
         }
         let chores = std::sync::Mutex::new(self.chores.clone());
-        match drifter_blue::agent::serve(move |event| {
-            if let Ok(chores) = chores.lock() {
-                chore(&chores, move |state| state.blue_agent(event));
-            }
-        }) {
-            Ok(agent) => self.radio.agent = Some(agent),
-            Err(error) => log!("drifter: no Bluetooth pairing helper: {error}"),
-        }
-        let chores = std::sync::Mutex::new(self.chores.clone());
         drifter_blue::sound::watch_streams(move |stream| {
             if let Ok(chores) = chores.lock() {
                 chore(&chores, move |state| state.blue_stream(stream));
@@ -194,7 +189,31 @@ impl State {
         self.radio.bus = Some(bus);
     }
 
-    pub(super) fn blue_now(&mut self, now: Option<Blue>) {
+    fn blue_agent_up(&mut self) {
+        let chores = std::sync::Mutex::new(self.chores.clone());
+        self.radio.agent = None;
+        self.background("bluetooth agent", move || {
+            let served = drifter_blue::agent::serve(move |event| {
+                if let Ok(chores) = chores.lock() {
+                    chore(&chores, move |state| state.blue_agent(event));
+                }
+            });
+            move |state: &mut State| match served {
+                Ok(agent) => state.radio.agent = Some(agent),
+                Err(error) => log!("drifter: no Bluetooth pairing helper: {error}"),
+            }
+        });
+    }
+
+    pub(super) fn blue_now(&mut self, seen: blue::Seen) {
+        let lost = self.radio.now.is_none() && seen.is_ok();
+        let missing = self.radio.agent.is_none() && self.radio.agent_tried.is_none_or(|at| at.elapsed() > Duration::from_secs(10));
+        if seen.is_ok() && (lost || missing) && self.radio.bus.is_some() {
+            self.radio.agent_tried = Some(Instant::now());
+            self.blue_agent_up();
+        }
+        self.radio.missing = seen.as_ref().err().copied();
+        let now = seen.ok();
         let before = self.radio.now.take().unwrap_or_default();
         let first = !self.radio.seen;
         self.radio.seen = true;
@@ -220,7 +239,11 @@ impl State {
         }
         let was = (self.control_status.bluetooth, self.control_status.blue_note.clone());
         self.control_status.bluetooth = self.radio.now.as_ref().map(|blue| blue.on);
-        self.control_status.blue_note = self.radio.now.as_ref().map(Blue::note).unwrap_or_default();
+        self.control_status.blue_note = match (self.radio.now.as_ref(), self.radio.missing) {
+            (Some(blue), _) => blue.note(),
+            (None, Some(blue::Missing::Service)) => drifter_core::lang::t("Service off").to_string(),
+            (None, _) => String::new(),
+        };
         let changed = was != (self.control_status.bluetooth, self.control_status.blue_note.clone());
         self.blue_tray_state();
         self.blue_search_as_needed();
@@ -570,7 +593,11 @@ impl State {
             .filter(|(_, at)| at.elapsed() < FAILED_FOR)
             .map(|(address, _)| address.clone())
             .collect();
-        drifter_core::control::items(self.radio.now.as_ref(), &self.radio.busy, &failed)
+        let seen = match (self.radio.now.as_ref(), self.radio.missing) {
+            (Some(blue), _) => Ok(blue),
+            (None, missing) => Err(missing.unwrap_or(blue::Missing::Adapter)),
+        };
+        drifter_core::control::items(seen, &self.radio.busy, &failed)
     }
 
     pub(super) fn shown_items(&self) -> &[Item] {
@@ -860,7 +887,7 @@ impl State {
                     }
                 }
                 state.radio.art = art;
-                state.tray.blue = state.radio.now.is_some();
+                state.tray.blue = state.radio.seen;
                 state.kick_now();
             },
         );
@@ -1107,6 +1134,29 @@ impl State {
         let Some(item) = self.shown_items().get(index).cloned() else {
             return;
         };
+        if item.key == drifter_core::control::SERVICE_KEY {
+            self.background("bluetooth service", || {
+                let done = drifter_blue::Bus::start_service();
+                move |state: &mut State| {
+                    if let Err(error) = done
+                        && let Some(id) = state.notes_bus.as_ref().map(|bus| bus.next_id())
+                    {
+                        state.show_note(drifter_core::notify::Note {
+                            id,
+                            app: drifter_core::lang::t("Bluetooth").to_string(),
+                            summary: drifter_core::lang::t("Bluetooth is not running").to_string(),
+                            body: error,
+                            actions: Vec::new(),
+                            expire: None,
+                            asked: 9000,
+                            critical: false,
+                            icon: None,
+                        });
+                    }
+                }
+            });
+            return;
+        }
         if item.key == drifter_core::control::SETTINGS_KEY {
             self.control = None;
             self.radio.list = None;
@@ -1455,7 +1505,7 @@ impl State {
 
     fn blue_tray_state(&mut self) {
         let state = match self.radio.now.as_ref() {
-            None => return,
+            None => 0,
             Some(blue) if !blue.on => 0,
             Some(blue) if blue.connected().next().is_some() => 2,
             Some(_) => 1,
@@ -1501,6 +1551,39 @@ impl State {
             let alpha = drifter_core::motion::smooth(t);
             elements.push(Skin::Texture(element(new, Rect::from_center(rect.center(), rect.size * scale), alpha as f32)));
         }
+    }
+
+    pub(super) fn open_blue_menu(&mut self) {
+        let items = match self.radio.now.as_ref() {
+            Some(blue) => blue::menu(blue),
+            None => vec![drifter_core::menu::Item::line(blue::MENU_SETTINGS, drifter_core::lang::t("Bluetooth Settings…"))],
+        };
+        let at = self.blue_tray_rect().map_or(self.pointer, |rect| Vec2::new(rect.origin.x, rect.max().y + 6.0));
+        self.close_panels();
+        self.open_popover(items, at, Target::Bluetooth);
+    }
+
+    pub(super) fn blue_menu_pick(&mut self, id: i32) {
+        match id {
+            blue::MENU_POWER => {
+                let on = !self.radio.now.as_ref().is_some_and(|blue| blue.on);
+                self.control_status.bluetooth = Some(on);
+                self.blue_power(on);
+            }
+            blue::MENU_SETTINGS => self.open_settings_at("bluetooth"),
+            at => {
+                let address = self
+                    .radio
+                    .now
+                    .as_ref()
+                    .and_then(|blue| blue.devices.get(at.max(0) as usize))
+                    .map(|device| device.address.clone());
+                if let Some(address) = address {
+                    self.blue_connect(&address);
+                }
+            }
+        }
+        self.kick_now();
     }
 
     pub(super) fn press_blue_tray(&mut self) -> bool {

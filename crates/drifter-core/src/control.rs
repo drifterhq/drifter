@@ -75,6 +75,7 @@ impl Status {
                 Some((true, name)) => name.clone(),
             },
             Tile::Bluetooth => match self.bluetooth {
+                None if !self.blue_note.is_empty() => self.blue_note.clone(),
                 None => crate::lang::t("Not available").to_string(),
                 Some(true) if self.blue_note.is_empty() => crate::lang::t("On").to_string(),
                 Some(true) => self.blue_note.clone(),
@@ -136,9 +137,10 @@ impl Item {
 }
 
 pub const SETTINGS_KEY: &str = "link:settings";
+pub const SERVICE_KEY: &str = "link:service";
 const MOST_NEARBY: usize = 6;
 
-pub fn items(blue: Option<&Blue>, busy: &[String], failed: &[String]) -> Vec<Item> {
+pub fn items(seen: Result<&Blue, crate::blue::Missing>, busy: &[String], failed: &[String]) -> Vec<Item> {
     let mut out = Vec::new();
     let device = |device: &crate::blue::Device| {
         let busy = busy.iter().any(|each| each.eq_ignore_ascii_case(&device.address));
@@ -166,16 +168,24 @@ pub fn items(blue: Option<&Blue>, busy: &[String], failed: &[String]) -> Vec<Ite
             },
         }
     };
-    match blue {
-        None => out.push(Item {
-            key: "heading:none".into(),
-            what: What::Heading(crate::lang::t("No Bluetooth adapter found.").into()),
-        }),
-        Some(blue) if !blue.on => out.push(Item {
+    match seen {
+        Err(missing) => {
+            out.push(Item {
+                key: "heading:none".into(),
+                what: What::Heading(missing.words().into()),
+            });
+            if missing == crate::blue::Missing::Service {
+                out.push(Item {
+                    key: SERVICE_KEY.into(),
+                    what: What::Link(crate::lang::t("Turn On the Bluetooth Service").into()),
+                });
+            }
+        }
+        Ok(blue) if !blue.on => out.push(Item {
             key: "heading:off".into(),
             what: What::Heading(crate::lang::t("Bluetooth is off.").into()),
         }),
-        Some(blue) => {
+        Ok(blue) => {
             let mine: Vec<Item> = blue.mine().map(device).collect();
             if !mine.is_empty() {
                 out.push(Item {
@@ -377,7 +387,7 @@ impl Look {
             let dot = self.dot(tile);
             canvas.circle(dot, 15.0, if on { self.accent } else { self.off }, 1.0);
             symbol(&mut canvas, tile, dot, if on { [255, 255, 255] } else { self.ink });
-            if tile == Tile::Bluetooth && status.bluetooth.is_some() {
+            if tile == Tile::Bluetooth {
                 chevron(&mut canvas, Vec2::new(rect.max().x - 14.0, rect.center().y), !items.is_empty(), self.dim);
             }
             let x = rect.origin.x + 50.0;
@@ -711,7 +721,7 @@ mod tests {
             devices: vec![gadget("Mouse", true, true), gadget("Gadget", false, false)],
             ..Blue::default()
         };
-        let list = items(Some(&blue), &[], &[]);
+        let list = items(Ok(&blue), &[], &[]);
         let keys: Vec<&str> = list.iter().map(|item| item.key.as_str()).collect();
         assert_eq!(keys, ["heading:mine", "device:AA:BB:CC:DD:EE:05", "heading:nearby", "device:AA:BB:CC:DD:EE:06", SETTINGS_KEY]);
         match &list[1].what {
@@ -730,11 +740,13 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
-        let busy = items(Some(&blue), &["AA:BB:CC:DD:EE:06".into()], &[]);
+        let busy = items(Ok(&blue), &["AA:BB:CC:DD:EE:06".into()], &[]);
         assert!(matches!(&busy[3].what, What::Device { note, .. } if note == "Setting up…"));
-        let off = items(Some(&Blue::default()), &[], &[]);
+        let off = items(Ok(&Blue::default()), &[], &[]);
         assert_eq!(off.len(), 2);
-        assert_eq!(items(None, &[], &[])[0].key, "heading:none");
+        assert_eq!(items(Err(crate::blue::Missing::Adapter), &[], &[])[0].key, "heading:none");
+        let service = items(Err(crate::blue::Missing::Service), &[], &[]);
+        assert_eq!(service[1].key, SERVICE_KEY, "a stopped service can be started from the list");
     }
 
     #[test]
@@ -745,7 +757,7 @@ mod tests {
             devices: vec![gadget("Mouse", true, false)],
             ..Blue::default()
         };
-        let list = items(Some(&blue), &[], &[]);
+        let list = items(Ok(&blue), &[], &[]);
         assert!(look.size_with(&list).y > look.size().y + 100.0);
         assert_eq!(look.size_with(&[]), look.size());
         let row = look.item_rect(&list, 1);

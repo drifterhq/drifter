@@ -219,6 +219,11 @@ impl State {
                 self.dock_bar_pick(chosen.id);
                 return true;
             }
+            Target::Bluetooth => {
+                self.popover = None;
+                self.blue_menu_pick(chosen.id);
+                return true;
+            }
             Target::App(app) => {
                 let app = app.clone();
                 self.popover = None;
@@ -338,6 +343,10 @@ impl State {
     }
 
     pub(super) fn open_context(&mut self) -> bool {
+        if self.blue_tray_rect().is_some_and(|rect| rect.contains(self.pointer)) {
+            self.open_blue_menu();
+            return true;
+        }
         if let Some(band) = self.tray_band()
             && let Some(slot) = self.tray_icon_at(band)
         {

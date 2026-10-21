@@ -761,10 +761,18 @@ impl Model {
 
     pub(super) fn blue_groups(&self) -> Vec<Group> {
         let Some(blue) = &self.blue else {
+            let missing = self.blue_missing.unwrap_or(crate::blue::Missing::Adapter);
+            let rows = match missing {
+                crate::blue::Missing::Service => vec![
+                    Row::new(Id::BlueService, crate::lang::t("Bluetooth service"), Control::Buttons(vec![Mark::Text(crate::lang::t("Turn On"))]))
+                        .detail(crate::lang::t("Starts it now and every time the computer starts")),
+                ],
+                crate::blue::Missing::Adapter => Vec::new(),
+            };
             return vec![Group {
                 header: None,
-                rows: Vec::new(),
-                footer: Some(crate::lang::t("No Bluetooth adapter found.").into()),
+                rows,
+                footer: Some(self.net_note.clone().unwrap_or_else(|| missing.words().into())),
                 thumbs: None,
             }];
         };
@@ -880,8 +888,13 @@ impl Model {
                 .detail(crate::lang::t("Click the name to change it"))
                 .opens(),
         }];
-        if let Some(level) = device.battery {
-            rows.push(Row::new(Id::BlueBattery, crate::lang::t("Battery"), Control::Note(format!("{level}%"))));
+        match device.battery {
+            Some(level) => rows.push(Row::new(Id::BlueBattery, crate::lang::t("Battery"), Control::Note(format!("{level}%")))),
+            None if crate::blue::xbox(device) && device.connected => rows.push(
+                Row::new(Id::BlueBattery, crate::lang::t("Battery"), Control::Note(crate::lang::t("Not reported").to_string()))
+                    .detail(crate::lang::t("Xbox controllers report it with the xpadneo driver")),
+            ),
+            None => {}
         }
         let when = self.blue_prefs.when(&device.address);
         rows.push(
@@ -1456,6 +1469,7 @@ impl Model {
             (Id::BlueKey, _) => return Some(Ask::Net(NetAsk::BlueKey)),
             (Id::BlueFix, _) => return Some(Ask::Net(NetAsk::Fix)),
             (Id::BlueReset, _) => return Some(Ask::Net(NetAsk::Reset)),
+            (Id::BlueService, _) => return Some(Ask::Net(NetAsk::Service)),
             (Id::BlueAddress, _) => {
                 self.blue_address = true;
                 return None;

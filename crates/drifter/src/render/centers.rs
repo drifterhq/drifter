@@ -40,7 +40,7 @@ impl State {
         Status {
             wifi: self.control_status.wifi.clone(),
             bluetooth: self.radio.now.as_ref().map(|blue| blue.on).or(self.control_status.bluetooth),
-            blue_note: self.radio.now.as_ref().map(drifter_core::blue::Blue::note).unwrap_or_default(),
+            blue_note: self.control_status.blue_note.clone(),
             quiet: self.notify.quiet,
             dark: self.palette == drifter_core::theme::DARK,
             light: self.light,

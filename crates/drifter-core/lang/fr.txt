@@ -4223,3 +4223,57 @@ Use Mic
 
 Use the {} microphone?
 = Utiliser le micro de {} ?
+
+Bluetooth is not running
+= Le Bluetooth ne fonctionne pas
+
+Bluetooth service
+= Service Bluetooth
+
+Changing this needs pactl. Install pulseaudio-utils, or libpulse on Arch.
+= Il faut pactl pour changer ceci. Installez pulseaudio-utils, ou libpulse sur Arch.
+
+Not reported
+= Non indiqué
+
+Sending files needs obexd. Install bluez-obexd, or bluez on Arch.
+= Il faut obexd pour envoyer des fichiers. Installez bluez-obexd, ou bluez sur Arch.
+
+Service off
+= Service éteint
+
+Starting the Bluetooth service. Type your password if asked.
+= Démarrage du service Bluetooth. Tapez votre mot de passe si demandé.
+
+Starts it now and every time the computer starts
+= Le démarre maintenant et à chaque démarrage de l’ordinateur
+
+The Bluetooth service did not start. Install BlueZ, then try again.
+= Le service Bluetooth n’a pas démarré. Installez BlueZ, puis réessayez.
+
+The Bluetooth service is off.
+= Le service Bluetooth est éteint.
+
+The phone did not answer. Unlock it, keep it close, then try again.
+= Le téléphone n’a pas répondu. Déverrouillez-le, gardez-le près, puis réessayez.
+
+The phone does not take files over Bluetooth. Turn on Bluetooth sharing on the phone, then try again.
+= Le téléphone n’accepte pas de fichiers par Bluetooth. Activez le partage Bluetooth sur le téléphone, puis réessayez.
+
+The phone said no.
+= Le téléphone a refusé.
+
+Turn Bluetooth Off
+= Éteindre le Bluetooth
+
+Turn Bluetooth On
+= Allumer le Bluetooth
+
+Turn On
+= Allumer
+
+Turn On the Bluetooth Service
+= Allumer le service Bluetooth
+
+Xbox controllers report it with the xpadneo driver
+= Les manettes Xbox l’indiquent avec le pilote xpadneo

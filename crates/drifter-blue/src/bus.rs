@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::mpsc::{RecvTimeoutError, channel};
 use std::time::Duration;
 
-use drifter_core::blue::{Blue, Device, Kind};
+use drifter_core::blue::{Blue, Device, Kind, Missing, Seen};
 use zbus::blocking::Connection;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
 
@@ -104,6 +104,9 @@ impl Bus {
     }
 
     pub fn snapshot(&self) -> Option<Blue> {
+        if !self.running() {
+            return None;
+        }
         let manager = zbus::blocking::fdo::ObjectManagerProxy::builder(&self.system)
             .destination(BLUEZ)
             .and_then(|builder| builder.path("/"))
@@ -117,10 +120,26 @@ impl Bus {
         build(&objects, std::path::Path::new("/sys/class/power_supply"))
     }
 
-    pub fn watch(&self, tell: impl Fn(Option<Blue>) + Send + 'static) -> Result<(), String> {
+    pub fn running(&self) -> bool {
+        zbus::blocking::fdo::DBusProxy::new(&self.system)
+            .and_then(|proxy| proxy.name_has_owner(BLUEZ.try_into().map_err(zbus::Error::from)?).map_err(zbus::Error::from))
+            .unwrap_or(false)
+    }
+
+    pub fn seen(&self) -> Seen {
+        if !radios() {
+            return Err(Missing::Adapter);
+        }
+        if !self.running() {
+            return Err(Missing::Service);
+        }
+        self.snapshot().ok_or(Missing::Adapter)
+    }
+
+    pub fn watch(&self, tell: impl Fn(Seen) + Send + 'static) -> Result<(), String> {
         let rules = [
-            format!("type='signal',sender='{BLUEZ}',interface='org.freedesktop.DBus.ObjectManager'"),
-            format!("type='signal',sender='{BLUEZ}',interface='{PROPERTIES}',member='PropertiesChanged'"),
+            "type='signal',interface='org.freedesktop.DBus.ObjectManager',path='/'".to_string(),
+            format!("type='signal',interface='{PROPERTIES}',member='PropertiesChanged',path_namespace='/org/bluez'"),
             format!("type='signal',sender='org.freedesktop.DBus',member='NameOwnerChanged',arg0='{BLUEZ}'"),
         ];
         let (poke, poked) = channel::<()>();
@@ -144,7 +163,7 @@ impl Bus {
         std::thread::Builder::new()
             .name("drifter-blue".into())
             .spawn(move || {
-                let mut last = bus.snapshot();
+                let mut last = bus.seen();
                 tell(last.clone());
                 loop {
                     match poked.recv_timeout(BATTERY_EVERY) {
@@ -155,7 +174,7 @@ impl Bus {
                         Err(RecvTimeoutError::Timeout) => {}
                         Err(RecvTimeoutError::Disconnected) => break,
                     }
-                    let now = bus.snapshot();
+                    let now = bus.seen();
                     if now != last {
                         tell(now.clone());
                         last = now;
@@ -195,7 +214,25 @@ impl Bus {
 
     pub fn power(&self, on: bool) -> Result<(), String> {
         let adapter = self.adapter()?;
-        self.set(&adapter, ADAPTER, "Powered", Value::from(on))
+        match self.set(&adapter, ADAPTER, "Powered", Value::from(on)) {
+            Err(error) if on && (error.contains("Blocked") || error.contains("rfkill") || error.contains("NotReady")) => {
+                unblock();
+                self.set(&adapter, ADAPTER, "Powered", Value::from(true))
+            }
+            done => done,
+        }
+    }
+
+    pub fn start_service() -> Result<(), String> {
+        let out = std::process::Command::new("pkexec")
+            .args(["systemctl", "enable", "--now", "bluetooth.service"])
+            .stdin(std::process::Stdio::null())
+            .output()
+            .map_err(|error| error.to_string())?;
+        match out.status.success() {
+            true => Ok(()),
+            false => Err(drifter_core::lang::t("The Bluetooth service did not start. Install BlueZ, then try again.").to_string()),
+        }
     }
 
     pub fn search(&self, on: bool) -> Result<(), String> {
@@ -222,13 +259,18 @@ impl Bus {
         self.call(&path, DEVICE, "Disconnect")
     }
 
-    pub fn pair(&self, address: &str) -> Result<(), String> {
+    pub fn set_up(&self, address: &str) -> Result<(), String> {
         let (_, path) = self.device(address)?;
         let paired = self.snapshot().and_then(|blue| blue.find(address).map(|device| device.paired)).unwrap_or(false);
         if !paired {
             self.call(&path, DEVICE, "Pair")?;
         }
-        self.set(&path, DEVICE, "Trusted", Value::from(true))?;
+        self.set(&path, DEVICE, "Trusted", Value::from(true))
+    }
+
+    pub fn pair(&self, address: &str) -> Result<(), String> {
+        self.set_up(address)?;
+        let (_, path) = self.device(address)?;
         self.call(&path, DEVICE, "Connect")
     }
 
@@ -269,16 +311,66 @@ impl Bus {
 }
 
 
+fn radios() -> bool {
+    std::fs::read_dir("/sys/class/bluetooth").is_ok_and(|mut entries| entries.next().is_some())
+}
+
+fn unblock() {
+    let quiet = |program: &str, args: &[&str]| {
+        std::process::Command::new(program)
+            .args(args)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+    };
+    if !quiet("rfkill", &["unblock", "bluetooth"]) {
+        quiet("pkexec", &["rfkill", "unblock", "bluetooth"]);
+    }
+    std::thread::sleep(Duration::from_millis(400));
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
     #[ignore]
     fn reads_the_live_adapter() {
         let bus = super::Bus::system().expect("the system bus");
-        let blue = bus.snapshot().expect("an adapter");
+        assert!(bus.running(), "bluetoothd is on the bus");
+        let blue = bus.seen().expect("an adapter");
         for device in &blue.devices {
             println!("{} {:?} {} paired={} connected={} battery={:?} audio={}", device.shown_name(), device.kind, device.note(), device.paired, device.connected, device.battery, device.audio);
         }
         assert!(!blue.adapter.is_empty());
+    }
+
+    #[test]
+    #[ignore]
+    fn a_change_arrives_within_a_second() {
+        let bus = super::Bus::system().expect("the system bus");
+        let (tell, heard) = std::sync::mpsc::channel();
+        bus.watch(move |seen| {
+            let _ = tell.send(seen.map(|blue| blue.searching).unwrap_or(false));
+        })
+        .unwrap();
+        let first = heard.recv_timeout(std::time::Duration::from_secs(5)).expect("the first reading");
+        if first {
+            println!("another app is already searching, so there is no change to see");
+            return;
+        }
+        let started = std::time::Instant::now();
+        bus.search(true).expect("a search starts");
+        let mut searching = false;
+        while let Ok(now) = heard.recv_timeout(std::time::Duration::from_secs(3)) {
+            if now {
+                searching = true;
+                break;
+            }
+        }
+        let took = started.elapsed();
+        let _ = bus.search(false);
+        assert!(searching, "the search showed up");
+        assert!(took < std::time::Duration::from_secs(1), "it showed up in {took:?}, not on the slow fallback");
     }
 }

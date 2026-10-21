@@ -261,9 +261,9 @@ pub fn run() -> Result<(), String> {
             }
         })
         .map_err(|e| format!("cannot watch Bluetooth: {e}"))?;
-    if let Ok(bus) = drifter_blue::Bus::system() {
+    if let Some(bus) = drifter_blue::Bus::system().ok().filter(|_| drifter_blue::obex::available()) {
         let _ = bus.watch(move |now| {
-            let _ = phones.send(now.map(|blue| drifter_blue::obex::phones(&blue)).unwrap_or_default());
+            let _ = phones.send(now.ok().map(|blue| drifter_blue::obex::phones(&blue)).unwrap_or_default());
         });
     }
     let (jobs, jobs_rx) = loop_channel::<Done>();

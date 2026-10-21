@@ -35,7 +35,7 @@ sudo apt-get install -y \
 
 sudo apt-get install -y \
     xwayland libxcb1-dev libxcb-cursor-dev clang \
-    grim slurp pipewire pipewire-pulse wireplumber \
+    grim slurp pipewire pipewire-pulse wireplumber bluez bluez-obexd pulseaudio-utils \
     xdg-desktop-portal xdg-desktop-portal-wlr xdg-desktop-portal-gtk \
     polkitd libnotify-bin firefox-esr \
     gstreamer1.0-pipewire gstreamer1.0-plugins-good gstreamer1.0-tools

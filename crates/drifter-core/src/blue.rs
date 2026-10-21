@@ -310,6 +310,23 @@ pub fn closer(rssi: Option<i16>) -> Option<&'static str> {
     rssi.filter(|rssi| *rssi <= -80).map(|_| crate::lang::t("Move closer"))
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Missing {
+    Service,
+    Adapter,
+}
+
+impl Missing {
+    pub fn words(self) -> &'static str {
+        match self {
+            Missing::Service => crate::lang::t("The Bluetooth service is off."),
+            Missing::Adapter => crate::lang::t("No Bluetooth adapter found."),
+        }
+    }
+}
+
+pub type Seen = Result<Blue, Missing>;
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Blue {
     pub adapter: String,
@@ -361,6 +378,36 @@ impl Blue {
             [one, rest @ ..] => crate::lang::tf("{} and {} more", &[one, &rest.len()]),
         }
     }
+}
+
+pub const MENU_POWER: i32 = 1000;
+pub const MENU_SETTINGS: i32 = 1001;
+
+pub fn menu(blue: &Blue) -> Vec<crate::menu::Item> {
+    use crate::menu::Item;
+    let mut items = Vec::new();
+    if blue.on {
+        for (at, device) in blue.devices.iter().enumerate().filter(|(_, device)| device.paired) {
+            let state = match (device.connected, device.battery) {
+                (true, Some(level)) => format!("{level}%"),
+                (true, None) => crate::lang::t("Connected").to_string(),
+                (false, _) => crate::lang::t("Connect").to_string(),
+            };
+            items.push(Item::line(at as i32, &format!("{}, {state}", device.shown_name())));
+        }
+        if !items.is_empty() {
+            items.push(Item::rule(-3));
+        }
+    }
+    items.push(Item::line(
+        MENU_POWER,
+        match blue.on {
+            true => crate::lang::t("Turn Bluetooth Off"),
+            false => crate::lang::t("Turn Bluetooth On"),
+        },
+    ));
+    items.push(Item::line(MENU_SETTINGS, crate::lang::t("Bluetooth Settings…")));
+    items
 }
 
 pub const LOW: [u8; 2] = [20, 10];
@@ -568,15 +615,18 @@ impl Card {
         self.active.starts_with("headset")
     }
 
-    pub fn profile_for(&self, sound: Sound) -> Option<String> {
-        let a2dp: Vec<(&String, Option<Codec>)> = self
-            .profiles
+    fn a2dp(&self) -> Vec<(&String, Option<Codec>)> {
+        self.profiles
             .iter()
-            .filter(|(name, ready)| *ready && name.starts_with("a2dp-sink"))
-            .map(|(name, _)| (name, name.strip_prefix("a2dp-sink-").and_then(Codec::read)))
-            .collect();
+            .filter(|(name, ready)| *ready && plain_profile(name).starts_with("a2dp-sink"))
+            .map(|(name, _)| (name, plain_profile(name).strip_prefix("a2dp-sink-").and_then(Codec::read)))
+            .collect()
+    }
+
+    pub fn profile_for(&self, sound: Sound) -> Option<String> {
+        let a2dp = self.a2dp();
         match sound {
-            Sound::Auto => a2dp.iter().find(|(name, _)| name.as_str() == "a2dp-sink").map(|(name, _)| name.to_string()),
+            Sound::Auto => a2dp.iter().find(|(name, _)| plain_profile(name) == "a2dp-sink").map(|(name, _)| name.to_string()),
             Sound::Best => a2dp
                 .iter()
                 .filter_map(|(name, codec)| codec.map(|codec| (name, codec)))
@@ -594,22 +644,28 @@ impl Card {
     pub fn headset_profile(&self) -> Option<String> {
         self.profiles
             .iter()
-            .filter(|(name, ready)| *ready && name.starts_with("headset-head-unit"))
+            .filter(|(name, ready)| *ready && plain_profile(name).starts_with("headset-head-unit"))
             .map(|(name, _)| name.clone())
             .min_by_key(|name| name.len())
     }
+}
+
+fn plain_profile(name: &str) -> String {
+    name.replace('_', "-")
 }
 
 pub fn card_name(address: &str) -> String {
     format!("bluez_card.{}", address.replace(':', "_"))
 }
 
-pub fn sink_prefix(address: &str) -> String {
-    format!("bluez_output.{}", address.replace(':', "_"))
+pub fn sink_prefixes(address: &str) -> [String; 2] {
+    let tail = address.replace(':', "_");
+    [format!("bluez_output.{tail}"), format!("bluez_sink.{tail}")]
 }
 
-pub fn source_prefix(address: &str) -> String {
-    format!("bluez_input.{}", address.replace(':', "_"))
+pub fn source_prefixes(address: &str) -> [String; 2] {
+    let tail = address.replace(':', "_");
+    [format!("bluez_input.{tail}"), format!("bluez_source.{tail}")]
 }
 
 pub fn read_card(list: &str, address: &str) -> Option<Card> {
@@ -650,7 +706,7 @@ pub fn read_card(list: &str, address: &str) -> Option<Card> {
             in_profiles = false;
             continue;
         }
-        if trimmed.starts_with("api.bluez5.codec") && card.codec.is_none() {
+        if (trimmed.starts_with("api.bluez5.codec") || trimmed.starts_with("bluetooth.codec")) && card.codec.is_none() {
             card.codec = trimmed.split_once('=').and_then(|(_, value)| Codec::read(value));
             continue;
         }
@@ -665,7 +721,7 @@ pub fn read_card(list: &str, address: &str) -> Option<Card> {
 }
 
 pub fn sink_codec(sinks: &str, address: &str) -> Option<Codec> {
-    let prefix = sink_prefix(address);
+    let prefixes = sink_prefixes(address);
     let mut inside = false;
     for line in sinks.lines() {
         let trimmed = line.trim();
@@ -674,22 +730,35 @@ pub fn sink_codec(sinks: &str, address: &str) -> Option<Codec> {
             continue;
         }
         if let Some(name) = trimmed.strip_prefix("Name:") {
-            inside = name.trim().starts_with(&prefix);
+            inside = prefixes.iter().any(|prefix| name.trim().starts_with(prefix.as_str()));
             continue;
         }
-        if inside && trimmed.starts_with("api.bluez5.codec") {
+        if inside && (trimmed.starts_with("api.bluez5.codec") || trimmed.starts_with("bluetooth.codec")) {
             return trimmed.split_once('=').and_then(|(_, value)| Codec::read(value));
         }
     }
     None
 }
 
-pub fn short_named(short: &str, prefix: &str) -> Option<String> {
+pub fn short_named(short: &str, prefixes: &[String]) -> Option<String> {
     short
         .lines()
         .filter_map(|line| line.split('\t').nth(1))
-        .find(|name| name.starts_with(prefix))
+        .find(|name| prefixes.iter().any(|prefix| name.starts_with(prefix.as_str())))
         .map(str::to_string)
+}
+
+pub fn wpctl_node(status: &str, prefixes: &[String]) -> Option<u32> {
+    status.lines().find_map(|line| {
+        let rest = line.trim_start_matches(|c: char| !c.is_ascii_digit());
+        let (id, name) = rest.split_once('.')?;
+        let name = name.trim().split_whitespace().next()?;
+        prefixes
+            .iter()
+            .any(|prefix| name.starts_with(prefix.as_str()))
+            .then(|| id.trim().parse().ok())
+            .flatten()
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1217,6 +1286,17 @@ mod tests {
 ";
 
     #[test]
+    fn a_pulseaudio_card_reads_like_a_pipewire_one() {
+        let cards = "Card #4\n\tName: bluez_card.AA_BB_CC_DD_EE_FF\n\tProperties:\n\t\tbluetooth.codec = \"aac\"\n\tProfiles:\n\t\ta2dp_sink_sbc: High Fidelity Playback (A2DP Sink: SBC) (sinks: 1, sources: 0, priority: 40, available: yes)\n\t\ta2dp_sink_aac: High Fidelity Playback (A2DP Sink: AAC) (sinks: 1, sources: 0, priority: 40, available: yes)\n\t\theadset_head_unit: Headset Head Unit (HSP/HFP) (sinks: 1, sources: 1, priority: 30, available: yes)\n\t\toff: Off (sinks: 0, sources: 0, priority: 0, available: yes)\n\tActive Profile: a2dp_sink_aac\n";
+        let card = read_card(cards, "AA:BB:CC:DD:EE:FF").expect("the card");
+        assert_eq!(card.codec, Some(Codec::Aac));
+        assert!(!card.headset());
+        assert_eq!(card.profile_for(Sound::Best).as_deref(), Some("a2dp_sink_aac"));
+        assert_eq!(card.profile_for(Sound::Steady).as_deref(), Some("a2dp_sink_sbc"));
+        assert_eq!(card.headset_profile().as_deref(), Some("headset_head_unit"));
+    }
+
+    #[test]
     fn a_card_lists_its_profiles_and_codec() {
         let card = read_card(CARDS, "AA:BB:CC:DD:EE:FF").expect("the card");
         assert_eq!(card.active, "a2dp-sink");
@@ -1233,8 +1313,12 @@ mod tests {
     #[test]
     fn the_sink_is_found_by_its_address() {
         let short = "61\talsa_output.pci.analog-stereo\tPipeWire\ts32le 2ch 48000Hz\tSUSPENDED\n77\tbluez_output.AA_BB_CC_DD_EE_FF.1\tPipeWire\ts16le 2ch 48000Hz\tRUNNING\n";
-        assert_eq!(short_named(short, &sink_prefix("AA:BB:CC:DD:EE:FF")).as_deref(), Some("bluez_output.AA_BB_CC_DD_EE_FF.1"));
-        assert_eq!(short_named(short, &sink_prefix("11:22:33:44:55:66")), None);
+        assert_eq!(short_named(short, &sink_prefixes("AA:BB:CC:DD:EE:FF")).as_deref(), Some("bluez_output.AA_BB_CC_DD_EE_FF.1"));
+        assert_eq!(short_named(short, &sink_prefixes("11:22:33:44:55:66")), None);
+        let pulse = "3\tbluez_sink.AA_BB_CC_DD_EE_FF.a2dp_sink\tmodule-bluez5-device.c\ts16le 2ch 44100Hz\tRUNNING\n";
+        assert_eq!(short_named(pulse, &sink_prefixes("AA:BB:CC:DD:EE:FF")).as_deref(), Some("bluez_sink.AA_BB_CC_DD_EE_FF.a2dp_sink"), "PulseAudio names work too");
+        let status = " │  *   61. Built-in Audio Analog Stereo [vol: 0.40]\n │      77. bluez_output.AA_BB_CC_DD_EE_FF.1 [vol: 0.80]\n";
+        assert_eq!(wpctl_node(status, &sink_prefixes("AA:BB:CC:DD:EE:FF")), Some(77));
         let sinks = "Sink #77\n\tName: bluez_output.AA_BB_CC_DD_EE_FF.1\n\tProperties:\n\t\tapi.bluez5.codec = \"aac\"\n";
         assert_eq!(sink_codec(sinks, "AA:BB:CC:DD:EE:FF"), Some(Codec::Aac));
     }
@@ -1314,5 +1398,20 @@ mod tests {
             assert!(image.rgba.chunks(4).any(|pixel| pixel[3] > 200), "{word} draws something");
         }
         assert!(step_icon("blank", 26, [0, 0, 0], [0, 0, 0]).rgba.chunks(4).all(|pixel| pixel[3] == 0));
+    }
+
+    #[test]
+    fn the_tray_menu_lists_mine_with_battery() {
+        let mut mouse = device("Mouse", true, true);
+        mouse.battery = Some(90);
+        let blue = Blue {
+            on: true,
+            devices: vec![mouse, device("Pad", true, false), device("Other", false, false)],
+            ..Blue::default()
+        };
+        let labels: Vec<String> = menu(&blue).into_iter().map(|item| item.label).collect();
+        assert_eq!(labels, ["Mouse, 90%", "Pad, Connect", "", "Turn Bluetooth Off", "Bluetooth Settings…"]);
+        let off = menu(&Blue::default());
+        assert_eq!(off[0].label, "Turn Bluetooth On");
     }
 }

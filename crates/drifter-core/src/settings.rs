@@ -346,6 +346,7 @@ pub struct Model {
     pub places: Vec<crate::place::Place>,
     pub wifi: Option<crate::net::Wifi>,
     pub blue: Option<crate::blue::Blue>,
+    pub blue_missing: Option<crate::blue::Missing>,
     pub blue_open: Option<String>,
     pub blue_card: Option<crate::blue::Card>,
     pub blue_mic: bool,
@@ -377,6 +378,7 @@ pub enum NetAsk {
     BlueKey,
     Fix,
     Reset,
+    Service,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -547,6 +549,7 @@ impl Model {
             places: config.place.clone(),
             wifi: None,
             blue: None,
+            blue_missing: None,
             blue_open: None,
             blue_card: None,
             blue_mic: false,
@@ -2706,6 +2709,7 @@ pub enum Id {
     BlueForget,
     BlueReset,
     BlueStep(usize),
+    BlueService,
     LargeText,
     HighContrast,
     ReduceMotion,
