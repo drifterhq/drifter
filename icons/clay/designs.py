@@ -401,7 +401,7 @@ def app(name, parts, **kw):
     icon(f"apps/{name}", parts, **kw)
 
 
-def brand(name, slug, color, marks=(), soft=0.6):
+def brand(name, slug, color, marks=(), soft=0.8):
     s = open(os.path.join(HERE, "brands", f"{slug}.svg")).read()
     d = re.search(r'<path[^>]* d="([^"]+)"', s).group(1)
     icon(f"apps/{name}", [part("logo", "body", color, d)] + list(marks), transform="translate(10 10) scale(3.3333)", soft=soft)
@@ -481,7 +481,7 @@ app("org.gnome.Calculator", [
     part("screen", "top", MINT, rr(28, 18, 72, 34, 4)),
 ] + [part(f"k{i}", "mark", ORANGE_L if i % 3 == 2 else SLATE_L, rr(28 + (i % 3) * 16, 42 + (i // 3) * 15, 40 + (i % 3) * 16, 52 + (i // 3) * 15, 3)) for i in range(9)])
 app("org.gnome.Calendar", calendar())
-app("org.gnome.Characters", [part("tile", "body", PEACH, circle(50, 50, 38)), text("Ω", WHITE, 50, 52, 44, 50)])
+app("org.gnome.Characters", [part("tile", "body", PEACH, circle(50, 50, 38)), text("&", WHITE, 50, 52, 44, 50)])
 app("org.gnome.clocks", clockface(CREAM, SLATE, INK))
 app("org.gnome.Console", terminal(INK, WHITE))
 app("org.gnome.Contacts", person(TEAL, [part("badge", "top", GOLD, circle(74, 30, 10))]))
@@ -648,7 +648,7 @@ app("teams-for-linux", [
 brand("Alacritty", "alacritty", "#f46d01")
 brand("audacity", "audacity", "#2f6fe0")
 brand("bitwarden", "bitwarden", "#175ddc")
-brand("blender", "blender", "#e87d0d", [part("eye", "body", "#265787", circle(60, 56, 9))])
+brand("blender", "blender", "#e87d0d")
 brand("brave-browser", "brave", "#fb542b")
 brand("code", "vscodium", "#0a78d1")
 brand("codium", "vscodium", "#2f80ed")
