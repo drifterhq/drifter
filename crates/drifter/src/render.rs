@@ -25,6 +25,7 @@ mod heads;
 mod launchpad;
 mod lit;
 mod shoot;
+mod spatial;
 mod thumbs;
 mod speech;
 mod input;
@@ -481,6 +482,8 @@ pub struct State {
     power_rules: drifter_core::Power,
     slept: bool,
     notify: drifter_core::Notify,
+    sound: drifter_core::config::SoundConfig,
+    spatial: Option<crate::spatial::Spatial>,
     noted: Vec<u32>,
     shortcuts: Vec<(
         drifter_core::shortcut::Action,
@@ -1234,6 +1237,7 @@ impl State {
         }
 
         self.restyle(now);
+        self.place_sound();
         self.send_resize();
         if drew {
             self.speak();

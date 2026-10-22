@@ -590,7 +590,70 @@ impl Model {
                 footer: Some(crate::lang::t("The volume keys work everywhere.").into()),
                 thumbs: None,
             },
+            self.spatial_group(),
         ]
+    }
+
+    fn spatial_group(&self) -> Group {
+        let spatial = &self.spatial;
+        let mut rows = vec![
+            Row::new(Id::SpatialOn, crate::lang::t("Spatial sound"), Control::Switch(spatial.spatial))
+                .detail(crate::lang::t("Each app sounds from the side of the screen where its window sits")),
+            Row::new(
+                Id::SpatialMix,
+                crate::lang::t("Intensity"),
+                Control::Slider {
+                    least: f64::from(crate::spatial::MIX.0),
+                    most: f64::from(crate::spatial::MIX.1),
+                    value: f64::from(spatial.spatial_mix),
+                    unit: "%",
+                    zero: Some(crate::lang::t("Plain")),
+                },
+            )
+            .detail(crate::lang::t("How much of the spatial sound mixes into the plain sound"))
+            .enabled(spatial.spatial),
+        ];
+        for (at, app) in spatial.spatial_ignore.iter().enumerate() {
+            let known = self.names.get(app);
+            if known.is_none() && crate::spatial::QUIET_APPS.contains(&app.as_str()) {
+                continue;
+            }
+            let mut row = Row::new(
+                Id::SpatialIgnore(at),
+                known.map(String::as_str).unwrap_or(app),
+                Control::Buttons(vec![Mark::Minus]),
+            )
+            .detail(crate::lang::t("Plain sound"))
+            .enabled(spatial.spatial);
+            row.icon = Some(match known {
+                Some(_) => format!("app:{app}"),
+                None => format!("icon:{app}"),
+            });
+            rows.push(row);
+        }
+        rows.push(
+            Row::new(
+                Id::SpatialAdd,
+                crate::lang::t("Add an app that is playing sound"),
+                Control::Buttons(vec![Mark::Plus]),
+            )
+            .faint()
+            .enabled(spatial.spatial),
+        );
+        Group {
+            header: Some(crate::lang::t("Spatial sound")),
+            rows,
+            footer: Some(crate::lang::t("Apps in this list keep plain sound. Music players start in it.").into()),
+            thumbs: None,
+        }
+    }
+
+    pub fn ignore_spatial(&mut self, app: String) {
+        let app = app.trim().to_string();
+        if app.is_empty() || self.spatial.spatial_ignore.iter().any(|each| each.eq_ignore_ascii_case(&app)) {
+            return;
+        }
+        self.spatial.spatial_ignore.push(app);
     }
 
     pub(super) fn shortcut_groups(&self) -> Vec<Group> {
@@ -1335,6 +1398,11 @@ impl Model {
             (Id::ShotShadow, Value::Switch(on)) => self.shots.shadow = on,
             (Id::ShotPointer, Value::Switch(on)) => self.shots.pointer = on,
             (Id::ShotSound, Value::Switch(on)) => self.shots.sound = on,
+            (Id::SpatialOn, Value::Switch(on)) => self.spatial.spatial = on,
+            (Id::SpatialMix, Value::Number(n)) => {
+                let (least, most) = crate::spatial::MIX;
+                self.spatial.spatial_mix = n.round().clamp(f64::from(least), f64::from(most)) as u32
+            }
             (Id::ShotJoined, Value::Choice(n)) => self.shots.joined = n == 1,
             (Id::Profile, Value::Choice(n)) => {
                 if let Some(profiles) = self.profile.as_mut() {
@@ -1515,6 +1583,10 @@ impl Model {
                 *self.keys.get_mut(action) = action.default_combo().to_string();
             }
             (Id::Output, _) => return Some(Ask::Choose(For::Output)),
+            (Id::SpatialIgnore(at), _) if at < self.spatial.spatial_ignore.len() => {
+                self.spatial.spatial_ignore.remove(at);
+            }
+            (Id::SpatialAdd, _) => return Some(Ask::Choose(For::SpatialApp)),
             (Id::Input, _) => return Some(Ask::Choose(For::Input)),
             (Id::Zone, _) => return Some(Ask::Choose(For::Zone)),
             (Id::Export, _) => return Some(Ask::Files(For::Export)),
@@ -1536,6 +1608,7 @@ impl Model {
             For::IconTheme => self.appearance.icons = Some(code),
             For::CursorTheme => self.appearance.cursor_theme = Some(code),
             For::Zone => self.zone = code,
+            For::SpatialApp => self.ignore_spatial(code),
             For::Output | For::Input => {
                 let Ok(id) = code.parse::<u32>() else {
                     return;
@@ -1866,6 +1939,18 @@ impl Model {
             }
         }
 
+        let (spatial, was) = (&self.spatial, &before.spatial);
+        if spatial.spatial != was.spatial {
+            put(doc, "sound", "spatial", flag(spatial.spatial));
+        }
+        if spatial.spatial_mix != was.spatial_mix {
+            put(doc, "sound", "spatial_mix", int(u64::from(spatial.spatial_mix)));
+        }
+        if spatial.spatial_ignore != was.spatial_ignore {
+            let list: toml_edit::Array = spatial.spatial_ignore.iter().map(String::as_str).collect();
+            put(doc, "sound", "spatial_ignore", toml_edit::Value::Array(list));
+        }
+
         let (notify, was) = (&self.notify, &before.notify);
         if notify.quiet != was.quiet {
             put(doc, "notify", "quiet", flag(notify.quiet));
@@ -1946,6 +2031,51 @@ mod tests {
     }
 
     use crate::config::Motion;
+
+    #[test]
+    fn spatial_sound_is_off_with_music_players_ignored_by_default() {
+        let config = Config::parse("").unwrap();
+        assert!(!config.sound.spatial);
+        assert_eq!(config.sound.spatial_mix, 60);
+        assert!(config.sound.spatial_ignore.iter().any(|app| app == "spotify"));
+        assert!(Config::parse("[sound]\nspatial_mix = 101\n").unwrap().validate().is_err());
+        assert!(Config::parse("[sound]\nloud = 1\n").is_err());
+        let config = Config::parse("[sound]\nspatial = true\nspatial_mix = 25\nspatial_ignore = [\"mpv\"]\n").unwrap();
+        assert!(config.sound.spatial);
+        assert_eq!(config.sound.spatial_mix, 25);
+        assert_eq!(config.sound.spatial_ignore, vec!["mpv".to_string()]);
+    }
+
+    #[test]
+    fn spatial_sound_choices_are_written() {
+        let back = round_trip("[sound]\nspatial_ignore = [\"spotify\", \"vlc\"]\n", |m| {
+            m.set(Id::SpatialOn, Value::Switch(true));
+            m.set(Id::SpatialMix, Value::Number(140.0));
+            m.press(Id::SpatialIgnore(0), 0);
+            m.choose(For::SpatialApp, "firefox".into());
+            m.choose(For::SpatialApp, "VLC".into());
+        });
+        assert!(back.sound.spatial);
+        assert_eq!(back.sound.spatial_mix, 100);
+        assert_eq!(back.sound.spatial_ignore, vec!["vlc".to_string(), "firefox".to_string()]);
+    }
+
+    #[test]
+    fn the_spatial_list_hides_music_players_that_are_not_installed() {
+        let mut m = model("[sound]\nspatial = true\nspatial_ignore = [\"spotify\", \"rhythmbox\", \"mpv\"]\n");
+        m.sound.ready = true;
+        m.names.insert("rhythmbox".into(), "Rhythmbox".into());
+        let group = m.spatial_group();
+        let ignored: Vec<(&Id, &str)> = group
+            .rows
+            .iter()
+            .filter(|row| matches!(row.id, Id::SpatialIgnore(_)))
+            .map(|row| (&row.id, row.label.as_str()))
+            .collect();
+        assert_eq!(ignored, vec![(&Id::SpatialIgnore(1), "Rhythmbox"), (&Id::SpatialIgnore(2), "mpv")]);
+        assert_eq!(m.press(Id::SpatialAdd, 0), Some(Ask::Choose(For::SpatialApp)));
+        assert!(m.groups(Section::Sound).iter().any(|group| group.rows.iter().any(|row| row.id == Id::SpatialMix)));
+    }
 
     #[test]
     fn appearance_choices_are_written_and_reset_removes_them() {

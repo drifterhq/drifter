@@ -531,6 +531,36 @@ fn output(program: &str, args: &[&str]) -> Option<String> {
         .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
+fn playing_apps() -> Vec<Choice> {
+    let Some(list) = std::process::Command::new("pactl")
+        .env("LC_ALL", "C")
+        .args(["list", "sink-inputs"])
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()
+        .filter(|out| out.status.success())
+        .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
+    else {
+        return Vec::new();
+    };
+    let mut found: Vec<Choice> = Vec::new();
+    for stream in drifter_core::spatial::read_streams(&list) {
+        let code = match stream.binary.is_empty() {
+            true => stream.name.clone(),
+            false => stream.binary.clone(),
+        };
+        if code.is_empty() || found.iter().any(|each| each.code == code) {
+            continue;
+        }
+        let name = match stream.name.is_empty() {
+            true => code.clone(),
+            false => stream.name.clone(),
+        };
+        found.push(Choice::new(&code, &name));
+    }
+    found
+}
+
 fn wpctl(args: &[&str]) {
     if let Err(error) = std::process::Command::new("wpctl").args(args).status() {
         log!("drifter-settings: wpctl {args:?}: {error}");
@@ -2118,8 +2148,14 @@ impl Settings {
             For::Output => system::choices(&self.model.sound.outputs),
             For::Input => system::choices(&self.model.sound.inputs),
             For::Zone => zones(),
+            For::SpatialApp => playing_apps(),
             _ => Vec::new(),
         };
+        if purpose == For::SpatialApp && items.is_empty() {
+            let words = drifter_core::lang::t("No app is playing sound right now.").to_string();
+            self.sheet = Some(Sheet::info(purpose, drifter_core::lang::t("Keep plain sound for"), vec![(words, String::new())]));
+            return;
+        }
         self.sheet = Some(Sheet::choices(purpose, items));
     }
 

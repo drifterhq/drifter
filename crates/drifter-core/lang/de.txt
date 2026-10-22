@@ -4484,3 +4484,30 @@ This card can use Wi-Fi and AirDrop at the same time. Wi-Fi stays connected whil
 
 This card can't use Wi-Fi and AirDrop at the same time. While AirDrop is on, Wi-Fi turns off. Wi-Fi comes back when AirDrop stops, a few seconds after a transfer ends.
 = Diese Karte kann WLAN und AirDrop nicht gleichzeitig nutzen. Während AirDrop an ist, ist das WLAN aus. Das WLAN kommt zurück, wenn AirDrop stoppt, wenige Sekunden nach dem Ende einer Übertragung.
+
+Spatial sound
+= Raumklang
+
+Each app sounds from the side of the screen where its window sits
+= Jede App klingt von der Seite des Bildschirms, auf der ihr Fenster liegt
+
+Intensity
+= Stärke
+
+How much of the spatial sound mixes into the plain sound
+= Wie viel Raumklang in den normalen Klang gemischt wird
+
+Plain sound
+= Normaler Klang
+
+Add an app that is playing sound
+= Eine App hinzufügen, die gerade Ton abspielt
+
+Apps in this list keep plain sound. Music players start in it.
+= Apps in dieser Liste behalten den normalen Klang. Musikplayer stehen schon darin.
+
+Keep plain sound for
+= Normalen Klang behalten für
+
+No app is playing sound right now.
+= Gerade spielt keine App Ton ab.

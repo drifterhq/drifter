@@ -410,6 +410,8 @@ pub fn open(
         power_rules: config.power,
         slept: false,
         notify: config.notify,
+        sound: config.sound.clone(),
+        spatial: crate::spatial::Spatial::start(),
         noted: Vec::new(),
         shortcuts: Vec::new(),
         switch_mods: drifter_core::shortcut::Mods::default(),

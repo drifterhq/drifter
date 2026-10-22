@@ -1131,6 +1131,31 @@ fn note_seconds() -> u32 {
     5
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SoundConfig {
+    #[serde(default)]
+    pub spatial: bool,
+    #[serde(default = "spatial_mix")]
+    pub spatial_mix: u32,
+    #[serde(default = "crate::spatial::quiet_apps")]
+    pub spatial_ignore: Vec<String>,
+}
+
+fn spatial_mix() -> u32 {
+    60
+}
+
+impl Default for SoundConfig {
+    fn default() -> Self {
+        SoundConfig {
+            spatial: false,
+            spatial_mix: spatial_mix(),
+            spatial_ignore: crate::spatial::quiet_apps(),
+        }
+    }
+}
+
 impl Default for Notify {
     fn default() -> Self {
         Notify {
@@ -1316,6 +1341,8 @@ pub struct Config {
     pub power: Power,
     #[serde(default)]
     pub notify: Notify,
+    #[serde(default)]
+    pub sound: SoundConfig,
     #[serde(default)]
     pub keys: Keys,
     #[serde(default)]
@@ -1913,6 +1940,12 @@ impl Config {
         if !(weak..=strong).contains(&self.workspace.ripple_strength) {
             return Err(ConfigError::Invalid(format!(
                 "workspace ripple_strength is percent from {weak} to {strong}"
+            )));
+        }
+        let (least, most) = crate::spatial::MIX;
+        if !(least..=most).contains(&self.sound.spatial_mix) {
+            return Err(ConfigError::Invalid(format!(
+                "sound spatial_mix is percent from {least} to {most}"
             )));
         }
         if !(MAGNIFY.0..=MAGNIFY.1).contains(&self.dock.magnify) {
