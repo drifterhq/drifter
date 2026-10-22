@@ -8,7 +8,7 @@ const RADIO: &str = "io.github.t4t5.Owly.Radio1";
 const CONFIG: &str = "/etc/owly/radio.toml";
 
 pub fn report() -> Report {
-    let owly = airdrop::on_path("owly");
+    let owly = airdrop::owly_program().is_some();
     let probed = owly
         .then(|| {
             let bus = zbus::blocking::Connection::system().ok()?;
@@ -20,8 +20,13 @@ pub fn report() -> Report {
     probed.unwrap_or_else(|| Report::from_cards(&airdrop::cards(std::path::Path::new("/sys/class/net")), owly))
 }
 
-pub fn hint() -> &'static str {
-    airdrop::install_hint(&std::fs::read_to_string("/etc/os-release").unwrap_or_default())
+pub fn set_up() -> Result<(), String> {
+    let script = airdrop::setup_script().ok_or_else(|| drifter_core::lang::t("Run scripts/install.sh in the Drifter folder to set up AirDrop.").to_string())?;
+    let out = Command::new("pkexec").arg(&script).stdin(Stdio::null()).output().map_err(|error| error.to_string())?;
+    match out.status.success() {
+        true => Ok(()),
+        false => Err(drifter_core::lang::t("AirDrop's radio service was not set up.").to_string()),
+    }
 }
 
 pub fn allows_untested() -> bool {
@@ -46,7 +51,7 @@ pub fn allow_untested() -> Result<(), String> {
         .map_err(|error| error.to_string())?;
     match out.status.success() {
         true => Ok(()),
-        false => Err(drifter_core::lang::t("Owly was not told to allow this card.").to_string()),
+        false => Err(drifter_core::lang::t("AirDrop could not be allowed on this card.").to_string()),
     }
 }
 
@@ -67,6 +72,12 @@ pub fn drifter_receive(on: bool) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
+pub fn drifter_refresh() {
+    if let Ok(bus) = zbus::blocking::Connection::session() {
+        let _ = bus.call_method(Some(DRIFTER), DRIFTER_PATH, Some(DRIFTER_FACE), "Refresh", &());
+    }
+}
+
 pub fn drifter_send(files: &[std::path::PathBuf]) -> Result<(), String> {
     let bus = zbus::blocking::Connection::session().map_err(|error| error.to_string())?;
     let paths: Vec<String> = files.iter().map(|file| file.to_string_lossy().into_owned()).collect();
@@ -83,6 +94,5 @@ mod tests {
         let report = super::report();
         println!("{report:?}");
         println!("{}", report.words());
-        println!("{}", super::hint());
     }
 }

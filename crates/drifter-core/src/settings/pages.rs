@@ -1499,7 +1499,7 @@ impl Model {
             (Id::ShotFolder, 0) => return Some(Ask::Files(For::ShotFolder)),
             (Id::AirDropFolder, 0) => return Some(Ask::Files(For::AirDropFolder)),
             (Id::AirDropFolder, _) => self.airdrop.folder = None,
-            (Id::AirDropOwly, _) => return Some(Ask::Net(NetAsk::OwlyPage)),
+            (Id::AirDropSetUp, _) => return Some(Ask::Net(NetAsk::AirDropSetUp)),
             (Id::ShotFolder, _) => self.shots.folder = None,
             (Id::Variant, _) => return Some(Ask::Choose(For::Variant)),
             (Id::IconTheme, 0) => return Some(Ask::Choose(For::IconTheme)),
@@ -1570,13 +1570,14 @@ impl Model {
             }];
         };
         let shown = report.shown(self.airdrop.force);
-        let state = match (shown, report.owly, report.ready()) {
+        let set_up = report.owly && report.owlyd;
+        let state = match (shown, set_up, report.ready()) {
             (false, _, _) => crate::lang::t("Not available"),
-            (true, false, _) => crate::lang::t("Needs Owly"),
+            (true, false, _) => crate::lang::t("Needs setup"),
             (true, true, false) => crate::lang::t("Not ready"),
             (true, true, true) => crate::lang::t("Ready"),
         };
-        let more = match (&self.net_note, report.owly, report.missing.first()) {
+        let more = match (&self.net_note, set_up, report.missing.first()) {
             (Some(note), _, _) => Some(note.clone()),
             (None, true, Some(missing)) => Some(missing.clone()),
             _ => report.wifi_words().map(str::to_string),
@@ -1590,14 +1591,16 @@ impl Model {
             }),
             thumbs: None,
         }];
-        if !report.owly {
+        if shown && !set_up {
             groups.push(Group {
-                header: Some(crate::lang::t("Owly")),
-                rows: vec![
-                    Row::new(Id::AirDropOwly, crate::lang::t("Get Owly"), Control::Buttons(vec![Mark::Text(crate::lang::t("How"))]))
-                        .detail(self.airdrop_hint),
-                ],
-                footer: Some(crate::lang::t("Owly is the free app that lets Linux speak AirDrop. Drifter uses it once it is installed.").into()),
+                header: None,
+                rows: vec![Row::new(
+                    Id::AirDropSetUp,
+                    crate::lang::t("Radio service"),
+                    Control::Buttons(vec![Mark::Text(crate::lang::t("Set Up"))]),
+                )
+                .detail(crate::lang::t("Comes with Drifter"))],
+                footer: Some(crate::lang::t("AirDrop needs a small radio service that comes with Drifter.").into()),
                 thumbs: None,
             });
         }

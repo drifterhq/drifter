@@ -4281,9 +4281,6 @@ Xbox controllers report it with the xpadneo driver
 Accept
 = Accepter
 
-Add Owly's flake: github:t4t5/owly, then services.owly.enable = true
-= Ajoutez le flake d’Owly : github:t4t5/owly, puis services.owly.enable = true
-
 AirDrop did not answer: {}
 = AirDrop n’a pas répondu : {}
 
@@ -4299,17 +4296,11 @@ AirDrop did not start
 AirDrop is off
 = AirDrop est désactivé
 
-AirDrop needs Owly
-= AirDrop a besoin d’Owly
-
 AirDrop stopped. Close this and try again.
 = AirDrop s’est arrêté. Fermez ceci et réessayez.
 
 Another app is using AirDrop right now.
 = Une autre app utilise AirDrop en ce moment.
-
-Build Owly from github.com/t4t5/owly
-= Compilez Owly depuis github.com/t4t5/owly
 
 Choose where AirDrop saves files
 = Choisissez où AirDrop enregistre les fichiers
@@ -4338,20 +4329,8 @@ For a Wi-Fi card that Drifter thinks can't do AirDrop
 From {}. Saved in {}.
 = De {}. Enregistré dans {}.
 
-Get Owly
-= Obtenir Owly
-
 How
 = Comment
-
-Install Owly from the AUR: yay -S owly
-= Installez Owly depuis l’AUR : yay -S owly
-
-Install the .deb from github.com/t4t5/owly/releases with sudo apt install
-= Installez le .deb de github.com/t4t5/owly/releases avec sudo apt install
-
-Install the .rpm from github.com/t4t5/owly/releases with sudo dnf install
-= Installez le .rpm de github.com/t4t5/owly/releases avec sudo dnf install
 
 Let nearby Apple devices send to me
 = Laisser les appareils Apple proches m’envoyer
@@ -4359,32 +4338,11 @@ Let nearby Apple devices send to me
 Looking for nearby devices. On the iPhone, open AirDrop and choose Everyone for 10 minutes.
 = Recherche d’appareils proches. Sur l’iPhone, ouvrez AirDrop et choisissez Tout le monde pendant 10 minutes.
 
-Needs Owly
-= Nécessite Owly
-
 Nobody has tested AirDrop on this Wi-Fi card yet ({}).
 = Personne n’a encore testé AirDrop avec cette carte Wi-Fi ({}).
 
 Not ready
 = Pas prêt
-
-Owly
-= Owly
-
-Owly could not be started.
-= Owly n’a pas pu démarrer.
-
-Owly is the free app that lets Linux speak AirDrop. Drifter uses it once it is installed.
-= Owly est l’app gratuite qui permet à Linux de parler AirDrop. Drifter l’utilise une fois installée.
-
-Owly was not told to allow this card.
-= Owly n’a pas été autorisé à utiliser cette carte.
-
-Owly will now try this card.
-= Owly va maintenant essayer cette carte.
-
-Owly's radio service is not installed or did not start.
-= Le service radio d’Owly n’est pas installé ou n’a pas démarré.
 
 Ready
 = Prêt
@@ -4460,3 +4418,45 @@ iPhone or iPad nearby
 
 {} wants to AirDrop
 = {} veut envoyer par AirDrop
+
+AirDrop could not be allowed on this card.
+= AirDrop n'a pas pu être autorisé sur cette carte.
+
+AirDrop could not start.
+= AirDrop n'a pas pu démarrer.
+
+AirDrop is set up.
+= AirDrop est configuré.
+
+AirDrop needs a small radio service that comes with Drifter.
+= AirDrop a besoin d'un petit service radio fourni avec Drifter.
+
+AirDrop needs setting up
+= AirDrop doit être configuré
+
+AirDrop will now try this card.
+= AirDrop va maintenant essayer cette carte.
+
+AirDrop's radio service is not set up or did not start.
+= Le service radio d'AirDrop n'est pas configuré ou n'a pas démarré.
+
+AirDrop's radio service was not set up.
+= Le service radio d'AirDrop n'a pas été configuré.
+
+Comes with Drifter
+= Fourni avec Drifter
+
+Needs setup
+= À configurer
+
+Radio service
+= Service radio
+
+Run scripts/install.sh in the Drifter folder to set up AirDrop.
+= Lancez scripts/install.sh dans le dossier de Drifter pour configurer AirDrop.
+
+Set it up in Settings, AirDrop.
+= Configurez-le dans Réglages, AirDrop.
+
+Setting up AirDrop. Type your password if asked.
+= Configuration d'AirDrop. Tapez votre mot de passe si demandé.

@@ -66,6 +66,10 @@ command -v bluetoothd >/dev/null 2>&1 || [ -x /usr/lib/bluetooth/bluetoothd ] ||
 command -v pactl >/dev/null 2>&1 \
     || echo "install pactl so Bluetooth headphones can pick their sound: pulseaudio-utils (Debian, Fedora) or libpulse (Arch)"
 
+if [ -x "$here/target/release/owlyd" ]; then
+    sudo "$here/scripts/airdrop-service.sh"
+fi
+
 if [ ! -x "$here/target/release/drifter" ]; then
-    echo "build it before you log in: cargo build --release"
+    echo "build it before you log in: cargo build --release, then run this again"
 fi

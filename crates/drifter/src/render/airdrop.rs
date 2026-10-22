@@ -85,7 +85,7 @@ impl Default for Drop {
 
 fn spawn(args: &[&str], stdin: bool) -> Option<Child> {
     use std::os::unix::process::CommandExt;
-    let mut command = Command::new("owly");
+    let mut command = Command::new(airdrop::owly_program()?);
     unsafe {
         command.pre_exec(|| {
             let mut none: libc::sigset_t = std::mem::zeroed();
@@ -168,6 +168,7 @@ impl State {
                         match event {
                             crate::airdrop::Event::Send(files) => state.airdrop_share(files),
                             crate::airdrop::Event::Receive(on) => state.airdrop_receive(on),
+                            crate::airdrop::Event::Refresh => state.airdrop_refresh(),
                         }
                     }
                 });
@@ -213,7 +214,7 @@ impl State {
     }
 
     fn airdrop_ready(&self) -> bool {
-        self.drop.report.as_ref().is_some_and(|report| report.owly && report.owlyd) || (self.drop.force && airdrop::on_path("owly"))
+        self.drop.report.as_ref().is_some_and(|report| report.owly && report.owlyd)
     }
 
     fn airdrop_publish(&mut self) {
@@ -232,7 +233,7 @@ impl State {
 
     fn airdrop_note(&self) -> String {
         match (self.drop.until, self.airdrop_ready()) {
-            (_, false) => drifter_core::lang::t("Needs Owly").to_string(),
+            (_, false) => drifter_core::lang::t("Needs setup").to_string(),
             (None, true) => drifter_core::lang::t("Off").to_string(),
             (Some(_), true) if !self.drop.up => drifter_core::lang::t("Turning on…").to_string(),
             (Some(until), true) => {
@@ -275,8 +276,7 @@ impl State {
             return;
         }
         if !self.airdrop_ready() {
-            let hint = drifter_blue::owly::hint();
-            self.airdrop_say(drifter_core::lang::t("AirDrop needs Owly"), hint);
+            self.airdrop_say(drifter_core::lang::t("AirDrop needs setting up"), drifter_core::lang::t("Set it up in Settings, AirDrop."));
             self.open_settings_at("airdrop");
             return;
         }
@@ -298,7 +298,7 @@ impl State {
         self.drop.peers.clear();
         let session = self.drop.session;
         let Some(mut child) = spawn(&["radio", "up"], false) else {
-            self.airdrop_failed(drifter_core::lang::t("Owly could not be started.").to_string());
+            self.airdrop_failed(drifter_core::lang::t("AirDrop could not start.").to_string());
             return;
         };
         if let Some(err) = child.stderr.take() {
@@ -532,7 +532,7 @@ impl State {
             lane: worker::Lane::default(),
             check: None,
             haze: None,
-            status: (!self.airdrop_ready()).then(|| drifter_blue::owly::hint().to_string()),
+            status: (!self.airdrop_ready()).then(|| drifter_core::lang::t("Set it up in Settings, AirDrop.").to_string()),
             browse: None,
         });
         if self.airdrop_ready() {

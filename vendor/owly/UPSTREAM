@@ -1,0 +1,14 @@
+Owly, the AirDrop radio and protocol stack Drifter uses.
+
+From: https://github.com/t4t5/owly
+Commit: 2e9b2b0 (v0.4.0)
+License: MIT, see LICENSE
+
+Taken: crates/owly-awdl, owly-airdrop, owly-radio, owlyd, owly-cli;
+the service files in packaging/; tests/vectors.
+Left out: omdrop-owl, xtask, fuzz, tests/captures (the replay test skips
+without them), the distro packaging.
+
+To update, copy the same paths from a newer upstream commit and change
+the commit above. The Cargo.toml files spell out what upstream's
+workspace gave them.

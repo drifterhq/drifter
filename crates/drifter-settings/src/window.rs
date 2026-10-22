@@ -62,7 +62,7 @@ enum BlueNews {
     Card(String, Option<drifter_core::blue::Card>),
     Note(String),
     Step(usize, drifter_core::blue::Step),
-    Air(drifter_core::airdrop::Report, &'static str, Option<bool>),
+    Air(drifter_core::airdrop::Report, Option<bool>),
     Shake(String),
     Done(Option<String>),
 }
@@ -3305,11 +3305,9 @@ impl Settings {
                 }
             }
             BlueNews::Note(note) => self.model.net_note = Some(note),
-            BlueNews::Air(report, hint, receiving) => {
+            BlueNews::Air(report, receiving) => {
                 self.model.airdrop_report = Some(report.clone());
                 self.saved.airdrop_report = Some(report);
-                self.model.airdrop_hint = hint;
-                self.saved.airdrop_hint = hint;
                 self.model.airdrop_receiving = receiving;
                 self.saved.airdrop_receiving = receiving;
                 if self.section == Section::AirDrop && self.sheet.is_none() {
@@ -3509,13 +3507,21 @@ impl Settings {
                     self.blue_fix(device);
                 }
             }
-            NetAsk::OwlyPage => {
-                let _ = std::process::Command::new("xdg-open")
-                    .arg(drifter_core::airdrop::OWLY_PAGE)
-                    .stdin(std::process::Stdio::null())
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .spawn();
+            NetAsk::AirDropSetUp => {
+                self.model.net_note = Some(drifter_core::lang::t("Setting up AirDrop. Type your password if asked.").to_string());
+                self.stale = true;
+                let back = self.blue_back.clone();
+                let _ = std::thread::Builder::new().name("settings-airdrop".into()).spawn(move || {
+                    let said = match drifter_blue::owly::set_up() {
+                        Ok(()) => drifter_core::lang::t("AirDrop is set up.").to_string(),
+                        Err(error) => error,
+                    };
+                    let _ = back.send(BlueNews::Note(said));
+                    drifter_blue::owly::drifter_refresh();
+                    let report = drifter_blue::owly::report();
+                    let receiving = drifter_blue::owly::drifter_state().filter(|(_, ready, _)| *ready).map(|(_, _, on)| on);
+                    let _ = back.send(BlueNews::Air(report, receiving));
+                });
             }
             NetAsk::Service => {
                 let note = drifter_core::lang::t("Starting the Bluetooth service. Type your password if asked.").to_string();
@@ -3615,7 +3621,7 @@ impl Settings {
         let _ = std::thread::Builder::new().name("settings-airdrop".into()).spawn(move || {
             let report = drifter_blue::owly::report();
             let receiving = drifter_blue::owly::drifter_state().filter(|(_, ready, _)| *ready).map(|(_, _, on)| on);
-            let _ = back.send(BlueNews::Air(report, drifter_blue::owly::hint(), receiving));
+            let _ = back.send(BlueNews::Air(report, receiving));
         });
     }
 
@@ -3632,7 +3638,7 @@ impl Settings {
                 std::thread::sleep(std::time::Duration::from_millis(600));
                 let report = drifter_blue::owly::report();
                 let receiving = drifter_blue::owly::drifter_state().filter(|(_, ready, _)| *ready).map(|(_, _, on)| on);
-                let _ = back.send(BlueNews::Air(report, drifter_blue::owly::hint(), receiving));
+                let _ = back.send(BlueNews::Air(report, receiving));
             });
         }
         let untested = self
@@ -3644,7 +3650,7 @@ impl Settings {
             let back = self.blue_back.clone();
             let _ = std::thread::Builder::new().name("settings-airdrop".into()).spawn(move || {
                 let said = match drifter_blue::owly::allow_untested() {
-                    Ok(()) => drifter_core::lang::t("Owly will now try this card.").to_string(),
+                    Ok(()) => drifter_core::lang::t("AirDrop will now try this card.").to_string(),
                     Err(error) => error,
                 };
                 let _ = back.send(BlueNews::Note(said));

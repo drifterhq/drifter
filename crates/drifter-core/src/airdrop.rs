@@ -125,7 +125,7 @@ impl Report {
         let missing = value
             .get("missing")
             .and_then(|list| list.as_array())
-            .map(|list| list.iter().filter_map(|item| item.get("say")?.as_str().map(str::to_string)).collect())
+            .map(|list| list.iter().filter_map(|item| item.get("say")?.as_str().map(|say| say.replace("Owly", "AirDrop"))).collect())
             .unwrap_or_default();
         let card = text("station").map(|iface| Card {
             iface,
@@ -171,33 +171,18 @@ impl Report {
     }
 }
 
-pub fn on_path(program: &str) -> bool {
-    std::env::var_os("PATH").is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(program).is_file()))
+pub fn owly_program() -> Option<PathBuf> {
+    let beside = std::env::current_exe().ok().and_then(|exe| Some(exe.parent()?.join("owly")));
+    beside.filter(|path| path.is_file()).or_else(|| {
+        let path = std::env::var_os("PATH")?;
+        std::env::split_paths(&path).map(|dir| dir.join("owly")).find(|path| path.is_file())
+    })
 }
 
-pub fn install_hint(os_release: &str) -> &'static str {
-    let field = |key: &str| {
-        os_release
-            .lines()
-            .find_map(|line| line.strip_prefix(key))
-            .map(|value| value.trim_matches('"').to_lowercase())
-            .unwrap_or_default()
-    };
-    let (id, like) = (field("ID="), field("ID_LIKE="));
-    let is = |name: &str| id == name || like.split_whitespace().any(|each| each == name);
-    if is("arch") {
-        return crate::lang::t("Install Owly from the AUR: yay -S owly");
-    }
-    if is("nixos") {
-        return crate::lang::t("Add Owly's flake: github:t4t5/owly, then services.owly.enable = true");
-    }
-    if is("fedora") || is("rhel") {
-        return crate::lang::t("Install the .rpm from github.com/t4t5/owly/releases with sudo dnf install");
-    }
-    if is("debian") || is("ubuntu") {
-        return crate::lang::t("Install the .deb from github.com/t4t5/owly/releases with sudo apt install");
-    }
-    crate::lang::t("Build Owly from github.com/t4t5/owly")
+pub fn setup_script() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let script = exe.parent()?.parent()?.parent()?.join("scripts/airdrop-service.sh");
+    script.is_file().then_some(script)
 }
 
 pub fn glyph(side: u32, ink: [u8; 3]) -> crate::image::Image {
@@ -212,7 +197,6 @@ pub fn glyph(side: u32, ink: [u8; 3]) -> crate::image::Image {
     })
 }
 
-pub const OWLY_PAGE: &str = "https://github.com/t4t5/owly#install";
 pub const RECEIVE_FOR: u64 = 600;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -345,7 +329,7 @@ pub fn plain_failure(reason: &str) -> String {
         return crate::lang::t("Another app is using AirDrop right now.").to_string();
     }
     if has(&["ServiceUnknown", "can't be reached", "owlyd"]) {
-        return crate::lang::t("Owly's radio service is not installed or did not start.").to_string();
+        return crate::lang::t("AirDrop's radio service is not set up or did not start.").to_string();
     }
     if has(&["didn't open its port", "no AWDL peer", "no such receiver", "TimedOut", "timed out"]) {
         return crate::lang::t("The device did not answer. Unlock it, open AirDrop, set it to Everyone for 10 minutes, then try again.").to_string();
@@ -397,7 +381,7 @@ mod tests {
         assert_eq!(works.card.as_ref().unwrap().driver, "iwlwifi");
         assert_eq!(works.mode, Some(Mode::Exclusive));
         assert!(works.shown(false));
-        assert!(!works.ready(), "Owly is still needed to use it");
+        assert!(!works.ready(), "the radio service is still needed to use it");
         let none = Report::from_cards(&[], false);
         assert_eq!(none.verdict, Verdict::NoCard);
         assert!(!none.shown(false));
@@ -439,15 +423,6 @@ mod tests {
         assert_eq!(report.missing, ["This card is untested."]);
         assert!(!report.ready());
         assert_eq!(Report::from_probe("not json", true), None);
-    }
-
-    #[test]
-    fn the_install_hint_fits_the_distro() {
-        assert!(install_hint("ID=fedora\n").contains(".rpm"));
-        assert!(install_hint("ID=debian\n").contains(".deb"));
-        assert!(install_hint("ID=linuxmint\nID_LIKE=\"ubuntu debian\"\n").contains(".deb"));
-        assert!(install_hint("ID=cachyos\nID_LIKE=arch\n").contains("yay -S owly"));
-        assert!(install_hint("ID=nixos\n").contains("flake"));
     }
 
     #[test]

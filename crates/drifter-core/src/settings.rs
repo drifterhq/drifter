@@ -349,7 +349,6 @@ pub struct Model {
     pub airdrop: crate::config::AirDropConfig,
     pub airdrop_report: Option<crate::airdrop::Report>,
     pub airdrop_receiving: Option<bool>,
-    pub airdrop_hint: &'static str,
     pub profile: Option<Profiles>,
     pub cells: Vec<(String, String)>,
     pub places: Vec<crate::place::Place>,
@@ -388,7 +387,7 @@ pub enum NetAsk {
     Fix,
     Reset,
     Service,
-    OwlyPage,
+    AirDropSetUp,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -557,7 +556,6 @@ impl Model {
             airdrop: config.airdrop.clone(),
             airdrop_report: None,
             airdrop_receiving: None,
-            airdrop_hint: "",
             profile: None,
             cells: Vec::new(),
             places: config.place.clone(),
@@ -2728,7 +2726,7 @@ pub enum Id {
     AirDropStatus,
     AirDropReceive,
     AirDropFolder,
-    AirDropOwly,
+    AirDropSetUp,
     AirDropForce,
     LargeText,
     HighContrast,
@@ -4860,9 +4858,9 @@ mod tests {
         model.airdrop_report = Some(Report::from_cards(&[card("iwlwifi")], false));
         model.airdrop.force = false;
         let shown = ids(&model);
-        assert!(shown.contains(&Id::AirDropOwly), "without Owly it says how to get it");
+        assert!(shown.contains(&Id::AirDropSetUp), "without the radio service it offers to set it up");
         assert!(shown.contains(&Id::AirDropReceive));
-        assert_eq!(model.press(Id::AirDropOwly, 0), Some(Ask::Net(NetAsk::OwlyPage)));
+        assert_eq!(model.press(Id::AirDropSetUp, 0), Some(Ask::Net(NetAsk::AirDropSetUp)));
         assert_eq!(model.press(Id::AirDropFolder, 0), Some(Ask::Files(For::AirDropFolder)));
         let before = model.clone();
         model.airdrop.force = true;

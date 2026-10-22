@@ -10,6 +10,7 @@ const PATH: &str = "/org/drifter/AirDrop";
 pub enum Event {
     Send(Vec<PathBuf>),
     Receive(bool),
+    Refresh,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -86,6 +87,10 @@ impl Server {
 
     fn set_receiving(&self, on: bool) {
         let _ = self.events.send(Event::Receive(on));
+    }
+
+    fn refresh(&self) {
+        let _ = self.events.send(Event::Refresh);
     }
 
     fn state(&self) -> (bool, bool, bool) {
