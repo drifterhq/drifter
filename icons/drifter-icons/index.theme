@@ -1,6 +1,6 @@
 [Icon Theme]
-Name=Drifter Light
-Comment=Drifter's own glass icons for the light look
+Name=Drifter
+Comment=Drifter's own clay icons, for light and dark
 Inherits=Adwaita,hicolor
 Example=folder
 Directories=256x256/apps,256x256/places,256x256/devices,256x256/mimetypes

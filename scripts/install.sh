@@ -51,10 +51,9 @@ echo "wrote Explorer and Activity to /usr/share/applications; folders open in Ex
 
 icons="${XDG_DATA_HOME:-$HOME/.local/share}/icons"
 mkdir -p "$icons"
-for theme in drifter-icons-dark drifter-icons-light; do
-    ln -sfn "$here/icons/$theme" "$icons/$theme"
-done
-echo "linked the Drifter icon themes into $icons"
+rm -f "$icons/drifter-icons-dark" "$icons/drifter-icons-light"
+ln -sfn "$here/icons/drifter-icons" "$icons/drifter-icons"
+echo "linked the Drifter icon theme into $icons"
 
 if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files bluetooth.service >/dev/null 2>&1 \
     && ! systemctl is-enabled --quiet bluetooth.service; then
