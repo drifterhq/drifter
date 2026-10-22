@@ -17,7 +17,8 @@ pub fn report() -> Report {
         })
         .flatten()
         .and_then(|json| Report::from_probe(&json, owly));
-    let mut report = probed.unwrap_or_else(|| Report::from_cards(&airdrop::cards(std::path::Path::new("/sys/class/net")), owly));
+    let seen = Report::from_cards(&airdrop::cards(std::path::Path::new("/sys/class/net")), owly);
+    let mut report = Report::merged(probed, seen);
     report.stale = report.owlyd && stale();
     report
 }

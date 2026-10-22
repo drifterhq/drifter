@@ -145,6 +145,18 @@ impl Report {
         })
     }
 
+    pub fn merged(probed: Option<Report>, seen: Report) -> Report {
+        match probed {
+            Some(probed) if probed.verdict == Verdict::NoCard && seen.verdict != Verdict::NoCard => Report {
+                missing: probed.missing,
+                owlyd: true,
+                ..seen
+            },
+            Some(probed) => probed,
+            None => seen,
+        }
+    }
+
     pub fn shown(&self, force: bool) -> bool {
         force || self.verdict == Verdict::Works
     }
@@ -412,6 +424,19 @@ mod tests {
         let found = cards(&net);
         let _ = std::fs::remove_dir_all(&root);
         assert_eq!(found, vec![card("iwlwifi", Some("8086:2526"))]);
+    }
+
+    #[test]
+    fn a_service_that_misses_the_card_does_not_hide_it() {
+        let blind = Report::from_probe(r#"{"station":null,"missing":[{"id":"hardware","say":"no Wi-Fi interface"}]}"#, true).unwrap();
+        assert_eq!(blind.verdict, Verdict::NoCard);
+        let seen = Report::from_cards(&[card("iwlwifi", Some("8086:2526"))], true);
+        let merged = Report::merged(Some(blind.clone()), seen.clone());
+        assert_eq!(merged.verdict, Verdict::Works);
+        assert!(merged.owlyd && !merged.ready() && merged.shown(false));
+        let none = Report::from_cards(&[], true);
+        assert_eq!(Report::merged(Some(blind), none.clone()).verdict, Verdict::NoCard);
+        assert_eq!(Report::merged(None, seen.clone()), seen);
     }
 
     #[test]
