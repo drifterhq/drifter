@@ -646,14 +646,11 @@ app("teams-for-linux", [
     text("T", WHITE, 36, 55, 34, 40),
 ])
 brand("Alacritty", "alacritty", "#f46d01")
-brand("audacity", "audacity", "#2f6fe0")
 brand("bitwarden", "bitwarden", "#175ddc")
 brand("blender", "blender", "#e87d0d")
 brand("brave-browser", "brave", "#fb542b")
-brand("code", "vscodium", "#0a78d1")
 brand("codium", "vscodium", "#2f80ed")
 brand("com.obsproject.Studio", "obsstudio", "#3d3a40")
-brand("dbeaver", "dbeaver", "#7a5a44")
 brand("discord", "discord", "#5865f2")
 brand("docker-desktop", "docker", "#2496ed")
 brand("element-desktop", "element", "#0dbd8b")
@@ -663,17 +660,9 @@ brand("firefox", "firefoxbrowser", "#ff7139")
 brand("gimp", "gimp", "#7a6f55")
 brand("github-desktop", "github", "#6e40c9")
 brand("inkscape", "inkscape", "#2b2f3a")
-brand("jetbrains-toolbox", "jetbrains", "#2b2f3a")
 brand("joplin", "joplin", "#1071d3")
-brand("keepassxc", "keepassxc", "#6cac4d")
 brand("krita", "krita", "#3babff")
-brand("libreoffice-base", "libreofficebase", "#7324a9")
-brand("libreoffice-calc", "libreofficecalc", "#007c3c")
-brand("libreoffice-draw", "libreofficedraw", "#cb6d30")
-brand("libreoffice-impress", "libreofficeimpress", "#d0120d")
-brand("libreoffice-math", "libreofficemath", "#c10018")
 brand("libreoffice-startcenter", "libreoffice", "#18a303")
-brand("libreoffice-writer", "libreofficewriter", "#083fa6")
 brand("librewolf", "librewolf", "#00acff")
 brand("logseq", "logseq", "#3a8f8f")
 brand("lutris", "lutris", "#ff9900")
@@ -686,18 +675,15 @@ brand("org.telegram.desktop", "telegram", "#26a5e4")
 brand("org.wezfurlong.wezterm", "wezterm", "#4e49ee")
 brand("postman", "postman", "#ff6c37")
 brand("qbittorrent", "qbittorrent", "#2f67ba")
-brand("retroarch", "retroarch", "#3a3f5c")
-brand("signal-desktop", "signal", "#3b45fd")
+brand("retroarch", "retroarch", "#4b3f8f")
 brand("spotify-client", "spotify", "#1ed760")
 brand("steam", "steam", "#1b2838")
 brand("sublime-text", "sublimetext", "#ff9800")
 brand("thunderbird", "thunderbird", "#0a84ff")
-brand("torbrowser", "torbrowser", "#7d4698")
+brand("torbrowser", "torbrowser", "#9b5bd0")
 brand("transmission", "transmission", "#d70008")
 brand("virtualbox", "virtualbox", "#2f61b4")
 brand("vlc", "vlcmediaplayer", "#ff8800")
-brand("zed", "zedindustries", "#084ccf")
-brand("Zoom", "zoom", "#0b5cff")
 app("google-chrome", [
     part("red", "body", "#ea4335", sector(50, 50, 16, 39, -150, -30)),
     part("yellow", "body", "#fbbc04", sector(50, 50, 16, 39, -30, 90)),
@@ -718,6 +704,57 @@ app("slack", [
     part("yl", "body", "#ecb22e", rr(52, 48, 86, 60, 6)), part("ys", "body", "#ecb22e", rr(52, 64, 64, 86, 6)),
     part("rl", "body", "#e01e5a", rr(40, 52, 52, 86, 6)), part("rs", "body", "#e01e5a", rr(14, 52, 36, 64, 6)),
 ])
+
+app("audacity", [
+    part("band", "body", SLATE_D, sector(50, 54, 30, 38, 180, 360)),
+    part("cupl", "top", "#ff6a00", rr(10, 50, 30, 84, 9)),
+    part("cupr", "top", "#ff6a00", rr(70, 50, 90, 84, 9)),
+    part("wave", "mark", "#2f6fe0", poly([(36, 66), (40, 54), (44, 74), (48, 46), (52, 80), (56, 52), (60, 70), (64, 62)], closed=False), "line", 4),
+])
+app("code", [
+    part("left", "body", "#0065a9", poly([(12, 38), (20, 32), (72, 74), (72, 90), (64, 88), (12, 62)])),
+    part("lower", "body", "#007acc", poly([(12, 62), (20, 68), (72, 26), (72, 10), (64, 12), (12, 38)])),
+    part("right", "top", "#1f9cf0", poly([(64, 12), (72, 10), (90, 20), (90, 80), (72, 90), (64, 88)])),
+])
+app("dbeaver", [
+    part("db", "body", BROWN, "M18 24Q18 12 50 12Q82 12 82 24V76Q82 88 50 88Q18 88 18 76Z"),
+    part("lid", "top", "#c99363", ellipse(50, 24, 32, 12)),
+    line("r1", "#7a5a44", [(18, 46), (34, 52), (50, 54), (66, 52), (82, 46)], 4),
+    line("r2", "#7a5a44", [(18, 64), (34, 70), (50, 72), (66, 70), (82, 64)], 4),
+])
+app("jetbrains-toolbox", [
+    part("t1", "body", "#ff8a3d", poly([(10, 12), (62, 20), (30, 62)])),
+    part("t2", "body", "#ff318c", poly([(40, 10), (90, 30), (70, 70)])),
+    part("t3", "body", VIOLET, poly([(14, 52), (74, 50), (54, 90)])),
+    part("sq", "top", "#1e2130", rr(28, 28, 72, 72, 4)),
+    part("bar", "mark", WHITE, rr(34, 60, 52, 65, 1.5)),
+    text("JB", WHITE, 46, 43, 16, 30),
+])
+app("keepassxc", [
+    part("shackle", "body", SLATE_L, sector(50, 42, 14, 24, 180, 360)),
+    part("legl", "body", SLATE_L, rr(26, 40, 36, 52, 2)),
+    part("legr", "body", SLATE_L, rr(64, 40, 74, 52, 2)),
+    part("lock", "top", "#6cac4d", rr(16, 46, 84, 90, 10)),
+    part("hole", "mark", WHITE, circle(50, 62, 7)),
+    part("slit", "mark", WHITE, rr(47, 64, 53, 78, 2)),
+])
+app("signal-desktop", speech("#3b45fd", [part("in", "top", WHITE, ring(50, 45, 14, 20))]))
+app("zed", [part("z", "body", "#084ccf", poly([(14, 12), (86, 12), (86, 26), (36, 74), (86, 74), (86, 88), (14, 88), (14, 74), (64, 26), (14, 26)]))])
+app("Zoom", [
+    part("disc", "body", "#0b5cff", circle(50, 50, 40)),
+    part("cam", "top", WHITE, rr(22, 36, 62, 64, 7)),
+    part("lens", "top", WHITE, poly([(64, 46), (78, 36), (78, 64), (64, 54)])),
+])
+
+
+def lo(name, corner, kind, label=None):
+    marks = sym(kind, corner)
+    p = [
+        part("sheet", "body", WHITE, "M26 10H60L80 30V84Q80 90 74 90H26Q20 90 20 84V16Q20 10 26 10Z"),
+        part("fold", "top", corner, "M60 15Q60 11 63 14L76 27Q79 30 75 30H66Q60 30 60 24Z"),
+    ] + [dict(m, color={WHITE: corner, corner: WHITE}.get(m["color"], m["color"])) for m in marks]
+    icon(f"apps/{name}", p, texts=[text(label, corner, 50, 50, 26, 40)] if label else ())
+
 
 FOLDER_MARKS = {
     "folder": [part("slot", "mark", WHITE, rr(38, 52, 62, 57, 2.5))],
@@ -850,6 +887,12 @@ MIME = [
 ]
 for row in MIME:
     ftype(*row)
+lo("libreoffice-writer", "#083fa6", "lines")
+lo("libreoffice-calc", "#007c3c", "grid")
+lo("libreoffice-impress", "#d0120d", "chart")
+lo("libreoffice-draw", "#cb6d30", "shapes")
+lo("libreoffice-base", "#7324a9", "db")
+lo("libreoffice-math", "#c10018", "none", "fx")
 
 
 def write():
