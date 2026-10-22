@@ -38,7 +38,10 @@ impl State {
 
     fn control_status(&self) -> Status {
         Status {
-            wifi: self.control_status.wifi.clone(),
+            wifi: match self.airdrop_holds_wifi() {
+                true => Some((false, drifter_core::lang::t("Off for AirDrop").to_string())),
+                false => self.control_status.wifi.clone(),
+            },
             bluetooth: self.radio.now.as_ref().map(|blue| blue.on).or(self.control_status.bluetooth),
             blue_note: self.control_status.blue_note.clone(),
             airdrop: self.control_status.airdrop.clone(),
@@ -286,6 +289,9 @@ impl State {
         let word = if on { "on" } else { "off" };
         match tile {
             Tile::Wifi => {
+                if on && self.airdrop_holds_wifi() {
+                    self.airdrop_receive(false);
+                }
                 if let Some((held, _)) = self.control_status.wifi.as_mut() {
                     *held = on;
                     spawn("nmcli", &["radio", "wifi", word]);

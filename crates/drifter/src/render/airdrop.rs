@@ -56,6 +56,7 @@ pub(super) struct Drop {
     asking: Option<u64>,
     received: Vec<PathBuf>,
     note: Option<(u32, Instant)>,
+    settle: Option<Instant>,
     pub share: Option<Share>,
 }
 
@@ -78,6 +79,7 @@ impl Default for Drop {
             asking: None,
             received: Vec::new(),
             note: None,
+            settle: None,
             share: None,
         }
     }
@@ -264,6 +266,7 @@ impl State {
     pub(super) fn airdrop_receive(&mut self, on: bool) {
         if !on {
             self.drop.until = None;
+            self.drop.settle = None;
             if let Some((mut child, _)) = self.drop.receiver.take() {
                 stop(&mut child);
             }
@@ -476,6 +479,9 @@ impl State {
             return;
         }
         self.drop.received.push(path);
+        if self.airdrop_holds_wifi() {
+            self.drop.settle = Some(Instant::now() + Duration::from_secs(4));
+        }
         let from = self.drop.from.clone();
         let count = self.drop.received.len();
         let summary = match self.drop.received.as_slice() {
@@ -504,8 +510,13 @@ impl State {
         }
     }
 
+    pub(super) fn airdrop_holds_wifi(&self) -> bool {
+        self.drop.radio.is_some() && self.drop.report.as_ref().is_some_and(|report| report.mode == Some(airdrop::Mode::Exclusive))
+    }
+
     pub(super) fn airdrop_wind(&mut self) {
-        if self.drop.until.is_some_and(|until| Instant::now() >= until) {
+        let settled = self.drop.settle.is_some_and(|at| Instant::now() >= at);
+        if settled || self.drop.until.is_some_and(|until| Instant::now() >= until) {
             self.airdrop_receive(false);
             return;
         }

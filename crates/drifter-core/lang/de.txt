@@ -4469,3 +4469,6 @@ Update
 
 Drifter has a newer one
 = Drifter hat einen neueren
+
+Off for AirDrop
+= Aus für AirDrop
