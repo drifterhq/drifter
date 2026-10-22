@@ -1597,15 +1597,12 @@ impl State {
         self.kick_now();
     }
 
-    pub(super) fn press_blue_tray(&mut self) -> bool {
+    pub(super) fn press_blue_tray(&mut self, had_menu: bool) -> bool {
         if !self.blue_tray_rect().is_some_and(|rect| rect.contains(self.pointer)) {
             return false;
         }
-        if self.control.is_none() {
-            self.toggle_control();
-        }
-        if self.radio.list.as_ref().is_none_or(|list| list.closing) {
-            self.blue_toggle_list();
+        if !had_menu {
+            self.open_blue_menu();
         }
         true
     }

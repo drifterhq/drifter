@@ -413,7 +413,7 @@ impl State {
             self.toggle_control();
             return true;
         }
-        if code == BTN_LEFT && self.press_blue_tray() {
+        if code == BTN_LEFT && self.press_blue_tray(had_menu) {
             return true;
         }
         if code == BTN_LEFT && self.stats_spot().is_some_and(|rect| rect.contains(self.pointer)) {
