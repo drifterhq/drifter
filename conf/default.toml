@@ -194,7 +194,7 @@ inactive = "slight"
 # What apps that follow GNOME settings look like. Leave a key out to leave
 # that part alone.
 # style = "dark"          light or dark
-# accent = "blue"         blue, teal, green, yellow, orange, red, pink, purple, slate
+# accent = "blue"         wallpaper, blue, teal, green, yellow, orange, red, pink, purple, slate
 # icons = "Papirus"       an icon theme folder name
 # cursor_theme = "Adwaita"
 # Cursor size in pixels.

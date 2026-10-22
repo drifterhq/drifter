@@ -376,10 +376,18 @@ impl Model {
                         Id::AccentColor,
                         crate::lang::t("Accent color"),
                         Control::Swatches {
-                            colors: Accent::ALL.iter().map(|accent| accent.color()).collect(),
+                            colors: Accent::ALL
+                                .iter()
+                                .map(|accent| {
+                                    crate::tint::resolve(Some(*accent), self.paper, crate::tint::hour_now())
+                                        .unwrap_or(crate::tint::FALLBACK)
+                                })
+                                .collect(),
                             chosen: look
                                 .accent
                                 .and_then(|held| Accent::ALL.iter().position(|a| *a == held)),
+                            wallpaper: Accent::ALL.iter().position(|a| *a == Accent::Wallpaper),
+                            cycling: self.paper.live(),
                         },
                     ),
                     Row::new(
@@ -1952,7 +1960,7 @@ mod tests {
         let text = "[appearance]\nicons = \"Papirus\"\n[assets]\nfont = \"/f.ttf\"\n";
         let back = round_trip(text, |m| {
             m.set(Id::Style, Value::Choice(2));
-            m.set(Id::AccentColor, Value::Choice(5));
+            m.set(Id::AccentColor, Value::Choice(6));
             m.set(Id::Inactive, Value::Choice(1));
             m.set(Id::ThemeChange, Value::Choice(1));
             m.set(Id::CursorSize, Value::Choice(2));

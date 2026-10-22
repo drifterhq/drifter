@@ -507,12 +507,13 @@ impl State {
                     false => drifter_core::image::load_covering(&path, cover.x, cover.y),
                 } {
                     Ok(image) => {
+                        let tint = (!shader).then(|| drifter_core::tint::of_picture(&image.scaled(64, 64)));
                         let pyramid = drifter_core::tiles::Pyramid::build(image, world, screen);
-                        let _ = reply.send((path, Some(pyramid)));
+                        let _ = reply.send((path, Some(pyramid), tint));
                     }
                     Err(error) => {
                         log!("drifter: no wallpaper {}: {error}", path.display());
-                        let _ = reply.send((path, None));
+                        let _ = reply.send((path, None, None));
                     }
                 },
             );
@@ -525,7 +526,11 @@ impl State {
         &mut self,
         path: PathBuf,
         pyramid: Option<drifter_core::tiles::Pyramid>,
+        tint: Option<[u8; 3]>,
     ) {
+        if pyramid.is_some() {
+            self.paper_tint = tint;
+        }
         if let Some(pyramid) = pyramid {
             let shader = drifter_core::shader::is_shader(&path);
             let live = match shader {

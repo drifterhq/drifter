@@ -309,6 +309,7 @@ pub struct Model {
     pub defaults: [Option<Launch>; 8],
     pub system: [Option<String>; 8],
     pub wallpaper: Option<PathBuf>,
+    pub paper: crate::tint::Paper,
     pub folder: Option<PathBuf>,
     pub rotate: u64,
     pub unit: usize,
@@ -519,6 +520,7 @@ impl Model {
             defaults: Role::ALL.map(|role| config.apps.get(role).cloned()),
             system: Role::ALL.map(crate::desktop::system_default),
             wallpaper: config.wallpaper_path().map(clean),
+            paper: crate::tint::hint(config.wallpaper_path().as_deref()),
             folder: config.wallpaper_folder().map(clean),
             rotate: every / UNITS[unit],
             unit,
@@ -2871,6 +2873,8 @@ pub enum Control {
     Swatches {
         colors: Vec<[u8; 3]>,
         chosen: Option<usize>,
+        wallpaper: Option<usize>,
+        cycling: bool,
     },
     Note(String),
 }
@@ -3709,7 +3713,7 @@ impl Look {
                     canvas.stamp(&text, at, fade);
                 }
             }
-            Control::Swatches { colors, chosen } => {
+            Control::Swatches { colors, chosen, .. } => {
                 for (slot, (color, spot)) in colors
                     .iter()
                     .zip(self.swatch_rects(rect, colors.len()))

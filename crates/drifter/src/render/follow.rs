@@ -278,6 +278,34 @@ impl State {
         crate::apps::launch(&["orca".to_string(), "--replace".to_string()], &self.socket);
     }
 
+    pub(super) fn watch_accent(&mut self) {
+        use drifter_core::tint::Paper;
+        let wallpaper = self.appearance.accent == Some(drifter_core::Accent::Wallpaper);
+        let paper = match self.paper.shown.as_deref() {
+            Some(path) if drifter_core::shader::is_shader(path) => Paper::Live,
+            Some(_) => self.paper_tint.map_or(Paper::Plain, Paper::Still),
+            None if wallpaper => return,
+            None => Paper::Plain,
+        };
+        let accent = drifter_core::tint::resolve(self.appearance.accent, paper, drifter_core::tint::hour_now())
+            .unwrap_or(drifter_core::menu::ACCENT);
+        if accent != self.look.accent {
+            self.look.accent = accent;
+            self.accent_round = fade::round_art(&mut self.renderer, accent);
+            self.paint_corner_glow();
+            self.take_icons(self.tray_raw.clone());
+            self.snap_art = upload_flat(&mut self.renderer, Some(&drifter_core::snap::preview_patch(accent)), "snap preview")
+                .ok()
+                .flatten();
+            self.kick_now();
+        }
+        let named = wallpaper.then(|| drifter_core::tint::nearest(accent));
+        if let Some(name) = named.filter(|_| named != self.told_accent) {
+            gsettings(vec![(FACE, "accent-color", name.word().to_string())]);
+        }
+        self.told_accent = named;
+    }
+
     pub(super) fn follow_looks(&mut self, config: &Config) {
         let look = config.appearance.clone();
         let paths = asset_paths(config);
@@ -313,19 +341,7 @@ impl State {
         if palette != self.palette {
             self.recolor(config, palette);
         }
-        let accent = look
-            .accent
-            .map(|accent| accent.color())
-            .unwrap_or(drifter_core::menu::ACCENT);
-        if accent != self.look.accent {
-            self.look.accent = accent;
-            self.accent_round = fade::round_art(&mut self.renderer, accent);
-            self.paint_corner_glow();
-            self.take_icons(self.tray_raw.clone());
-            self.snap_art = upload_flat(&mut self.renderer, Some(&drifter_core::snap::preview_patch(accent)), "snap preview")
-                .ok()
-                .flatten();
-        }
+        self.watch_accent();
         if paths == self.asset_paths && !cursor_moved && !icons_moved {
             return;
         }
@@ -876,7 +892,7 @@ pub(super) fn tell_gnome(
         sets.push((FACE, "color-scheme", scheme.to_string()));
         sets.push((FACE, "gtk-theme", theme.to_string()));
     }
-    if let Some(accent) = changed(|look| look.accent.map(|a| a.word().to_string())) {
+    if let Some(accent) = changed(|look| look.accent.filter(|a| *a != drifter_core::Accent::Wallpaper).map(|a| a.word().to_string())) {
         sets.push((FACE, "accent-color", accent));
     }
     let icons = drifter_core::icon::now_for(look);

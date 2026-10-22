@@ -208,13 +208,16 @@ fn build(view: &View) -> (TreeUpdate, HashMap<NodeId, Aim>) {
                     node.set_children(kids);
                     node
                 }
-                Control::Swatches { colors, chosen } => {
+                Control::Swatches { colors, chosen, wallpaper, .. } => {
                     let mut node = Node::new(Role::RadioGroup);
                     let mut kids = Vec::new();
                     for slot in 0..colors.len() {
                         let kid = node_id(&format!("{key} swatch {slot}"));
                         let mut radio = Node::new(Role::RadioButton);
-                        radio.set_label(drifter_core::lang::tf("Color {}", &[&(slot + 1)]));
+                        match *wallpaper == Some(slot) {
+                            true => radio.set_label(drifter_core::lang::t("Wallpaper color")),
+                            false => radio.set_label(drifter_core::lang::tf("Color {}", &[&(slot + 1 - usize::from(wallpaper.is_some_and(|at| at < slot)))])),
+                        }
                         radio.set_toggled(if Some(slot) == *chosen { Toggled::True } else { Toggled::False });
                         radio.add_action(Action::Click);
                         aims.insert(kid, Aim::Hit(Spot::Row(row.id, slot), Hit::Change(row.id, Value::Choice(slot))));

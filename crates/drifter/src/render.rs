@@ -663,7 +663,10 @@ pub struct State {
     paper_tx: smithay::reexports::calloop::channel::Sender<(
         PathBuf,
         Option<drifter_core::tiles::Pyramid>,
+        Option<[u8; 3]>,
     )>,
+    paper_tint: Option<[u8; 3]>,
+    told_accent: Option<drifter_core::Accent>,
     chores: smithay::reexports::calloop::channel::Sender<Chore>,
     config_path: PathBuf,
     zone: Option<Zone>,

@@ -63,6 +63,7 @@ pub mod system;
 pub mod text;
 pub mod theme;
 pub mod tiles;
+pub mod tint;
 pub mod tray;
 pub mod tween;
 pub mod users;

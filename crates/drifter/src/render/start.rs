@@ -337,7 +337,14 @@ pub fn open(
     let (paper_tx, paper_rx) = smithay::reexports::calloop::channel::channel::<(
         PathBuf,
         Option<drifter_core::tiles::Pyramid>,
+        Option<[u8; 3]>,
     )>();
+    let first_accent = drifter_core::tint::resolve(
+        config.appearance.accent,
+        drifter_core::tint::hint(config.wallpaper_path().as_deref()),
+        drifter_core::tint::hour_now(),
+    )
+    .unwrap_or(drifter_core::menu::ACCENT);
     let (chores, chores_rx) = smithay::reexports::calloop::channel::channel::<Chore>();
     let (verify_tx, verify_rx) =
         smithay::reexports::calloop::channel::channel::<(u64, crate::auth::Verdict)>();
@@ -348,7 +355,7 @@ pub fn open(
     let dot = upload(&mut renderer, Some(&dot_image), "running dot")?;
     let glow_key = (
         drifter_core::corner::glow_reach(f64::from(config.motion.corner_size)),
-        config.appearance.accent.map(|accent| accent.color()).unwrap_or(drifter_core::menu::ACCENT),
+        first_accent,
     );
     let glow_image = drifter_core::corner::paint_glow(glow_key.0 as u32, glow_key.1);
     let glow = upload(&mut renderer, Some(&glow_image), "hot corner")?;
@@ -381,7 +388,7 @@ pub fn open(
     let hud_pill = upload(&mut renderer, Some(&drifter_core::hud::Look::themed(&palette).pill()), "hud bar")
         .ok()
         .flatten();
-    let accent = config.appearance.accent.map(|accent| accent.color()).unwrap_or(drifter_core::menu::ACCENT);
+    let accent = first_accent;
     let accent_round = fade::round_art(&mut renderer, accent);
     let snap_art = upload_flat(&mut renderer, Some(&drifter_core::snap::preview_patch(accent)), "snap preview")
         .ok()
@@ -503,11 +510,7 @@ pub fn open(
         tickets: 0,
         power,
         look: Look {
-            accent: config
-                .appearance
-                .accent
-                .map(|accent| accent.color())
-                .unwrap_or(drifter_core::menu::ACCENT),
+            accent: first_accent,
             ..Look::themed(&palette)
         },
         palette,
@@ -599,6 +602,8 @@ pub fn open(
         vt,
         paper: Paper::from(config),
         paper_tx,
+        paper_tint: None,
+        told_accent: None,
         chores,
         config_path: match live {
             true => Config::config_path(),
@@ -914,8 +919,8 @@ pub fn open(
 
     handle
         .insert_source(paper_rx, |event, _, state: &mut State| {
-            if let ChannelEvent::Msg((path, pyramid)) = event {
-                state.take_wallpaper(path, pyramid);
+            if let ChannelEvent::Msg((path, pyramid, tint)) = event {
+                state.take_wallpaper(path, pyramid, tint);
             }
         })
         .map_err(|e| format!("cannot watch the wallpaper: {e}"))?;
@@ -968,6 +973,7 @@ pub fn open(
                 state.watch_idle();
                 state.watch_night();
                 state.watch_style();
+                state.watch_accent();
                 state.evict_tiles();
                 state.watch_wallpaper();
                 state.watch_trash();

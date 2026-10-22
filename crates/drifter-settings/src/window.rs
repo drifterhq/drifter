@@ -514,10 +514,7 @@ impl Settings {
 }
 
 fn accent(model: &Model) -> [u8; 3] {
-    model
-        .appearance
-        .accent
-        .map(|accent| accent.color())
+    drifter_core::tint::resolve(model.appearance.accent, model.paper, drifter_core::tint::hour_now())
         .unwrap_or(Look::default().accent)
 }
 
@@ -1018,6 +1015,7 @@ impl Settings {
                 let shown = self.flip_switch(shown.as_ref().unwrap_or(&image)).or(shown);
                 let shown = self.pop_steps(shown.as_ref().unwrap_or(&image)).or(shown);
                 let shown = self.shake_row(shown.as_ref().unwrap_or(&image)).or(shown);
+                let shown = self.cycle_dot(shown.as_ref().unwrap_or(&image)).or(shown);
                 self.show_ringed(shown.as_ref().unwrap_or(&image));
                 self.last = Some((key, image));
                 return;
@@ -2349,16 +2347,23 @@ impl Settings {
     }
 
     fn reload_wallpaper(&mut self) {
-        self.wallpaper = self
+        let art = self
             .model
             .wallpaper
             .as_ref()
             .and_then(|path| drifter_core::image::load(path).ok())
-            .map(small)
-            .map(|art| {
-                let (wide, tall) = self.look.preview_size();
-                drifter_core::settings::cover(&art, wide, tall)
-            });
+            .map(small);
+        let paper = match (drifter_core::tint::hint(self.model.wallpaper.as_deref()), art.as_ref()) {
+            (drifter_core::tint::Paper::Plain, Some(art)) => drifter_core::tint::Paper::Still(drifter_core::tint::of_picture(art)),
+            (paper, _) => paper,
+        };
+        self.model.paper = paper;
+        self.saved.paper = paper;
+        self.wallpaper = art.map(|art| {
+            let (wide, tall) = self.look.preview_size();
+            drifter_core::settings::cover(&art, wide, tall)
+        });
+        self.follow_look();
     }
 
     pub fn heads_changed(&mut self) {
@@ -2463,7 +2468,30 @@ impl Settings {
     }
 
     fn moving(&self) -> bool {
-        self.glide.is_some() || self.page_fade.is_some() || self.flip.is_some() || !self.step_pops.is_empty() || self.step_turning() || self.shake.is_some()
+        self.glide.is_some() || self.page_fade.is_some() || self.flip.is_some() || !self.step_pops.is_empty() || self.step_turning() || self.shake.is_some() || self.dot_cycling()
+    }
+
+    fn dot_cycling(&self) -> bool {
+        self.section == Section::Appearance && self.sheet.is_none() && self.animates() && self.model.paper.live()
+    }
+
+    fn cycle_dot(&mut self, image: &drifter_core::Image) -> Option<drifter_core::Image> {
+        if !self.dot_cycling() {
+            return None;
+        }
+        let groups = self.model.groups(self.section);
+        let (slot, count) = groups.iter().flat_map(|group| &group.rows).find_map(|row| match &row.control {
+            drifter_core::settings::Control::Swatches { colors, wallpaper: Some(slot), cycling: true, .. } if row.id == Id::AccentColor => Some((*slot, colors.len())),
+            _ => None,
+        })?;
+        let spot = drifter_core::settings::Spot::Row(Id::AccentColor, slot);
+        let row = self.look.spot_rect(self.view(), self.section, &self.model, self.scroll, spot)?;
+        let dot = *self.look.swatch_rects(row, count).get(slot)?;
+        let color = drifter_core::tint::cycling(self.started.elapsed().as_secs_f64());
+        let mut canvas = drifter_core::paint::Canvas::on(image.clone());
+        canvas.circle(dot.center(), dot.size.x / 2.0, color, 1.0);
+        self.stale = true;
+        Some(canvas.image)
     }
 
     fn shake_row(&mut self, image: &drifter_core::Image) -> Option<drifter_core::Image> {

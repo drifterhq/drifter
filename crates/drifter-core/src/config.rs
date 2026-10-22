@@ -935,6 +935,7 @@ pub enum Style {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Accent {
+    Wallpaper,
     Blue,
     Teal,
     Green,
@@ -947,7 +948,8 @@ pub enum Accent {
 }
 
 impl Accent {
-    pub const ALL: [Accent; 9] = [
+    pub const ALL: [Accent; 10] = [
+        Accent::Wallpaper,
         Accent::Blue,
         Accent::Teal,
         Accent::Green,
@@ -961,6 +963,7 @@ impl Accent {
 
     pub fn word(self) -> &'static str {
         match self {
+            Accent::Wallpaper => "wallpaper",
             Accent::Blue => "blue",
             Accent::Teal => "teal",
             Accent::Green => "green",
@@ -975,6 +978,7 @@ impl Accent {
 
     pub fn color(self) -> [u8; 3] {
         match self {
+            Accent::Wallpaper => crate::tint::FALLBACK,
             Accent::Blue => [53, 132, 228],
             Accent::Teal => [33, 144, 164],
             Accent::Green => [58, 148, 74],

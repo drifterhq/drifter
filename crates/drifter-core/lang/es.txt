@@ -1248,6 +1248,9 @@ Auto
 Accent color
 = Color de acento
 
+Wallpaper color
+= Color del fondo de pantalla
+
 Auto turns dark at dusk and light at dawn, with the wallpaper sky. GTK, libadwaita and Qt apps switch with Drifter.
 = Auto pasa a oscuro al anochecer y a claro al amanecer, con el cielo del fondo. Las apps GTK, libadwaita y Qt cambian con Drifter.
 
