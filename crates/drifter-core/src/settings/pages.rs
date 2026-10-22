@@ -1580,7 +1580,7 @@ impl Model {
         let more = match (&self.net_note, set_up, report.missing.first()) {
             (Some(note), _, _) => Some(note.clone()),
             (None, true, Some(missing)) => Some(missing.clone()),
-            _ => report.wifi_words().map(str::to_string),
+            _ => None,
         };
         let mut groups = vec![Group {
             header: None,
@@ -1591,6 +1591,15 @@ impl Model {
             }),
             thumbs: None,
         }];
+        if let (Some(card), Some((mode, about))) = (report.card.as_ref().filter(|_| shown), report.mode_words()) {
+            let name = card.name.clone().unwrap_or_else(|| card.driver.clone());
+            groups.push(Group {
+                header: None,
+                rows: vec![Row::new(Id::AirDropCard, crate::lang::t("Wi-Fi card"), Control::Note(mode.to_string())).detail(&name)],
+                footer: Some(about.into()),
+                thumbs: None,
+            });
+        }
         if shown && (!set_up || report.stale) {
             let (button, detail) = match set_up {
                 true => (crate::lang::t("Update"), crate::lang::t("Drifter has a newer one")),

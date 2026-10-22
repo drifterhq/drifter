@@ -2327,7 +2327,7 @@ fn a_new_output_springs_its_icon_into_the_volume_hud() {
 }
 
 fn airdrop_report(driver: &str, owly: bool) -> drifter_core::airdrop::Report {
-    let card = drifter_core::airdrop::Card { iface: "wlan0".into(), driver: driver.into(), device: None };
+    let card = drifter_core::airdrop::Card { iface: "wlan0".into(), driver: driver.into(), device: None, name: None };
     let mut report = drifter_core::airdrop::Report::from_cards(&[card], owly);
     report.owlyd = owly;
     report

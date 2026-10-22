@@ -2727,6 +2727,7 @@ pub enum Id {
     AirDropReceive,
     AirDropFolder,
     AirDropSetUp,
+    AirDropCard,
     AirDropForce,
     LargeText,
     HighContrast,
@@ -4847,7 +4848,7 @@ mod tests {
     #[test]
     fn the_airdrop_page_hides_what_this_card_cannot_do_until_forced() {
         use crate::airdrop::{Card, Report};
-        let card = |driver: &str| Card { iface: "wlan0".into(), driver: driver.into(), device: None };
+        let card = |driver: &str| Card { iface: "wlan0".into(), driver: driver.into(), device: None, name: None };
         let mut model = model(&Config::default());
         let ids = |model: &Model| -> Vec<Id> { model.groups(Section::AirDrop).into_iter().flat_map(|g| g.rows).map(|row| row.id).collect() };
         assert_eq!(ids(&model), [Id::AirDropStatus], "checking first");

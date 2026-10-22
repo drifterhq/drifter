@@ -771,9 +771,12 @@ impl State {
         let look = self.share_look();
         let screen = self.screen;
         let up = self.drop.up;
-        let wifi_off = self.drop.report.as_ref().and_then(Report::wifi_words).filter(|_| {
-            self.drop.report.as_ref().is_some_and(|report| report.mode == Some(airdrop::Mode::Exclusive))
-        });
+        let wifi_off = self
+            .drop
+            .report
+            .as_ref()
+            .is_some_and(|report| report.mode == Some(airdrop::Mode::Exclusive))
+            .then(|| drifter_core::lang::t("Wi-Fi turns off while AirDrop is on, and comes back after."));
         let Some(share) = self.drop.share.as_mut() else {
             return;
         };

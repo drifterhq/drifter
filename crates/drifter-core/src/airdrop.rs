@@ -13,6 +13,39 @@ pub struct Card {
     pub iface: String,
     pub driver: String,
     pub device: Option<String>,
+    pub name: Option<String>,
+}
+
+const PCI_IDS: [&str; 3] = ["/usr/share/hwdata/pci.ids", "/usr/share/misc/pci.ids", "/usr/share/pci.ids"];
+const USB_IDS: [&str; 3] = ["/usr/share/hwdata/usb.ids", "/usr/share/misc/usb.ids", "/var/lib/usbutils/usb.ids"];
+
+pub fn ids_name(ids: &str, device: &str, subsystem: Option<&str>) -> Option<String> {
+    let (vendor, product) = device.split_once(':')?;
+    let mut lines = ids.lines().skip_while(|line| !line.starts_with(&format!("{vendor}  ")));
+    let maker = lines.next()?[vendor.len()..].trim().to_string();
+    let mut lines = lines.take_while(|line| line.starts_with('\t') || line.starts_with('#') || line.is_empty());
+    let model = lines.find_map(|line| line.strip_prefix(&format!("\t{product}  ")))?.trim().to_string();
+    let sub = subsystem.and_then(|sub| {
+        let (sub_vendor, sub_device) = sub.split_once(':')?;
+        let want = format!("\t\t{sub_vendor} {sub_device}  ");
+        lines.take_while(|line| line.starts_with("\t\t")).find_map(|line| line.strip_prefix(&want)).map(|name| name.trim().to_string())
+    });
+    let model = sub.unwrap_or(model);
+    let model = match model.find(" [") {
+        Some(at) => model[..at].to_string(),
+        None => model,
+    };
+    let brand = maker.split([' ', ',']).next().unwrap_or_default();
+    match model.to_lowercase().starts_with(&brand.to_lowercase()) {
+        true => Some(model),
+        false => Some(format!("{brand} {model}")),
+    }
+}
+
+fn card_name(device: &str, subsystem: Option<&str>, usb: bool) -> Option<String> {
+    let paths = if usb { USB_IDS } else { PCI_IDS };
+    let ids = paths.iter().find_map(|path| std::fs::read_to_string(path).ok())?;
+    ids_name(&ids, device, subsystem)
 }
 
 const TESTED: [&str; 4] = ["mt7925e", "mt76x2u", "iwlwifi", "rtw88_8822be"];
@@ -56,10 +89,19 @@ pub fn cards(net: &Path) -> Vec<Card> {
                 .zip(read_trim(&device.join("device")))
                 .map(|(vendor, id)| format!("{}:{}", vendor.trim_start_matches("0x"), id.trim_start_matches("0x")));
             let usb = read_trim(&device.join("../idVendor")).zip(read_trim(&device.join("../idProduct"))).map(|(v, p)| format!("{v}:{p}"));
+            let subsystem = read_trim(&device.join("subsystem_vendor"))
+                .zip(read_trim(&device.join("subsystem_device")))
+                .map(|(vendor, id)| format!("{}:{}", vendor.trim_start_matches("0x"), id.trim_start_matches("0x")));
+            let name = match (&pci, &usb) {
+                (Some(pci), _) => card_name(pci, subsystem.as_deref(), false),
+                (None, Some(usb)) => card_name(usb, None, true),
+                _ => None,
+            };
             Some(Card {
                 iface,
                 driver,
                 device: pci.or(usb),
+                name,
             })
         })
         .collect();
@@ -133,6 +175,7 @@ impl Report {
             iface,
             driver: text("driver").unwrap_or_default(),
             device: text("device"),
+            name: None,
         });
         Some(Report {
             verdict,
@@ -152,7 +195,14 @@ impl Report {
                 owlyd: true,
                 ..seen
             },
-            Some(probed) => probed,
+            Some(mut probed) => {
+                if let Some(card) = probed.card.as_mut()
+                    && let Some(seen) = seen.card.filter(|seen| seen.iface == card.iface)
+                {
+                    card.name = seen.name;
+                }
+                probed
+            }
             None => seen,
         }
     }
@@ -178,10 +228,13 @@ impl Report {
         }
     }
 
-    pub fn wifi_words(&self) -> Option<&'static str> {
+    pub fn mode_words(&self) -> Option<(&'static str, &'static str)> {
         match self.mode? {
-            Mode::Shared => Some(crate::lang::t("Wi-Fi stays connected while AirDrop is on.")),
-            Mode::Exclusive => Some(crate::lang::t("Wi-Fi turns off while AirDrop is on, and comes back after.")),
+            Mode::Shared => Some((crate::lang::t("Shared mode"), crate::lang::t("This card can use Wi-Fi and AirDrop at the same time. Wi-Fi stays connected while AirDrop is on."))),
+            Mode::Exclusive => Some((
+                crate::lang::t("Exclusive mode"),
+                crate::lang::t("This card can't use Wi-Fi and AirDrop at the same time. While AirDrop is on, Wi-Fi turns off. Wi-Fi comes back when AirDrop stops, a few seconds after a transfer ends."),
+            )),
         }
     }
 }
@@ -373,6 +426,7 @@ mod tests {
 
     fn card(driver: &str, device: Option<&str>) -> Card {
         Card {
+            name: None,
             iface: "wlan0".into(),
             driver: driver.into(),
             device: device.map(str::to_string),
@@ -424,6 +478,15 @@ mod tests {
         let found = cards(&net);
         let _ = std::fs::remove_dir_all(&root);
         assert_eq!(found, vec![card("iwlwifi", Some("8086:2526"))]);
+    }
+
+    #[test]
+    fn a_card_is_named_from_the_hardware_list() {
+        let ids = "# list\n10ec  Realtek Semiconductor Co., Ltd.\n\t8822  RTL8822BE\n8086  Intel Corporation\n\t2526  Wi-Fi 5(802.11ac) Wireless-AC 9x6x [Thunder Peak]\n\t\t8086 0014  Dual Band Wi-Fi 5 Wireless-AC 9260 160MHz 2x2\n\t2530  Host Bridge\n";
+        assert_eq!(ids_name(ids, "8086:2526", Some("8086:0014")).as_deref(), Some("Intel Dual Band Wi-Fi 5 Wireless-AC 9260 160MHz 2x2"));
+        assert_eq!(ids_name(ids, "8086:2526", Some("1028:0001")).as_deref(), Some("Intel Wi-Fi 5(802.11ac) Wireless-AC 9x6x"));
+        assert_eq!(ids_name(ids, "10ec:8822", None).as_deref(), Some("Realtek RTL8822BE"));
+        assert_eq!(ids_name(ids, "8086:9999", None), None);
     }
 
     #[test]

@@ -4401,9 +4401,6 @@ Turning on…
 Waiting…
 = En attente…
 
-Wi-Fi stays connected while AirDrop is on.
-= Le Wi-Fi reste connecté tant qu’AirDrop est activé.
-
 Wi-Fi turns off while AirDrop is on, and comes back after.
 = Le Wi-Fi se coupe tant qu’AirDrop est activé, puis revient.
 
@@ -4469,3 +4466,18 @@ Drifter has a newer one
 
 Off for AirDrop
 = Désactivé pour AirDrop
+
+Wi-Fi card
+= Carte Wi-Fi
+
+Shared mode
+= Mode partagé
+
+Exclusive mode
+= Mode exclusif
+
+This card can use Wi-Fi and AirDrop at the same time. Wi-Fi stays connected while AirDrop is on.
+= Cette carte peut utiliser le Wi-Fi et AirDrop en même temps. Le Wi-Fi reste connecté pendant qu'AirDrop est activé.
+
+This card can't use Wi-Fi and AirDrop at the same time. While AirDrop is on, Wi-Fi turns off. Wi-Fi comes back when AirDrop stops, a few seconds after a transfer ends.
+= Cette carte ne peut pas utiliser le Wi-Fi et AirDrop en même temps. Pendant qu'AirDrop est activé, le Wi-Fi s'éteint. Le Wi-Fi revient quand AirDrop s'arrête, quelques secondes après la fin d'un transfert.
