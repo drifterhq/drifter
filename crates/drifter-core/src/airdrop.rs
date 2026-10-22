@@ -81,6 +81,7 @@ pub struct Report {
     pub missing: Vec<String>,
     pub owly: bool,
     pub owlyd: bool,
+    pub stale: bool,
 }
 
 impl Report {
@@ -104,6 +105,7 @@ impl Report {
             missing: Vec::new(),
             owly,
             owlyd: false,
+            stale: false,
         }
     }
 
@@ -139,6 +141,7 @@ impl Report {
             missing,
             owly,
             owlyd: true,
+            stale: false,
         })
     }
 
@@ -198,6 +201,7 @@ pub fn glyph(side: u32, ink: [u8; 3]) -> crate::image::Image {
 }
 
 pub const RECEIVE_FOR: u64 = 600;
+pub const INSTALLED: &str = "/usr/local/bin/drifter-owlyd";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Heard {

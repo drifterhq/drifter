@@ -1591,15 +1591,14 @@ impl Model {
             }),
             thumbs: None,
         }];
-        if shown && !set_up {
+        if shown && (!set_up || report.stale) {
+            let (button, detail) = match set_up {
+                true => (crate::lang::t("Update"), crate::lang::t("Drifter has a newer one")),
+                false => (crate::lang::t("Set Up"), crate::lang::t("Comes with Drifter")),
+            };
             groups.push(Group {
                 header: None,
-                rows: vec![Row::new(
-                    Id::AirDropSetUp,
-                    crate::lang::t("Radio service"),
-                    Control::Buttons(vec![Mark::Text(crate::lang::t("Set Up"))]),
-                )
-                .detail(crate::lang::t("Comes with Drifter"))],
+                rows: vec![Row::new(Id::AirDropSetUp, crate::lang::t("Radio service"), Control::Buttons(vec![Mark::Text(button)])).detail(detail)],
                 footer: Some(crate::lang::t("AirDrop needs a small radio service that comes with Drifter.").into()),
                 thumbs: None,
             });

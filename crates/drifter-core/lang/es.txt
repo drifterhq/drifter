@@ -4463,3 +4463,9 @@ Set it up in Settings, AirDrop.
 
 Setting up AirDrop. Type your password if asked.
 = Configurando AirDrop. Escribe tu contraseña si se pide.
+
+Update
+= Actualizar
+
+Drifter has a newer one
+= Drifter tiene uno más nuevo

@@ -4861,6 +4861,12 @@ mod tests {
         assert!(shown.contains(&Id::AirDropSetUp), "without the radio service it offers to set it up");
         assert!(shown.contains(&Id::AirDropReceive));
         assert_eq!(model.press(Id::AirDropSetUp, 0), Some(Ask::Net(NetAsk::AirDropSetUp)));
+        let mut current = Report::from_probe(r#"{"station":"wlan0","driver":"iwlwifi","status":"tested","missing":[]}"#, true).unwrap();
+        model.airdrop_report = Some(current.clone());
+        assert!(!ids(&model).contains(&Id::AirDropSetUp), "a current radio service needs nothing");
+        current.stale = true;
+        model.airdrop_report = Some(current);
+        assert!(ids(&model).contains(&Id::AirDropSetUp), "an older radio service offers an update");
         assert_eq!(model.press(Id::AirDropFolder, 0), Some(Ask::Files(For::AirDropFolder)));
         let before = model.clone();
         model.airdrop.force = true;

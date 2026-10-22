@@ -17,7 +17,23 @@ pub fn report() -> Report {
         })
         .flatten()
         .and_then(|json| Report::from_probe(&json, owly));
-    probed.unwrap_or_else(|| Report::from_cards(&airdrop::cards(std::path::Path::new("/sys/class/net")), owly))
+    let mut report = probed.unwrap_or_else(|| Report::from_cards(&airdrop::cards(std::path::Path::new("/sys/class/net")), owly));
+    report.stale = report.owlyd && stale();
+    report
+}
+
+fn stale() -> bool {
+    let Some(built) = airdrop::owly_program().and_then(|owly| Some(owly.parent()?.join("owlyd"))) else {
+        return false;
+    };
+    if std::path::Path::new("/usr/lib/owly/owlyd").exists() || !built.is_file() {
+        return false;
+    }
+    match (std::fs::read(&built), std::fs::read(airdrop::INSTALLED)) {
+        (Ok(built), Ok(installed)) => built != installed,
+        (Ok(_), Err(_)) => true,
+        _ => false,
+    }
 }
 
 pub fn set_up() -> Result<(), String> {
