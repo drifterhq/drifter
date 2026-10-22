@@ -1073,7 +1073,7 @@ impl Settings {
                 continue;
             }
             let spot = drifter_core::settings::Spot::Row(Id::BlueStep(at), 0);
-            let Some(row) = self.look.spot_rect(self.view(), self.section, &self.model, self.scroll, spot) else {
+            let Some(row) = self.look.spot_rect(self.view(), self.section, &self.model, self.scroll, spot, &self.fonts.1) else {
                 settled.push(at);
                 continue;
             };
@@ -1093,7 +1093,7 @@ impl Settings {
                 continue;
             }
             let spot = drifter_core::settings::Spot::Row(Id::BlueStep(at), 0);
-            if let Some(row) = self.look.spot_rect(self.view(), self.section, &self.model, self.scroll, spot) {
+            if let Some(row) = self.look.spot_rect(self.view(), self.section, &self.model, self.scroll, spot, &self.fonts.1) {
                 let middle = Vec2::new(row.origin.x + 27.0, row.center().y);
                 canvas.arc_from(middle, 26.0 * 0.345, 26.0 * 0.08, turn, 0.3, self.look.accent, 1.0);
             }
@@ -1119,7 +1119,7 @@ impl Settings {
             return None;
         }
         let spot = drifter_core::settings::Spot::Row(id, 0);
-        let Some(pill) = self.look.spot_rect(self.view(), self.section, &self.model, self.scroll, spot) else {
+        let Some(pill) = self.look.spot_rect(self.view(), self.section, &self.model, self.scroll, spot, &self.fonts.1) else {
             self.flip = None;
             return None;
         };
@@ -1161,7 +1161,7 @@ impl Settings {
     fn show_ringed(&mut self, image: &drifter_core::Image) {
         let ring = self
             .spot
-            .and_then(|spot| self.look.spot_rect(self.view(), self.section, &self.model, self.scroll, spot));
+            .and_then(|spot| self.look.spot_rect(self.view(), self.section, &self.model, self.scroll, spot, &self.fonts.1));
         let Some(ring) = ring else {
             self.show(image);
             return;
@@ -1218,7 +1218,7 @@ impl Settings {
 
     fn reveal(&mut self, spot: Spot) {
         let view = self.view();
-        let Some(rect) = self.look.spot_rect(view, self.section, &self.model, self.scroll, spot) else {
+        let Some(rect) = self.look.spot_rect(view, self.section, &self.model, self.scroll, spot, &self.fonts.1) else {
             return;
         };
         match spot {
@@ -1250,6 +1250,7 @@ impl Settings {
             spot: self.spot,
             scroll: self.scroll,
             size: self.view(),
+            small: &self.fonts.1,
         };
         self.access.update(&view);
     }
@@ -1418,7 +1419,7 @@ impl Settings {
 
     fn clamp_scroll(&mut self) {
         let groups = self.model.groups(self.section);
-        let most = self.look.max_scroll(self.view(), self.section, &groups);
+        let most = self.look.max_scroll(self.view(), self.section, &groups, &self.fonts.1);
         self.scroll = self.scroll.clamp(0.0, most);
     }
 
@@ -1436,7 +1437,7 @@ impl Settings {
         }
         let hit = self
             .look
-            .hit(self.view(), self.section, &self.model, self.scroll, self.at);
+            .hit(self.view(), self.section, &self.model, self.scroll, self.at, &self.fonts.1);
         if self.spot.take().is_some() {
             self.stale = true;
         }
@@ -2479,6 +2480,7 @@ impl Settings {
             self.scroll,
             id,
             self.at.x,
+            &self.fonts.1,
         );
         if let Some(value) = value {
             if self.dragged == Some((id, value)) {
@@ -2521,7 +2523,7 @@ impl Settings {
             _ => None,
         })?;
         let spot = drifter_core::settings::Spot::Row(Id::AccentColor, slot);
-        let row = self.look.spot_rect(self.view(), self.section, &self.model, self.scroll, spot)?;
+        let row = self.look.spot_rect(self.view(), self.section, &self.model, self.scroll, spot, &self.fonts.1)?;
         let dot = *self.look.swatch_rects(row, count).get(slot)?;
         let color = drifter_core::tint::cycling(self.started.elapsed().as_secs_f64());
         let mut canvas = drifter_core::paint::Canvas::on(image.clone());
@@ -2539,7 +2541,7 @@ impl Settings {
         }
         let at = self.model.blue.as_ref()?.devices.iter().position(|device| device.address == address)?;
         let groups = self.model.groups(self.section);
-        let placed = self.look.place(self.view(), self.section, &groups, self.scroll);
+        let placed = self.look.place(self.view(), self.section, &groups, self.scroll, &self.fonts.1);
         let row = groups
             .iter()
             .zip(&placed)
@@ -2573,7 +2575,7 @@ impl Settings {
             return;
         }
         let groups = self.model.groups(self.section);
-        let most = self.look.max_scroll(self.view(), self.section, &groups);
+        let most = self.look.max_scroll(self.view(), self.section, &groups, &self.fonts.1);
         let from = self.glide.map_or(self.scroll, |glide| glide.to);
         let to = (from + by).clamp(0.0, most);
         if to == self.scroll && self.glide.is_none() {

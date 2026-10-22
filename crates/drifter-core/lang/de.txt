@@ -711,8 +711,8 @@ Brighter highlights and richer color on this HDR screen
 Desktop brightness
 = Helligkeit des Schreibtischs
 
-How bright windows and the desktop look while HDR is on
-= Wie hell Fenster und Schreibtisch bei aktivem HDR wirken
+Brightness of windows and the desktop in HDR
+= Helligkeit von Fenstern und Schreibtisch in HDR
 
 Shows the same picture as {}
 = Zeigt dasselbe Bild wie {}
@@ -813,8 +813,8 @@ A grid of all your apps
 Auto hide
 = Automatisch ausblenden
 
-Off keeps the dock on screen, and maximized windows leave room for it
-= Aus lässt das Dock sichtbar, und maximierte Fenster lassen ihm Platz
+Off keeps the dock on screen, and windows leave room for it
+= Aus lässt das Dock sichtbar, und Fenster lassen ihm Platz
 
 Icon size
 = Symbolgröße
@@ -822,8 +822,8 @@ Icon size
 Padding
 = Innenabstand
 
-Room around the icons. The dock is the icon size plus this above and below
-= Platz um die Symbole. Das Dock ist die Symbolgröße plus dies oben und unten
+Space above and below the icons
+= Abstand über und unter den Symbolen
 
 Icon spacing
 = Symbolabstand
@@ -858,8 +858,8 @@ Memory in use
 Disk mounted at {}
 = Laufwerk eingehängt unter {}
 
-Off keeps the top bar on screen, and maximized windows leave room for it
-= Aus lässt die obere Leiste sichtbar, und maximierte Fenster lassen ihr Platz
+Off keeps the bar on screen, and windows leave room for it
+= Aus lässt die Leiste sichtbar, und Fenster lassen ihr Platz
 
 Bar height
 = Leistenhöhe
@@ -906,8 +906,8 @@ Log in automatically
 Skip the password when Drifter starts
 = Passwort beim Start von Drifter überspringen
 
-This counts when Drifter starts from a text console. A login screen such as GDM or SDDM asks for the password itself.
-= Das gilt, wenn Drifter von einer Textkonsole startet. Ein Anmeldebildschirm wie GDM oder SDDM fragt selbst nach dem Passwort.
+Only when Drifter starts from a text console. A login screen like GDM asks for the password itself.
+= Nur wenn Drifter von einer Textkonsole startet. Ein Anmeldebildschirm wie GDM fragt selbst nach dem Passwort.
 
 The dock, the trash and other apps open these. Reset goes back to the system's choice.
 = Das Dock, der Papierkorb und andere Apps öffnen diese. Zurücksetzen nimmt wieder die Wahl des Systems.
@@ -1083,8 +1083,8 @@ Motion
 Still
 = Still
 
-A shader wallpaper follows the time of day. Click one to use it. Motion sets how fast it drifts.
-= Ein Shader-Hintergrund folgt der Tageszeit. Klicke einen an, um ihn zu nutzen. Bewegung legt fest, wie schnell er treibt.
+Shader wallpapers follow the time of day. Motion sets how fast they drift.
+= Shader-Hintergründe folgen der Tageszeit. Bewegung legt fest, wie schnell sie treiben.
 
 Pictures
 = Bilder
@@ -1251,8 +1251,8 @@ Accent color
 Wallpaper color
 = Farbe vom Hintergrundbild
 
-Auto turns dark at dusk and light at dawn, with the wallpaper sky. GTK, libadwaita and Qt apps switch with Drifter.
-= Auto wird bei Dämmerung dunkel und bei Tagesanbruch hell, mit dem Himmel des Hintergrunds. GTK-, libadwaita- und Qt-Apps wechseln mit Drifter.
+Auto follows the wallpaper sky: dark at dusk, light at dawn. GTK, libadwaita and Qt apps follow too.
+= Auto folgt dem Himmel des Hintergrunds: dunkel in der Dämmerung, hell bei Tagesanbruch. GTK-, libadwaita- und Qt-Apps folgen mit.
 
 Icons and pointer
 = Symbole und Zeiger
@@ -1272,8 +1272,8 @@ Cursor theme
 Cursor size
 = Zeigergröße
 
-The pointer changes at once. Apps opened after a change use it too. Window edges show resize arrows from the cursor theme.
-= Der Zeiger ändert sich sofort. Danach geöffnete Apps nutzen ihn auch. Fensterränder zeigen Größenpfeile aus dem Zeigerthema.
+The pointer changes at once. Apps use it the next time they open.
+= Der Zeiger ändert sich sofort. Apps nutzen ihn beim nächsten Öffnen.
 
 Do not disturb
 = Nicht stören
@@ -1461,8 +1461,8 @@ Sticky keys
 Tap Shift, Ctrl, Alt or Super, then a key
 = Tippe Umschalt, Strg, Alt oder Super, dann eine Taste
 
-With sticky keys, tap a key like Ctrl twice to keep it held. Tap it again to let go.
-= Mit der Einrastfunktion tippst du eine Taste wie Strg zweimal, um sie gedrückt zu halten. Tippe sie erneut, um sie zu lösen.
+Tap a key like Ctrl twice to hold it. Tap it again to let go.
+= Tippe eine Taste wie Strg zweimal, um sie zu halten. Tippe sie erneut, um sie zu lösen.
 
 Screenshots in your Pictures folder
 = Bildschirmfotos in deinem Bilder-Ordner
@@ -3555,8 +3555,8 @@ A wheel click glides in Settings, Activity and Files
 Glow
 = Leuchten
 
-The corner warms in the accent color as the pointer nears
-= Die Ecke leuchtet in der Akzentfarbe, wenn sich der Zeiger nähert
+The corner glows as the pointer nears
+= Die Ecke leuchtet, wenn sich der Zeiger nähert
 
 Ripple
 = Welle
@@ -3564,8 +3564,8 @@ Ripple
 Ripple strength
 = Stärke der Welle
 
-A right click on the desktop sends a ripple across the wallpaper
-= Ein Rechtsklick auf den Schreibtisch schickt eine Welle über das Hintergrundbild
+Right click the desktop to send a ripple
+= Ein Rechtsklick auf den Schreibtisch schickt eine Welle
 
 Theme change
 = Designwechsel
@@ -3576,8 +3576,8 @@ Fade
 Reveal
 = Enthüllen
 
-Reveal opens the new look in a circle from the pointer
-= Enthüllen öffnet das neue Aussehen in einem Kreis ab dem Zeiger
+Reveal grows the new look from the pointer
+= Enthüllen lässt das neue Aussehen vom Zeiger aus wachsen
 
 Genie
 = Flaschengeist
@@ -3585,8 +3585,8 @@ Genie
 Reacts to pointer
 = Reagiert auf den Zeiger
 
-The shader stirs where the pointer moves on the bare desktop
-= Der Shader regt sich, wo sich der Zeiger auf dem leeren Schreibtisch bewegt
+The wallpaper stirs under the pointer
+= Der Hintergrund regt sich unter dem Zeiger
 
 Trackpad
 = Trackpad
@@ -3813,8 +3813,8 @@ Could not save: {}
 Could not move it to the Trash: {}
 = In den Papierkorb legen fehlgeschlagen: {}
 
-Add Ctrl to a screenshot shortcut to copy the picture instead. Over a preview: Esc closes, Enter marks up, Space opens it in your image app, Delete moves it to the Trash, Ctrl+C copies.
-= Füge Strg zu einem Bildschirmfoto-Kürzel hinzu, um das Bild stattdessen zu kopieren. Über einer Vorschau: Esc schließt, Eingabe öffnet die Markierungen, Leertaste öffnet sie in deiner Bilder-App, Entf legt sie in den Papierkorb, Strg+C kopiert.
+Add Ctrl to copy instead of save. In a preview: Esc closes, Enter marks up, Space opens, Delete trashes, Ctrl+C copies.
+= Mit Strg kopieren statt speichern. In einer Vorschau: Esc schließt, Eingabe markiert, Leertaste öffnet, Entf löscht, Strg+C kopiert.
 
 A shortcut needs Ctrl, Alt or Super with the key.
 = Ein Kürzel braucht Strg, Alt oder Super mit der Taste.
@@ -4491,14 +4491,14 @@ This card can't use Wi-Fi and AirDrop at the same time. While AirDrop is on, Wi-
 Spatial sound
 = Raumklang
 
-Each app sounds from the side of the screen where its window sits
-= Jede App klingt von der Seite des Bildschirms, auf der ihr Fenster liegt
+Each app sounds from its window's side of the screen
+= Jede App klingt von der Seite ihres Fensters
 
 Intensity
 = Stärke
 
-How much of the spatial sound mixes into the plain sound
-= Wie viel Raumklang in den normalen Klang gemischt wird
+How far each sound moves to its side
+= Wie weit jeder Klang zu seiner Seite wandert
 
 Plain sound
 = Normaler Klang
@@ -4514,3 +4514,6 @@ Keep plain sound for
 
 No app is playing sound right now.
 = Gerade spielt keine App Ton ab.
+
+No Wi-Fi card found through NetworkManager. If another tool runs your Wi-Fi, keep using it.
+= Keine WLAN-Karte über NetworkManager gefunden. Wenn ein anderes Werkzeug dein WLAN steuert, nutze es weiter.

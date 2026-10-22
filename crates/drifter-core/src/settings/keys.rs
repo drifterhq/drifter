@@ -1,4 +1,5 @@
 use crate::geom::{Rect, Vec2};
+use crate::text::Font;
 
 use super::{Control, Group, Hit, Id, Look, Model, Row, Section, Value};
 
@@ -141,7 +142,7 @@ impl Model {
 }
 
 impl Look {
-    pub fn spot_rect(&self, size: Vec2, section: Section, model: &Model, scroll: f64, spot: Spot) -> Option<Rect> {
+    pub fn spot_rect(&self, size: Vec2, section: Section, model: &Model, scroll: f64, spot: Spot, small: &Font) -> Option<Rect> {
         match spot {
             Spot::Sidebar => {
                 let shown = model.shown();
@@ -150,7 +151,7 @@ impl Look {
             }
             Spot::Row(id, part) => {
                 let groups = model.groups(section);
-                let placed = self.place(size, section, &groups, scroll);
+                let placed = self.place(size, section, &groups, scroll, small);
                 for (group, spots) in groups.iter().zip(&placed) {
                     for (row, rect) in group.rows.iter().zip(&spots.rows) {
                         if row.id != id {
@@ -178,6 +179,10 @@ impl Look {
 mod tests {
     use super::*;
     use crate::config::Config;
+
+    fn small() -> crate::text::Font {
+        crate::text::Font::find(None, 11.5).expect("this machine has no usable font")
+    }
 
     fn model() -> Model {
         super::super::tests::model(&Config::default())
@@ -237,8 +242,8 @@ mod tests {
         let model = model();
         let look = Look::default();
         let size = Vec2::new(900.0, 700.0);
-        let switch = look.spot_rect(size, Section::Time, &model, 0.0, Spot::Row(Id::Seconds, 0)).unwrap();
+        let switch = look.spot_rect(size, Section::Time, &model, 0.0, Spot::Row(Id::Seconds, 0), &small()).unwrap();
         assert!(switch.size.x > 10.0 && switch.size.x < 80.0);
-        assert!(look.spot_rect(size, Section::Time, &model, 0.0, Spot::Sidebar).is_some());
+        assert!(look.spot_rect(size, Section::Time, &model, 0.0, Spot::Sidebar, &small()).is_some());
     }
 }

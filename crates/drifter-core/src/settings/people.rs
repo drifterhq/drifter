@@ -186,6 +186,10 @@ mod tests {
     use crate::users::{User, Users};
     use std::path::PathBuf;
 
+    fn small() -> crate::text::Font {
+        crate::text::Font::find(None, 11.5).expect("this machine has no usable font")
+    }
+
     fn person(login: &str, full: &str, uid: u32, admin: bool, face: Option<&str>) -> User {
         User {
             login: login.into(),
@@ -269,7 +273,7 @@ mod tests {
         let size = Vec2::new(900.0, 640.0);
         let spot = look.face_spot(look.picture_rect(size, 0.0));
         assert_eq!(
-            look.hit(size, Section::Users, &model, 0.0, spot.center()),
+            look.hit(size, Section::Users, &model, 0.0, spot.center(), &small()),
             Some(Hit::Press(Id::MyPicture, 0))
         );
     }

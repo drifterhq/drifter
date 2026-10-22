@@ -116,7 +116,7 @@ impl Model {
                     )
                     .detail(crate::lang::t("Rest the pointer in the top left corner to zoom out")),
                     Row::new(Id::CornerGlow, crate::lang::t("Glow"), Control::Switch(motion.corner_glow))
-                        .detail(crate::lang::t("The corner warms in the accent color as the pointer nears"))
+                        .detail(crate::lang::t("The corner glows as the pointer nears"))
                         .enabled(motion.hot_corner),
                     slider(
                         Id::CornerSize,
@@ -158,13 +158,13 @@ impl Model {
                         crate::lang::t("Auto hide top bar"),
                         Control::Switch(motion.hide_top),
                     )
-                    .detail(crate::lang::t("Off keeps the top bar on screen, and maximized windows leave room for it")),
+                    .detail(crate::lang::t("Off keeps the bar on screen, and windows leave room for it")),
                     Row::new(
                         Id::HideBottom,
                         crate::lang::t("Auto hide bottom bar"),
                         Control::Switch(motion.hide_bottom),
                     )
-                    .detail(crate::lang::t("Off keeps the dock on screen, and maximized windows leave room for it")),
+                    .detail(crate::lang::t("Off keeps the dock on screen, and windows leave room for it")),
                     slider(Id::BarOpen, crate::lang::t("Open after"), WAIT_MS, motion.bar_open, " ms")
                         .detail(crate::lang::t("How long the pointer rests at the edge")),
                     slider(
@@ -401,7 +401,7 @@ impl Model {
                                 .unwrap_or(0),
                         },
                     )
-                    .detail(crate::lang::t("Reveal opens the new look in a circle from the pointer")),
+                    .detail(crate::lang::t("Reveal grows the new look from the pointer")),
                     Row::new(
                         Id::Inactive,
                         crate::lang::t("Inactive windows"),
@@ -416,7 +416,7 @@ impl Model {
                     .detail(crate::lang::t("How much windows in the back fade")),
                 ],
                 footer: Some(
-                    crate::lang::t("Auto turns dark at dusk and light at dawn, with the wallpaper sky. GTK, libadwaita and Qt apps switch with Drifter.").into(),
+                    crate::lang::t("Auto follows the wallpaper sky: dark at dusk, light at dawn. GTK, libadwaita and Qt apps follow too.").into(),
                 ),
                 thumbs: None,
             },
@@ -447,7 +447,7 @@ impl Model {
                         },
                     ),
                 ],
-                footer: Some(crate::lang::t("The pointer changes at once. Apps opened after a change use it too. Window edges show resize arrows from the cursor theme.").into()),
+                footer: Some(crate::lang::t("The pointer changes at once. Apps use it the next time they open.").into()),
                 thumbs: None,
             },
         ]
@@ -606,7 +606,7 @@ impl Model {
         let spatial = &self.spatial;
         let mut rows = vec![
             Row::new(Id::SpatialOn, crate::lang::t("Spatial sound"), Control::Switch(spatial.spatial))
-                .detail(crate::lang::t("Each app sounds from the side of the screen where its window sits")),
+                .detail(crate::lang::t("Each app sounds from its window's side of the screen")),
             Row::new(
                 Id::SpatialMix,
                 crate::lang::t("Intensity"),
@@ -618,7 +618,7 @@ impl Model {
                     zero: Some(crate::lang::t("Plain")),
                 },
             )
-            .detail(crate::lang::t("How much of the spatial sound mixes into the plain sound"))
+            .detail(crate::lang::t("How far each sound moves to its side"))
             .enabled(spatial.spatial),
         ];
         for (at, app) in spatial.spatial_ignore.iter().enumerate() {
@@ -735,11 +735,7 @@ impl Model {
             return vec![Group {
                 header: None,
                 rows: Vec::new(),
-                footer: Some(
-                    "Settings could not find a Wi-Fi card through NetworkManager. \
-                     If you use another Wi-Fi tool, keep using it. Your Wi-Fi works the same."
-                        .into(),
-                ),
+                footer: Some(crate::lang::t("No Wi-Fi card found through NetworkManager. If another tool runs your Wi-Fi, keep using it.").into()),
                 thumbs: None,
             }];
         };
@@ -1065,7 +1061,7 @@ impl Model {
                         .detail(crate::lang::t("Tap Shift, Ctrl, Alt or Super, then a key")),
                 ],
                 footer: Some(
-                    crate::lang::t("With sticky keys, tap a key like Ctrl twice to keep it held. Tap it again to let go.")
+                    crate::lang::t("Tap a key like Ctrl twice to hold it. Tap it again to let go.")
                         .into(),
                 ),
                 thumbs: None,
@@ -1128,7 +1124,7 @@ impl Model {
                 ),
             ],
             footer: Some(
-                crate::lang::t("Add Ctrl to a screenshot shortcut to copy the picture instead. Over a preview: Esc closes, Enter marks up, Space opens it in your image app, Delete moves it to the Trash, Ctrl+C copies.")
+                crate::lang::t("Add Ctrl to copy instead of save. In a preview: Esc closes, Enter marks up, Space opens, Delete trashes, Ctrl+C copies.")
                     .into(),
             ),
             thumbs: None,
@@ -1989,6 +1985,10 @@ mod tests {
     use crate::geom::Vec2;
     use crate::settings::{Hit, Look, Section};
 
+    fn small() -> crate::text::Font {
+        crate::text::Font::find(None, 11.5).expect("this machine has no usable font")
+    }
+
     fn model(text: &str) -> Model {
         Model::read(&Config::parse(text).unwrap(), &[], |_| None)
     }
@@ -2157,10 +2157,10 @@ mod tests {
         let size = Vec2::new(860.0, 620.0);
         let m = model("");
         let groups = m.groups(Section::Appearance);
-        let row = look.place(size, Section::Appearance, &groups, 0.0)[0].rows[1];
+        let row = look.place(size, Section::Appearance, &groups, 0.0, &small())[0].rows[1];
         let third = look.swatch_rects(row, Accent::ALL.len())[2].center();
         assert_eq!(
-            look.hit(size, Section::Appearance, &m, 0.0, third),
+            look.hit(size, Section::Appearance, &m, 0.0, third, &small()),
             Some(Hit::Change(Id::AccentColor, Value::Choice(2)))
         );
     }

@@ -4,6 +4,7 @@ use std::hash::{Hash, Hasher};
 use accesskit::{Action, ActionData, ActionRequest, Node, NodeId, Role, Toggled, TreeId, TreeInfo, TreeUpdate};
 use drifter_core::settings::{Control, Hit, Id, Look, Mark, Model, Section, Spot, Value};
 use drifter_core::sheet::{Pick, Sheet};
+use drifter_core::Font;
 use drifter_core::{Rect, Vec2};
 use smithay_client_toolkit::reexports::calloop::channel::Sender;
 
@@ -83,6 +84,7 @@ pub struct View<'a> {
     pub spot: Option<Spot>,
     pub scroll: f64,
     pub size: Vec2,
+    pub small: &'a Font,
 }
 
 fn build(view: &View) -> (TreeUpdate, HashMap<NodeId, Aim>) {
@@ -114,7 +116,7 @@ fn build(view: &View) -> (TreeUpdate, HashMap<NodeId, Aim>) {
     nodes.push((side, list));
 
     let groups = view.model.groups(view.section);
-    let placed = view.look.place(view.size, view.section, &groups, view.scroll);
+    let placed = view.look.place(view.size, view.section, &groups, view.scroll, view.small);
     let mut parts = Vec::new();
     let heading = node_id("heading");
     let mut title = Node::new(Role::Heading);

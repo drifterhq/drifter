@@ -892,7 +892,7 @@ impl Model {
                             zero: None,
                         },
                     )
-                    .detail(crate::lang::t("How bright windows and the desktop look while HDR is on")),
+                    .detail(crate::lang::t("Brightness of windows and the desktop in HDR")),
                 );
             }
         }
@@ -1217,7 +1217,7 @@ impl Model {
                     Group {
                         header: None,
                         rows: vec![Row::new(Id::HideBottom, crate::lang::t("Auto hide"), Control::Switch(self.motion.hide_bottom))
-                            .detail(crate::lang::t("Off keeps the dock on screen, and maximized windows leave room for it")),
+                            .detail(crate::lang::t("Off keeps the dock on screen, and windows leave room for it")),
                         Row::new(
                             Id::DockIcon,
                             crate::lang::t("Icon size"),
@@ -1240,7 +1240,7 @@ impl Model {
                                 zero: None,
                             },
                         )
-                        .detail(crate::lang::t("Room around the icons. The dock is the icon size plus this above and below")),
+                        .detail(crate::lang::t("Space above and below the icons")),
                         Row::new(
                             Id::DockSpacing,
                             crate::lang::t("Icon spacing"),
@@ -1325,7 +1325,7 @@ impl Model {
                         header: None,
                         rows: vec![
                             Row::new(Id::HideTop, crate::lang::t("Auto hide"), Control::Switch(self.motion.hide_top))
-                                .detail(crate::lang::t("Off keeps the top bar on screen, and maximized windows leave room for it")),
+                                .detail(crate::lang::t("Off keeps the bar on screen, and windows leave room for it")),
                             Row::new(
                                 Id::Top,
                                 crate::lang::t("Bar height"),
@@ -1410,7 +1410,7 @@ impl Model {
                     Row::new(Id::AutoLogin, crate::lang::t("Log in automatically"), Control::Switch(self.automatic))
                         .detail(crate::lang::t("Skip the password when Drifter starts")),
                 ],
-                footer: Some(crate::lang::t("This counts when Drifter starts from a text console. A login screen such as GDM or SDDM asks for the password itself.").into()),
+                footer: Some(crate::lang::t("Only when Drifter starts from a text console. A login screen like GDM asks for the password itself.").into()),
                 thumbs: None,
             }],
             Section::Apps => vec![Group {
@@ -1686,7 +1686,7 @@ impl Model {
                         },
                     ),
                     Row::new(Id::Ripple, crate::lang::t("Ripple"), Control::Switch(self.ripple))
-                        .detail(crate::lang::t("A right click on the desktop sends a ripple across the wallpaper")),
+                        .detail(crate::lang::t("Right click the desktop to send a ripple")),
                     Row::new(
                         Id::RippleStrength,
                         crate::lang::t("Ripple strength"),
@@ -1789,13 +1789,13 @@ impl Model {
                             crate::shader::strong_gpu(&std::env::var("DRIFTER_RENDERER").unwrap_or_default())
                         })),
                     )
-                    .detail(crate::lang::t("The shader stirs where the pointer moves on the bare desktop"))
+                    .detail(crate::lang::t("The wallpaper stirs under the pointer"))
                     .enabled(self.drift > 0),
                 ],
                 footer: Some(
                     match self.shaders.is_empty() {
                         true => "No shaders yet. Put .shader files in ~/.local/share/drifter/shaders.",
-                        false => crate::lang::t("A shader wallpaper follows the time of day. Click one to use it. Motion sets how fast it drifts."),
+                        false => crate::lang::t("Shader wallpapers follow the time of day. Motion sets how fast they drift."),
                     }
                     .into(),
                 ),
@@ -3164,6 +3164,7 @@ impl Look {
         section: Section,
         groups: &[Group],
         scroll: f64,
+        small: &Font,
     ) -> Vec<Placed> {
         let (x, width) = self.column(size);
         let mut y = 72.0 - scroll;
@@ -3177,15 +3178,21 @@ impl Look {
                 y += 24.0;
                 at
             });
-            let rows: Vec<Rect> = (0..group.rows.len())
-                .map(|index| {
-                    Rect::new(
-                        Vec2::new(x, y + self.row * index as f64),
-                        Vec2::new(width, self.row),
-                    )
+            let mut tall = 0.0;
+            let rows: Vec<Rect> = group
+                .rows
+                .iter()
+                .map(|row| {
+                    let mut rect = Rect::new(Vec2::new(x, y + tall), Vec2::new(width, self.row));
+                    if let Some(detail) = &row.detail {
+                        let room = self.label_room(rect, row, self.label_left(rect, row));
+                        let more = wrap(small, detail, room).len().saturating_sub(1);
+                        rect.size.y += small.line_height() * more as f64;
+                    }
+                    tall += rect.size.y;
+                    rect
                 })
                 .collect();
-            let mut tall = self.row * group.rows.len() as f64;
             let mut thumbs = Vec::new();
             if let Some(set) = &group.thumbs {
                 let (across, down) = self.thumb_grid(width, set.paths.len());
@@ -3205,9 +3212,11 @@ impl Look {
             }
             let card = Rect::new(Vec2::new(x, y), Vec2::new(width, tall));
             y = card.max().y;
-            let footer = group.footer.as_ref().map(|_| {
-                let rect = Rect::new(Vec2::new(x + 4.0, y + 8.0), Vec2::new(width - 8.0, 20.0));
-                y += 30.0;
+            let footer = group.footer.as_ref().map(|footer| {
+                let more = wrap(small, footer, width - 8.0).len().saturating_sub(1);
+                let high = 20.0 + small.line_height() * more as f64;
+                let rect = Rect::new(Vec2::new(x + 4.0, y + 8.0), Vec2::new(width - 8.0, high));
+                y += 10.0 + high;
                 rect
             });
             y += self.gap;
@@ -3222,8 +3231,8 @@ impl Look {
         out
     }
 
-    pub fn content_height(&self, size: Vec2, section: Section, groups: &[Group]) -> f64 {
-        self.place(size, section, groups, 0.0)
+    pub fn content_height(&self, size: Vec2, section: Section, groups: &[Group], small: &Font) -> f64 {
+        self.place(size, section, groups, 0.0, small)
             .last()
             .map(|placed| {
                 placed
@@ -3235,8 +3244,8 @@ impl Look {
             .unwrap_or(0.0)
     }
 
-    pub fn max_scroll(&self, size: Vec2, section: Section, groups: &[Group]) -> f64 {
-        (self.content_height(size, section, groups) - size.y).max(0.0)
+    pub fn max_scroll(&self, size: Vec2, section: Section, groups: &[Group], small: &Font) -> f64 {
+        (self.content_height(size, section, groups, small) - size.y).max(0.0)
     }
 
     pub fn paint_switch(&self, canvas: &mut Canvas, pill: Rect, t: f64, fade: f64) {
@@ -3340,6 +3349,7 @@ impl Look {
         model: &Model,
         scroll: f64,
         pointer: Vec2,
+        small: &Font,
     ) -> Option<Hit> {
         if pointer.x < self.sidebar {
             if self.search_rect().contains(pointer) {
@@ -3369,7 +3379,7 @@ impl Look {
             return Some(Hit::Press(Id::MyPicture, 0));
         }
         let groups = model.groups(section);
-        let placed = self.place(size, section, &groups, scroll);
+        let placed = self.place(size, section, &groups, scroll, small);
         for (group, placed) in groups.iter().zip(&placed) {
             if let (Some(set), Some(at)) = (
                 group.thumbs.as_ref(),
@@ -3429,9 +3439,10 @@ impl Look {
         scroll: f64,
         id: Id,
         x: f64,
+        small: &Font,
     ) -> Option<Value> {
         let groups = model.groups(section);
-        let placed = self.place(size, section, &groups, scroll);
+        let placed = self.place(size, section, &groups, scroll, small);
         for (group, placed) in groups.iter().zip(&placed) {
             for (row, rect) in group.rows.iter().zip(&placed.rows) {
                 if row.id != id {
@@ -3479,7 +3490,7 @@ impl Look {
 
         for (group, placed) in groups
             .iter()
-            .zip(self.place(size, section, &groups, scroll))
+            .zip(self.place(size, section, &groups, scroll, fonts.small))
         {
             if let (Some(header), Some(at)) = (group.header, placed.header)
                 && at.y < size.y
@@ -3522,10 +3533,11 @@ impl Look {
                 && rect.origin.y < size.y
                 && rect.max().y > -40.0
             {
-                let text = fonts
-                    .small
-                    .paint(&fit(fonts.small, footer, rect.size.x), self.dim);
-                canvas.stamp(&text, rect.origin, 1.0);
+                let step = fonts.small.line_height();
+                for (index, line) in wrap(fonts.small, footer, rect.size.x).iter().enumerate() {
+                    let text = fonts.small.paint(line, self.dim);
+                    canvas.stamp(&text, rect.origin + Vec2::new(0.0, step * index as f64), 1.0);
+                }
             }
         }
 
@@ -3591,26 +3603,15 @@ impl Look {
         canvas.image
     }
 
-    fn paint_row(
-        &self,
-        canvas: &mut Canvas,
-        row: &Row,
-        rect: Rect,
-        fonts: &Fonts,
-        icons: &HashMap<String, Image>,
-        focused: bool,
-    ) {
-        let fade = if row.enabled { 1.0 } else { 0.4 };
-        let mut x = rect.origin.x + 14.0;
-        if let Some(key) = &row.icon {
-            let spot = Rect::new(Vec2::new(x, rect.center().y - 13.0), Vec2::splat(26.0));
-            match icons.get(key) {
-                Some(image) => canvas.stamp(image, spot.center() - crate::paint::logical(&image) / 2.0, fade),
-                None => crate::sheet::letter(canvas, self, fonts, spot, &row.label),
-            }
-            x = spot.max().x + 12.0;
+    fn label_left(&self, rect: Rect, row: &Row) -> f64 {
+        match row.icon {
+            Some(_) => rect.origin.x + 14.0 + 26.0 + 12.0,
+            None => rect.origin.x + 14.0,
         }
-        let room = match &row.control {
+    }
+
+    fn label_room(&self, rect: Rect, row: &Row, x: f64) -> f64 {
+        match &row.control {
             Control::Buttons(marks) => {
                 self.mark_rects(rect, marks)
                     .first()
@@ -3630,7 +3631,29 @@ impl Look {
                     - 10.0
             }
             _ => rect.size.x * 0.55,
-        };
+        }
+    }
+
+    fn paint_row(
+        &self,
+        canvas: &mut Canvas,
+        row: &Row,
+        rect: Rect,
+        fonts: &Fonts,
+        icons: &HashMap<String, Image>,
+        focused: bool,
+    ) {
+        let fade = if row.enabled { 1.0 } else { 0.4 };
+        let mut x = rect.origin.x + 14.0;
+        if let Some(key) = &row.icon {
+            let spot = Rect::new(Vec2::new(x, rect.center().y - 13.0), Vec2::splat(26.0));
+            match icons.get(key) {
+                Some(image) => canvas.stamp(image, spot.center() - crate::paint::logical(&image) / 2.0, fade),
+                None => crate::sheet::letter(canvas, self, fonts, spot, &row.label),
+            }
+            x = spot.max().x + 12.0;
+        }
+        let room = self.label_room(rect, row, x);
         let ink = if row.faint { self.dim } else { self.ink };
         let label = fonts.body.paint(&fit(fonts.body, &row.label, room), ink);
         if row.editing {
@@ -3644,11 +3667,16 @@ impl Look {
         } else {
         match &row.detail {
             Some(detail) => {
-                let small = fonts.small.paint(&fit(fonts.small, detail, room), self.dim);
-                let total = crate::paint::logical(&label).y + crate::paint::logical(&small).y;
+                let lines = wrap(fonts.small, detail, room);
+                let step = fonts.small.line_height();
+                let total = crate::paint::logical(&label).y + step * lines.len() as f64;
                 let top = rect.center().y - total / 2.0;
                 canvas.stamp(&label, Vec2::new(x, top), fade);
-                canvas.stamp(&small, Vec2::new(x, top + crate::paint::logical(&label).y), fade);
+                for (index, line) in lines.iter().enumerate() {
+                    let small = fonts.small.paint(line, self.dim);
+                    let at = Vec2::new(x, top + crate::paint::logical(&label).y + step * index as f64);
+                    canvas.stamp(&small, at, fade);
+                }
             }
             None => {
                 let at = Vec2::new(x, rect.center().y - crate::paint::logical(&label).y / 2.0);
@@ -4004,6 +4032,13 @@ pub fn cover(art: &Image, width: u32, height: u32) -> Image {
     .scaled(width, height)
 }
 
+fn wrap(font: &Font, text: &str, width: f64) -> Vec<String> {
+    crate::activity::look::wrap(font, text, width)
+        .into_iter()
+        .map(|line| fit(font, &line, width))
+        .collect()
+}
+
 fn fit(font: &Font, text: &str, width: f64) -> String {
     if font.width_of(text) <= width {
         return text.to_string();
@@ -4198,6 +4233,10 @@ fn paint_glyph(canvas: &mut Canvas, section: Section, icon: Rect) {
 
 #[cfg(test)]
 mod tests {
+    fn small() -> crate::text::Font {
+        crate::text::Font::find(None, 11.5).expect("this machine has no usable font")
+    }
+
 
     #[test]
     fn a_scale_lands_on_its_own_monitor_and_keeps_the_rest() {
@@ -4303,18 +4342,18 @@ mod tests {
         let size = look.least();
         let first = look.item_rect_in(&model.shown(), 0).center();
         assert_eq!(
-            look.hit(size, Section::Desktop, &model, 0.0, first),
+            look.hit(size, Section::Desktop, &model, 0.0, first, &small()),
             Some(Hit::Section(model.shown()[0]))
         );
         let search = look.search_rect().center();
         assert_eq!(
-            look.hit(size, Section::Desktop, &model, 0.0, search),
+            look.hit(size, Section::Desktop, &model, 0.0, search, &small()),
             Some(Hit::Search)
         );
         let shown = model.shown();
         let below = look.item_rect_in(&shown, shown.len() - 1);
         let past = below.center() + Vec2::new(0.0, look.item + 2.0);
-        assert_eq!(look.hit(size, Section::Desktop, &model, 0.0, past), None);
+        assert_eq!(look.hit(size, Section::Desktop, &model, 0.0, past, &small()), None);
     }
 
     #[test]
@@ -4765,13 +4804,13 @@ mod tests {
         assert_eq!(model.press(Id::WifiHidden, 0), Some(Ask::Net(NetAsk::Hidden)));
         let look = Look::default();
         let groups = model.groups(Section::Network);
-        let row = look.place(SIZE, Section::Network, &groups, 0.0)[1].rows[1];
+        let row = look.place(SIZE, Section::Network, &groups, 0.0, &small())[1].rows[1];
         let name = Vec2::new(row.origin.x + 30.0, row.center().y);
-        assert_eq!(look.hit(SIZE, Section::Network, &model, 0.0, name), Some(Hit::Open(Id::Net(1))));
+        assert_eq!(look.hit(SIZE, Section::Network, &model, 0.0, name, &small()), Some(Hit::Open(Id::Net(1))));
         let join = look.mark_rects(row, &[Mark::Text("Join"), Mark::Text("Forget")])[0].center();
-        assert_eq!(look.hit(SIZE, Section::Network, &model, 0.0, join), Some(Hit::Press(Id::Net(1), 0)));
-        let switch = look.place(SIZE, Section::Network, &groups, 0.0)[0].rows[0];
-        assert_ne!(look.hit(SIZE, Section::Network, &model, 0.0, switch.center()), Some(Hit::Open(Id::WifiOn)));
+        assert_eq!(look.hit(SIZE, Section::Network, &model, 0.0, join, &small()), Some(Hit::Press(Id::Net(1), 0)));
+        let switch = look.place(SIZE, Section::Network, &groups, 0.0, &small())[0].rows[0];
+        assert_ne!(look.hit(SIZE, Section::Network, &model, 0.0, switch.center(), &small()), Some(Hit::Open(Id::WifiOn)));
         assert_eq!(rows[1].detail.as_deref(), Some("Connected"));
         assert_eq!(rows[3].detail.as_deref(), Some("Secured, strong signal"));
         model.set(Id::WifiOn, Value::Switch(false));
@@ -5151,12 +5190,12 @@ mod tests {
         assert!(!out.contains("files"), "{out}");
         let look = Look::default();
         let groups = after.groups(Section::Dock);
-        let rows = look.place(SIZE, Section::Dock, &groups, 0.0)[1]
+        let rows = look.place(SIZE, Section::Dock, &groups, 0.0, &small())[1]
             .rows
             .clone();
         let terminal = rows[rows.len() - 5];
         assert_eq!(
-            look.hit(SIZE, Section::Dock, &after, 0.0, terminal.center()),
+            look.hit(SIZE, Section::Dock, &after, 0.0, terminal.center(), &small()),
             Some(Hit::Change(Id::DockShow(1), Value::Switch(true)))
         );
     }
@@ -5240,9 +5279,9 @@ mod tests {
         let look = Look::default();
         let groups = after.groups(Section::Wallpaper);
         assert_eq!(groups[1].header, Some("Shaders"));
-        let placed = look.place(SIZE, Section::Wallpaper, &groups, 0.0);
+        let placed = look.place(SIZE, Section::Wallpaper, &groups, 0.0, &small());
         let tiles = placed[1].thumbs[1].center();
-        let hit = look.hit(SIZE, Section::Wallpaper, &after, 0.0, tiles);
+        let hit = look.hit(SIZE, Section::Wallpaper, &after, 0.0, tiles, &small());
         assert_eq!(hit, Some(Hit::Picture(Shelf::Shaders, 1)));
         after.choose_picture(Shelf::Shaders, 1);
         assert_eq!(after.groups(Section::Wallpaper)[1].thumbs.as_ref().unwrap().chosen, Some(1));
@@ -5262,9 +5301,9 @@ mod tests {
         after.choose_folder(folder.clone());
         let look = Look::default();
         let groups = after.groups(Section::Wallpaper);
-        let placed = look.place(SIZE, Section::Wallpaper, &groups, 0.0);
+        let placed = look.place(SIZE, Section::Wallpaper, &groups, 0.0, &small());
         let second = placed.last().unwrap().thumbs[1].center();
-        let hit = look.hit(SIZE, Section::Wallpaper, &after, 0.0, second);
+        let hit = look.hit(SIZE, Section::Wallpaper, &after, 0.0, second, &small());
         assert_eq!(hit, Some(Hit::Picture(Shelf::Pictures, 1)));
         after.choose_picture(Shelf::Pictures, 1);
         let back = Config::parse(&after.write(&before, "").unwrap()).unwrap();
@@ -5310,7 +5349,7 @@ mod tests {
             .unwrap();
         let item = look.item_rect(at).center();
         assert_eq!(
-            look.hit(SIZE, Section::Desktop, &model, 0.0, item),
+            look.hit(SIZE, Section::Desktop, &model, 0.0, item, &small()),
             Some(Hit::Section(Section::TopBar))
         );
     }
@@ -5324,11 +5363,11 @@ mod tests {
         assert!(last.max().y < least.y);
         let model = model(&Config::default());
         assert_eq!(
-            look.hit(least, Section::Desktop, &model, 0.0, last.center()),
+            look.hit(least, Section::Desktop, &model, 0.0, last.center(), &small()),
             Some(Hit::Section(Section::About))
         );
         let hidden = Vec2::new(40.0, 20.0);
-        assert_eq!(look.hit(least, Section::Desktop, &model, 0.0, hidden), None);
+        assert_eq!(look.hit(least, Section::Desktop, &model, 0.0, hidden, &small()), None);
     }
 
     #[test]
@@ -5336,10 +5375,10 @@ mod tests {
         let look = Look::default();
         let model = model(&Config::default());
         let groups = model.groups(Section::Time);
-        let placed = look.place(SIZE, Section::Time, &groups, 0.0);
+        let placed = look.place(SIZE, Section::Time, &groups, 0.0, &small());
         let seconds = placed[1].rows[2].center();
         assert_eq!(
-            look.hit(SIZE, Section::Time, &model, 0.0, seconds),
+            look.hit(SIZE, Section::Time, &model, 0.0, seconds, &small()),
             Some(Hit::Change(Id::Seconds, Value::Switch(false)))
         );
     }
@@ -5361,9 +5400,9 @@ mod tests {
         let mut model = model(&Config::default());
         model.stats = false;
         let groups = model.groups(Section::TopBar);
-        let placed = look.place(SIZE, Section::TopBar, &groups, 0.0);
+        let placed = look.place(SIZE, Section::TopBar, &groups, 0.0, &small());
         let cpu = placed[1].rows[1].center();
-        assert_eq!(look.hit(SIZE, Section::TopBar, &model, 0.0, cpu), None);
+        assert_eq!(look.hit(SIZE, Section::TopBar, &model, 0.0, cpu, &small()), None);
     }
 
     #[test]
@@ -5372,7 +5411,7 @@ mod tests {
         let mut model = model(&Config::default());
         model.add(For::Dock, Launch::App("foot".into()));
         let groups = model.groups(Section::Dock);
-        let row = look.place(SIZE, Section::Dock, &groups, 0.0)[1].rows[0];
+        let row = look.place(SIZE, Section::Dock, &groups, 0.0, &small())[1].rows[0];
         let marks = [Mark::Up, Mark::Down, Mark::Text("Icon"), Mark::Minus];
         let spots = look.mark_rects(row, &marks);
         assert!(
@@ -5382,7 +5421,7 @@ mod tests {
         );
         assert_eq!(spots[3].max().x, row.max().x - 14.0);
         assert_eq!(
-            look.hit(SIZE, Section::Dock, &model, 0.0, spots[2].center()),
+            look.hit(SIZE, Section::Dock, &model, 0.0, spots[2].center(), &small()),
             Some(Hit::Press(Id::Dock(0), 2))
         );
     }
@@ -5392,20 +5431,20 @@ mod tests {
         let look = Look::default();
         let model = model(&Config::default());
         let groups = model.groups(Section::Desktop);
-        let row = look.place(SIZE, Section::Desktop, &groups, 0.0)[0].rows[0];
+        let row = look.place(SIZE, Section::Desktop, &groups, 0.0, &small())[0].rows[0];
         let track = look.track_rect(row);
         let left = Vec2::new(track.origin.x, row.center().y);
         let right = Vec2::new(track.max().x, row.center().y);
         assert_eq!(
-            look.hit(SIZE, Section::Desktop, &model, 0.0, left),
+            look.hit(SIZE, Section::Desktop, &model, 0.0, left, &small()),
             Some(Hit::Change(Id::World, Value::Number(2.0)))
         );
         assert_eq!(
-            look.hit(SIZE, Section::Desktop, &model, 0.0, right),
+            look.hit(SIZE, Section::Desktop, &model, 0.0, right, &small()),
             Some(Hit::Change(Id::World, Value::Number(10.0)))
         );
         assert_eq!(
-            look.drag(SIZE, Section::Desktop, &model, 0.0, Id::World, -500.0),
+            look.drag(SIZE, Section::Desktop, &model, 0.0, Id::World, -500.0, &small()),
             Some(Value::Number(2.0))
         );
     }
@@ -5415,10 +5454,10 @@ mod tests {
         let look = Look::default();
         let model = model(&Config::default());
         let groups = model.groups(Section::Mouse);
-        let row = look.place(SIZE, Section::Mouse, &groups, 0.0)[0].rows[0];
+        let row = look.place(SIZE, Section::Mouse, &groups, 0.0, &small())[0].rows[0];
         let alt = look.segment_rect(row, 3, 1).center();
         assert_eq!(
-            look.hit(SIZE, Section::Mouse, &model, 0.0, alt),
+            look.hit(SIZE, Section::Mouse, &model, 0.0, alt, &small()),
             Some(Hit::Change(Id::Modifier, Value::Choice(1)))
         );
     }
@@ -5428,8 +5467,8 @@ mod tests {
         let look = Look::default();
         let model = model(&Config::default());
         let groups = model.groups(Section::TopBar);
-        let still = look.place(SIZE, Section::TopBar, &groups, 0.0);
-        let moved = look.place(SIZE, Section::TopBar, &groups, 40.0);
+        let still = look.place(SIZE, Section::TopBar, &groups, 0.0, &small());
+        let moved = look.place(SIZE, Section::TopBar, &groups, 40.0, &small());
         assert_eq!(moved[0].card.origin.y, still[0].card.origin.y - 40.0);
     }
 
@@ -5439,22 +5478,35 @@ mod tests {
         let model = model(&Config::default());
         let groups = model.groups(Section::TopBar);
         let short = Vec2::new(860.0, 420.0);
-        let most = look.max_scroll(short, Section::TopBar, &groups);
+        let most = look.max_scroll(short, Section::TopBar, &groups, &small());
         assert!(most > 0.0);
-        let placed = look.place(short, Section::TopBar, &groups, most);
+        let placed = look.place(short, Section::TopBar, &groups, most, &small());
         let last = placed.last().unwrap().rows.last().unwrap();
         assert!(last.max().y <= short.y);
     }
 
     #[test]
-    fn a_long_footer_is_cut_to_fit() {
-        let font = Font::find(None, 12.0).expect("this machine has no usable font");
-        let text = fit(
-            &font,
-            "a very long line that will never fit in this width",
-            80.0,
-        );
-        assert!(text.ends_with('…'));
-        assert!(font.width_of(&text) <= 80.0);
+    fn a_long_footer_wraps_and_pushes_the_next_group_down() {
+        let font = small();
+        let lines = wrap(&font, "a very long line that will never fit in this width", 80.0);
+        assert!(lines.len() > 1);
+        assert!(lines.iter().all(|line| !line.ends_with('…') && font.width_of(line) <= 80.0));
+
+        let look = Look::default();
+        let group = |footer: &str| Group { header: None, rows: Vec::new(), footer: Some(footer.into()), thumbs: None };
+        let next = |footer: &str| look.place(SIZE, Section::Desktop, &[group(footer), group("")], 0.0, &font)[1].card.origin.y;
+        assert!(next(&"word ".repeat(80)) > next("short") + font.line_height());
+    }
+
+    #[test]
+    fn a_long_detail_makes_its_row_taller() {
+        let font = small();
+        let look = Look::default();
+        let row = |detail: &str| Row::new(Id::Seconds, "Label", Control::Switch(false)).detail(detail);
+        let group = Group { header: None, rows: vec![row("short"), row(&"word ".repeat(40))], footer: None, thumbs: None };
+        let rows = &look.place(SIZE, Section::Desktop, &[group], 0.0, &font)[0].rows;
+        assert_eq!(rows[0].size.y, look.row);
+        assert!(rows[1].size.y > look.row);
+        assert_eq!(rows[1].origin.y, rows[0].max().y);
     }
 }
