@@ -31,8 +31,7 @@ pub(super) struct Ripple {
     pub snapshot: smithay::backend::renderer::gles::GlesTexture,
     pub sheet: super::wallpaper::Sheet,
     pub size: (i32, i32),
-    pub at: Vec2,
-    pub since: Instant,
+    pub drops: Vec<(Vec2, Instant)>,
 }
 
 pub(super) struct Alert {
@@ -166,6 +165,13 @@ impl State {
         if !wanted {
             return;
         }
+        if let Some(ripple) = self.ripple.as_mut() {
+            if ripple.drops.len() >= drifter_core::ripple::DROPS {
+                ripple.drops.remove(0);
+            }
+            ripple.drops.push((at, Instant::now()));
+            return;
+        }
         if self.ripple_program.is_none() {
             let program = super::wallpaper::ripple_program(&mut self.renderer);
             self.ripple_program = Some(program);
@@ -183,8 +189,7 @@ impl State {
             snapshot,
             sheet,
             size,
-            at,
-            since: Instant::now(),
+            drops: vec![(at, Instant::now())],
         });
     }
 
@@ -192,8 +197,8 @@ impl State {
         let Some(ripple) = self.ripple.as_mut() else {
             return;
         };
-        let seconds = ripple.since.elapsed().as_secs_f64();
-        if seconds >= drifter_core::ripple::SECONDS {
+        ripple.drops.retain(|(_, since)| since.elapsed().as_secs_f64() < drifter_core::ripple::SECONDS);
+        if ripple.drops.is_empty() {
             self.ripple = None;
             return;
         }
@@ -201,7 +206,7 @@ impl State {
             self.ripple = None;
             return;
         };
-        let look = (self.screen, ripple.at, seconds as f32, self.ripple_strength as f32);
+        let look = (self.screen, self.ripple_strength as f32);
         if let Err(error) = super::wallpaper::paint_ripple(program, &mut self.renderer, ripple, look) {
             log!("drifter: no ripple: {error}");
             self.ripple = None;
