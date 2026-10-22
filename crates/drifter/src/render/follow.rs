@@ -713,6 +713,7 @@ impl State {
         self.power_rules = config.power;
         let moved = self.notify.position != config.notify.position;
         self.notify = config.notify;
+        self.sound = config.sound.clone();
         if moved {
             self.repaint_notes();
         }

@@ -210,6 +210,15 @@ position = "top-right"
 # Keep the last 50 notes. Settings > Notifications lists them.
 history = true
 
+[sound]
+# Each app's sound comes from the side of the screen where its window sits.
+spatial = false
+# How much of the spatial sound mixes into the plain sound, in percent.
+# 0 is plain stereo, 100 pans fully to the window's side.
+spatial_mix = 60
+# Apps that keep plain sound, by desktop file name, program or app name.
+# Without this key the list holds the common music players.
+
 [keys]
 # One shortcut each. Join keys with +: ctrl, alt, shift, super, and camera
 # for the camera key. The last part is a key name, like Tab, F4, l or Print.

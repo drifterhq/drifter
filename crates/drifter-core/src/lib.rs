@@ -56,6 +56,7 @@ pub mod shutter;
 pub mod sheet;
 pub mod shortcut;
 pub mod snap;
+pub mod spatial;
 pub mod stats;
 pub mod sticky;
 pub mod switcher;
