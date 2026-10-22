@@ -6,3 +6,4 @@
 .playwright-mcp/
 /conf/explorer.toml
 /conf/explorer-views.toml
+/icons/clay/build/
