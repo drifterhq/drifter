@@ -158,13 +158,13 @@ impl Model {
                         crate::lang::t("Auto hide top bar"),
                         Control::Switch(motion.hide_top),
                     )
-                    .detail(crate::lang::t("Off keeps the bar on screen, and windows leave room for it")),
+                    .detail(crate::lang::t("Off keeps the bar shown. Windows stay clear of it")),
                     Row::new(
                         Id::HideBottom,
                         crate::lang::t("Auto hide bottom bar"),
                         Control::Switch(motion.hide_bottom),
                     )
-                    .detail(crate::lang::t("Off keeps the dock on screen, and windows leave room for it")),
+                    .detail(crate::lang::t("Off keeps the dock shown. Windows stay clear of it")),
                     slider(Id::BarOpen, crate::lang::t("Open after"), WAIT_MS, motion.bar_open, " ms")
                         .detail(crate::lang::t("How long the pointer rests at the edge")),
                     slider(

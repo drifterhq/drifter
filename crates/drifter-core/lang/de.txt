@@ -813,8 +813,8 @@ A grid of all your apps
 Auto hide
 = Automatisch ausblenden
 
-Off keeps the dock on screen, and windows leave room for it
-= Aus lässt das Dock sichtbar, und Fenster lassen ihm Platz
+Off keeps the dock shown. Windows stay clear of it
+= Aus: das Dock bleibt sichtbar. Fenster weichen ihm aus
 
 Icon size
 = Symbolgröße
@@ -858,8 +858,8 @@ Memory in use
 Disk mounted at {}
 = Laufwerk eingehängt unter {}
 
-Off keeps the bar on screen, and windows leave room for it
-= Aus lässt die Leiste sichtbar, und Fenster lassen ihr Platz
+Off keeps the bar shown. Windows stay clear of it
+= Aus: die Leiste bleibt sichtbar. Fenster weichen ihr aus
 
 Bar height
 = Leistenhöhe

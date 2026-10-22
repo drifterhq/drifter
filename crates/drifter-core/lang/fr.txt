@@ -810,8 +810,8 @@ A grid of all your apps
 Auto hide
 = Masquer automatiquement
 
-Off keeps the dock on screen, and windows leave room for it
-= Désactivé, le dock reste à l’écran et les fenêtres lui laissent la place
+Off keeps the dock shown. Windows stay clear of it
+= Désactivé, le dock reste visible. Les fenêtres l’évitent
 
 Icon size
 = Taille des icônes
@@ -855,8 +855,8 @@ Memory in use
 Disk mounted at {}
 = Disque monté sur {}
 
-Off keeps the bar on screen, and windows leave room for it
-= Désactivé, la barre reste à l’écran et les fenêtres lui laissent la place
+Off keeps the bar shown. Windows stay clear of it
+= Désactivé, la barre reste visible. Les fenêtres l’évitent
 
 Bar height
 = Hauteur de la barre

@@ -1217,7 +1217,7 @@ impl Model {
                     Group {
                         header: None,
                         rows: vec![Row::new(Id::HideBottom, crate::lang::t("Auto hide"), Control::Switch(self.motion.hide_bottom))
-                            .detail(crate::lang::t("Off keeps the dock on screen, and windows leave room for it")),
+                            .detail(crate::lang::t("Off keeps the dock shown. Windows stay clear of it")),
                         Row::new(
                             Id::DockIcon,
                             crate::lang::t("Icon size"),
@@ -1325,7 +1325,7 @@ impl Model {
                         header: None,
                         rows: vec![
                             Row::new(Id::HideTop, crate::lang::t("Auto hide"), Control::Switch(self.motion.hide_top))
-                                .detail(crate::lang::t("Off keeps the bar on screen, and windows leave room for it")),
+                                .detail(crate::lang::t("Off keeps the bar shown. Windows stay clear of it")),
                             Row::new(
                                 Id::Top,
                                 crate::lang::t("Bar height"),
