@@ -45,25 +45,21 @@ pub fn set_theme(theme: Option<String>) -> bool {
     changed
 }
 
-pub const DARK: &str = "drifter-icons-dark";
-pub const LIGHT: &str = "drifter-icons-light";
+pub const OURS: &str = "drifter-icons";
+const RETIRED: [&str; 2] = ["drifter-icons-dark", "drifter-icons-light"];
 
-pub fn theme_for(picked: Option<&str>, style: crate::config::Style, roots: &[PathBuf]) -> Option<String> {
-    if let Some(picked) = picked {
+pub fn theme_for(picked: Option<&str>, roots: &[PathBuf]) -> Option<String> {
+    if let Some(picked) = picked.filter(|picked| !RETIRED.contains(picked)) {
         return Some(picked.to_string());
     }
-    let ours = match style {
-        crate::config::Style::Light => LIGHT,
-        _ => DARK,
-    };
     roots
         .iter()
-        .any(|root| root.join(ours).join("index.theme").is_file())
-        .then(|| ours.to_string())
+        .any(|root| root.join(OURS).join("index.theme").is_file())
+        .then(|| OURS.to_string())
 }
 
 pub fn now_for(look: &crate::config::Appearance) -> Option<String> {
-    theme_for(look.icons.as_deref(), crate::theme::now(look.style), &roots())
+    theme_for(look.icons.as_deref(), &roots())
 }
 
 pub fn follow(look: &crate::config::Appearance) -> bool {
@@ -326,17 +322,22 @@ mod tests {
     }
 
     #[test]
-    fn our_themes_follow_the_look_unless_one_is_picked() {
+    fn one_theme_of_ours_serves_light_and_dark_unless_another_is_picked() {
         let root = scratch("ours");
-        touch(&root.join("drifter-icons-dark/index.theme"));
-        touch(&root.join("drifter-icons-light/index.theme"));
+        touch(&root.join("drifter-icons/index.theme"));
         let roots = [root];
-        let dark = crate::config::Style::Dark;
-        let light = crate::config::Style::Light;
-        assert_eq!(theme_for(None, dark, &roots).as_deref(), Some(DARK));
-        assert_eq!(theme_for(None, light, &roots).as_deref(), Some(LIGHT));
-        assert_eq!(theme_for(Some("Papirus"), light, &roots).as_deref(), Some("Papirus"));
-        assert_eq!(theme_for(None, dark, &[scratch("none")]), None);
+        assert_eq!(theme_for(None, &roots).as_deref(), Some(OURS));
+        assert_eq!(theme_for(Some("Papirus"), &roots).as_deref(), Some("Papirus"));
+        assert_eq!(theme_for(None, &[scratch("none")]), None);
+    }
+
+    #[test]
+    fn a_config_naming_the_old_dark_or_light_set_gets_the_one_set() {
+        let root = scratch("retired");
+        touch(&root.join("drifter-icons/index.theme"));
+        let roots = [root];
+        assert_eq!(theme_for(Some("drifter-icons-dark"), &roots).as_deref(), Some(OURS));
+        assert_eq!(theme_for(Some("drifter-icons-light"), &roots).as_deref(), Some(OURS));
     }
 
     #[test]

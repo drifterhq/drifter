@@ -369,10 +369,10 @@ mod tests {
 
     #[test]
     fn x11_settings_name_the_theme_icons_and_pointer() {
-        let text = xsettings_text("Adwaita-dark", Some("drifter-icons-dark"), None, 24);
+        let text = xsettings_text("Adwaita-dark", Some("drifter-icons"), None, 24);
         assert_eq!(
             text,
-            "Net/ThemeName \"Adwaita-dark\"\nNet/IconThemeName \"drifter-icons-dark\"\nGtk/CursorThemeSize 24\n"
+            "Net/ThemeName \"Adwaita-dark\"\nNet/IconThemeName \"drifter-icons\"\nGtk/CursorThemeSize 24\n"
         );
     }
 }
