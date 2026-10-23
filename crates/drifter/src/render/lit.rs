@@ -27,35 +27,30 @@ impl State {
             let row = look.lit_rect(&open.items, open.rect.size, at);
             return Some((Pane::Menu, Rect::new(open.rect.origin + row.origin, row.size)));
         }
-        if let Some(pad) = self.launchpad.as_ref().filter(|pad| pad.art.is_some() && pad.rect.contains(pointer)) {
-            let look = drifter_core::launchpad::Look::themed(&self.palette);
-            let size = pad.rect.size;
-            let per = look.per_page(size);
-            let on_page = pad.shown.len().saturating_sub(pad.page * per);
-            let slot = look.slot_at(size, pointer - pad.rect.origin, on_page)?;
-            let cell = look.cell_rect(size, slot);
-            return Some((Pane::Launchpad, Rect::new(pad.rect.origin + cell.origin, cell.size)));
+        if self.launchpad.as_ref().is_some_and(|pad| pad.rect.contains(pointer)) {
+            return None;
         }
         if let Some((open, rect)) = self.search.as_ref().and_then(|open| Some((open, open.art.as_ref()?.1))) {
             let look = self.search_look();
             let at = look.row_at(pointer - rect.origin, open.results.len()).filter(|at| *at != open.selected)?;
-            let row = look.row_rect(at);
+            let row = drifter_core::rows::lit_rect(look.row_rect(at));
             return Some((Pane::Search, Rect::new(rect.origin + row.origin, row.size)));
         }
         if let Some(open) = self.control.as_ref().filter(|open| open.art.is_some() && open.rect.contains(pointer)) {
-            let hit = self.control_look().hit_rect(pointer - open.rect.origin, self.shown_items())?;
-            return Some((Pane::Control, Rect::new(open.rect.origin + hit.origin, hit.size)));
+            let look = self.control_look();
+            let items = self.shown_items();
+            let drifter_core::control::Hit::Item(at) = look.hit(pointer - open.rect.origin, items)? else {
+                return None;
+            };
+            let row = drifter_core::rows::lit_rect(look.item_rect(items, at));
+            return Some((Pane::Control, Rect::new(open.rect.origin + row.origin, row.size)));
         }
         if let Some(panel) = self.glance_panel.as_ref().filter(|panel| panel.art.is_some()) {
             let at = panel.hover.filter(|at| panel.open != Some(*at))?;
-            let row = self.glance_layout().row_rect(at, panel.open);
+            let row = drifter_core::rows::lit_rect(self.glance_layout().row_rect(at, panel.open));
             return Some((Pane::Glance, Rect::new(panel.rect.origin + row.origin, row.size)));
         }
-        self.cards
-            .iter()
-            .zip(self.card_shown())
-            .find(|(_, rect)| rect.contains(pointer))
-            .map(|(card, rect)| (Pane::Card(card.note.id), rect))
+        None
     }
 
     pub(super) fn light_row(&mut self, pane: Pane, rect: Rect) {
