@@ -147,6 +147,7 @@ How it works today (the items change this):
   - Waits on: 10.
   - Alt held on click: a menu of disabled lines from `net::details` (net.rs:223): IP, router, band, channel, signal in dBm, security. Then "Wi-Fi Settings…".
   - The dBm and link lines need `iw`. Run it on a worker with `self.background`, then open the menu.
+  - Removed 2026-10-22 at the user's request: no Alt+click. The same details are in Settings > Wi-Fi > Options > Details.
 
 ## Phase 3: The Control Center list
 
