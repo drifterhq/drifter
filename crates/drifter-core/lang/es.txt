@@ -4904,3 +4904,48 @@ Wi-Fi
 
 No networks in range
 = No hay redes al alcance
+
+Wi-Fi: not connected
+= Wi-Fi: sin conexión
+
+Security: none
+= Seguridad: ninguna
+
+Ethernet ({}), connected
+= Ethernet ({}), conectado
+
+IP address: {}
+= Dirección IP: {}
+
+Router: {}
+= Router: {}
+
+{}, channel {}
+= {}, canal {}
+
+Security: {}
+= Seguridad: {}
+
+Signal: {}%, {} dBm
+= Señal: {}%, {} dBm
+
+Signal: {}%
+= Señal: {}%
+
+Speed now: {}
+= Velocidad ahora: {}
+
+No devices set up yet.
+= Aún no hay dispositivos configurados.
+
+Set Up a Device…
+= Configurar un dispositivo…
+
+Nothing connected
+= Nada conectado
+
+{}, connected
+= {}, conectado
+
+battery {}%
+= batería {}%

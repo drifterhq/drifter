@@ -372,11 +372,11 @@ impl State {
 
     pub(super) fn open_context(&mut self) -> bool {
         if self.blue_tray_rect().is_some_and(|rect| rect.contains(self.pointer)) {
-            self.open_blue_menu();
+            self.open_blue_status();
             return true;
         }
         if self.wifi_tray_rect().is_some_and(|rect| rect.contains(self.pointer)) {
-            self.open_wifi_menu();
+            self.open_wifi_status();
             return true;
         }
         if let Some(band) = self.tray_band()

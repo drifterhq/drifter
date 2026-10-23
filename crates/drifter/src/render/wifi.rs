@@ -884,6 +884,29 @@ impl State {
         self.wifi_scan_as_needed();
     }
 
+    pub(super) fn open_wifi_status(&mut self) {
+        let at = self.wifi_tray_rect().map_or(self.pointer, |rect| Vec2::new(rect.origin.x, rect.max().y + 6.0));
+        let airdrop = self.airdrop_holds_wifi();
+        let (Some(bus), Some(wifi)) = (self.wifi.bus.clone(), self.wifi.now.clone()) else {
+            let items = vec![drifter_core::menu::Item::line(net::MENU_SETTINGS, drifter_core::lang::t("Wi-Fi Settings…"))];
+            self.close_panels();
+            self.open_popover(items, at, Target::Wifi);
+            return;
+        };
+        self.background("wifi status", move || {
+            let (ap, link) = match wifi.joined_net() {
+                Some(joined) if !airdrop => (bus.points(&joined.ssid).into_iter().next(), bus.link()),
+                _ => (None, None),
+            };
+            let lines = net::status_lines(&wifi, airdrop, ap.as_ref(), link.as_ref());
+            move |state: &mut State| {
+                let wifi = state.wifi.now.clone().unwrap_or(wifi);
+                state.close_panels();
+                state.open_popover(net::status_menu(&wifi, &lines), at, Target::Wifi);
+            }
+        });
+    }
+
     pub(super) fn wifi_menu_pick(&mut self, id: i32) {
         match id {
             net::MENU_POWER => {

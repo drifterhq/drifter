@@ -386,19 +386,58 @@ pub const MENU_SETTINGS: i32 = 1001;
 pub fn menu(blue: &Blue) -> Vec<crate::menu::Item> {
     use crate::menu::Item;
     let mut items = Vec::new();
-    if blue.on {
-        for (at, device) in blue.devices.iter().enumerate().filter(|(_, device)| device.paired) {
-            let state = match (device.connected, device.battery) {
-                (true, Some(level)) => format!("{level}%"),
-                (true, None) => crate::lang::t("Connected").to_string(),
-                (false, _) => crate::lang::t("Connect").to_string(),
-            };
-            items.push(Item::line(at as i32, &format!("{}, {state}", device.shown_name())));
-        }
-        if !items.is_empty() {
-            items.push(Item::rule(-3));
+    if !blue.on {
+        items.push(Item {
+            enabled: false,
+            ..Item::line(-4, crate::lang::t("Bluetooth is off."))
+        });
+        items.push(Item::line(MENU_POWER, crate::lang::t("Turn Bluetooth On")));
+        return items;
+    }
+    for (at, device) in blue.devices.iter().enumerate().filter(|(_, device)| device.paired) {
+        let words = match device.connected {
+            true => crate::lang::tf("{}, connected", &[&device.shown_name()]),
+            false => device.shown_name(),
+        };
+        items.push(Item::line(at as i32, &words));
+    }
+    if items.is_empty() {
+        items.push(Item {
+            enabled: false,
+            ..Item::line(-4, crate::lang::t("No devices set up yet."))
+        });
+        items.push(Item::line(MENU_SETTINGS, crate::lang::t("Set Up a Device…")));
+    }
+    items
+}
+
+pub fn status_menu(blue: &Blue, codecs: &[(String, Codec)]) -> Vec<crate::menu::Item> {
+    use crate::menu::Item;
+    let mut items = Vec::new();
+    let line = |text: &str| Item {
+        enabled: false,
+        ..Item::line(-5, text)
+    };
+    match blue.on {
+        false => items.push(line(crate::lang::t("Bluetooth is off."))),
+        true => {
+            let connected: Vec<&Device> = blue.connected().collect();
+            if connected.is_empty() {
+                items.push(line(crate::lang::t("Nothing connected")));
+            }
+            for device in connected {
+                let mut words = vec![device.shown_name()];
+                if let Some(level) = device.battery {
+                    words.push(crate::lang::tf("battery {}%", &[&level]));
+                }
+                if let Some((_, codec)) = codecs.iter().find(|(address, _)| *address == device.address) {
+                    words.push(codec.words());
+                }
+                items.push(line(&words.join(", ")));
+            }
         }
     }
+    items.push(Item::rule(-3));
     items.push(Item::line(
         MENU_POWER,
         match blue.on {

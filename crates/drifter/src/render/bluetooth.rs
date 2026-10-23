@@ -74,6 +74,7 @@ pub(super) struct Radio {
     pub mic_asked: Vec<String>,
     pub mic_wanted: Vec<String>,
     pub next_ask: u64,
+    menu_devices: Vec<String>,
 }
 
 impl Default for Radio {
@@ -108,6 +109,7 @@ impl Default for Radio {
             mic_asked: Vec::new(),
             mic_wanted: Vec::new(),
             next_ask: 1 << 40,
+            menu_devices: Vec::new(),
         }
     }
 }
@@ -1108,9 +1110,32 @@ impl State {
             Some(blue) => blue::menu(blue),
             None => vec![drifter_core::menu::Item::line(blue::MENU_SETTINGS, drifter_core::lang::t("Bluetooth Settings…"))],
         };
+        self.radio.menu_devices = self.radio.now.as_ref().map(|blue| blue.devices.iter().map(|device| device.address.clone()).collect()).unwrap_or_default();
         let at = self.blue_tray_rect().map_or(self.pointer, |rect| Vec2::new(rect.origin.x, rect.max().y + 6.0));
         self.close_panels();
         self.open_popover(items, at, Target::Bluetooth);
+    }
+
+    pub(super) fn open_blue_status(&mut self) {
+        let at = self.blue_tray_rect().map_or(self.pointer, |rect| Vec2::new(rect.origin.x, rect.max().y + 6.0));
+        let Some(blue) = self.radio.now.clone() else {
+            let items = vec![drifter_core::menu::Item::line(blue::MENU_SETTINGS, drifter_core::lang::t("Bluetooth Settings…"))];
+            self.close_panels();
+            self.open_popover(items, at, Target::Bluetooth);
+            return;
+        };
+        let audio: Vec<String> = blue.connected().filter(|device| device.audio || device.kind.audio()).map(|device| device.address.clone()).collect();
+        self.background("bluetooth status", move || {
+            let codecs: Vec<(String, blue::Codec)> = audio
+                .into_iter()
+                .filter_map(|address| drifter_blue::sound::card(&address).and_then(|card| card.codec).map(|codec| (address, codec)))
+                .collect();
+            move |state: &mut State| {
+                let blue = state.radio.now.clone().unwrap_or(blue);
+                state.close_panels();
+                state.open_popover(blue::status_menu(&blue, &codecs), at, Target::Bluetooth);
+            }
+        });
     }
 
     pub(super) fn blue_menu_pick(&mut self, id: i32) {
@@ -1122,12 +1147,7 @@ impl State {
             }
             blue::MENU_SETTINGS => self.open_settings_at("bluetooth"),
             at => {
-                let address = self
-                    .radio
-                    .now
-                    .as_ref()
-                    .and_then(|blue| blue.devices.get(at.max(0) as usize))
-                    .map(|device| device.address.clone());
+                let address = usize::try_from(at).ok().and_then(|at| self.radio.menu_devices.get(at).cloned());
                 if let Some(address) = address {
                     self.blue_connect(&address);
                 }

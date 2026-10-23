@@ -142,6 +142,7 @@ How it works today (the items change this):
   - Picking a network calls `wifi_join` (item 20).
   - Opening the menu starts a scan (item 17).
   - As built: the menu remembers the network names and VPN ids it showed, so a pick never lands on a network that moved.
+  - Changed 2026-10-22 at the user's request: left click picks (networks, Other…, VPNs); right click shows status (network, IP, router, band, channel, security, signal, speed) with Turn Wi-Fi Off and Wi-Fi Settings…. Bluetooth works the same way: left click lists devices, right click shows connected devices with battery and sound quality, then Turn Bluetooth Off and Bluetooth Settings….
 
 - [x] **11. Alt+click shows details.**
   - Waits on: 10.
