@@ -264,10 +264,11 @@ impl State {
         let look = self.control_look();
         let ink = self.tray.ink;
         let accent = self.look.accent;
+        let side = self.tray.button;
         self.on_worker(
             "wifi art",
             move || {
-                let tray = net::tray_art(drifter_core::paint::dense(20.0), ink, accent);
+                let tray = net::tray_art(drifter_core::paint::dense(side), ink, accent);
                 let discs: Vec<((Glyph, bool), drifter_core::Image)> = [Glyph::Wifi, Glyph::Wired, Glyph::Vpn]
                     .iter()
                     .flat_map(|glyph| [false, true].map(|lit| ((*glyph, lit), look.net_disc(*glyph, lit))))
@@ -308,7 +309,8 @@ impl State {
         if !self.wifi_owns_icon() {
             return None;
         }
-        Some(self.tray.net_rect(self.tray_band()?))
+        let slot = self.tray.net_rect(self.tray_band()?);
+        Some(Rect::from_center(slot.center(), Vec2::splat(self.tray.button)))
     }
 
     fn face_layers(&self, face: Face, rect: Rect, alpha: f64, elements: &mut Vec<Skin>) {
@@ -345,7 +347,7 @@ impl State {
                 _ => 1.0,
             };
             let shown = if fresh { drifter_core::motion::smooth(badge_t) } else { 1.0 };
-            push(elements, badge_art(face.badge), corner(18.4, 15.6, scale), alpha * shown);
+            push(elements, badge_art(face.badge), corner(18.5, 15.6, scale), alpha * shown);
         } else if badge_was != Badge::None && pace > 0.0 {
             let t = badge_since.elapsed().as_secs_f64() / (BADGE_OUT / pace);
             if t < 1.0 {

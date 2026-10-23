@@ -934,7 +934,7 @@ fn hollow_svg() -> String {
 
 const WIRED: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M4.5 4.5h11a1.5 1.5 0 0 1 1.5 1.5v6.5a1.5 1.5 0 0 1-1.5 1.5H13v2.2H7V14H4.5A1.5 1.5 0 0 1 3 12.5V6a1.5 1.5 0 0 1 1.5-1.5z" fill="none" stroke="#000" stroke-width="1.8" stroke-linejoin="round"/><path d="M7 7.4v2.2M10 7.4v2.2M13 7.4v2.2" stroke="#000" stroke-width="1.4" stroke-linecap="round"/></svg>"##;
 
-const ALERT: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M18.4 12.3v3.5" stroke="#000" stroke-width="1.9" stroke-linecap="round"/><circle cx="18.4" cy="18.5" r="1.1"/></svg>"##;
+const ALERT: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M18.5 12.2v3.6" stroke="#000" stroke-width="2.2" stroke-linecap="round"/><circle cx="18.5" cy="18.6" r="1.25"/></svg>"##;
 
 const LOCK_BADGE: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M1.75 15.6v-1.5a1.35 1.35 0 0 1 2.7 0v1.5" fill="none" stroke="#000" stroke-width="1.1"/><rect x="0.7" y="15.2" width="4.8" height="4.1" rx="0.9"/></svg>"##;
 
