@@ -556,7 +556,7 @@ mod tests {
         let look = Look::default();
         let size = Vec2::new(200.0, 120.0);
         let rect = look.rect(Vec2::new(1900.0, 36.0), size, SCREEN);
-        assert_eq!(rect.max().x, SCREEN.x);
+        assert_eq!(rect.max().x, SCREEN.x - 6.0);
         assert!(rect.origin.x < 1900.0);
     }
 
