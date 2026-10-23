@@ -87,46 +87,47 @@ One keyboard:
 
 ### Phase 1: the shared pieces
 
-- [ ] **1. Row kinds in `menu::Item`.**
+- [x] **1. Row kinds in `menu::Item`.**
   - Add `kind: Kind { Action, Header, Section, Rich, Info, Message }` and the fields they need: `glyph: Option<Glyph>`, `note`, `trail: Option<Trail { Shortcut(String), Check(bool), Radio(bool), Bars(u8), Battery(u8), Lock, Chevron }>`, `switch: Option<bool>`, `value` (for Info).
   - `Item::line`, `more` and `rule` stay, so callers keep working.
   - Heights per kind in `Look::height` and `item_rect`.
-- [ ] **2. One look for every surface.**
+- [x] **2. One look for every surface.**
   - `menu::Look`: radius 14, backing 0.96, pad 6, the type scale above. The accent already follows the user's accent (follow.rs:294).
   - `calendar::Look`, the charges card and `glance::Card`: backing 0.96 and the same rule and section style. `control::Look` is the reference and does not change.
   - Tooltips keep radius 10.
-- [ ] **3. Paint every row kind.**
+- [x] **3. Paint every row kind.**
   - New file `crates/drifter-core/src/menu/rows.rs` (split `menu.rs`, now 631 lines): paint Action, Header with switch, Section, Rich (disc and trailing marks from the control art), Info, Message, Rule.
   - Glyph set: a small SVG set for lock, log out, sleep, restart, power, hide, quit, settings, about, check, radio, chevron.
-- [ ] **4. GPU hover wash for menus.**
+- [x] **4. GPU hover wash for menus.**
   - Move menus onto `lit.rs` (Pane::Menu and Pane::DeskMenu join `row_under`). Stop repainting the menu on hover (`repaint_popover`, bars.rs:88).
   - Press flash before close.
-- [ ] **5. One open and close motion.**
+- [x] **5. One open and close motion.**
   - `menu::grown` becomes the drop: fade, 6 px drop, 0.96 to 1. Panels use the same in fade.rs `pane_look`.
-- [ ] **6. Keyboard in menus.**
+- [x] **6. Keyboard in menus.**
   - Up, Down, Enter, Escape, Right, Left while a popover is open (input.rs:699).
 
 ### Phase 2: our own menus
 
-- [ ] **7. Wi-Fi left click.** Header "Wi-Fi" with switch. Section "Known", rich rows (disc, name, "Joined" or "Saved", lock, bars). Section "Other networks". Action "Other…" with chevron. Section "VPN" with switch rows. Rule. "Wi-Fi Settings…" with the settings glyph.
-- [ ] **8. Wi-Fi right click.** Header with the network name and switch. Info rows: IP address, Router, Band, Channel, Security, Signal, Speed. Rule. "Wi-Fi Settings…". Off or not joined: a message row.
-- [ ] **9. Bluetooth left click.** Header "Bluetooth" with switch. Rich rows for your devices (disc with the device glyph, name, "Connected" or "Not connected", battery). Empty: message row "No devices set up yet." with "Set Up a Device…".
-- [ ] **10. Bluetooth right click.** Header with switch. One rich row per connected device with battery and sound quality as the note. Rule. "Bluetooth Settings…". No adapter or service: a message row that says why, with "Fix It" or "Turn On the Bluetooth Service".
-- [ ] **11. Power menu.** Glyph rows in this order: Lock (with its shortcut), Suspend, rule, Restart, Shut Down, rule, Log Out.
-- [ ] **12. App menu.** About Drifter and Settings with glyphs; Hide, Hide Others, Show All, rule, Quit with the app's own icon on the Quit row. Fix the invisible rule.
+- As built for items 7 to 10: the left/right split the user chose stays. Left click headers have no switch; the switch, info rows and Settings live on the right click.
+- [x] **7. Wi-Fi left click.** Header "Wi-Fi" with switch. Section "Known", rich rows (disc, name, "Joined" or "Saved", lock, bars). Section "Other networks". Action "Other…" with chevron. Section "VPN" with switch rows. Rule. "Wi-Fi Settings…" with the settings glyph.
+- [x] **8. Wi-Fi right click.** Header with the network name and switch. Info rows: IP address, Router, Band, Channel, Security, Signal, Speed. Rule. "Wi-Fi Settings…". Off or not joined: a message row.
+- [x] **9. Bluetooth left click.** Header "Bluetooth" with switch. Rich rows for your devices (disc with the device glyph, name, "Connected" or "Not connected", battery). Empty: message row "No devices set up yet." with "Set Up a Device…".
+- [x] **10. Bluetooth right click.** Header with switch. One rich row per connected device with battery and sound quality as the note. Rule. "Bluetooth Settings…". No adapter or service: a message row that says why, with "Fix It" or "Turn On the Bluetooth Service".
+- [x] **11. Power menu.** Glyph rows in this order: Lock (with its shortcut), Suspend, rule, Restart, Shut Down, rule, Log Out.
+- [x] **12. App menu.** About Drifter and Settings with glyphs; Hide, Hide Others, Show All, rule, Quit with the app's own icon on the Quit row. Fix the invisible rule.
 
 ### Phase 3: other apps' menus and the panels
 
-- [ ] **13. App tray menus keep what apps send.** Parse `icon-name`, `icon-data`, `toggle-type`, `toggle-state` and `shortcut` in tray.rs (:324-338). Draw icons, check marks, radio dots and shortcuts with the shared rows.
-- [ ] **14. Submenus with a title.** A header row with a back chevron and the submenu's name, and the slide between levels.
-- [ ] **15. Panels speak the same language.** Batteries and Glance: header style, section labels, rule and backing from item 2. Control Center and Notification Center: same rule and section style.
-- [ ] **16. Notification Center glyphs.** Store a glyph key with Drifter's own notes (Wi-Fi, Bluetooth, AirDrop, screenshots) and draw that glyph, not a letter.
+- [x] **13. App tray menus keep what apps send.** Parse `icon-name`, `icon-data`, `toggle-type`, `toggle-state` and `shortcut` in tray.rs (:324-338). Draw icons, check marks, radio dots and shortcuts with the shared rows.
+- [x] **14. Submenus with a title.** A header row with a back chevron and the submenu's name, and the slide between levels.
+- [x] **15. Panels speak the same language.** Batteries and Glance: header style, section labels, rule and backing from item 2. Control Center and Notification Center: same rule and section style.
+- [x] **16. Notification Center glyphs.** Store a glyph key with Drifter's own notes (Wi-Fi, Bluetooth, AirDrop, screenshots) and draw that glyph, not a letter.
 
 ---
 
 ## Reference (not work)
 
-- The desktop right-click menu already shares `menu::Look` (deskmenu.rs), so it picks up items 1 to 6 for free.
+- The desktop right-click menu uses its own engine (`cascade.rs`). It now paints with the same `rows.rs` rows and highlight, so it matches; its open motion uses the same `menu::grown`.
 - Dock and Launchpad menus use the same popover and also get the new look; their item lists do not change in this round.
 
 Coverage: read menu.rs (Item, Look, paint, grown), bars.rs (open_popover, repaint, press, tips, menu_look), appname.rs, power.rs items, tray.rs menu parse, control.rs, calendar/charges/glance looks, fade.rs pane looks, lit.rs. Screenshots from the trixie VM of: app menu, power menu, Wi-Fi left and right, Bluetooth left and right, Batteries, Control Center, Notification Center, tooltip. Glance needs live stats the VM lacks, so it was read from code.
