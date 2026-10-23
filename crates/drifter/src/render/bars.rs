@@ -37,11 +37,21 @@ impl State {
                 image.tint(self.look.accent);
             }
             match upload(&mut self.renderer, Some(&image), "tray icon") {
-                Ok(Some(buffer)) => self.icons.push((icon.service, icon.title, buffer)),
+                Ok(Some(buffer)) => self.icons.push((icon.service, icon.title, buffer, icon.network)),
                 Ok(None) => {}
                 Err(error) => log!("drifter: {error}"),
             }
         }
+        self.tray.net = self.net_slot().is_some();
+    }
+
+    pub(super) fn net_slot(&self) -> Option<usize> {
+        self.icons.iter().position(|icon| icon.3)
+    }
+
+    pub(super) fn tray_row(&self) -> Vec<usize> {
+        let net = self.net_slot();
+        (0..self.icons.len()).filter(|slot| Some(*slot) != net).collect()
     }
 
     pub(super) fn open_popover(&mut self, items: Vec<Item>, at: Vec2, target: Target) {
@@ -565,18 +575,18 @@ impl State {
                 .is_some_and(|open| open.rect.contains(self.pointer))
     }
 
-    pub(super) fn tray_layout(&self, band: Rect) -> (usize, bool) {
-        let stats = self.stats.as_ref().map(|(_, size)| size.x);
-        self.tray.layout(
-            band,
-            self.tray_lead(),
-            self.tray_right(band),
-            self.icons.len(),
-            stats,
-        )
+    pub(super) fn tray_layout(&self, band: Rect) -> usize {
+        self.tray.layout(band, self.tray_lead(), self.tray_right(band), self.tray_row().len())
     }
 
     fn tray_right(&self, band: Rect) -> f64 {
+        match self.stats.as_ref() {
+            Some((_, size)) => self.tray.dot_rect(band, self.date_left(band), *size).origin.x,
+            None => self.date_left(band),
+        }
+    }
+
+    fn date_left(&self, band: Rect) -> f64 {
         self.clock
             .as_ref()
             .map(|(_, _, rect)| rect.origin.x)
@@ -586,15 +596,25 @@ impl State {
     }
 
     pub(super) fn tray_icon_rect(&self, band: Rect, slot: usize) -> Rect {
-        let shown = self.tray_layout(band).0;
+        if self.net_slot() == Some(slot) {
+            return self.tray.net_rect(band);
+        }
+        let shown = self.tray_layout(band);
+        let place = self.tray_row().iter().position(|held| *held == slot).unwrap_or(slot);
         self.tray
-            .icon_rect(band, self.tray_right(band), shown, slot)
+            .icon_rect(band, self.tray_right(band), shown, place)
     }
 
     pub(super) fn tray_icon_at(&self, band: Rect) -> Option<usize> {
-        let shown = self.tray_layout(band).0;
+        if let Some(net) = self.net_slot()
+            && self.tray.net_rect(band).contains(self.pointer)
+        {
+            return Some(net);
+        }
+        let shown = self.tray_layout(band);
         self.tray
             .icon_at(band, self.tray_right(band), self.pointer, shown)
+            .and_then(|place| self.tray_row().get(place).copied())
     }
 
     pub(super) fn over_drawer(&self) -> bool {
@@ -769,8 +789,7 @@ impl State {
     pub(super) fn stats_spot(&self) -> Option<Rect> {
         let band = self.tray_band()?;
         let (_, size) = self.stats.as_ref()?;
-        let (_, shown) = self.tray_layout(band);
-        shown.then(|| self.tray.stats_rect(band, self.tray_lead(), *size))
+        Some(self.tray.dot_rect(band, self.date_left(band), *size))
     }
 
     pub(super) fn wind_the_stats(&mut self) {

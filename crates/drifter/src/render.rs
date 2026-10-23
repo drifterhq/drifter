@@ -556,7 +556,7 @@ pub struct State {
     card_for: Option<HoverCard>,
     card_busy: bool,
     card_stale: bool,
-    icons: Vec<(String, String, TextureBuffer<Tex>)>,
+    icons: Vec<(String, String, TextureBuffer<Tex>, bool)>,
     tray_raw: Vec<crate::tray::Icon>,
     frost_key: Option<[i64; 8]>,
     fading: Option<(Backdrop, Instant)>,
@@ -995,17 +995,14 @@ impl State {
             )));
         }
         if let Some(band) = self.tray_band() {
-            let (room, stats) = self.tray_layout(band);
-            if let (true, Some((buffer, size))) = (stats, self.stats.as_ref()) {
-                elements.push(Skin::Texture(element(
-                    buffer,
-                    self.tray.stats_rect(band, self.tray_lead(), *size),
-                    1.0,
-                )));
+            let room = self.tray_layout(band);
+            if let (Some((buffer, _)), Some(spot)) = (self.stats.as_ref(), self.stats_spot()) {
+                elements.push(Skin::Texture(element(buffer, spot, 1.0)));
             }
-            for (slot, (_, _, buffer)) in self.icons.iter().take(room).enumerate() {
+            let net = self.net_slot();
+            for slot in net.into_iter().chain(self.tray_row().into_iter().take(room)) {
                 elements.push(Skin::Texture(element(
-                    buffer,
+                    &self.icons[slot].2,
                     self.tray_icon_rect(band, slot),
                     1.0,
                 )));
