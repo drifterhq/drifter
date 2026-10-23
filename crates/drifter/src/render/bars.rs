@@ -579,7 +579,7 @@ impl State {
         };
         if let Some(bus) = self.tray_bus.as_ref() {
             let service = &self.icons[slot].0;
-            bus.click(service, click, self.pointer.x as i32, self.pointer.y as i32);
+            bus.click(service, click, self.pointer.x as i32, self.pointer.y as i32, self.palette.ink);
         }
         true
     }

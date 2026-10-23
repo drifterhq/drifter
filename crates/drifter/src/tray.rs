@@ -46,7 +46,7 @@ pub enum Click {
 
 enum Job {
     Look,
-    Poke(String, Click, i32, i32),
+    Poke(String, Click, i32, i32, [u8; 3]),
     Menu(String, Vec<i32>, f64, f64, [u8; 3]),
     Choose(String, i32),
 }
@@ -56,8 +56,8 @@ pub struct Tray {
 }
 
 impl Tray {
-    pub fn click(&self, service: &str, click: Click, x: i32, y: i32) {
-        let _ = self.jobs.send(Job::Poke(service.to_string(), click, x, y));
+    pub fn click(&self, service: &str, click: Click, x: i32, y: i32, ink: [u8; 3]) {
+        let _ = self.jobs.send(Job::Poke(service.to_string(), click, x, y, ink));
     }
 
     pub fn ask_menu(&self, service: &str, trail: Vec<i32>, x: f64, y: f64, ink: [u8; 3]) {
@@ -612,14 +612,14 @@ fn serve(
                 let connection = connection.clone();
                 std::thread::spawn(move || choose(&connection, &service, id));
             }
-            Job::Poke(service, click, x, y) => {
+            Job::Poke(service, click, x, y, ink) => {
                 let connection = connection.clone();
                 let wake = wake.clone();
                 std::thread::spawn(move || {
                     let left = matches!(click, Click::Left);
                     if !poke(&connection, &service, click, x, y) && left {
                         let at = (f64::from(x), f64::from(y));
-                        send_menu(&connection, &wake, service, Vec::new(), at);
+                        send_menu(&connection, &wake, service, Vec::new(), at, ink);
                     }
                 });
             }
