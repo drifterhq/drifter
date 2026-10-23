@@ -913,6 +913,13 @@ impl State {
                     self.wifi_settings_join(&ssid);
                 }
             }
+            Event::Lost => {
+                log!("drifter: the Wi-Fi password helper lost its bus, starting it again");
+                self.wifi.agent = None;
+                if self.wifi.bus.as_ref().is_some_and(drifter_net::Bus::running) {
+                    self.wifi_agent_up();
+                }
+            }
             Event::Vpn(name) => {
                 let body = drifter_core::lang::t("Drifter cannot ask for this VPN's password yet. Set the password in the VPN's own settings, then try again.");
                 self.wifi_note(&drifter_core::lang::tf("{} needs a password", &[&name]), body, Glyph::Vpn);

@@ -37,6 +37,7 @@ pub enum Event {
     Done(u64),
     Settings(String),
     Vpn(String),
+    Lost,
 }
 
 #[derive(Debug, zbus::DBusError)]
@@ -49,7 +50,7 @@ pub enum Refusal {
 }
 
 struct Agent {
-    tell: Box<dyn Fn(Event) + Send + Sync>,
+    tell: std::sync::Arc<dyn Fn(Event) + Send + Sync>,
     next: AtomicU64,
     open: Mutex<Vec<(String, String, u64, Reply)>>,
 }
@@ -170,9 +171,7 @@ impl Agent {
             Some(secret) => {
                 let mut values = HashMap::new();
                 values.insert(key.to_string(), secret);
-                let out = answer_of(part_name, values);
-                eprintln!("drifter-net: agent answers {part_name} {key} {:?}", out.keys().collect::<Vec<_>>());
-                Ok(out)
+                Ok(answer_of(part_name, values))
             }
             None => Err(Refusal::UserCanceled("Canceled".into())),
         }
@@ -252,8 +251,10 @@ fn register(bus: &zbus::blocking::Connection) -> Result<(), String> {
 }
 
 pub fn serve(tell: impl Fn(Event) + Send + Sync + 'static) -> Result<Handle, String> {
+    let tell: std::sync::Arc<dyn Fn(Event) + Send + Sync> = std::sync::Arc::new(tell);
+    let lost = tell.clone();
     let agent = Agent {
-        tell: Box::new(tell),
+        tell,
         next: AtomicU64::new(1),
         open: Mutex::new(Vec::new()),
     };
@@ -281,6 +282,7 @@ pub fn serve(tell: impl Fn(Event) + Send + Sync + 'static) -> Result<Handle, Str
                     let _ = register(&again);
                 }
             }
+            lost(Event::Lost);
         });
     }
     Ok(Handle { _bus: bus })

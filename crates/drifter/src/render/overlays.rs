@@ -270,7 +270,8 @@ impl State {
         }
         if let Asker::Wifi(_, reply) = &pending.asker {
             let typed = pending.pad.take();
-            let secret = String::from_utf8_lossy(&typed).into_owned();
+            let end = typed.iter().position(|byte| *byte == 0).unwrap_or(typed.len());
+            let secret = String::from_utf8_lossy(&typed[..end]).into_owned();
             drifter_net::agent::answer(reply, Some(secret));
             pending.pad.wipe();
             self.prompts.remove(0);
