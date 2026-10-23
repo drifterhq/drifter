@@ -302,6 +302,7 @@ impl State {
         let resized = list.items.iter().map(Item::height).sum::<f64>() != items.iter().map(Item::height).sum::<f64>();
         list.items = items;
         self.paint_rows();
+        self.hover_rows();
         if resized {
             let size = look.size_with(self.shown_items());
             self.control_retarget(size.y);

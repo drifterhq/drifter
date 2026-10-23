@@ -4901,3 +4901,6 @@ Leave {}
 
 Wi-Fi
 = Wi-Fi
+
+No networks in range
+= No hay redes al alcance

@@ -273,14 +273,17 @@ pub fn wifi_items(seen: Seen) -> Vec<Item> {
             out.extend(known);
         }
         let others: Vec<Item> = wifi.others().take(MOST_OTHERS).map(row).collect();
-        out.push(heading(
-            "heading:others",
-            match (others.is_empty(), seen.scanning) {
-                (true, true) => crate::lang::t("Looking for networks…"),
-                (true, false) => crate::lang::t("No other networks"),
-                (false, _) => crate::lang::t("Other networks"),
-            },
-        ));
+        let lonely = others.is_empty() && !seen.scanning && wifi.known().next().is_some();
+        if !lonely {
+            out.push(heading(
+                "heading:others",
+                match (others.is_empty(), seen.scanning) {
+                    (true, true) => crate::lang::t("Looking for networks…"),
+                    (true, false) => crate::lang::t("No networks in range"),
+                    (false, _) => crate::lang::t("Other networks"),
+                },
+            ));
+        }
         out.extend(others);
         out.push(link(OTHER_KEY, crate::lang::t("Other…")));
     }

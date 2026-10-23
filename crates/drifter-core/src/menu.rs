@@ -179,7 +179,8 @@ impl Look {
     }
 
     pub fn rect(&self, at: Vec2, size: Vec2, screen: Vec2) -> Rect {
-        let x = at.x.min(screen.x - size.x).max(0.0);
+        const EDGE: f64 = 6.0;
+        let x = at.x.min(screen.x - size.x - EDGE).max(EDGE.min(at.x));
         let y = at.y.min(screen.y - size.y).max(0.0);
         Rect::new(Vec2::new(x, y).round(), size)
     }

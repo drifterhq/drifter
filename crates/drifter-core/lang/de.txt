@@ -4898,3 +4898,6 @@ Open the Wi-Fi menu
 
 Leave {}
 = {} trennen
+
+No networks in range
+= Keine Netzwerke in Reichweite
