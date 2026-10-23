@@ -250,7 +250,8 @@ pub fn width_of(row: &Row, fonts: &Fonts) -> f64 {
 fn lead_width(lead: &Lead, room: bool, kind: Kind) -> f64 {
     match (lead, kind) {
         (Lead::Disc(..), _) | (_, Kind::Rich) => DISC + 10.0,
-        (Lead::None, _) if !room => 0.0,
+        (Lead::None, Kind::Action) if !room => 0.0,
+        (Lead::None, _) if kind != Kind::Action => 0.0,
         _ => GLYPH + 10.0,
     }
 }
@@ -326,7 +327,7 @@ pub fn paint_row(canvas: &mut Canvas, rect: Rect, row: &Row, style: &Style, font
         Lead::None => {
             if row.kind == Kind::Rich {
                 x += DISC + 10.0;
-            } else if row.lead_room {
+            } else if row.lead_room && row.kind == Kind::Action {
                 x += GLYPH + 10.0;
             }
         }
