@@ -2202,7 +2202,7 @@ fn the_bluetooth_list_springs_open_and_rows_follow_the_devices() {
 
     run.screen.state.radio.busy.push("EC:83:50:13:D6:CC".into());
     run.screen.state.radio.shakes.insert("D0:C0:50:B8:F5:C8".into(), Instant::now());
-    run.screen.state.blue_list_refresh();
+    run.screen.state.list_refresh();
     settle(&mut run, 120);
     run.shot("blue-busy");
 

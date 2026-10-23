@@ -353,31 +353,14 @@ struct Card {
     frosted: f64,
 }
 
-enum Asker {
-    Polkit(crate::polkit::Request),
-    Wifi(drifter_net::agent::Ask, drifter_net::agent::Reply),
-}
-
 struct Pending {
-    asker: Asker,
+    asker: overlays::Asker,
     pad: Pad,
     error: Option<String>,
     busy: bool,
     shaken: Option<Instant>,
 }
 
-impl Pending {
-    fn cookie(&self) -> String {
-        match &self.asker {
-            Asker::Polkit(request) => request.cookie.clone(),
-            Asker::Wifi(ask, _) => format!("wifi:{}", ask.id),
-        }
-    }
-
-    fn joins(&self) -> bool {
-        matches!(self.asker, Asker::Wifi(..))
-    }
-}
 
 struct Popover {
     items: Vec<Item>,
@@ -1603,11 +1586,7 @@ impl Screen {
         }
         if state.autostart {
             let found = drifter_core::autostart::installed();
-            let ours = state.owns_network();
-            for entry in drifter_core::autostart::to_start(&found, &state.login)
-                .into_iter()
-                .filter(|entry| !(ours && entry.program().is_some_and(|program| drifter_core::autostart::network_applet(&program))))
-            {
+            for entry in state.wifi_autostart(drifter_core::autostart::to_start(&found, &state.login)) {
                 match entry.argv() {
                     Some(argv) => crate::apps::launch(&argv, &state.socket),
                     None => log!("drifter: cannot read the autostart line {:?}", entry.exec),

@@ -79,6 +79,14 @@ fn answer_of(name: &str, values: HashMap<String, String>) -> Setup {
     out
 }
 
+fn vpn_answer(values: HashMap<String, String>) -> Setup {
+    let mut out: Setup = HashMap::new();
+    if let Ok(secrets) = OwnedValue::try_from(Value::from(values)) {
+        out.entry("vpn".to_string()).or_default().insert("secrets".to_string(), secrets);
+    }
+    out
+}
+
 async fn off_thread<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> Option<T> {
     let (done, wait) = async_channel::bounded(1);
     std::thread::Builder::new()
@@ -138,7 +146,10 @@ impl Agent {
         let (look_uuid, look_part) = (uuid.clone(), setting_name.clone());
         let kept = off_thread(move || crate::keyring::lookup(&look_uuid, &look_part)).await.unwrap_or_default();
         if flags & REQUEST_NEW == 0 && !kept.is_empty() && (want.is_none() || kept.contains_key(key)) {
-            return Ok(answer_of(&setting_name, kept));
+            return Ok(match setting_name.as_str() {
+                "vpn" => vpn_answer(kept),
+                _ => answer_of(&setting_name, kept),
+            });
         }
         let Some(want) = want else {
             if flags & ALLOW_INTERACTION != 0 {

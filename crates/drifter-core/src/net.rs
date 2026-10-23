@@ -140,9 +140,6 @@ impl Card {
         self.state == 100
     }
 
-    pub fn asking(&self) -> bool {
-        self.state == 60
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -186,7 +183,6 @@ pub struct Wifi {
     pub saved: Vec<Saved>,
     pub joined: Option<String>,
     pub joining: Option<String>,
-    pub running: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -408,18 +404,6 @@ pub enum Shape {
     Wired,
 }
 
-impl Shape {
-    pub fn index(self) -> usize {
-        match self {
-            Shape::Off => 0,
-            Shape::Idle => 1,
-            Shape::Busy => 2,
-            Shape::Joined => 3,
-            Shape::Wired => 4,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Badge {
     #[default]
@@ -497,7 +481,6 @@ pub const MENU_OTHER: i32 = -4;
 pub const MENU_STOP_AIRDROP: i32 = -5;
 pub const MENU_WIRED: i32 = -6;
 pub const MENU_VPN: i32 = 1 << 20;
-pub const MENU_DETAILS: i32 = -7;
 pub const MENU_MOST_OTHERS: usize = 6;
 
 pub fn menu(wifi: &Wifi, airdrop: bool) -> Vec<crate::menu::Item> {

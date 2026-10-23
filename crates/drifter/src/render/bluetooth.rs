@@ -204,7 +204,7 @@ impl State {
         self.blue_search_as_needed();
         if self.control.is_some() {
             self.fill_tile(Tile::Bluetooth);
-            self.blue_list_refresh();
+            self.list_refresh();
             if changed {
                 self.paint_control();
             }
@@ -413,7 +413,7 @@ impl State {
             };
             move |state: &mut State| state.blue_done(&address, done.err(), xbox)
         });
-        self.blue_list_refresh();
+        self.list_refresh();
         self.kick_now();
     }
 
@@ -448,7 +448,7 @@ impl State {
                 }
             }
         }
-        self.blue_list_refresh();
+        self.list_refresh();
         self.kick_now();
     }
 

@@ -203,6 +203,7 @@ impl State {
 
     pub(super) fn wifi_prompt(&mut self, ask: drifter_net::agent::Ask, reply: drifter_net::agent::Reply) {
         if self.font.is_none() || self.lock.is_some() {
+            self.wifi_cancelled(&ask.ssid);
             drifter_net::agent::answer(&reply, None);
             return;
         }
@@ -246,7 +247,11 @@ impl State {
                 Asker::Polkit(request) => {
                     let _ = request.reply.try_send(granted);
                 }
-                Asker::Wifi(_, reply) => drifter_net::agent::answer(reply, None),
+                Asker::Wifi(ask, reply) => {
+                    let ssid = ask.ssid.clone();
+                    drifter_net::agent::answer(reply, None);
+                    self.wifi_cancelled(&ssid);
+                }
             }
         }
         self.paint_prompt();
@@ -663,4 +668,22 @@ impl State {
         self.pane_elements(super::fade::Pane::Switch, elements);
     }
 
+}
+
+pub(super) enum Asker {
+    Polkit(crate::polkit::Request),
+    Wifi(drifter_net::agent::Ask, drifter_net::agent::Reply),
+}
+
+impl Pending {
+    pub(super) fn cookie(&self) -> String {
+        match &self.asker {
+            Asker::Polkit(request) => request.cookie.clone(),
+            Asker::Wifi(ask, _) => format!("wifi:{}", ask.id),
+        }
+    }
+
+    pub(super) fn joins(&self) -> bool {
+        matches!(self.asker, Asker::Wifi(..))
+    }
 }

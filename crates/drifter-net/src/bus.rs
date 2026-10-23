@@ -201,7 +201,6 @@ pub fn build(objects: &HashMap<String, Faces>, saved: &[Saved]) -> Wifi {
             })
     };
     let mut wifi = Wifi {
-        running: true,
         on: flag(root, "WirelessEnabled"),
         hardware: root.get("WirelessHardwareEnabled").and_then(|value| value.downcast_ref::<bool>().ok()).unwrap_or(true),
         online: Online::read(number(root, "Connectivity")),
@@ -235,7 +234,7 @@ pub fn build(objects: &HashMap<String, Faces>, saved: &[Saved]) -> Wifi {
         });
         let on_card = active
             .values()
-            .filter(|props| paths(props, "Devices").iter().any(|each| each == card_path))
+            .filter(|props| text(props, "Type") == "802-11-wireless" && paths(props, "Devices").iter().any(|each| each == card_path))
             .copied()
             .collect::<Vec<_>>();
         for props in on_card {
@@ -456,6 +455,10 @@ impl Bus {
             *cache = Some(read);
         }
         cache.clone().unwrap_or_default()
+    }
+
+    pub fn forget_saved(&self) {
+        self.stale.store(true, Ordering::SeqCst);
     }
 
     pub fn snapshot(&self) -> Option<Wifi> {
@@ -744,7 +747,7 @@ impl Bus {
         let target = objects
             .iter()
             .filter_map(|(at, faces)| faces.get(ACTIVE).map(|props| (at, props)))
-            .find(|(_, props)| paths(props, "Devices").contains(&card.path) || mine.contains(&path(props, "Connection")))
+            .find(|(_, props)| text(props, "Type") == "802-11-wireless" && (paths(props, "Devices").contains(&card.path) || mine.contains(&path(props, "Connection"))))
             .map(|(at, _)| at.clone())
             .ok_or_else(|| drifter_core::lang::tf("{} is not joined.", &[&ssid]))?;
         self.call(ROOT, MANAGER, "DeactivateConnection", &(Self::object(&target)?,)).map(drop)

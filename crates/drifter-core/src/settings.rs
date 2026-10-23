@@ -380,7 +380,6 @@ pub enum NetAsk {
     Join(usize),
     Hidden,
     Leave(usize),
-    Forget(usize),
     NetOptions(usize),
     NetForget,
     NetDetails,

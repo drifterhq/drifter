@@ -116,7 +116,7 @@ How it works today (the items change this):
     | Joined, no internet | 100% | lit by signal | `alert`, ink |
     | Sign-in needed (portal) | 100% | lit by signal | `alert`, accent |
     | Wired is the main link | `wired_rune`, 100% | none | none |
-    | VPN on | as above | as above | `lock`, ink, bottom right |
+    | VPN on | as above | as above | `lock`, ink, bottom left (the alert mark keeps bottom right) |
     | AirDrop holds the card | as Off | as Off | none |
 
 

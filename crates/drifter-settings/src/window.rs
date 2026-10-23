@@ -133,6 +133,7 @@ pub struct Settings {
     step_pops: Vec<(usize, std::time::Instant)>,
     wifi_held: Option<(Option<drifter_core::net::Wifi>, bool)>,
     wifi_asked: Option<String>,
+    wifi_asked_for: Option<String>,
     shake: Option<(String, std::time::Instant)>,
     started: std::time::Instant,
     fresh: LoopSender<Fresh>,
@@ -358,6 +359,7 @@ pub fn run() -> Result<(), String> {
         step_pops: Vec::new(),
         wifi_held: None,
         wifi_asked: None,
+        wifi_asked_for: None,
         shake: None,
         started: std::time::Instant::now(),
         fresh,
@@ -443,7 +445,7 @@ pub fn run() -> Result<(), String> {
 }
 
 fn login_items() -> Vec<drifter_core::autostart::Entry> {
-    let ours = crate::net::running();
+    let ours = drifter_core::Config::state_dir().join("network-owned").exists();
     drifter_core::autostart::installed()
         .into_iter()
         .filter(|entry| !(ours && entry.program().is_some_and(|program| drifter_core::autostart::network_applet(&program))))
@@ -1685,6 +1687,10 @@ impl Settings {
                 if wifi == self.model.wifi && missing == self.model.wifi_service {
                     return;
                 }
+                if self.wifi_sheet_open() {
+                    self.wifi_held = Some((wifi, missing));
+                    return;
+                }
                 self.take_wifi(wifi, missing);
                 Section::Network
             }
@@ -1912,6 +1918,7 @@ impl Settings {
             SettingsAsk::WifiJoin(ssid) => {
                 self.sheet = None;
                 self.go_to(Section::Network);
+                self.wifi_asked_for = Some(ssid.clone());
                 match self.model.wifi.as_ref().and_then(|wifi| wifi.nets.iter().position(|net| net.ssid == ssid)) {
                     Some(at) => self.net_ask(drifter_core::settings::NetAsk::Join(at)),
                     None => self.wifi_asked = Some(ssid),
@@ -2130,7 +2137,10 @@ impl Settings {
         }
         if let Some(ssid) = self.wifi_asked.take() {
             match self.model.wifi.as_ref().and_then(|wifi| wifi.nets.iter().position(|net| net.ssid == ssid)) {
-                Some(at) => self.net_ask(drifter_core::settings::NetAsk::Join(at)),
+                Some(at) => {
+                    self.wifi_asked_for = Some(ssid.clone());
+                    self.net_ask(drifter_core::settings::NetAsk::Join(at));
+                }
                 None if self.model.wifi.is_none() => self.wifi_asked = Some(ssid),
                 None => self.model.net_note = Some(drifter_core::lang::tf("{} is not in range.", &[&ssid])),
             }
@@ -2322,7 +2332,9 @@ impl Settings {
                 let Some(net) = net(at) else {
                     return;
                 };
-                if net.enterprise && !net.known {
+                let needs_sign_in = net.enterprise && (!net.known || self.wifi_asked_for.as_deref() == Some(net.ssid.as_str()));
+                self.wifi_asked_for = None;
+                if needs_sign_in {
                     self.sheet = Some(Sheet::form(
                         For::WifiEnterprise(at),
                         &drifter_core::lang::tf("Join {}", &[&(net.ssid)]),
@@ -2352,12 +2364,6 @@ impl Settings {
                 if let Some(net) = net(at) {
                     let note = drifter_core::lang::tf("Leaving {}…", &[&(net.ssid)]);
                     self.net_job(Job::Leave(net.ssid), note);
-                }
-            }
-            NetAsk::Forget(at) => {
-                if let Some(net) = net(at) {
-                    let note = drifter_core::lang::tf("Forgetting {}…", &[&(net.ssid)]);
-                    self.net_job(Job::Forget(net.ssid), note);
                 }
             }
             NetAsk::NetOptions(at) => {

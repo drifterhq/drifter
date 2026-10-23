@@ -98,6 +98,9 @@ fn fill_class(level: f64) -> usize {
 }
 
 fn row_y(row: &Row, now: Instant, pace: f64) -> f64 {
+    if pace <= 0.0 {
+        return row.to;
+    }
     let t = now.duration_since(row.moved).as_secs_f64() / (ROW_MOVE / pace);
     drifter_core::dock::glide(row.from, row.to, t, row.bounce)
 }
@@ -241,10 +244,6 @@ impl State {
         self.wifi_scan_as_needed();
     }
 
-    pub(super) fn blue_list_refresh(&mut self) {
-        self.list_refresh();
-    }
-
     pub(super) fn list_refresh(&mut self) {
         if self.control.is_none() {
             return;
@@ -262,7 +261,8 @@ impl State {
         if list.items == items {
             return;
         }
-        let shown_y = |row: &Row| row_y(row, now, pace);
+        let raw = self.window_pace;
+        let shown_y = |row: &Row| row_y(row, now, raw);
         let mut fresh = 0;
         for (index, item) in items.iter().enumerate() {
             let y = look.item_rect(&items, index).origin.y;
@@ -483,7 +483,7 @@ impl State {
                     continue;
                 };
                 let height = row.item.height();
-                let mut y = row_y(row, now, pace.max(0.01));
+                let mut y = row_y(row, now, pace);
                 let mut alpha = 1.0;
                 let mut squash = 1.0;
                 if pace > 0.0 {

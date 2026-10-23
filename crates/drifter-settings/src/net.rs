@@ -27,7 +27,9 @@ fn bus() -> Option<&'static Bus> {
 }
 
 pub fn read_wifi() -> Option<Wifi> {
-    let wifi = bus()?.snapshot()?;
+    let bus = bus()?;
+    bus.forget_saved();
+    let wifi = bus.snapshot()?;
     match wifi.card.is_some() {
         true => Some(wifi),
         false => None,

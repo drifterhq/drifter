@@ -17,6 +17,8 @@ const UNPLUGGED_FOR: Duration = Duration::from_secs(60);
 const JOIN_WAIT: Duration = Duration::from_secs(150);
 const STILL_ARC: f64 = 0.6;
 const PILL_FOR: Duration = Duration::from_millis(2600);
+const AGENT_RETRY: Duration = Duration::from_secs(10);
+pub(super) const OWNED: &str = "network-owned";
 
 #[derive(Default)]
 pub(super) struct TrayTex {
@@ -60,6 +62,10 @@ pub(super) struct Wireless {
     unplugged: Option<Instant>,
     settings_told: Option<Instant>,
     airdrop: bool,
+    agent_tried: Option<Instant>,
+    applet_started: bool,
+    scan_timer: bool,
+    cancelled: Vec<(String, Instant)>,
     menu_nets: Vec<String>,
     menu_vpns: Vec<String>,
 }
@@ -96,6 +102,10 @@ impl Default for Wireless {
             unplugged: None,
             settings_told: None,
             airdrop: false,
+            agent_tried: None,
+            applet_started: false,
+            scan_timer: false,
+            cancelled: Vec::new(),
             menu_nets: Vec::new(),
             menu_vpns: Vec::new(),
         }
@@ -108,6 +118,7 @@ fn chore(chores: &smithay::reexports::calloop::channel::Sender<Chore>, work: imp
 
 impl State {
     pub(super) fn start_wifi(&mut self) {
+        let _ = std::fs::remove_file(Config::state_dir().join(OWNED));
         let bus = match drifter_net::Bus::system() {
             Ok(bus) => bus,
             Err(error) => {
@@ -131,19 +142,42 @@ impl State {
     }
 
     fn wifi_agent_up(&mut self) {
+        if self.wifi.applet_started || self.wifi.agent_tried.is_some_and(|at| at.elapsed() < AGENT_RETRY) {
+            return;
+        }
+        self.wifi.agent_tried = Some(Instant::now());
         let chores = std::sync::Mutex::new(self.chores.clone());
+        let owned = Config::state_dir().join(OWNED);
         match drifter_net::agent::serve(move |event| {
             if let Ok(chores) = chores.lock() {
                 chore(&chores, move |state| state.wifi_agent(event));
             }
         }) {
-            Ok(agent) => self.wifi.agent = Some(agent),
-            Err(error) => log!("drifter: no Wi-Fi password helper: {error}"),
+            Ok(agent) => {
+                self.wifi.agent = Some(agent);
+                if let Err(error) = std::fs::write(&owned, "") {
+                    log!("drifter: cannot note that Drifter runs Wi-Fi: {error}");
+                }
+            }
+            Err(error) => {
+                let _ = std::fs::remove_file(&owned);
+                log!("drifter: no Wi-Fi password helper: {error}");
+            }
         }
     }
 
-    pub(super) fn owns_network(&self) -> bool {
-        self.wifi.agent.is_some()
+    pub(super) fn wifi_cancelled(&mut self, ssid: &str) {
+        self.wifi.cancelled.retain(|(each, at)| each != ssid && at.elapsed() < JOIN_WAIT);
+        self.wifi.cancelled.push((ssid.to_string(), Instant::now()));
+    }
+
+    pub(super) fn wifi_autostart(&mut self, entries: Vec<drifter_core::autostart::Entry>) -> Vec<drifter_core::autostart::Entry> {
+        let ours = self.wifi.agent.is_some();
+        let applet = |entry: &drifter_core::autostart::Entry| entry.program().is_some_and(|program| drifter_core::autostart::network_applet(&program));
+        if !ours && entries.iter().any(applet) {
+            self.wifi.applet_started = true;
+        }
+        entries.into_iter().filter(|entry| !(ours && applet(entry))).collect()
     }
 
     pub(super) fn wifi_owns_icon(&self) -> bool {
@@ -199,14 +233,7 @@ impl State {
         self.wifi_face();
         self.wifi_art();
         let was = self.control_status.wifi.clone();
-        self.control_status.wifi = self.wifi.now.as_ref().filter(|wifi| wifi.card.is_some()).map(|wifi| {
-            let name = match (wifi.joined.clone(), wifi.joining.clone()) {
-                (Some(name), _) => name,
-                (None, Some(name)) => drifter_core::lang::tf("Joining {}…", &[&name]),
-                (None, None) => String::new(),
-            };
-            (wifi.on, name)
-        });
+        self.control_status.wifi = self.wifi_status();
         let changed = was != self.control_status.wifi;
         self.tray.net = self.net_slot().is_some() || self.wifi_owns_icon();
         self.wifi_scan_as_needed();
@@ -218,6 +245,20 @@ impl State {
             }
         }
         self.kick_now();
+    }
+
+    pub(super) fn wifi_status(&self) -> Option<(bool, String)> {
+        if self.airdrop_holds_wifi() {
+            return Some((false, drifter_core::lang::t("Off for AirDrop").to_string()));
+        }
+        self.wifi.now.as_ref().filter(|wifi| wifi.card.is_some()).map(|wifi| {
+            let name = match (wifi.joined.clone(), wifi.joining.clone()) {
+                (Some(name), _) => name,
+                (None, Some(name)) => drifter_core::lang::tf("Joining {}…", &[&name]),
+                (None, None) => String::new(),
+            };
+            (wifi.on, name)
+        })
     }
 
     fn wifi_face(&mut self) {
@@ -340,6 +381,13 @@ impl State {
             Badge::Alert => &tex.alert,
             Badge::Portal => &tex.portal,
         };
+        let swapped = badge_was != Badge::None && badge_was != face.badge && face.badge == badge_now;
+        if swapped && pace > 0.0 {
+            let t = badge_since.elapsed().as_secs_f64() / (BADGE_OUT / pace);
+            if t < 1.0 {
+                push(elements, badge_art(badge_was), rect, alpha * (1.0 - drifter_core::motion::smooth(t)));
+            }
+        }
         if face.badge != Badge::None {
             let fresh = face.badge == badge_now && badge_t < 1.0;
             let scale = match (fresh, still) {
@@ -348,13 +396,14 @@ impl State {
             };
             let shown = if fresh { drifter_core::motion::smooth(badge_t) } else { 1.0 };
             push(elements, badge_art(face.badge), corner(18.5, 15.6, scale), alpha * shown);
-        } else if badge_was != Badge::None && pace > 0.0 {
-            let t = badge_since.elapsed().as_secs_f64() / (BADGE_OUT / pace);
-            if t < 1.0 {
-                push(elements, badge_art(badge_was), rect, alpha * (1.0 - drifter_core::motion::smooth(t)));
-            }
         }
         let (lock_on, lock_since) = self.wifi.lock;
+        if !face.lock && !lock_on && pace > 0.0 {
+            let t = lock_since.elapsed().as_secs_f64() / (BADGE_OUT / pace);
+            if t < 1.0 {
+                push(elements, &tex.lock, rect, alpha * (1.0 - drifter_core::motion::smooth(t)));
+            }
+        }
         if face.lock {
             let t = match pace <= 0.0 {
                 true => 1.0,
@@ -518,10 +567,29 @@ impl State {
                 }
                 state.wifi.scanning = false;
                 state.list_refresh();
+                state.wifi_rescan_later();
                 state.kick_now();
             }
         });
         self.list_refresh();
+    }
+
+    fn wifi_rescan_later(&mut self) {
+        if self.wifi.scan_timer {
+            return;
+        }
+        let Some(at) = self.wifi.scan_at else {
+            return;
+        };
+        self.wifi.scan_timer = true;
+        let wait = SCAN_EVERY.saturating_sub(at.elapsed());
+        self.background("wifi rescan", move || {
+            std::thread::sleep(wait);
+            |state: &mut State| {
+                state.wifi.scan_timer = false;
+                state.wifi_scan_as_needed();
+            }
+        });
     }
 
     pub(super) fn wifi_wind(&mut self) {
@@ -537,6 +605,11 @@ impl State {
         if airdrop != self.wifi.airdrop {
             self.wifi.airdrop = airdrop;
             self.wifi_face();
+            self.control_status.wifi = self.wifi_status();
+            if self.control.is_some() {
+                self.fill_tile(Tile::Wifi);
+                self.paint_control();
+            }
             self.list_refresh();
             self.kick_now();
         }
@@ -552,7 +625,7 @@ impl State {
             move |state: &mut State| {
                 if let Err(error) = done {
                     log!("drifter: cannot turn Wi-Fi {}: {error}", if on { "on" } else { "off" });
-                    state.control_status.wifi = state.wifi.now.as_ref().map(|wifi| (wifi.on, wifi.joined.clone().unwrap_or_default()));
+                    state.control_status.wifi = state.wifi_status();
                     state.fill_tile(Tile::Wifi);
                     state.paint_control();
                     state.wifi_note(drifter_core::lang::t("Wi-Fi did not change"), &error, Glyph::Wifi);
@@ -626,6 +699,12 @@ impl State {
         use drifter_net::bus::Joined;
         self.wifi.busy.retain(|each| each != ssid);
         let key = format!("net:{ssid}");
+        let cancelled = self.wifi.cancelled.iter().any(|(each, at)| each == ssid && at.elapsed() < JOIN_WAIT);
+        self.wifi.cancelled.retain(|(each, _)| each != ssid);
+        let outcome = match outcome {
+            Ok(Joined::Failed(_)) if cancelled => Ok(Joined::Canceled),
+            other => other,
+        };
         match outcome {
             Ok(Joined::Done) => {
                 self.wifi.pops.insert(key, Instant::now());
@@ -701,13 +780,11 @@ impl State {
         let uuid = uuid.to_string();
         self.background("vpn switch", move || {
             let done = bus.vpn(&uuid, on);
-            let settled = match (&done, on) {
-                (Ok(()), true) => bus.wait(|wifi| wifi.vpns.iter().any(|each| each.uuid == uuid && !each.busy), Duration::from_secs(30)),
-                _ => true,
-            };
+            let settled = done.is_ok()
+                && bus.wait(|wifi| wifi.vpns.iter().any(|each| each.uuid == uuid && !each.busy && each.active == on), Duration::from_secs(30));
             move |state: &mut State| {
                 state.wifi.busy.retain(|each| *each != key);
-                let ok = done.is_ok() && settled && state.wifi.now.as_ref().is_some_and(|wifi| wifi.vpns.iter().any(|each| each.uuid == uuid && each.active == on));
+                let ok = settled;
                 match ok {
                     true => {
                         state.wifi.pops.insert(key, Instant::now());
@@ -919,6 +996,7 @@ impl State {
             Event::Lost => {
                 log!("drifter: the Wi-Fi password helper lost its bus, starting it again");
                 self.wifi.agent = None;
+                self.wifi.agent_tried = None;
                 if self.wifi.bus.as_ref().is_some_and(drifter_net::Bus::running) {
                     self.wifi_agent_up();
                 }
