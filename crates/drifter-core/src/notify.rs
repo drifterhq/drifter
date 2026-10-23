@@ -340,6 +340,17 @@ impl Look {
     }
 }
 
+fn own_glyph(app: &str) -> Option<crate::rows::Glyph> {
+    let named = |english: &str| app == english || app == crate::lang::t(english);
+    match () {
+        _ if named("Wi-Fi") => Some(crate::rows::Glyph::Wifi),
+        _ if named("Bluetooth") => Some(crate::rows::Glyph::Bluetooth),
+        _ if named("Drifter") => Some(crate::rows::Glyph::About),
+        _ if app == "AirDrop" => Some(crate::rows::Glyph::AirDrop),
+        _ => None,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn badge(canvas: &mut Canvas, icon: Option<&Image>, app: &str, summary: &str, spot: Rect, blank: [u8; 3], ink: [u8; 3], font: &Font) {
     match icon {
@@ -349,6 +360,12 @@ pub fn badge(canvas: &mut Canvas, icon: Option<&Image>, app: &str, summary: &str
         }
         None => {
             canvas.round_rect(spot, spot.size.x * 0.25, blank, 1.0);
+            if let Some(glyph) = own_glyph(app) {
+                let side = spot.size.x * 0.62;
+                let mark = crate::rows::glyph_image(glyph, side, ink);
+                canvas.stamp(&mark, (spot.center() - Vec2::splat(side / 2.0)).round(), 1.0);
+                return;
+            }
             let name = if app.is_empty() { summary } else { app };
             let first: String = name.chars().take(1).collect::<String>().to_uppercase();
             let letter = font.paint_bold(&first, ink);

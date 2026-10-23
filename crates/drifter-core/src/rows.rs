@@ -57,6 +57,7 @@ pub enum Glyph {
     Bluetooth,
     Plus,
     Back,
+    AirDrop,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -170,6 +171,7 @@ const SETTINGS_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="
 const ABOUT_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7" fill="none" stroke="#000" stroke-width="1.8"/><path d="M10 9v4.6" stroke="#000" stroke-width="1.9" stroke-linecap="round"/><circle cx="10" cy="6.4" r="1.1"/></svg>"##;
 const MORE_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><circle cx="5" cy="10" r="1.5"/><circle cx="10" cy="10" r="1.5"/><circle cx="15" cy="10" r="1.5"/></svg>"##;
 const BACK_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M12.4 4.4L6.8 10l5.6 5.6" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
+const AIRDROP_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M5.1 15.4A7.2 7.2 0 1 1 14.9 15.4" fill="none" stroke="#000" stroke-width="1.8" stroke-linecap="round"/><path d="M7.5 12.8A3.8 3.8 0 1 1 12.5 12.8" fill="none" stroke="#000" stroke-width="1.8" stroke-linecap="round"/><circle cx="10" cy="10" r="1.6"/></svg>"##;
 const PLUS_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M10 4v12M4 10h12" stroke="#000" stroke-width="1.9" stroke-linecap="round"/></svg>"##;
 
 pub fn glyph_svg(glyph: Glyph) -> &'static str {
@@ -190,6 +192,7 @@ pub fn glyph_svg(glyph: Glyph) -> &'static str {
         Glyph::Bluetooth => crate::blue::rune(),
         Glyph::Plus => PLUS_SVG,
         Glyph::Back => BACK_SVG,
+        Glyph::AirDrop => AIRDROP_SVG,
     }
 }
 

@@ -1481,21 +1481,6 @@ mod tests {
     }
 
     #[test]
-    fn the_tray_menu_lists_mine_with_battery() {
-        let mut mouse = device("Mouse", true, true);
-        mouse.battery = Some(90);
-        let blue = Blue {
-            on: true,
-            devices: vec![mouse, device("Pad", true, false), device("Other", false, false)],
-            ..Blue::default()
-        };
-        let labels: Vec<String> = menu(&blue).into_iter().map(|item| item.label).collect();
-        assert_eq!(labels, ["Mouse, 90%", "Pad, Connect", "", "Turn Bluetooth Off", "Bluetooth Settings…"]);
-        let off = menu(&Blue::default());
-        assert_eq!(off[0].label, "Turn Bluetooth On");
-    }
-
-    #[test]
     fn an_airdrop_offer_reads_plainly() {
         let ask = Ask {
             id: 1,

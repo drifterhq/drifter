@@ -110,7 +110,8 @@ pub fn paint(card: &Card, font: &Font, bold: &Font, charges: &[Charge]) -> Image
     if charges.is_empty() {
         let none = font.paint(crate::lang::t("No batteries found"), card.dim);
         let mid = HEAD + ROW / 2.0;
-        canvas.stamp(&none, Vec2::new(PAD, mid - crate::paint::logical(&none).y / 2.0).round(), 1.0);
+        let shown = crate::paint::logical(&none);
+        canvas.stamp(&none, Vec2::new((size.x - shown.x) / 2.0, mid - shown.y / 2.0).round(), 1.0);
         return canvas.image;
     }
     for (at, charge) in charges.iter().enumerate() {
