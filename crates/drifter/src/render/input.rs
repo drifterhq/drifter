@@ -1121,6 +1121,16 @@ impl State {
             }
             return;
         }
+        if self.popover.is_some()
+            && self.prompts.is_empty()
+            && let InputEvent::Keyboard { event } = &event
+        {
+            if event.state() == KeyState::Pressed {
+                let key = self.read_key(event);
+                self.popover_key(key);
+            }
+            return;
+        }
         if self.lock.is_none()
             && (self.desk_menu.is_some() || self.alert.is_some())
             && let InputEvent::Keyboard { event } = &event

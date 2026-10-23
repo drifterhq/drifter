@@ -46,8 +46,8 @@ pub enum Click {
 
 enum Job {
     Look,
-    Poke(String, Click, i32, i32),
-    Menu(String, Vec<i32>, f64, f64),
+    Poke(String, Click, i32, i32, [u8; 3]),
+    Menu(String, Vec<i32>, f64, f64, [u8; 3]),
     Choose(String, i32),
 }
 
@@ -56,12 +56,12 @@ pub struct Tray {
 }
 
 impl Tray {
-    pub fn click(&self, service: &str, click: Click, x: i32, y: i32) {
-        let _ = self.jobs.send(Job::Poke(service.to_string(), click, x, y));
+    pub fn click(&self, service: &str, click: Click, x: i32, y: i32, ink: [u8; 3]) {
+        let _ = self.jobs.send(Job::Poke(service.to_string(), click, x, y, ink));
     }
 
-    pub fn ask_menu(&self, service: &str, trail: Vec<i32>, x: f64, y: f64) {
-        let _ = self.jobs.send(Job::Menu(service.to_string(), trail, x, y));
+    pub fn ask_menu(&self, service: &str, trail: Vec<i32>, x: f64, y: f64, ink: [u8; 3]) {
+        let _ = self.jobs.send(Job::Menu(service.to_string(), trail, x, y, ink));
     }
 
     pub fn choose(&self, service: &str, id: i32) {
@@ -259,6 +259,7 @@ fn read_menu(
     connection: &zbus::blocking::Connection,
     service: &str,
     parent: i32,
+    ink: [u8; 3],
 ) -> Option<Vec<drifter_core::menu::Item>> {
     use zbus::zvariant::{OwnedObjectPath, Value};
 
@@ -335,11 +336,66 @@ fn read_menu(
         }
         let mut entry = drifter_core::menu::Item::line(id, &label);
         entry.enabled = flag("enabled").unwrap_or(true);
-        entry.children = text("children-display").as_deref() == Some("submenu");
-        items.push(entry);
+        if text("children-display").as_deref() == Some("submenu") {
+            entry.children = true;
+            entry.trail = drifter_core::rows::Trail::Chevron;
+        }
+        let toggled = props
+            .get::<&str, Value>(&"toggle-state")
+            .ok()
+            .flatten()
+            .and_then(|value| match value {
+                Value::I32(state) => Some(state == 1),
+                _ => None,
+            })
+            .unwrap_or(false);
+        match text("toggle-type").as_deref() {
+            Some("checkmark") => entry.trail = drifter_core::rows::Trail::Check(toggled),
+            Some("radio") => entry.trail = drifter_core::rows::Trail::Radio(toggled),
+            _ => {}
+        }
+        if !entry.children
+            && matches!(entry.trail, drifter_core::rows::Trail::None)
+            && let Some(keys) = props.get::<&str, Value>(&"shortcut").ok().flatten().and_then(|value| shortcut_words(&value))
+        {
+            entry.trail = drifter_core::rows::Trail::Shortcut(keys);
+        }
+        let icon = props
+            .get::<&str, Value>(&"icon-data")
+            .ok()
+            .flatten()
+            .and_then(|value| Vec::<u8>::try_from(value).ok())
+            .and_then(|bytes| drifter_core::image::decode_png(&bytes).ok())
+            .or_else(|| {
+                let name = text("icon-name")?;
+                let path = drifter_core::icon::find(&name, None, 32)?;
+                let mut image = drifter_core::image::load_sized(&path, 32).ok()?;
+                if drifter_core::icon::is_symbolic(&path) {
+                    image.tint(ink);
+                }
+                Some(image)
+            });
+        items.push(entry.icon(icon.map(Arc::new)));
     }
 
     Some(items)
+}
+
+fn shortcut_words(value: &zbus::zvariant::Value<'_>) -> Option<String> {
+    let combos = Vec::<Vec<String>>::try_from(value.try_clone().ok()?).ok()?;
+    let combo = combos.into_iter().next()?;
+    let words: Vec<String> = combo
+        .iter()
+        .map(|part| match part.as_str() {
+            "Control" => "Ctrl".to_string(),
+            "Super" => "Super".to_string(),
+            "Alt" => "Alt".to_string(),
+            "Shift" => "Shift".to_string(),
+            key if key.chars().count() == 1 => key.to_uppercase(),
+            key => key.to_string(),
+        })
+        .collect();
+    (!words.is_empty()).then(|| words.join("+"))
 }
 
 fn pixmap(proxy: &zbus::blocking::Proxy<'_>) -> Option<Image> {
@@ -372,7 +428,6 @@ fn named(proxy: &zbus::blocking::Proxy<'_>) -> Option<(Image, bool)> {
     }
     let theme: String = proxy.get_property("IconThemePath").unwrap_or_default();
     let own = (!theme.is_empty()).then(|| std::path::PathBuf::from(theme));
-    // The symbolic twin is tinted to match the bar, so prefer it when the theme has one.
     let path = match name.ends_with("-symbolic") {
         true => None,
         false => drifter_core::icon::find(&format!("{name}-symbolic"), own.as_deref(), 24),
@@ -457,9 +512,10 @@ fn send_menu(
     service: String,
     trail: Vec<i32>,
     at: (f64, f64),
+    ink: [u8; 3],
 ) {
     let parent = trail.last().copied().unwrap_or(0);
-    match read_menu(connection, &service, parent) {
+    match read_menu(connection, &service, parent, ink) {
         Some(items) if !items.is_empty() || parent != 0 => {
             let _ = wake.send(Update::Menu {
                 service,
@@ -547,23 +603,23 @@ fn serve(
                 out!("drifter: tray has {} icon(s)", icons.len());
                 let _ = wake.send(Update::Icons(icons));
             }
-            Job::Menu(service, trail, x, y) => {
+            Job::Menu(service, trail, x, y, ink) => {
                 let connection = connection.clone();
                 let wake = wake.clone();
-                std::thread::spawn(move || send_menu(&connection, &wake, service, trail, (x, y)));
+                std::thread::spawn(move || send_menu(&connection, &wake, service, trail, (x, y), ink));
             }
             Job::Choose(service, id) => {
                 let connection = connection.clone();
                 std::thread::spawn(move || choose(&connection, &service, id));
             }
-            Job::Poke(service, click, x, y) => {
+            Job::Poke(service, click, x, y, ink) => {
                 let connection = connection.clone();
                 let wake = wake.clone();
                 std::thread::spawn(move || {
                     let left = matches!(click, Click::Left);
                     if !poke(&connection, &service, click, x, y) && left {
                         let at = (f64::from(x), f64::from(y));
-                        send_menu(&connection, &wake, service, Vec::new(), at);
+                        send_menu(&connection, &wake, service, Vec::new(), at, ink);
                     }
                 });
             }

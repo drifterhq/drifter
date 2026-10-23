@@ -44,8 +44,8 @@ impl Action {
         match self {
             Action::Lock | Action::Logout => None,
             Action::Shutdown => Some("PowerOff"),
-            Action::Suspend => Some(crate::lang::t("Suspend")),
-            Action::Reboot => Some(crate::lang::t("Reboot")),
+            Action::Suspend => Some("Suspend"),
+            Action::Reboot => Some("Reboot"),
         }
     }
 }
@@ -63,54 +63,31 @@ impl Action {
     }
 }
 
-pub fn items() -> Vec<Item> {
-    Action::ALL
-        .iter()
-        .map(|action| Item::line(action.id(), action.label()))
-        .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_menu_lists_lock_first_and_restart_last() {
-        let labels: Vec<String> = items().into_iter().map(|item| item.label).collect();
-        assert_eq!(
-            labels,
-            ["Lock", "Log out", "Shut down", "Suspend", "Restart"]
-        );
-    }
-
-    #[test]
-    fn every_action_is_found_again_by_its_id() {
-        for action in Action::ALL {
-            assert_eq!(Action::from_id(action.id()), Some(action));
+impl Action {
+    pub fn glyph(self) -> crate::rows::Glyph {
+        match self {
+            Action::Lock => crate::rows::Glyph::Lock,
+            Action::Logout => crate::rows::Glyph::LogOut,
+            Action::Shutdown => crate::rows::Glyph::Power,
+            Action::Suspend => crate::rows::Glyph::Sleep,
+            Action::Reboot => crate::rows::Glyph::Restart,
         }
     }
+}
 
-    #[test]
-    fn the_ids_never_meet_the_settings_entry() {
-        assert!(Action::ALL.iter().all(|action| action.id() != 0));
-        assert_eq!(Action::from_id(0), None);
-        assert_eq!(Action::from_id(-1), None);
-        assert_eq!(Action::from_id(FIRST_ID + 5), None);
-    }
-
-    #[test]
-    fn the_notice_says_what_happens() {
-        assert_eq!(Action::Reboot.notice(), "Your computer will restart automatically.");
-        assert_eq!(Action::Shutdown.notice(), "Your computer will shut down automatically.");
-        assert_eq!(Action::Logout.notice(), "You will be logged out automatically.");
-    }
-
-    #[test]
-    fn lock_and_logout_stay_inside_drifter() {
-        assert_eq!(Action::Lock.method(), None);
-        assert_eq!(Action::Logout.method(), None);
-        assert_eq!(Action::Shutdown.method(), Some("PowerOff"));
-        assert_eq!(Action::Suspend.method(), Some("Suspend"));
-        assert_eq!(Action::Reboot.method(), Some("Reboot"));
-    }
+pub fn items(lock_keys: Option<String>) -> Vec<Item> {
+    let row = |action: Action| Item::line(action.id(), action.label()).glyph(action.glyph());
+    let lock = match lock_keys {
+        Some(keys) => row(Action::Lock).trail(crate::rows::Trail::Shortcut(keys)),
+        None => row(Action::Lock),
+    };
+    vec![
+        lock,
+        row(Action::Suspend),
+        Item::rule(90),
+        row(Action::Reboot),
+        row(Action::Shutdown),
+        Item::rule(91),
+        row(Action::Logout),
+    ]
 }

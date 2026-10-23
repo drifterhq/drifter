@@ -81,21 +81,23 @@ impl State {
         let at = Vec2::new(rect.origin.x - 6.0, rect.max().y + 8.0);
         let items = match self.front_app() {
             Some((app, name)) => {
+                use drifter_core::rows::Glyph;
+                let icon = self.icon_now(&app, 32).map(std::sync::Arc::new);
                 let items = vec![
-                    Item::line(HIDE, &drifter_core::lang::tf("Hide {}", &[&(name)])),
-                    Item::line(HIDE_OTHERS, drifter_core::lang::t("Hide Others")),
-                    Item::line(SHOW_ALL, drifter_core::lang::t("Show All")),
+                    Item::line(HIDE, &drifter_core::lang::tf("Hide {}", &[&(name)])).glyph(Glyph::Hide),
+                    Item::line(HIDE_OTHERS, drifter_core::lang::t("Hide Others")).glyph(Glyph::HideOthers),
+                    Item::line(SHOW_ALL, drifter_core::lang::t("Show All")).glyph(Glyph::ShowAll),
                     Item::rule(9),
-                    Item::line(QUIT, &drifter_core::lang::tf("Quit {}", &[&(name)])),
+                    Item::line(QUIT, &drifter_core::lang::tf("Quit {}", &[&(name)])).glyph(Glyph::Quit).icon(icon),
                 ];
                 self.open_popover(items, at, Target::App(app));
                 return true;
             }
             None => vec![
-                Item::line(ABOUT, drifter_core::lang::t("About Drifter")),
-                Item::line(SETTINGS, drifter_core::lang::t("Settings")),
+                Item::line(ABOUT, drifter_core::lang::t("About Drifter")).glyph(drifter_core::rows::Glyph::About),
+                Item::line(SETTINGS, drifter_core::lang::t("Settings")).glyph(drifter_core::rows::Glyph::Settings),
                 Item::rule(9),
-                Item::line(SHOW_ALL, drifter_core::lang::t("Show All")),
+                Item::line(SHOW_ALL, drifter_core::lang::t("Show All")).glyph(drifter_core::rows::Glyph::ShowAll),
             ],
         };
         self.open_popover(items, at, Target::App(String::new()));

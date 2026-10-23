@@ -875,7 +875,11 @@ impl State {
         let airdrop = self.airdrop_holds_wifi();
         let items = match self.wifi.now.as_ref() {
             Some(wifi) => net::menu(wifi, airdrop),
-            None => vec![drifter_core::menu::Item::line(net::MENU_SETTINGS, drifter_core::lang::t("Wi-Fi Settings…"))],
+            None => vec![
+                drifter_core::menu::Item::header(-40, "Wi-Fi", None),
+                drifter_core::menu::Item::message(net::Missing::Service.words()),
+                drifter_core::menu::Item::line(net::MENU_SETTINGS, drifter_core::lang::t("Wi-Fi Settings…")).glyph(drifter_core::rows::Glyph::Settings),
+            ],
         };
         self.wifi.menu_nets = self.wifi.now.as_ref().map(|wifi| wifi.nets.iter().map(|net| net.ssid.clone()).collect()).unwrap_or_default();
         self.wifi.menu_vpns = self.wifi.now.as_ref().map(|wifi| wifi.vpns.iter().map(|vpn| vpn.uuid.clone()).collect()).unwrap_or_default();
@@ -888,7 +892,12 @@ impl State {
         let at = self.wifi_tray_rect().map_or(self.pointer, |rect| Vec2::new(rect.origin.x, rect.max().y + 6.0));
         let airdrop = self.airdrop_holds_wifi();
         let (Some(bus), Some(wifi)) = (self.wifi.bus.clone(), self.wifi.now.clone()) else {
-            let items = vec![drifter_core::menu::Item::line(net::MENU_SETTINGS, drifter_core::lang::t("Wi-Fi Settings…"))];
+            let items = vec![
+                drifter_core::menu::Item::header(-40, "Wi-Fi", None),
+                drifter_core::menu::Item::message(net::Missing::Service.words()),
+                drifter_core::menu::Item::rule(-44),
+                drifter_core::menu::Item::line(net::MENU_SETTINGS, drifter_core::lang::t("Wi-Fi Settings…")).glyph(drifter_core::rows::Glyph::Settings),
+            ];
             self.close_panels();
             self.open_popover(items, at, Target::Wifi);
             return;
@@ -898,11 +907,10 @@ impl State {
                 Some(joined) if !airdrop => (bus.points(&joined.ssid).into_iter().next(), bus.link()),
                 _ => (None, None),
             };
-            let lines = net::status_lines(&wifi, airdrop, ap.as_ref(), link.as_ref());
+            let items = net::status_menu(&wifi, airdrop, ap.as_ref(), link.as_ref());
             move |state: &mut State| {
-                let wifi = state.wifi.now.clone().unwrap_or(wifi);
                 state.close_panels();
-                state.open_popover(net::status_menu(&wifi, &lines), at, Target::Wifi);
+                state.open_popover(items, at, Target::Wifi);
             }
         });
     }

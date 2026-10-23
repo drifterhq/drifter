@@ -668,15 +668,14 @@ impl State {
                 let now = self.shapes[Edge::Bottom.index()].height.round() as i64;
                 let sizes = DOCK_SIZES
                     .iter()
-                    .map(|(height, name)| Item {
-                        enabled: *height != now,
-                        ..Item::line(BAR_SIZE_BASE + *height as i32, name)
-                    })
+                    .map(|(height, name)| Item::line(BAR_SIZE_BASE + *height as i32, name).trail(drifter_core::rows::Trail::Radio(*height == now)))
                     .collect();
-                self.open_popover(drifter_core::menu::with_back(sizes), at, Target::DockBar);
+                self.menu_slide = Some(1.0);
+                self.open_popover(drifter_core::menu::with_back(sizes, drifter_core::lang::t("Dock Size")), at, Target::DockBar);
                 return;
             }
             drifter_core::menu::BACK => {
+                self.menu_slide = Some(-1.0);
                 let items = self.dock_bar_items();
                 self.open_popover(items, at, Target::DockBar);
                 return;

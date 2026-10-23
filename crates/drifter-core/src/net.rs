@@ -483,138 +483,131 @@ pub const MENU_WIRED: i32 = -6;
 pub const MENU_VPN: i32 = 1 << 20;
 pub const MENU_MOST_OTHERS: usize = 6;
 
+pub fn note(wifi: &Wifi, net: &Net) -> String {
+    match (net.active, net.busy) {
+        (true, _) => match wifi.online {
+            Online::Portal => crate::lang::t("Sign in to use the internet"),
+            Online::None | Online::Limited => crate::lang::t("No internet"),
+            _ => crate::lang::t("Joined"),
+        },
+        (false, true) => crate::lang::t("Connecting…"),
+        (false, false) if net.signal < WEAK => crate::lang::t("Weak signal"),
+        (false, false) if net.known => crate::lang::t("Saved"),
+        (false, false) if net.enterprise => crate::lang::t("Work or school sign-in"),
+        (false, false) if net.secure => crate::lang::t("Password"),
+        (false, false) => crate::lang::t("Open"),
+    }
+    .to_string()
+}
+
+fn net_row(id: i32, wifi: &Wifi, net: &Net) -> crate::menu::Item {
+    use crate::rows::{Disc, Lead, Trail};
+    let trail = match net.secure {
+        true => Trail::LockBars(steps(net.signal)),
+        false => Trail::Bars(steps(net.signal)),
+    };
+    crate::menu::Item::rich(id, &net.ssid, &note(wifi, net), Lead::Disc(Disc::Net(Glyph::Wifi), net.active), trail)
+}
+
 pub fn menu(wifi: &Wifi, airdrop: bool) -> Vec<crate::menu::Item> {
     use crate::menu::Item;
-    let note = |text: &str| Item {
-        enabled: false,
-        ..Item::line(-8, text)
-    };
-    let mut items = Vec::new();
+    use crate::rows::{Disc, Lead, Trail};
+    let mut items = vec![Item::header(-40, "Wi-Fi", None)];
     if airdrop {
-        items.push(note(crate::lang::t("AirDrop is using Wi-Fi.")));
-        items.push(Item::line(MENU_STOP_AIRDROP, crate::lang::t("Stop AirDrop")));
+        items.push(Item::message(crate::lang::t("AirDrop is using Wi-Fi.")));
+        items.push(Item::line(MENU_STOP_AIRDROP, crate::lang::t("Stop AirDrop")).glyph(crate::rows::Glyph::Quit));
         return items;
     }
     if !wifi.managed {
-        items.push(note(crate::lang::t("Another tool runs this Wi-Fi card.")));
+        items.push(Item::message(crate::lang::t("Another tool runs this Wi-Fi card.")));
         return items;
     }
     if !wifi.on {
-        items.push(note(crate::lang::t("Wi-Fi is off.")));
-        items.push(Item::line(MENU_POWER, crate::lang::t("Turn Wi-Fi On")));
+        items.push(Item::message(crate::lang::t("Wi-Fi is off.")));
+        items.push(Item::line(MENU_POWER, crate::lang::t("Turn Wi-Fi On")).glyph(crate::rows::Glyph::Wifi));
         return items;
     }
-    let line = |at: usize, net: &Net| {
-        let state = match (net.active, net.busy, net.signal < WEAK) {
-            (true, _, _) => crate::lang::tf("{}, joined", &[&net.ssid]),
-            (false, true, _) => crate::lang::tf("{}, joining…", &[&net.ssid]),
-            (false, false, true) => crate::lang::tf("{}, weak", &[&net.ssid]),
-            (false, false, false) => net.ssid.clone(),
-        };
-        Item::line(at as i32, &state)
-    };
-    let known: Vec<Item> = wifi.nets.iter().enumerate().filter(|(_, net)| net.known || net.active).map(|(at, net)| line(at, net)).collect();
+    let known: Vec<Item> = wifi.nets.iter().enumerate().filter(|(_, net)| net.known || net.active).map(|(at, net)| net_row(at as i32, wifi, net)).collect();
     let others: Vec<Item> = wifi
         .nets
         .iter()
         .enumerate()
         .filter(|(_, net)| !net.known && !net.active)
         .take(MENU_MOST_OTHERS)
-        .map(|(at, net)| line(at, net))
+        .map(|(at, net)| net_row(at as i32, wifi, net))
         .collect();
-    let had = !known.is_empty();
-    items.extend(known);
+    if !known.is_empty() {
+        items.push(Item::section(crate::lang::t("Known")));
+        items.extend(known);
+    }
     if !others.is_empty() {
-        if had {
-            items.push(Item::rule(-10));
-        }
+        items.push(Item::section(crate::lang::t("Other networks")));
         items.extend(others);
     }
-    if items.is_empty() {
-        items.push(note(crate::lang::t("No networks in range")));
+    if wifi.nets.is_empty() {
+        items.push(Item::message(crate::lang::t("No networks in range")));
     }
-    items.push(Item::line(MENU_OTHER, crate::lang::t("Other…")));
+    items.push(Item::rule(-41));
+    items.push(Item::line(MENU_OTHER, crate::lang::t("Other…")).glyph(crate::rows::Glyph::Plus));
     if !wifi.vpns.is_empty() {
-        items.push(Item::rule(-12));
+        items.push(Item::section("VPN"));
         for (at, vpn) in wifi.vpns.iter().enumerate() {
-            let words = match (vpn.active, vpn.busy) {
-                (_, true) => crate::lang::tf("{}, connecting…", &[&vpn.name]),
-                (true, false) => crate::lang::tf("{}, on", &[&vpn.name]),
-                (false, false) => vpn.name.clone(),
+            let note = match (vpn.busy, vpn.active) {
+                (true, _) => crate::lang::t("Connecting…"),
+                (false, true) => crate::lang::t("On"),
+                (false, false) => crate::lang::t("Off"),
             };
-            items.push(Item::line(MENU_VPN + at as i32, &words));
+            items.push(Item::rich(MENU_VPN + at as i32, &vpn.name, note, Lead::Disc(Disc::Net(Glyph::Vpn), vpn.active), Trail::Switch(vpn.active)));
         }
     }
     items
 }
 
-pub fn status_lines(wifi: &Wifi, airdrop: bool, ap: Option<&Ap>, link: Option<&Link>) -> Vec<String> {
-    if airdrop {
-        return vec![crate::lang::t("AirDrop is using Wi-Fi.").to_string()];
-    }
-    let mut lines = Vec::new();
-    if let Some(wired) = wifi.wired.as_ref().filter(|wired| wired.connected()) {
-        lines.push(crate::lang::tf("Ethernet ({}), connected", &[&wired.iface]));
-    }
-    if !wifi.on {
-        lines.push(crate::lang::t("Wi-Fi is off.").to_string());
-        return lines;
-    }
-    let Some(net) = wifi.joined_net() else {
-        lines.push(crate::lang::t("Wi-Fi: not connected").to_string());
-        return lines;
-    };
-    lines.push(match wifi.online {
-        Online::Portal => crate::lang::tf("{}: sign in to use the internet", &[&net.ssid]),
-        Online::None | Online::Limited => crate::lang::tf("{}: no internet", &[&net.ssid]),
-        _ => crate::lang::tf("{}, joined", &[&net.ssid]),
-    });
-    let field = |key: &str| {
-        link.and_then(|link| link.device.iter().find(|(field, _)| field == key || field.starts_with(&format!("{key}["))).map(|(_, value)| value.clone()))
-    };
-    if let Some(address) = field("IP4.ADDRESS") {
-        lines.push(crate::lang::tf("IP address: {}", &[&address]));
-    }
-    if let Some(router) = field("IP4.GATEWAY") {
-        lines.push(crate::lang::tf("Router: {}", &[&router]));
-    }
-    if let Some(ap) = ap {
-        lines.push(crate::lang::tf("{}, channel {}", &[&band(ap.mhz), &ap.channel]));
-        lines.push(match ap.security.is_empty() {
-            true => crate::lang::t("Security: none").to_string(),
-            false => crate::lang::tf("Security: {}", &[&ap.security]),
-        });
-    }
-    lines.push(match link.and_then(|link| link.dbm) {
-        Some(dbm) => crate::lang::tf("Signal: {}%, {} dBm", &[&net.signal, &dbm]),
-        None => crate::lang::tf("Signal: {}%", &[&net.signal]),
-    });
-    if let Some(rate) = link.and_then(|link| link.bitrate.clone()) {
-        lines.push(crate::lang::tf("Speed now: {}", &[&rate]));
-    }
-    lines
-}
-
-pub fn status_menu(wifi: &Wifi, lines: &[String]) -> Vec<crate::menu::Item> {
+pub fn status_menu(wifi: &Wifi, airdrop: bool, ap: Option<&Ap>, link: Option<&Link>) -> Vec<crate::menu::Item> {
     use crate::menu::Item;
-    let mut items: Vec<Item> = lines
-        .iter()
-        .map(|text| Item {
-            enabled: false,
-            ..Item::line(-20, text)
-        })
-        .collect();
-    items.push(Item::rule(-21));
-    if wifi.managed {
-        items.push(Item::line(
-            MENU_POWER,
-            match wifi.on {
-                true => crate::lang::t("Turn Wi-Fi Off"),
-                false => crate::lang::t("Turn Wi-Fi On"),
-            },
-        ));
+    use crate::rows::{Disc, Lead, Trail};
+    let switch = (wifi.managed && !airdrop).then_some(wifi.on);
+    let mut items = vec![Item::header(MENU_POWER, "Wi-Fi", switch)];
+    if let Some(wired) = wifi.wired.as_ref().filter(|wired| wired.connected()) {
+        items.push(Item::rich(-42, crate::lang::t("Ethernet"), &wired.iface, Lead::Disc(Disc::Net(Glyph::Wired), true), Trail::None).still());
     }
-    items.push(Item::line(MENU_SETTINGS, crate::lang::t("Wi-Fi Settings…")));
+    let joined = wifi.joined_net().filter(|_| wifi.on && !airdrop);
+    match (airdrop, wifi.on, joined) {
+        (true, _, _) => items.push(Item::message(crate::lang::t("AirDrop is using Wi-Fi."))),
+        (false, false, _) => items.push(Item::message(crate::lang::t("Wi-Fi is off."))),
+        (false, true, None) => items.push(Item::message(crate::lang::t("Not connected"))),
+        (false, true, Some(net)) => {
+            items.push(Item::rich(-43, &net.ssid, &note(wifi, net), Lead::Disc(Disc::Net(Glyph::Wifi), true), Trail::Bars(steps(net.signal))).still());
+            let field = |key: &str| {
+                link.and_then(|link| link.device.iter().find(|(field, _)| field == key || field.starts_with(&format!("{key}["))).map(|(_, value)| value.clone()))
+            };
+            if let Some(address) = field("IP4.ADDRESS") {
+                items.push(Item::info(crate::lang::t("IP address"), &address));
+            }
+            if let Some(router) = field("IP4.GATEWAY") {
+                items.push(Item::info(crate::lang::t("Router"), &router));
+            }
+            if let Some(ap) = ap {
+                items.push(Item::info(crate::lang::t("Band"), band(ap.mhz)));
+                items.push(Item::info(crate::lang::t("Channel"), &ap.channel.to_string()));
+                let security = match ap.security.is_empty() {
+                    true => crate::lang::t("None").to_string(),
+                    false => ap.security.clone(),
+                };
+                items.push(Item::info(crate::lang::t("Security"), &security));
+            }
+            let signal = match link.and_then(|link| link.dbm) {
+                Some(dbm) => format!("{}%, {dbm} dBm", net.signal),
+                None => format!("{}%", net.signal),
+            };
+            items.push(Item::info(crate::lang::t("Signal"), &signal));
+            if let Some(rate) = link.and_then(|link| link.bitrate.clone()) {
+                items.push(Item::info(crate::lang::t("Speed now"), &rate));
+            }
+        }
+    }
+    items.push(Item::rule(-44));
+    items.push(Item::line(MENU_SETTINGS, crate::lang::t("Wi-Fi Settings…")).glyph(crate::rows::Glyph::Settings));
     items
 }
 

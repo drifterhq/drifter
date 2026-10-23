@@ -55,6 +55,10 @@ impl Pane {
     fn grows_itself(self) -> bool {
         matches!(self, Pane::Menu | Pane::DeskMenu)
     }
+
+    fn drops(self) -> bool {
+        matches!(self, Pane::Control | Pane::Notes | Pane::Charges | Pane::Glance)
+    }
 }
 
 #[derive(Clone)]
@@ -343,6 +347,15 @@ impl State {
         let (alpha, scale) = match fader.gone {
             Some(gone) => vanish(now.duration_since(gone).as_secs_f64() / (FADE_OUT / pace), self.window_still),
             None if pane.grows_itself() || pane == Pane::Pill => (1.0, 1.0),
+            None if pane.drops() => {
+                let t = (now.duration_since(fader.born).as_secs_f64() / (drifter_core::menu::GROW / pace)).clamp(0.0, 1.0);
+                let alpha = drifter_core::motion::smooth((t * 1.4).min(1.0));
+                let scale = match self.window_still {
+                    true => 1.0,
+                    false => drifter_core::menu::DROP_SCALE + (1.0 - drifter_core::menu::DROP_SCALE) * drifter_core::drawer::ease(t),
+                };
+                (alpha, scale)
+            }
             None if pane == Pane::Share => {
                 let t = (now.duration_since(fader.born).as_secs_f64() / (State::share_in() / pace)).clamp(0.0, 1.0);
                 State::share_look_in(t, self.window_still)
@@ -396,11 +409,24 @@ impl State {
         if alpha <= 0.0 {
             return;
         }
-        let centre = frame.center();
-        self.lit_elements(pane, centre, scale, alpha, elements);
-        let place = |rect: Rect, scales: bool| match scales && scale != 1.0 {
-            true => Rect::new(centre + (rect.origin - centre) * scale, rect.size * scale),
-            false => rect,
+        let lift = match (pane.drops(), fader) {
+            (true, Some(fader)) if fader.gone.is_none() && self.window_pace > 0.0 && !self.window_still => {
+                let t = (now.duration_since(fader.born).as_secs_f64() / (drifter_core::menu::GROW / self.window_pace)).clamp(0.0, 1.0);
+                drifter_core::menu::DROP * (1.0 - drifter_core::drawer::ease(t))
+            }
+            _ => 0.0,
+        };
+        let centre = match pane.drops() {
+            true => Vec2::new(frame.center().x, frame.origin.y),
+            false => frame.center(),
+        };
+        self.lit_elements(pane, centre, scale, lift, alpha, elements);
+        let place = |rect: Rect, scales: bool| {
+            let moved = match scales && scale != 1.0 {
+                true => Rect::new(centre + (rect.origin - centre) * scale, rect.size * scale),
+                false => rect,
+            };
+            Rect::new(moved.origin - Vec2::new(0.0, lift), moved.size)
         };
         let mut shadows = Vec::new();
         for layer in &layers {

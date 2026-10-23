@@ -369,9 +369,9 @@ struct Popover {
     opened: Option<Instant>,
     art: Option<TextureBuffer<Tex>>,
     target: Target,
-    hover: Option<usize>,
-    want: Option<usize>,
     lane: worker::Lane,
+    keyed: Option<usize>,
+    slide: Option<(TextureBuffer<Tex>, Rect, Instant, f64)>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -623,6 +623,8 @@ pub struct State {
     density: u32,
     palette: drifter_core::theme::Palette,
     popover: Option<Popover>,
+    menu_titles: Vec<String>,
+    menu_slide: Option<f64>,
     desk_menu: Option<deskmenu::DeskMenu>,
     ripple: Option<deskmenu::Ripple>,
     ripple_program: Option<Option<smithay::backend::renderer::gles::GlesTexProgram>>,
@@ -1443,7 +1445,6 @@ impl State {
     fn hover(&mut self) {
         self.aim_shooter();
         self.watch_corner();
-        self.repaint_popover();
         self.hover_desk_menu();
         self.hover_welcome();
         self.hover_rows();

@@ -498,7 +498,7 @@ impl State {
             InputEvent::PointerMotion { event } => {
                 let delta = Vec2::new(event.delta_x(), event.delta_y());
                 self.pointer = (self.pointer + delta).clamp(Vec2::ZERO, edge);
-                self.repaint_popover();
+                self.hover_rows();
                 self.kick();
                 return;
             }
@@ -506,7 +506,7 @@ impl State {
                 let x = event.x_transformed(self.screen.x as i32);
                 let y = event.y_transformed(self.screen.y as i32);
                 self.pointer = Vec2::new(x, y).clamp(Vec2::ZERO, edge);
-                self.repaint_popover();
+                self.hover_rows();
                 self.kick();
                 return;
             }

@@ -21,7 +21,7 @@ impl State {
         let plain = drifter_core::glance::Card::themed(&self.palette);
         let card = drifter_core::glance::Card {
             width: glance::WIDTH,
-            back_alpha: self.veil(0.62),
+            back_alpha: self.veil(drifter_core::rows::BACK_ALPHA),
             ..plain
         };
         Layout {

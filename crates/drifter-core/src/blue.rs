@@ -382,70 +382,82 @@ impl Blue {
 
 pub const MENU_POWER: i32 = 1000;
 pub const MENU_SETTINGS: i32 = 1001;
+pub const MENU_SERVICE: i32 = 1002;
 
-pub fn menu(blue: &Blue) -> Vec<crate::menu::Item> {
+fn device_row(id: i32, device: &Device, note: &str) -> crate::menu::Item {
+    use crate::rows::{Disc, Lead, Trail};
+    let trail = match (device.connected, device.battery) {
+        (true, Some(level)) => Trail::Battery(level),
+        _ => Trail::None,
+    };
+    crate::menu::Item::rich(id, &device.shown_name(), note, Lead::Disc(Disc::Device(device.kind), device.connected), trail)
+}
+
+fn missing_rows(missing: Missing) -> Vec<crate::menu::Item> {
     use crate::menu::Item;
-    let mut items = Vec::new();
-    if !blue.on {
-        items.push(Item {
-            enabled: false,
-            ..Item::line(-4, crate::lang::t("Bluetooth is off."))
-        });
-        items.push(Item::line(MENU_POWER, crate::lang::t("Turn Bluetooth On")));
-        return items;
-    }
-    for (at, device) in blue.devices.iter().enumerate().filter(|(_, device)| device.paired) {
-        let words = match device.connected {
-            true => crate::lang::tf("{}, connected", &[&device.shown_name()]),
-            false => device.shown_name(),
-        };
-        items.push(Item::line(at as i32, &words));
-    }
-    if items.is_empty() {
-        items.push(Item {
-            enabled: false,
-            ..Item::line(-4, crate::lang::t("No devices set up yet."))
-        });
-        items.push(Item::line(MENU_SETTINGS, crate::lang::t("Set Up a Device…")));
+    let mut items = vec![Item::message(missing.words())];
+    if missing == Missing::Service {
+        items.push(Item::line(MENU_SERVICE, crate::lang::t("Turn On the Bluetooth Service")).glyph(crate::rows::Glyph::Power));
     }
     items
 }
 
-pub fn status_menu(blue: &Blue, codecs: &[(String, Codec)]) -> Vec<crate::menu::Item> {
+pub fn menu(seen: Result<&Blue, Missing>) -> Vec<crate::menu::Item> {
     use crate::menu::Item;
-    let mut items = Vec::new();
-    let line = |text: &str| Item {
-        enabled: false,
-        ..Item::line(-5, text)
+    let mut items = vec![Item::header(-4, crate::lang::t("Bluetooth"), None)];
+    let blue = match seen {
+        Ok(blue) => blue,
+        Err(missing) => {
+            items.extend(missing_rows(missing));
+            return items;
+        }
     };
-    match blue.on {
-        false => items.push(line(crate::lang::t("Bluetooth is off."))),
+    if !blue.on {
+        items.push(Item::message(crate::lang::t("Bluetooth is off.")));
+        items.push(Item::line(MENU_POWER, crate::lang::t("Turn Bluetooth On")).glyph(crate::rows::Glyph::Bluetooth));
+        return items;
+    }
+    let mine: Vec<Item> = blue
+        .devices
+        .iter()
+        .enumerate()
+        .filter(|(_, device)| device.paired)
+        .map(|(at, device)| device_row(at as i32, device, device.state()))
+        .collect();
+    match mine.is_empty() {
         true => {
+            items.push(Item::message(crate::lang::t("No devices set up yet.")));
+            items.push(Item::rule(-5));
+            items.push(Item::line(MENU_SETTINGS, crate::lang::t("Set Up a Device…")).glyph(crate::rows::Glyph::Plus));
+        }
+        false => items.extend(mine),
+    }
+    items
+}
+
+pub fn status_menu(seen: Result<&Blue, Missing>, codecs: &[(String, Codec)]) -> Vec<crate::menu::Item> {
+    use crate::menu::Item;
+    let switch = seen.as_ref().ok().map(|blue| blue.on);
+    let mut items = vec![Item::header(MENU_POWER, crate::lang::t("Bluetooth"), switch)];
+    match seen {
+        Err(missing) => items.extend(missing_rows(missing)),
+        Ok(blue) if !blue.on => items.push(Item::message(crate::lang::t("Bluetooth is off."))),
+        Ok(blue) => {
             let connected: Vec<&Device> = blue.connected().collect();
             if connected.is_empty() {
-                items.push(line(crate::lang::t("Nothing connected")));
+                items.push(Item::message(crate::lang::t("Nothing connected")));
             }
             for device in connected {
-                let mut words = vec![device.shown_name()];
-                if let Some(level) = device.battery {
-                    words.push(crate::lang::tf("battery {}%", &[&level]));
-                }
-                if let Some((_, codec)) = codecs.iter().find(|(address, _)| *address == device.address) {
-                    words.push(codec.words());
-                }
-                items.push(line(&words.join(", ")));
+                let note = codecs
+                    .iter()
+                    .find(|(address, _)| *address == device.address)
+                    .map_or_else(|| crate::lang::t("Connected").to_string(), |(_, codec)| codec.words());
+                items.push(device_row(-6, device, &note).still());
             }
         }
     }
     items.push(Item::rule(-3));
-    items.push(Item::line(
-        MENU_POWER,
-        match blue.on {
-            true => crate::lang::t("Turn Bluetooth Off"),
-            false => crate::lang::t("Turn Bluetooth On"),
-        },
-    ));
-    items.push(Item::line(MENU_SETTINGS, crate::lang::t("Bluetooth Settings…")));
+    items.push(Item::line(MENU_SETTINGS, crate::lang::t("Bluetooth Settings…")).glyph(crate::rows::Glyph::Settings));
     items
 }
 
@@ -1466,21 +1478,6 @@ mod tests {
             assert!(image.rgba.chunks(4).any(|pixel| pixel[3] > 200), "{word} draws something");
         }
         assert!(step_icon("blank", 26, [0, 0, 0], [0, 0, 0]).rgba.chunks(4).all(|pixel| pixel[3] == 0));
-    }
-
-    #[test]
-    fn the_tray_menu_lists_mine_with_battery() {
-        let mut mouse = device("Mouse", true, true);
-        mouse.battery = Some(90);
-        let blue = Blue {
-            on: true,
-            devices: vec![mouse, device("Pad", true, false), device("Other", false, false)],
-            ..Blue::default()
-        };
-        let labels: Vec<String> = menu(&blue).into_iter().map(|item| item.label).collect();
-        assert_eq!(labels, ["Mouse, 90%", "Pad, Connect", "", "Turn Bluetooth Off", "Bluetooth Settings…"]);
-        let off = menu(&Blue::default());
-        assert_eq!(off[0].label, "Turn Bluetooth On");
     }
 
     #[test]

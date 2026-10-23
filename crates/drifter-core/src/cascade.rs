@@ -89,16 +89,17 @@ pub struct Look {
     pub dim: [u8; 3],
     pub rule_ink: [u8; 3],
     pub accent: [u8; 3],
+    pub off: [u8; 3],
 }
 
 impl Look {
     pub fn themed(p: &crate::theme::Palette, accent: [u8; 3]) -> Look {
         Look {
             item: crate::menu::ROW,
-            rule: 9.0,
-            pad: 5.0,
+            rule: crate::rows::Kind::Rule.height(),
+            pad: crate::rows::PAD,
             radius: crate::menu::RADIUS,
-            icon: 18.0,
+            icon: crate::rows::GLYPH,
             least: 210.0,
             back: p.back,
             back_alpha: 0.96,
@@ -106,6 +107,7 @@ impl Look {
             dim: p.dim,
             rule_ink: p.rule,
             accent,
+            off: p.off,
         }
     }
 
@@ -120,16 +122,61 @@ impl Look {
         items.iter().map(|entry| self.row(entry)).sum::<f64>() + self.pad * 2.0
     }
 
+    fn style(&self) -> crate::rows::Style {
+        crate::rows::Style {
+            back: self.back,
+            back_alpha: self.back_alpha,
+            ink: self.ink,
+            dim: self.dim,
+            off: self.off,
+            accent: self.accent,
+            rule: self.ink,
+            shade: self.rule_ink,
+        }
+    }
+
+    fn rows(items: &[Entry]) -> Vec<(crate::rows::Kind, crate::rows::Lead, crate::rows::Trail, bool)> {
+        items
+            .iter()
+            .map(|entry| {
+                let lead = entry
+                    .icon
+                    .as_ref()
+                    .map_or(crate::rows::Lead::None, |icon| crate::rows::Lead::Icon(std::sync::Arc::new(icon.clone())));
+                match &entry.kind {
+                    Kind::Rule => (crate::rows::Kind::Rule, crate::rows::Lead::None, crate::rows::Trail::None, false),
+                    Kind::Submenu(_) => (crate::rows::Kind::Action, lead, crate::rows::Trail::Chevron, true),
+                    Kind::Action(_) => (crate::rows::Kind::Action, lead, crate::rows::Trail::None, true),
+                    Kind::Disabled => (crate::rows::Kind::Action, lead, crate::rows::Trail::None, false),
+                }
+            })
+            .collect()
+    }
+
     pub fn size(&self, items: &[Entry], font: &Font, screen: Vec2) -> Vec2 {
+        let room = items.iter().any(|entry| entry.icon.is_some());
+        let fonts = crate::rows::Fonts { body: font, small: font };
+        let rows = Self::rows(items);
         let widest = items
             .iter()
-            .map(|entry| font.width_of(&entry.label))
+            .zip(&rows)
+            .map(|(entry, (kind, lead, trail, enabled))| {
+                crate::rows::width_of(
+                    &crate::rows::Row {
+                        kind: *kind,
+                        label: &entry.label,
+                        note: "",
+                        value: "",
+                        lead,
+                        trail,
+                        enabled: *enabled,
+                        lead_room: room,
+                    },
+                    &fonts,
+                )
+            })
             .fold(0.0f64, f64::max);
-        let has_icons = items.iter().any(|entry| entry.icon.is_some());
-        let lead = if has_icons { self.icon + 8.0 } else { 0.0 };
-        let width = (widest + lead + self.pad * 2.0 + 44.0)
-            .max(self.least)
-            .ceil();
+        let width = (widest + self.pad * 2.0).max(self.least).ceil();
         let height = self.content(items).min(screen.y - 24.0).ceil();
         Vec2::new(width, height)
     }
@@ -173,64 +220,37 @@ impl Look {
         font: &Font,
     ) -> Image {
         let mut canvas = Canvas::new(size.x as u32, size.y as u32);
-        canvas.round_rect(
-            Rect::new(Vec2::ZERO, size),
-            self.radius,
-            self.back,
-            self.back_alpha,
-        );
-        let has_icons = items.iter().any(|entry| entry.icon.is_some());
-        for (index, entry) in items.iter().enumerate() {
+        let style = self.style();
+        crate::rows::back(&mut canvas, size, self.radius, &style);
+        let room = items.iter().any(|entry| entry.icon.is_some());
+        let fonts = crate::rows::Fonts { body: font, small: font };
+        let rows = Self::rows(items);
+        for (index, (entry, (kind, lead, trail, enabled))) in items.iter().zip(&rows).enumerate() {
             let top = self.item_top(items, index) - scroll;
             let tall = self.row(entry);
             if top + tall < 0.0 || top > size.y {
                 continue;
             }
-            if matches!(entry.kind, Kind::Rule) {
-                let line = Rect::new(
-                    Vec2::new(self.pad + 6.0, (top + tall / 2.0).round()),
-                    Vec2::new(size.x - self.pad * 2.0 - 12.0, 1.0),
-                );
-                canvas.round_rect(line, 0.0, self.rule_ink, 1.0);
-                continue;
+            let rect = Rect::new(Vec2::new(0.0, top), Vec2::new(size.x, tall));
+            if hover == Some(index) && entry.pickable() {
+                crate::rows::highlight(&mut canvas, rect, &style, 0.07);
             }
-            let lit = hover == Some(index) && entry.pickable();
-            let row = Rect::new(
-                Vec2::new(self.pad, top),
-                Vec2::new(size.x - self.pad * 2.0, tall),
+            crate::rows::paint_row(
+                &mut canvas,
+                rect,
+                &crate::rows::Row {
+                    kind: *kind,
+                    label: &entry.label,
+                    note: "",
+                    value: "",
+                    lead,
+                    trail,
+                    enabled: *enabled,
+                    lead_room: room,
+                },
+                &style,
+                &fonts,
             );
-            if lit {
-                canvas.round_rect(row, crate::menu::HOVER_RADIUS, self.accent, 1.0);
-            }
-            let ink = match (lit, &entry.kind) {
-                (true, _) => [255, 255, 255],
-                (false, Kind::Disabled) => self.dim,
-                _ => self.ink,
-            };
-            let mut x = row.origin.x + 8.0;
-            if has_icons {
-                if let Some(icon) = entry.icon.as_ref() {
-                    let at = Vec2::new(x, row.center().y - crate::paint::logical(icon).y / 2.0).round();
-                    canvas.stamp(icon, at, 1.0);
-                }
-                x += self.icon + 8.0;
-            }
-            let text = font.paint(&entry.label, ink);
-            canvas.stamp(
-                &text,
-                Vec2::new(x, row.center().y - crate::paint::logical(&text).y / 2.0).round(),
-                1.0,
-            );
-            if matches!(entry.kind, Kind::Submenu(_)) {
-                let tip = Vec2::new(row.max().x - 10.0, row.center().y);
-                for step in 0..9 {
-                    let t = f64::from(step) / 8.0;
-                    let up = tip + Vec2::new(-4.0 * (1.0 - t), -4.5 * (1.0 - t));
-                    let down = tip + Vec2::new(-4.0 * (1.0 - t), 4.5 * (1.0 - t));
-                    canvas.circle(up, 0.9, ink, 1.0);
-                    canvas.circle(down, 0.9, ink, 1.0);
-                }
-            }
         }
         let most = self.most_scroll(items, size);
         if most > 0.0 {

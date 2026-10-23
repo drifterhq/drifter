@@ -6,7 +6,6 @@ const INSET: f64 = 0.78;
 const EDGE: f64 = 0.06;
 const SOLID: u8 = 200;
 
-/// Takes and gives premultiplied art, like `image::load`.
 pub fn dress(image: &Image, shape: IconShape, background: bool) -> Image {
     let side = image.width.min(image.height).max(1);
     let mut image = image.scaled(side, side);
