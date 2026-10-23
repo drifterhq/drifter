@@ -60,6 +60,8 @@ pub(super) struct Wireless {
     unplugged: Option<Instant>,
     settings_told: Option<Instant>,
     airdrop: bool,
+    menu_nets: Vec<String>,
+    menu_vpns: Vec<String>,
 }
 
 impl Default for Wireless {
@@ -94,6 +96,8 @@ impl Default for Wireless {
             unplugged: None,
             settings_told: None,
             airdrop: false,
+            menu_nets: Vec::new(),
+            menu_vpns: Vec::new(),
         }
     }
 }
@@ -793,6 +797,8 @@ impl State {
                 Some(wifi) => net::menu(wifi, airdrop),
                 None => vec![drifter_core::menu::Item::line(net::MENU_SETTINGS, drifter_core::lang::t("Wi-Fi Settings…"))],
             };
+            self.wifi.menu_nets = self.wifi.now.as_ref().map(|wifi| wifi.nets.iter().map(|net| net.ssid.clone()).collect()).unwrap_or_default();
+            self.wifi.menu_vpns = self.wifi.now.as_ref().map(|wifi| wifi.vpns.iter().map(|vpn| vpn.uuid.clone()).collect()).unwrap_or_default();
             self.close_panels();
             self.open_popover(items, at, Target::Wifi);
             self.wifi_scan_as_needed();
@@ -830,18 +836,18 @@ impl State {
             net::MENU_OTHER => self.wifi_settings_hidden(),
             net::MENU_STOP_AIRDROP => self.airdrop_receive(false),
             at if at >= net::MENU_VPN => {
-                let uuid = self
-                    .wifi
-                    .now
-                    .as_ref()
-                    .and_then(|wifi| wifi.vpns.get((at - net::MENU_VPN) as usize))
-                    .map(|vpn| vpn.uuid.clone());
+                let uuid = self.wifi.menu_vpns.get((at - net::MENU_VPN) as usize).cloned();
                 if let Some(uuid) = uuid {
                     self.wifi_vpn(&uuid);
                 }
             }
             at if at >= 0 => {
-                let found = self.wifi.now.as_ref().and_then(|wifi| wifi.nets.get(at as usize)).map(|net| (net.ssid.clone(), net.active));
+                let found = self
+                    .wifi
+                    .menu_nets
+                    .get(at as usize)
+                    .and_then(|ssid| self.wifi.now.as_ref().and_then(|wifi| wifi.find(ssid)))
+                    .map(|net| (net.ssid.clone(), net.active));
                 match found {
                     Some((ssid, true)) => self.wifi_leave(&ssid),
                     Some((ssid, false)) => self.wifi_join(&ssid),

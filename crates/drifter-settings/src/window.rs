@@ -209,7 +209,7 @@ pub fn run() -> Result<(), String> {
     drifter_core::icon::follow(&config.appearance);
     let mut model = read_model(&config);
     model.sound = read_sound();
-    model.autostarts = drifter_core::autostart::installed();
+    model.autostarts = login_items();
     model.brightness = read_brightness();
     model.profile = read_profile();
     model.cells = read_cells();
@@ -440,6 +440,14 @@ pub fn run() -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn login_items() -> Vec<drifter_core::autostart::Entry> {
+    let ours = crate::net::running();
+    drifter_core::autostart::installed()
+        .into_iter()
+        .filter(|entry| !(ours && entry.program().is_some_and(|program| drifter_core::autostart::network_applet(&program))))
+        .collect()
 }
 
 const GLIDE: std::time::Duration = std::time::Duration::from_millis(150);
@@ -3189,7 +3197,7 @@ impl Settings {
                     );
                 }
             }
-            self.model.autostarts = drifter_core::autostart::installed();
+            self.model.autostarts = login_items();
         }
 
         let mut asks: Vec<Vec<String>> = Vec::new();
