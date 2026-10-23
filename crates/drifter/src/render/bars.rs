@@ -528,7 +528,7 @@ impl State {
             if code == BTN_LEFT && !had_menu {
                 let rect = self.tray.power_rect(band);
                 let at = Vec2::new(rect.max().x, rect.max().y + 6.0);
-                self.open_popover(drifter_core::power::items(), at, Target::Desktop);
+                self.open_popover(self.power_items(), at, Target::Desktop);
             }
             return true;
         }

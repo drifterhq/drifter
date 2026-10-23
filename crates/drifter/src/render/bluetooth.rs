@@ -678,28 +678,32 @@ impl State {
         );
     }
 
+    fn blue_service(&mut self) {
+        self.background("bluetooth service", || {
+            let done = drifter_blue::Bus::start_service();
+            move |state: &mut State| {
+                if let Err(error) = done
+                    && let Some(id) = state.notes_bus.as_ref().map(|bus| bus.next_id())
+                {
+                    state.show_note(drifter_core::notify::Note {
+                        id,
+                        app: drifter_core::lang::t("Bluetooth").to_string(),
+                        summary: drifter_core::lang::t("Bluetooth is not running").to_string(),
+                        body: error,
+                        actions: Vec::new(),
+                        expire: None,
+                        asked: 9000,
+                        critical: false,
+                        icon: None,
+                    });
+                }
+            }
+            });
+    }
+
     pub(super) fn press_blue_item(&mut self, item: &Item) {
         if item.key == drifter_core::control::SERVICE_KEY {
-            self.background("bluetooth service", || {
-                let done = drifter_blue::Bus::start_service();
-                move |state: &mut State| {
-                    if let Err(error) = done
-                        && let Some(id) = state.notes_bus.as_ref().map(|bus| bus.next_id())
-                    {
-                        state.show_note(drifter_core::notify::Note {
-                            id,
-                            app: drifter_core::lang::t("Bluetooth").to_string(),
-                            summary: drifter_core::lang::t("Bluetooth is not running").to_string(),
-                            body: error,
-                            actions: Vec::new(),
-                            expire: None,
-                            asked: 9000,
-                            critical: false,
-                            icon: None,
-                        });
-                    }
-                }
-            });
+            self.blue_service();
             return;
         }
         if item.key == drifter_core::control::SETTINGS_KEY {
@@ -1105,11 +1109,15 @@ impl State {
         }
     }
 
+    fn blue_seen(&self) -> Result<&Blue, blue::Missing> {
+        match (self.radio.now.as_ref(), self.radio.missing) {
+            (Some(blue), _) => Ok(blue),
+            (None, missing) => Err(missing.unwrap_or(blue::Missing::Adapter)),
+        }
+    }
+
     pub(super) fn open_blue_menu(&mut self) {
-        let items = match self.radio.now.as_ref() {
-            Some(blue) => blue::menu(blue),
-            None => vec![drifter_core::menu::Item::line(blue::MENU_SETTINGS, drifter_core::lang::t("Bluetooth Settings…"))],
-        };
+        let items = blue::menu(self.blue_seen());
         self.radio.menu_devices = self.radio.now.as_ref().map(|blue| blue.devices.iter().map(|device| device.address.clone()).collect()).unwrap_or_default();
         let at = self.blue_tray_rect().map_or(self.pointer, |rect| Vec2::new(rect.origin.x, rect.max().y + 6.0));
         self.close_panels();
@@ -1119,7 +1127,7 @@ impl State {
     pub(super) fn open_blue_status(&mut self) {
         let at = self.blue_tray_rect().map_or(self.pointer, |rect| Vec2::new(rect.origin.x, rect.max().y + 6.0));
         let Some(blue) = self.radio.now.clone() else {
-            let items = vec![drifter_core::menu::Item::line(blue::MENU_SETTINGS, drifter_core::lang::t("Bluetooth Settings…"))];
+            let items = blue::status_menu(self.blue_seen(), &[]);
             self.close_panels();
             self.open_popover(items, at, Target::Bluetooth);
             return;
@@ -1133,7 +1141,7 @@ impl State {
             move |state: &mut State| {
                 let blue = state.radio.now.clone().unwrap_or(blue);
                 state.close_panels();
-                state.open_popover(blue::status_menu(&blue, &codecs), at, Target::Bluetooth);
+                state.open_popover(blue::status_menu(Ok(&blue), &codecs), at, Target::Bluetooth);
             }
         });
     }
@@ -1146,6 +1154,7 @@ impl State {
                 self.blue_power(on);
             }
             blue::MENU_SETTINGS => self.open_settings_at("bluetooth"),
+            blue::MENU_SERVICE => self.blue_service(),
             at => {
                 let address = usize::try_from(at).ok().and_then(|at| self.radio.menu_devices.get(at).cloned());
                 if let Some(address) = address {

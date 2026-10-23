@@ -171,7 +171,7 @@ impl Card {
             back: p.back,
             ink: p.ink,
             dim: p.dim,
-            back_alpha: 0.55,
+            back_alpha: crate::rows::BACK_ALPHA,
         }
     }
 

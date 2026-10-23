@@ -1,6 +1,15 @@
 use super::*;
 
 impl State {
+    pub(super) fn power_items(&self) -> Vec<Item> {
+        let keys = self
+            .shortcuts
+            .iter()
+            .find(|(action, _)| *action == drifter_core::shortcut::Action::Lock)
+            .map(|(_, combo)| combo.shown(self.holds));
+        drifter_core::power::items(keys)
+    }
+
     pub(super) fn watch_night(&mut self) {
         let Some(drm) = self.drm.as_ref().filter(|_| self.active) else {
             return;
@@ -107,7 +116,7 @@ impl State {
             PowerKey::Menu => {
                 if self.lock.is_none() {
                     let middle = self.screen * 0.5;
-                    self.open_popover(drifter_core::power::items(), middle, Target::Desktop);
+                    self.open_popover(self.power_items(), middle, Target::Desktop);
                 }
             }
             PowerKey::Suspend => {

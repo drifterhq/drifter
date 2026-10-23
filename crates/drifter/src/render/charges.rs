@@ -10,7 +10,7 @@ impl State {
     fn charges_card(&self) -> drifter_core::glance::Card {
         let plain = drifter_core::glance::Card::themed(&self.palette);
         drifter_core::glance::Card {
-            back_alpha: self.veil(0.62),
+            back_alpha: self.veil(drifter_core::rows::BACK_ALPHA),
             ..plain
         }
     }

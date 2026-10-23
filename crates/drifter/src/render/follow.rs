@@ -222,7 +222,7 @@ impl State {
             }
             Action::Power => {
                 let middle = self.screen * 0.5;
-                self.open_popover(drifter_core::power::items(), middle, Target::Desktop);
+                self.open_popover(self.power_items(), middle, Target::Desktop);
             }
             Action::Overview => {
                 if self.flight.is_none() && !self.press_overview() {

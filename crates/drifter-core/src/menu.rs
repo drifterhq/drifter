@@ -40,6 +40,7 @@ pub struct Item {
     pub trail: crate::rows::Trail,
     pub note: String,
     pub value: String,
+    pub still: bool,
 }
 
 pub const BACK: i32 = -1;
@@ -64,6 +65,7 @@ impl Item {
             trail: crate::rows::Trail::None,
             note: String::new(),
             value: String::new(),
+            still: false,
         }
     }
 
@@ -154,12 +156,16 @@ impl Item {
         Item { enabled: false, ..self }
     }
 
+    pub fn still(self) -> Item {
+        Item { still: true, ..self }
+    }
+
     pub fn height(&self) -> f64 {
         self.kind.height()
     }
 
     pub fn picks(&self) -> bool {
-        self.enabled && matches!(self.kind, crate::rows::Kind::Action | crate::rows::Kind::Rich | crate::rows::Kind::Header)
+        self.enabled && !self.still && matches!(self.kind, crate::rows::Kind::Action | crate::rows::Kind::Rich | crate::rows::Kind::Header)
     }
 }
 
