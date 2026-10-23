@@ -224,6 +224,9 @@ impl State {
             return true;
         }
         self.press_lit();
+        let Some(open) = self.popover.as_ref() else {
+            return true;
+        };
 
         match &open.target {
             Target::Tray { service, trail, at } => {
