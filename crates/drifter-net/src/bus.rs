@@ -808,9 +808,9 @@ impl Bus {
     pub fn set_private(&self, uuid: &str, private: Private) -> Result<(), String> {
         self.change(uuid, |setup| {
             let wireless = setup.entry("802-11-wireless".into()).or_default();
-            wireless.remove("assigned-mac-address");
+            wireless.remove("cloned-mac-address");
             if let Ok(value) = OwnedValue::try_from(Value::from(private.word())) {
-                wireless.insert("cloned-mac-address".into(), value);
+                wireless.insert("assigned-mac-address".into(), value);
             }
         })
     }
@@ -1112,6 +1112,6 @@ pub fn tell(summary: &str, body: &str) {
         "/org/freedesktop/Notifications",
         Some("org.freedesktop.Notifications"),
         "Notify",
-        &(drifter_core::lang::t("Wi-Fi"), 0u32, "network-wireless", summary, body, Vec::<&str>::new(), hints, 6000i32),
+        &(drifter_core::lang::t("Wi-Fi"), 0u32, "", summary, body, Vec::<&str>::new(), hints, 6000i32),
     );
 }

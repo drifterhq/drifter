@@ -80,9 +80,9 @@ impl Private {
 
     pub fn read(word: &str) -> Private {
         match word {
-            "permanent" | "preserve" => Private::Off,
+            "stable" => Private::Fixed,
             "random" => Private::Changes,
-            _ => Private::Fixed,
+            _ => Private::Off,
         }
     }
 

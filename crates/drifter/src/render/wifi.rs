@@ -366,7 +366,8 @@ impl State {
                 _ => 1.0,
             };
             let shown = if fresh { drifter_core::motion::smooth(t) } else { 1.0 };
-            push(elements, &tex.lock, corner(3.1, 17.2, scale), alpha * shown);
+            let dim = if face.shape == Shape::Off { net::OFF } else { 1.0 };
+            push(elements, &tex.lock, corner(3.1, 17.2, scale), alpha * shown * dim);
         }
         match face.shape {
             Shape::Off => push(elements, &tex.hollow, rect, alpha * net::OFF),
