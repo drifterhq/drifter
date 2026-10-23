@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Net {
     pub ssid: String,
     pub signal: u8,
@@ -6,6 +6,170 @@ pub struct Net {
     pub enterprise: bool,
     pub active: bool,
     pub known: bool,
+    pub sae: bool,
+    pub wep: bool,
+    pub mhz: u32,
+    pub point: String,
+    pub busy: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Online {
+    #[default]
+    Unknown,
+    None,
+    Portal,
+    Limited,
+    Full,
+}
+
+impl Online {
+    pub fn read(value: u32) -> Online {
+        match value {
+            1 => Online::None,
+            2 => Online::Portal,
+            3 => Online::Limited,
+            4 => Online::Full,
+            _ => Online::Unknown,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Primary {
+    #[default]
+    None,
+    Wifi,
+    Wired,
+    Vpn,
+    Other,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Kind {
+    #[default]
+    Wifi,
+    Wired,
+    WireGuard,
+    Vpn,
+    Other,
+}
+
+impl Kind {
+    pub fn read(word: &str) -> Kind {
+        match word {
+            "802-11-wireless" => Kind::Wifi,
+            "802-3-ethernet" => Kind::Wired,
+            "wireguard" => Kind::WireGuard,
+            "vpn" => Kind::Vpn,
+            _ => Kind::Other,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Private {
+    Off,
+    #[default]
+    Fixed,
+    Changes,
+}
+
+impl Private {
+    pub const ALL: [Private; 3] = [Private::Off, Private::Fixed, Private::Changes];
+
+    pub fn read(word: &str) -> Private {
+        match word {
+            "permanent" | "preserve" => Private::Off,
+            "random" => Private::Changes,
+            _ => Private::Fixed,
+        }
+    }
+
+    pub fn word(self) -> &'static str {
+        match self {
+            Private::Off => "permanent",
+            Private::Fixed => "stable",
+            Private::Changes => "random",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Private::Off => crate::lang::t("Off"),
+            Private::Fixed => crate::lang::t("Fixed"),
+            Private::Changes => crate::lang::t("Changes"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Saved {
+    pub path: String,
+    pub uuid: String,
+    pub id: String,
+    pub kind: Kind,
+    pub ssid: String,
+    pub autoconnect: bool,
+    pub priority: i32,
+    pub metered: bool,
+    pub private: Private,
+    pub enterprise: bool,
+    pub hidden: bool,
+    pub powersave: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Card {
+    pub path: String,
+    pub iface: String,
+    pub state: u32,
+    pub reason: u32,
+    pub hw: String,
+    pub scanned: i64,
+    pub ip4: String,
+    pub ip6: String,
+}
+
+impl Card {
+    pub fn busy(&self) -> bool {
+        (40..=90).contains(&self.state)
+    }
+
+    pub fn joined(&self) -> bool {
+        self.state == 100
+    }
+
+    pub fn asking(&self) -> bool {
+        self.state == 60
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Wired {
+    pub path: String,
+    pub iface: String,
+    pub state: u32,
+    pub carrier: bool,
+}
+
+impl Wired {
+    pub fn connected(&self) -> bool {
+        self.state == 100
+    }
+
+    pub fn busy(&self) -> bool {
+        (40..=90).contains(&self.state)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Vpn {
+    pub uuid: String,
+    pub name: String,
+    pub wireguard: bool,
+    pub active: bool,
+    pub busy: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -13,87 +177,554 @@ pub struct Wifi {
     pub managed: bool,
     pub on: bool,
     pub nets: Vec<Net>,
+    pub hardware: bool,
+    pub card: Option<Card>,
+    pub online: Online,
+    pub primary: Primary,
+    pub wired: Option<Wired>,
+    pub vpns: Vec<Vpn>,
+    pub saved: Vec<Saved>,
+    pub joined: Option<String>,
+    pub joining: Option<String>,
+    pub running: bool,
 }
 
-pub fn terse(line: &str) -> Vec<String> {
-    let mut fields = vec![String::new()];
-    let mut chars = line.chars();
-    while let Some(c) = chars.next() {
-        match c {
-            '\\' => {
-                if let Some(next) = chars.next()
-                    && let Some(field) = fields.last_mut()
-                {
-                    field.push(next);
-                }
-            }
-            ':' => fields.push(String::new()),
-            c => {
-                if let Some(field) = fields.last_mut() {
-                    field.push(c);
-                }
-            }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Missing {
+    Service,
+    Card,
+}
+
+impl Missing {
+    pub fn words(self) -> &'static str {
+        match self {
+            Missing::Service => crate::lang::t("NetworkManager is not running."),
+            Missing::Card => crate::lang::t("No Wi-Fi card found."),
         }
     }
-    fields
 }
 
-pub fn wifi_nets(list: &str, known: &[String]) -> Vec<Net> {
-    let mut nets: Vec<Net> = Vec::new();
-    for line in list.lines() {
-        let fields = terse(line);
-        let [in_use, ssid, signal, security] = fields.as_slice() else {
-            continue;
-        };
-        if ssid.is_empty() {
-            continue;
+pub type Seen = Result<Wifi, Missing>;
+
+impl Wifi {
+    pub fn find(&self, ssid: &str) -> Option<&Net> {
+        self.nets.iter().find(|net| net.ssid == ssid)
+    }
+
+    pub fn saved_for(&self, ssid: &str) -> Vec<&Saved> {
+        let mut saved: Vec<&Saved> = self.saved.iter().filter(|each| each.kind == Kind::Wifi && each.ssid == ssid).collect();
+        saved.sort_by(|a, b| b.priority.cmp(&a.priority).then(a.id.cmp(&b.id)));
+        saved
+    }
+
+    pub fn known(&self) -> impl Iterator<Item = &Net> {
+        self.nets.iter().filter(|net| net.known || net.active)
+    }
+
+    pub fn others(&self) -> impl Iterator<Item = &Net> {
+        self.nets.iter().filter(|net| !net.known && !net.active)
+    }
+
+    pub fn joined_net(&self) -> Option<&Net> {
+        self.nets.iter().find(|net| net.active)
+    }
+
+    pub fn vpn_on(&self) -> bool {
+        self.vpns.iter().any(|vpn| vpn.active)
+    }
+
+    pub fn sort(&mut self) {
+        self.nets.sort_by(|a, b| {
+            b.active
+                .cmp(&a.active)
+                .then(b.known.cmp(&a.known))
+                .then(b.signal.cmp(&a.signal))
+                .then(a.ssid.to_lowercase().cmp(&b.ssid.to_lowercase()))
+        });
+    }
+}
+
+pub const PRIVACY: u32 = 0x1;
+pub const PAIR_TKIP: u32 = 0x4;
+pub const PAIR_CCMP: u32 = 0x8;
+pub const GROUP_TKIP: u32 = 0x40;
+pub const GROUP_CCMP: u32 = 0x80;
+pub const KEY_PSK: u32 = 0x100;
+pub const KEY_EAP: u32 = 0x200;
+pub const KEY_SAE: u32 = 0x400;
+pub const KEY_OWE: u32 = 0x800;
+pub const KEY_OWE_TM: u32 = 0x1000;
+pub const KEY_SUITE_B: u32 = 0x2000;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Guard {
+    pub flags: u32,
+    pub wpa: u32,
+    pub rsn: u32,
+}
+
+impl Guard {
+    pub fn keys(self) -> u32 {
+        self.wpa | self.rsn
+    }
+
+    pub fn enterprise(self) -> bool {
+        self.keys() & (KEY_EAP | KEY_SUITE_B) != 0
+    }
+
+    pub fn sae(self) -> bool {
+        self.rsn & KEY_SAE != 0 && self.keys() & KEY_PSK == 0
+    }
+
+    pub fn wep(self) -> bool {
+        self.flags & PRIVACY != 0 && self.wpa == 0 && self.rsn == 0
+    }
+
+    pub fn owe(self) -> bool {
+        self.rsn & (KEY_OWE | KEY_OWE_TM) != 0 && self.keys() & (KEY_PSK | KEY_SAE | KEY_EAP) == 0
+    }
+
+    pub fn secure(self) -> bool {
+        self.wep() || self.keys() & (KEY_PSK | KEY_SAE | KEY_EAP | KEY_SUITE_B) != 0
+    }
+
+    pub fn words(self) -> String {
+        if self.wep() {
+            return "WEP".to_string();
         }
-        let net = Net {
-            ssid: ssid.clone(),
-            signal: signal.trim().parse().unwrap_or(0),
-            secure: !security.trim().is_empty() && security.trim() != "--",
-            enterprise: security.contains("802.1X"),
-            active: in_use.trim() == "*",
-            known: known.iter().any(|each| each == ssid),
-        };
-        match nets.iter_mut().find(|kept| kept.ssid == net.ssid) {
-            Some(kept) => {
-                kept.active |= net.active;
-                kept.signal = kept.signal.max(net.signal);
-            }
-            None => nets.push(net),
+        if self.owe() {
+            return "OWE".to_string();
+        }
+        let mut out: Vec<&str> = Vec::new();
+        if self.wpa != 0 {
+            out.push("WPA1");
+        }
+        if self.rsn & (KEY_PSK | KEY_EAP) != 0 {
+            out.push("WPA2");
+        }
+        if self.rsn & (KEY_SAE | KEY_SUITE_B) != 0 {
+            out.push("WPA3");
+        }
+        if self.enterprise() {
+            out.push("802.1X");
+        }
+        out.join(" ")
+    }
+
+    pub fn flag_words(self) -> String {
+        let keys = self.keys();
+        let mut out: Vec<&str> = Vec::new();
+        if keys & PAIR_TKIP != 0 {
+            out.push("pair_tkip");
+        }
+        if keys & PAIR_CCMP != 0 {
+            out.push("pair_ccmp");
+        }
+        if keys & GROUP_TKIP != 0 {
+            out.push("group_tkip");
+        }
+        if keys & GROUP_CCMP != 0 {
+            out.push("group_ccmp");
+        }
+        if keys & KEY_PSK != 0 {
+            out.push("psk");
+        }
+        if keys & KEY_SAE != 0 {
+            out.push("sae");
+        }
+        if keys & (KEY_EAP | KEY_SUITE_B) != 0 {
+            out.push("802.1X");
+        }
+        if keys & (KEY_OWE | KEY_OWE_TM) != 0 {
+            out.push("owe");
+        }
+        out.join(" ")
+    }
+}
+
+pub fn channel(mhz: u32) -> u32 {
+    match mhz {
+        2484 => 14,
+        2412..=2472 => (mhz - 2407) / 5,
+        5955..=7115 => (mhz - 5950) / 5,
+        5000..=5900 => (mhz - 5000) / 5,
+        _ => 0,
+    }
+}
+
+pub fn ssid_text(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).trim_end_matches('\0').to_string()
+}
+
+pub fn arcs(signal: u8) -> u8 {
+    match signal {
+        0 => 0,
+        1..=30 => 1,
+        31..=60 => 2,
+        _ => 3,
+    }
+}
+
+pub fn steps(signal: u8) -> u8 {
+    match signal {
+        0..=20 => 1,
+        21..=45 => 2,
+        46..=70 => 3,
+        _ => 4,
+    }
+}
+
+pub const WEAK: u8 = 30;
+
+pub fn plain_error(reason: u32, name: &str) -> String {
+    match reason {
+        7 | 8 | 9 | 10 | 11 => crate::lang::t("Wrong password").to_string(),
+        5 | 6 | 15 | 16 | 17 => crate::lang::t("No address from the network").to_string(),
+        53 | 70 => crate::lang::t("Out of range").to_string(),
+        36 | 26 => crate::lang::t("The Wi-Fi card went away").to_string(),
+        2 | 3 | 4 | 12 | 13 => crate::lang::t("Did not join").to_string(),
+        _ => crate::lang::tf("Could not join {}", &[&name]),
+    }
+}
+
+pub fn plain_failure(reason: u32, name: &str) -> String {
+    match reason {
+        7 | 8 | 9 | 10 | 11 => crate::lang::tf("The password for {} was not right.", &[&name]),
+        5 | 6 | 15 | 16 | 17 => crate::lang::tf("{} did not give this computer an address. Try again, or restart the router.", &[&name]),
+        53 | 70 => crate::lang::tf("{} is out of range. Move closer, then try again.", &[&name]),
+        36 | 26 => crate::lang::t("The Wi-Fi card went away. Check that it is still plugged in.").to_string(),
+        _ => crate::lang::tf("Could not join {}. Try Fix It in Wi-Fi settings.", &[&name]),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Shape {
+    Off,
+    Idle,
+    Busy,
+    Joined,
+    Wired,
+}
+
+impl Shape {
+    pub fn index(self) -> usize {
+        match self {
+            Shape::Off => 0,
+            Shape::Idle => 1,
+            Shape::Busy => 2,
+            Shape::Joined => 3,
+            Shape::Wired => 4,
         }
     }
-    nets.sort_by(|a, b| {
-        b.active
-            .cmp(&a.active)
-            .then(b.known.cmp(&a.known))
-            .then(b.signal.cmp(&a.signal))
-            .then(a.ssid.cmp(&b.ssid))
-    });
-    nets
 }
 
-pub fn wifi_known(connections: &str) -> Vec<String> {
-    connections
-        .lines()
-        .map(terse)
-        .filter(|fields| fields.get(1).is_some_and(|kind| kind == "802-11-wireless"))
-        .filter_map(|fields| fields.into_iter().next())
-        .collect()
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Badge {
+    #[default]
+    None,
+    Alert,
+    Portal,
 }
 
-pub fn wifi_managed(devices: &str) -> Option<bool> {
-    let states: Vec<String> = devices
-        .lines()
-        .map(terse)
-        .filter(|fields| fields.first().is_some_and(|kind| kind == "wifi"))
-        .map(|fields| fields.get(1).cloned().unwrap_or_default())
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Face {
+    pub shape: Shape,
+    pub arcs: u8,
+    pub badge: Badge,
+    pub lock: bool,
+}
+
+pub fn face(wifi: &Wifi, airdrop: bool) -> Face {
+    let lock = wifi.vpn_on();
+    let badge = match wifi.online {
+        Online::Portal => Badge::Portal,
+        Online::None | Online::Limited => Badge::Alert,
+        _ => Badge::None,
+    };
+    let wired_lead = wifi.primary == Primary::Wired || (wifi.wired.as_ref().is_some_and(Wired::connected) && wifi.joined.is_none());
+    if wired_lead {
+        return Face { shape: Shape::Wired, arcs: 0, badge, lock };
+    }
+    if airdrop || !wifi.on || !wifi.managed {
+        return Face { shape: Shape::Off, arcs: 0, badge: Badge::None, lock };
+    }
+    if wifi.card.as_ref().is_some_and(Card::busy) {
+        return Face { shape: Shape::Busy, arcs: 0, badge: Badge::None, lock };
+    }
+    match wifi.joined_net() {
+        Some(net) => Face {
+            shape: Shape::Joined,
+            arcs: arcs(net.signal),
+            badge,
+            lock,
+        },
+        None if wifi.card.as_ref().is_some_and(Card::joined) => Face {
+            shape: Shape::Joined,
+            arcs: 3,
+            badge,
+            lock,
+        },
+        None => Face { shape: Shape::Idle, arcs: 0, badge: Badge::None, lock },
+    }
+}
+
+pub fn tip(wifi: &Wifi, airdrop: bool) -> String {
+    if airdrop {
+        return crate::lang::t("AirDrop is using Wi-Fi.").to_string();
+    }
+    if wifi.primary == Primary::Wired {
+        return crate::lang::t("Ethernet, Connected").to_string();
+    }
+    if !wifi.on {
+        return crate::lang::t("Wi-Fi is off.").to_string();
+    }
+    if let Some(name) = wifi.joining.as_deref() {
+        return crate::lang::tf("Joining {}…", &[&name]);
+    }
+    match (wifi.joined.as_deref(), wifi.online) {
+        (Some(name), Online::Portal) => crate::lang::tf("{}: sign in to use the internet", &[&name]),
+        (Some(name), Online::None | Online::Limited) => crate::lang::tf("{}: no internet", &[&name]),
+        (Some(name), _) => name.to_string(),
+        (None, _) => crate::lang::t("Not connected").to_string(),
+    }
+}
+
+pub const MENU_POWER: i32 = -1;
+pub const MENU_SETTINGS: i32 = -2;
+pub const MENU_OTHER: i32 = -4;
+pub const MENU_STOP_AIRDROP: i32 = -5;
+pub const MENU_WIRED: i32 = -6;
+pub const MENU_VPN: i32 = 1 << 20;
+pub const MENU_DETAILS: i32 = -7;
+pub const MENU_MOST_OTHERS: usize = 6;
+
+pub fn menu(wifi: &Wifi, airdrop: bool) -> Vec<crate::menu::Item> {
+    use crate::menu::Item;
+    let mut items = Vec::new();
+    if airdrop {
+        items.push(Item {
+            enabled: false,
+            ..Item::line(-8, crate::lang::t("AirDrop is using Wi-Fi."))
+        });
+        items.push(Item::line(MENU_STOP_AIRDROP, crate::lang::t("Stop AirDrop")));
+        items.push(Item::rule(-3));
+    }
+    if let Some(wired) = wifi.wired.as_ref() {
+        let words = match (wired.connected(), wired.carrier) {
+            (true, _) => crate::lang::t("Ethernet, Connected"),
+            (false, false) => crate::lang::t("Ethernet, Cable unplugged"),
+            (false, true) => crate::lang::t("Ethernet, Not connected"),
+        };
+        items.push(Item { enabled: false, ..Item::line(MENU_WIRED, words) });
+        items.push(Item::rule(-9));
+    }
+    if wifi.on && !airdrop {
+        let line = |at: usize, net: &Net| {
+            let state = match (net.active, net.busy, net.signal < WEAK) {
+                (true, _, _) => crate::lang::tf("{}, joined", &[&net.ssid]),
+                (false, true, _) => crate::lang::tf("{}, joining…", &[&net.ssid]),
+                (false, false, true) => crate::lang::tf("{}, weak", &[&net.ssid]),
+                (false, false, false) => net.ssid.clone(),
+            };
+            Item::line(at as i32, &state)
+        };
+        let known: Vec<Item> = wifi
+            .nets
+            .iter()
+            .enumerate()
+            .filter(|(_, net)| net.known || net.active)
+            .map(|(at, net)| line(at, net))
+            .collect();
+        let others: Vec<Item> = wifi
+            .nets
+            .iter()
+            .enumerate()
+            .filter(|(_, net)| !net.known && !net.active)
+            .take(MENU_MOST_OTHERS)
+            .map(|(at, net)| line(at, net))
+            .collect();
+        let had = !known.is_empty();
+        items.extend(known);
+        if !others.is_empty() {
+            if had {
+                items.push(Item::rule(-10));
+            }
+            items.extend(others);
+        }
+        items.push(Item::line(MENU_OTHER, crate::lang::t("Other…")));
+        items.push(Item::rule(-11));
+    }
+    if !wifi.vpns.is_empty() {
+        for (at, vpn) in wifi.vpns.iter().enumerate() {
+            let words = match (vpn.active, vpn.busy) {
+                (_, true) => crate::lang::tf("{}, connecting…", &[&vpn.name]),
+                (true, false) => crate::lang::tf("{}, on", &[&vpn.name]),
+                (false, false) => vpn.name.clone(),
+            };
+            items.push(Item::line(MENU_VPN + at as i32, &words));
+        }
+        items.push(Item::rule(-12));
+    }
+    if wifi.managed && !airdrop {
+        items.push(Item::line(
+            MENU_POWER,
+            match wifi.on {
+                true => crate::lang::t("Turn Wi-Fi Off"),
+                false => crate::lang::t("Turn Wi-Fi On"),
+            },
+        ));
+    }
+    items.push(Item::line(MENU_SETTINGS, crate::lang::t("Wi-Fi Settings…")));
+    items
+}
+
+pub fn detail_menu(lines: &[(String, String)]) -> Vec<crate::menu::Item> {
+    use crate::menu::Item;
+    let mut items: Vec<Item> = lines
+        .iter()
+        .filter(|(_, value)| !value.is_empty())
+        .map(|(key, value)| Item {
+            enabled: false,
+            ..Item::line(-20, &format!("{key}: {value}"))
+        })
         .collect();
-    match states.is_empty() {
-        true => None,
-        false => Some(states.iter().any(|state| state != "unmanaged")),
+    items.push(Item::rule(-21));
+    items.push(Item::line(MENU_SETTINGS, crate::lang::t("Wi-Fi Settings…")));
+    items
+}
+
+pub fn quick_lines(wifi: &Wifi, net: &Net, ap: Option<&Ap>, link: Option<&Link>) -> Vec<(String, String)> {
+    let mut lines: Vec<(String, String)> = Vec::new();
+    let mut add = |key: &str, value: String| lines.push((key.to_string(), value));
+    add(crate::lang::t("Network"), net.ssid.clone());
+    let field = |key: &str| {
+        link.and_then(|link| {
+            link.device
+                .iter()
+                .find(|(field, _)| field == key || field.starts_with(&format!("{key}[")))
+                .map(|(_, value)| value.clone())
+        })
+        .unwrap_or_default()
+    };
+    add(crate::lang::t("IP address"), field("IP4.ADDRESS"));
+    add(crate::lang::t("Router"), field("IP4.GATEWAY"));
+    if let Some(ap) = ap {
+        add(crate::lang::t("Band"), band(ap.mhz).to_string());
+        add(crate::lang::t("Channel"), ap.channel.to_string());
+        add(crate::lang::t("Security"), match ap.security.is_empty() {
+            true => crate::lang::t("None").to_string(),
+            false => ap.security.clone(),
+        });
     }
+    match link.and_then(|link| link.dbm) {
+        Some(dbm) => add(crate::lang::t("Signal"), format!("{dbm} dBm, {}%", net.signal)),
+        None => add(crate::lang::t("Signal"), format!("{}%", net.signal)),
+    }
+    if let Some(rate) = link.and_then(|link| link.bitrate.clone()) {
+        add(crate::lang::t("Speed now"), rate);
+    }
+    if let Some(card) = wifi.card.as_ref() {
+        add(crate::lang::t("Card"), card.iface.clone());
+    }
+    lines
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Peer {
+    pub public_key: String,
+    pub preshared_key: String,
+    pub allowed: Vec<String>,
+    pub endpoint: String,
+    pub keepalive: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct WireGuard {
+    pub name: String,
+    pub private_key: String,
+    pub addresses: Vec<String>,
+    pub dns: Vec<String>,
+    pub port: u32,
+    pub mtu: u32,
+    pub peers: Vec<Peer>,
+}
+
+pub fn wireguard(name: &str, text: &str) -> Result<WireGuard, String> {
+    let mut out = WireGuard {
+        name: name.to_string(),
+        ..WireGuard::default()
+    };
+    let mut part = "";
+    let list = |value: &str| value.split(',').map(|each| each.trim().to_string()).filter(|each| !each.is_empty()).collect::<Vec<_>>();
+    for line in text.lines() {
+        let line = line.split('#').next().unwrap_or("").trim();
+        if line.is_empty() {
+            continue;
+        }
+        if line.starts_with('[') {
+            part = match line.to_ascii_lowercase().as_str() {
+                "[interface]" => "interface",
+                "[peer]" => {
+                    out.peers.push(Peer::default());
+                    "peer"
+                }
+                _ => "",
+            };
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let (key, value) = (key.trim().to_ascii_lowercase(), value.trim());
+        match (part, key.as_str()) {
+            ("interface", "privatekey") => out.private_key = value.to_string(),
+            ("interface", "address") => out.addresses.extend(list(value)),
+            ("interface", "dns") => out.dns.extend(list(value)),
+            ("interface", "listenport") => out.port = value.parse().unwrap_or(0),
+            ("interface", "mtu") => out.mtu = value.parse().unwrap_or(0),
+            ("peer", "publickey") => {
+                if let Some(peer) = out.peers.last_mut() {
+                    peer.public_key = value.to_string();
+                }
+            }
+            ("peer", "presharedkey") => {
+                if let Some(peer) = out.peers.last_mut() {
+                    peer.preshared_key = value.to_string();
+                }
+            }
+            ("peer", "allowedips") => {
+                if let Some(peer) = out.peers.last_mut() {
+                    peer.allowed.extend(list(value));
+                }
+            }
+            ("peer", "endpoint") => {
+                if let Some(peer) = out.peers.last_mut() {
+                    peer.endpoint = value.to_string();
+                }
+            }
+            ("peer", "persistentkeepalive") => {
+                if let Some(peer) = out.peers.last_mut() {
+                    peer.keepalive = value.parse().unwrap_or(0);
+                }
+            }
+            _ => {}
+        }
+    }
+    if out.private_key.is_empty() {
+        return Err(crate::lang::t("This file has no private key, so it is not a WireGuard setup.").to_string());
+    }
+    if out.peers.iter().all(|peer| peer.public_key.is_empty()) {
+        return Err(crate::lang::t("This file names no server to connect to.").to_string());
+    }
+    Ok(out)
+}
+
+pub fn is_wireguard(path: &std::path::Path) -> bool {
+    path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("conf"))
+        && std::fs::read_to_string(path).is_ok_and(|text| {
+            let lower = text.to_ascii_lowercase();
+            lower.contains("[interface]") && lower.contains("privatekey") && lower.contains("[peer]")
+        })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -107,43 +738,6 @@ pub struct Ap {
     pub signal: u8,
     pub security: String,
     pub flags: String,
-}
-
-pub const AP_FIELDS: &str = "IN-USE,SSID,BSSID,CHAN,FREQ,RATE,BANDWIDTH,SIGNAL,SECURITY,RSN-FLAGS,WPA-FLAGS";
-
-pub fn access_points(list: &str, ssid: &str) -> Vec<Ap> {
-    let number = |text: &str| {
-        text.split_whitespace()
-            .next()
-            .and_then(|word| word.parse().ok())
-            .unwrap_or(0)
-    };
-    let mut aps: Vec<Ap> = list
-        .lines()
-        .map(terse)
-        .filter(|fields| fields.len() >= 11 && fields[1] == ssid)
-        .map(|fields| {
-            let flags = [&fields[9], &fields[10]]
-                .into_iter()
-                .filter(|flags| !flags.is_empty() && flags.as_str() != "(none)")
-                .cloned()
-                .collect::<Vec<_>>()
-                .join(" ");
-            Ap {
-                in_use: fields[0].trim() == "*",
-                bssid: fields[2].to_uppercase(),
-                channel: number(&fields[3]),
-                mhz: number(&fields[4]),
-                rate: fields[5].clone(),
-                width: fields[6].clone(),
-                signal: number(&fields[7]).min(100) as u8,
-                security: fields[8].clone(),
-                flags,
-            }
-        })
-        .collect();
-    aps.sort_by(|a, b| b.in_use.cmp(&a.in_use).then(b.signal.cmp(&a.signal)));
-    aps
 }
 
 pub fn scan_dbm(dump: &str) -> Vec<(String, f64)> {
@@ -168,14 +762,6 @@ pub fn link_dbm(wireless: &str, card: &str) -> Option<i32> {
         .find(|line| line.trim_start().starts_with(&format!("{card}:")))?;
     let level = line.split_whitespace().nth(3)?.trim_end_matches('.');
     level.parse().ok()
-}
-
-pub fn shown(text: &str) -> Vec<(String, String)> {
-    text.lines()
-        .filter_map(|line| line.split_once(':'))
-        .map(|(key, value)| (key.to_string(), value.trim().to_string()))
-        .filter(|(_, value)| !value.is_empty() && value != "--")
-        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -312,120 +898,5 @@ pub fn bars(signal: u8) -> &'static str {
         25..=49 => "fair",
         50..=74 => "good",
         _ => "strong",
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn terse_fields_keep_escaped_colons() {
-        assert_eq!(terse(r"*:Cafe\:Guest:80:WPA2"), ["*", "Cafe:Guest", "80", "WPA2"]);
-        assert_eq!(terse(r" :a\\b::"), [" ", r"a\b", "", ""]);
-    }
-
-    #[test]
-    fn networks_merge_by_name_and_the_joined_one_leads() {
-        let list = "\
- :DrifterOpen:40:
- :DrifterNet:70:WPA2
-*:Home:55:WPA2
- :Home:90:WPA2
- ::60:WPA2
- :Cafe\\:Guest:20:--
-";
-        let nets = wifi_nets(list, &["DrifterNet".to_string()]);
-        let names: Vec<&str> = nets.iter().map(|net| net.ssid.as_str()).collect();
-        assert_eq!(names, ["Home", "DrifterNet", "DrifterOpen", "Cafe:Guest"]);
-        assert!(nets[0].active && nets[0].secure);
-        assert_eq!(nets[0].signal, 90, "the strongest access point counts");
-        assert!(nets[1].known && !nets[1].active);
-        assert!(!nets[2].secure && !nets[3].secure, "blank and -- are open");
-    }
-
-    #[test]
-    fn a_work_network_is_marked_enterprise() {
-        let nets = wifi_nets(" :eduroam:60:WPA2 802.1X\n :Home:50:WPA2\n", &[]);
-        assert!(nets[0].enterprise && nets[0].secure);
-        assert!(!nets[1].enterprise);
-    }
-
-    #[test]
-    fn only_wifi_connections_count_as_known() {
-        let shown = "Home:802-11-wireless\nWired connection 1:802-3-ethernet\nCafe\\:Guest:802-11-wireless\n";
-        assert_eq!(wifi_known(shown), ["Home", "Cafe:Guest"]);
-    }
-
-    #[test]
-    fn a_wifi_card_counts_only_when_networkmanager_runs_it() {
-        assert_eq!(wifi_managed("loopback:connected (externally)\nethernet:connected\n"), None);
-        assert_eq!(wifi_managed("wifi:unmanaged\nwifi-p2p:disconnected\n"), Some(false));
-        assert_eq!(wifi_managed("wifi:unmanaged\nwifi:disconnected\n"), Some(true));
-        assert_eq!(wifi_managed("wifi:connected\n"), Some(true));
-    }
-
-    const APS: &str = "\
- :Home:62\\:BA\\:BD\\:90\\:A7\\:95:10:2457 MHz:270 Mbit/s:20 MHz:70:WPA2:pair_ccmp group_ccmp psk:(none)
-*:Home:62\\:ba\\:bd\\:90\\:a7\\:94:44:5220 MHz:540 Mbit/s:160 MHz:60:WPA2:pair_ccmp group_ccmp psk:(none)
- :Other:00\\:11\\:22\\:33\\:44\\:55:1:2412 MHz:54 Mbit/s:20 MHz:90:--:(none):(none)
-";
-
-    #[test]
-    fn access_points_of_one_network_put_the_one_in_use_first() {
-        let aps = access_points(APS, "Home");
-        assert_eq!(aps.len(), 2, "only the asked network");
-        assert!(aps[0].in_use);
-        assert_eq!(aps[0].bssid, "62:BA:BD:90:A7:94");
-        assert_eq!((aps[0].channel, aps[0].mhz, aps[0].signal), (44, 5220, 60));
-        assert_eq!(aps[0].flags, "pair_ccmp group_ccmp psk");
-        assert_eq!(band(aps[0].mhz), "5 GHz");
-        assert_eq!(band(aps[1].mhz), "2.4 GHz");
-    }
-
-    #[test]
-    fn dbm_comes_from_iw_and_proc() {
-        let dump = "BSS 62:ba:bd:90:a7:94(on wlp1s0) -- associated\n\tfreq: 5220\n\tsignal: -47.00 dBm\nBSS 62:ba:bd:90:a7:95(on wlp1s0)\n\tsignal: -61.00 dBm\n";
-        assert_eq!(
-            scan_dbm(dump),
-            [("62:BA:BD:90:A7:94".to_string(), -47.0), ("62:BA:BD:90:A7:95".to_string(), -61.0)]
-        );
-        let wireless = "Inter-| sta-|   Quality        |   Discarded packets\n face | tus | link level noise |  nwid  crypt\nwlp1s0: 0000   70.  -40.  -256        0      0\n";
-        assert_eq!(link_dbm(wireless, "wlp1s0"), Some(-40));
-        assert_eq!(link_dbm(wireless, "wlan0"), None);
-    }
-
-    #[test]
-    fn details_show_the_ip_setup_only_for_the_joined_network() {
-        let net = Net {
-            ssid: "Home".into(),
-            signal: 70,
-            secure: true,
-            enterprise: false,
-            active: true,
-            known: true,
-        };
-        let aps = access_points(APS, "Home");
-        let dbm = scan_dbm("BSS 62:ba:bd:90:a7:94(on wlp1s0)\n\tsignal: -47.00 dBm\n");
-        let link = Link {
-            card: "wlp1s0".into(),
-            device: shown("GENERAL.HWADDR:38:DE:AD:4D:2A:4C\nIP4.ADDRESS[1]:192.168.1.219/24\nIP4.GATEWAY:192.168.1.1\nIP4.DNS[1]:192.168.1.1\nIP6.GATEWAY:\n"),
-            dbm: Some(-40),
-            bitrate: None,
-        };
-        let lines = details(&net, &aps, &dbm, Some(&link));
-        let get = |key: &str| lines.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str());
-        assert_eq!(get("IP address"), Some("192.168.1.219/24"));
-        assert_eq!(get("Your MAC address"), Some("38:DE:AD:4D:2A:4C"));
-        assert_eq!(get("IPv6 gateway"), None, "empty fields stay out");
-        assert_eq!(get("Keys"), Some("password (PSK), AES (CCMP)"));
-        assert_eq!(get("62:BA:BD:90:A7:94"), Some("5 GHz, channel 44, 160 MHz, up to 540 Mbit/s, 60%, -47 dBm, in use"));
-        assert_eq!(get("62:BA:BD:90:A7:95"), Some("2.4 GHz, channel 10, 20 MHz, up to 270 Mbit/s, 70%"));
-        assert!(lines.contains(&("Access points (2)".to_string(), String::new())));
-
-        let away = Net { active: false, ..net };
-        let lines = details(&away, &aps, &dbm, None);
-        assert!(lines.iter().all(|(k, _)| k != "IP address" && k != "This connection"));
-        assert!(lines.contains(&("Status".to_string(), "Saved, not connected".to_string())));
     }
 }

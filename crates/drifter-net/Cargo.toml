@@ -1,0 +1,11 @@
+[package]
+name = "drifter-net"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+drifter-core.workspace = true
+zbus = { version = "5.19.0", features = ["blocking-api"] }
+async-channel = "2"
+serde = "1"

@@ -730,7 +730,70 @@ impl Model {
         }
     }
 
+    pub(super) fn wifi_open_saved_mut(&mut self) -> Option<&mut crate::net::Saved> {
+        let ssid = self.wifi_open.clone()?;
+        let wifi = self.wifi.as_mut()?;
+        let mut found: Vec<&mut crate::net::Saved> = wifi.saved.iter_mut().filter(|each| each.kind == crate::net::Kind::Wifi && each.ssid == ssid).collect();
+        found.sort_by(|a, b| b.priority.cmp(&a.priority).then(a.id.cmp(&b.id)));
+        found.into_iter().next()
+    }
+
+    pub(super) fn wifi_open_net(&self) -> Option<(usize, &crate::net::Net, &crate::net::Saved)> {
+        let ssid = self.wifi_open.as_deref()?;
+        let wifi = self.wifi.as_ref()?;
+        let at = wifi.nets.iter().position(|net| net.ssid == ssid)?;
+        let saved = wifi.saved_for(ssid).into_iter().next()?;
+        Some((at, &wifi.nets[at], saved))
+    }
+
+    fn wifi_steps_group(&self) -> Option<Group> {
+        if self.wifi_steps.is_empty() {
+            return None;
+        }
+        Some(Group {
+            header: Some(crate::lang::t("Fix It")),
+            rows: self
+                .wifi_steps
+                .iter()
+                .enumerate()
+                .map(|(at, (words, step))| {
+                    let mut row = Row::new(Id::WifiStep(at), words, Control::Note(String::new()));
+                    row.icon = Some(format!("step:{}", step.word()));
+                    row.faint = *step == crate::blue::Step::Wait;
+                    row
+                })
+                .collect(),
+            footer: None,
+            thumbs: None,
+        })
+    }
+
+    fn wifi_fix_group(&self) -> Group {
+        Group {
+            header: None,
+            rows: vec![
+                Row::new(Id::WifiFix, crate::lang::t("Fix Wi-Fi"), Control::Buttons(vec![Mark::Text(crate::lang::t("Fix It"))]))
+                    .detail(crate::lang::t("Checks each part of Wi-Fi and fixes what it can")),
+            ],
+            footer: None,
+            thumbs: None,
+        }
+    }
+
     pub(super) fn wifi_groups(&self) -> Vec<Group> {
+        if self.wifi_service {
+            let mut groups = vec![Group {
+                header: None,
+                rows: vec![
+                    Row::new(Id::NetService, crate::lang::t("NetworkManager"), Control::Buttons(vec![Mark::Text(crate::lang::t("Turn On"))]))
+                        .detail(crate::lang::t("Starts it now and every time the computer starts")),
+                ],
+                footer: Some(self.net_note.clone().unwrap_or_else(|| crate::lang::t("NetworkManager is not running, so Drifter cannot show your networks.").into())),
+                thumbs: None,
+            }];
+            groups.extend(self.wifi_steps_group());
+            return groups;
+        }
         let Some(wifi) = &self.wifi else {
             return vec![Group {
                 header: None,
@@ -740,7 +803,7 @@ impl Model {
             }];
         };
         if !wifi.managed {
-            return vec![Group {
+            let mut groups = vec![Group {
                 header: None,
                 rows: Vec::new(),
                 footer: Some(
@@ -750,6 +813,9 @@ impl Model {
                 ),
                 thumbs: None,
             }];
+            groups.extend(self.wifi_steps_group());
+            groups.push(self.wifi_fix_group());
+            return groups;
         }
         let mut groups = vec![Group {
             header: None,
@@ -757,15 +823,21 @@ impl Model {
             footer: self.net_note.clone(),
             thumbs: None,
         }];
+        groups.extend(self.wifi_steps_group());
         if wifi.on {
             let rows: Vec<Row> = wifi
                 .nets
                 .iter()
                 .enumerate()
                 .map(|(at, net)| {
-                    let detail = match net.active {
-                        true => crate::lang::t("Connected").to_string(),
-                        false => {
+                    let detail = match (net.active, net.busy) {
+                        (true, _) => match wifi.online {
+                            crate::net::Online::Portal => crate::lang::t("Connected, sign in to use the internet").to_string(),
+                            crate::net::Online::None | crate::net::Online::Limited => crate::lang::t("Connected, no internet").to_string(),
+                            _ => crate::lang::t("Connected").to_string(),
+                        },
+                        (false, true) => crate::lang::t("Joining…").to_string(),
+                        (false, false) => {
                             let mut words = Vec::new();
                             if net.known {
                                 words.push(crate::lang::t("Saved").to_string());
@@ -787,8 +859,8 @@ impl Model {
                         false => detail,
                     };
                     let marks = match (net.active, net.known) {
-                        (true, _) => vec![Mark::Text(crate::lang::t("Leave"))],
-                        (false, true) => vec![Mark::Text(crate::lang::t("Join")), Mark::Text(crate::lang::t("Forget"))],
+                        (true, _) => vec![Mark::Text(crate::lang::t("Leave")), Mark::Text(crate::lang::t("Options"))],
+                        (false, true) => vec![Mark::Text(crate::lang::t("Join")), Mark::Text(crate::lang::t("Options"))],
                         (false, false) => vec![Mark::Text(crate::lang::t("Join"))],
                     };
                     Row::new(Id::Net(at), &net.ssid, Control::Buttons(marks))
@@ -808,6 +880,9 @@ impl Model {
                 rows,
                 thumbs: None,
             });
+            if let Some((at, net, saved)) = self.wifi_open_net() {
+                groups.push(self.wifi_options(at, net, saved));
+            }
             groups.push(Group {
                 header: None,
                 rows: vec![
@@ -818,7 +893,68 @@ impl Model {
                 thumbs: None,
             });
         }
+        groups.push(self.wifi_fix_group());
         groups
+    }
+
+    fn wifi_options(&self, _at: usize, _net: &crate::net::Net, saved: &crate::net::Saved) -> Group {
+        let wifi = self.wifi.as_ref();
+        let mut known: Vec<&crate::net::Saved> = wifi
+            .map(|wifi| wifi.saved.iter().filter(|each| each.kind == crate::net::Kind::Wifi).collect())
+            .unwrap_or_default();
+        known.sort_by(|a, b| b.priority.cmp(&a.priority).then(a.id.to_lowercase().cmp(&b.id.to_lowercase())));
+        let place = known.iter().position(|each| each.uuid == saved.uuid).unwrap_or(0);
+        let mut order = Vec::new();
+        if place > 0 {
+            order.push(Mark::Text(crate::lang::t("Move Up")));
+        }
+        if place + 1 < known.len() {
+            order.push(Mark::Text(crate::lang::t("Move Down")));
+        }
+        let order_words = match known.len() {
+            0 | 1 => crate::lang::t("The only saved network").to_string(),
+            count => crate::lang::tf("{} of {} when more than one is in range", &[&(place + 1), &count]),
+        };
+        let mut rows = vec![
+            Row::new(Id::NetAuto, crate::lang::t("Join on its own"), Control::Switch(saved.autoconnect))
+                .detail(crate::lang::t("Joins this network when it is in range")),
+            Row::new(
+                Id::NetPrivate,
+                crate::lang::t("Private address"),
+                Control::Segments {
+                    options: crate::net::Private::ALL.iter().map(|each| each.label()).collect(),
+                    chosen: crate::net::Private::ALL.iter().position(|each| *each == saved.private).unwrap_or(1),
+                },
+            )
+            .detail(match saved.private {
+                crate::net::Private::Off => crate::lang::t("The network sees this computer's real address"),
+                crate::net::Private::Fixed => crate::lang::t("A made-up address that stays the same on this network"),
+                crate::net::Private::Changes => crate::lang::t("A new made-up address each time you join"),
+            }),
+            Row::new(Id::NetMetered, crate::lang::t("Low data mode"), Control::Switch(saved.metered))
+                .detail(crate::lang::t("Tells apps to use less data, for phone hotspots")),
+        ];
+        if known.len() > 1 {
+            rows.push(Row::new(Id::NetOrder, crate::lang::t("Join order"), Control::Buttons(order)).detail(&order_words));
+        }
+        rows.push(
+            Row::new(Id::NetDetails, crate::lang::t("Details"), Control::Buttons(vec![Mark::Text(crate::lang::t("Show"))]))
+                .detail(crate::lang::t("Address, band, channel and signal")),
+        );
+        rows.push(
+            Row::new(Id::NetFix, crate::lang::t("Not working?"), Control::Buttons(vec![Mark::Text(crate::lang::t("Fix It"))]))
+                .detail(crate::lang::t("Checks each part of Wi-Fi and fixes what it can")),
+        );
+        rows.push(
+            Row::new(Id::NetForget, crate::lang::t("Forget this network"), Control::Buttons(vec![Mark::Text(crate::lang::t("Forget"))]))
+                .detail(crate::lang::t("Removes its password from this computer")),
+        );
+        Group {
+            header: Some(crate::lang::t("Network options")),
+            rows,
+            footer: None,
+            thumbs: None,
+        }
     }
 
     pub(super) fn blue_open_device(&self) -> Option<&crate::blue::Device> {
@@ -1358,6 +1494,21 @@ impl Model {
                     wifi.on = on;
                 }
             }
+            (Id::NetAuto, Value::Switch(on)) => {
+                if let Some(saved) = self.wifi_open_saved_mut() {
+                    saved.autoconnect = on;
+                }
+            }
+            (Id::NetMetered, Value::Switch(on)) => {
+                if let Some(saved) = self.wifi_open_saved_mut() {
+                    saved.metered = on;
+                }
+            }
+            (Id::NetPrivate, Value::Choice(n)) => {
+                if let Some(saved) = self.wifi_open_saved_mut() {
+                    saved.private = crate::net::Private::ALL[n.min(2)];
+                }
+            }
             (Id::BlueOn, Value::Switch(on)) => {
                 if let Some(blue) = self.blue.as_mut() {
                     blue.on = on;
@@ -1517,12 +1668,26 @@ impl Model {
         match (id, index) {
             (Id::Net(at), index) => {
                 let net = self.wifi.as_ref()?.nets.get(at)?;
-                return Some(Ask::Net(match (net.active, index) {
-                    (true, _) => NetAsk::Leave(at),
-                    (false, 0) => NetAsk::Join(at),
-                    (false, _) => NetAsk::Forget(at),
+                return Some(Ask::Net(match (net.active, net.known, index) {
+                    (true, _, 0) => NetAsk::Leave(at),
+                    (false, _, 0) => NetAsk::Join(at),
+                    (_, _, _) => NetAsk::NetOptions(at),
                 }));
             }
+            (Id::NetOrder, index) => {
+                let (_, _, saved) = self.wifi_open_net()?;
+                let wifi = self.wifi.as_ref()?;
+                let mut known: Vec<&crate::net::Saved> = wifi.saved.iter().filter(|each| each.kind == crate::net::Kind::Wifi).collect();
+                known.sort_by(|a, b| b.priority.cmp(&a.priority).then(a.id.to_lowercase().cmp(&b.id.to_lowercase())));
+                let place = known.iter().position(|each| each.uuid == saved.uuid)?;
+                let up = place > 0 && index == 0;
+                return Some(Ask::Net(if up { NetAsk::NetUp } else { NetAsk::NetDown }));
+            }
+            (Id::NetDetails, _) => return Some(Ask::Net(NetAsk::NetDetails)),
+            (Id::NetFix, _) => return Some(Ask::Net(NetAsk::NetFix)),
+            (Id::NetForget, _) => return Some(Ask::Net(NetAsk::NetForget)),
+            (Id::WifiFix, _) => return Some(Ask::Net(NetAsk::WifiFix)),
+            (Id::NetService, _) => return Some(Ask::Net(NetAsk::NetService)),
             (Id::WifiHidden, _) => return Some(Ask::Net(NetAsk::Hidden)),
             (Id::Gadget(at), index) => {
                 let device = self.blue.as_ref()?.devices.get(at)?;

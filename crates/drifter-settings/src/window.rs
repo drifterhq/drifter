@@ -65,6 +65,9 @@ enum BlueNews {
     Air(drifter_core::airdrop::Report, Option<bool>),
     Shake(String),
     Done(Option<String>),
+    Wifi(Option<drifter_core::net::Wifi>, bool),
+    WifiStep(usize, drifter_core::blue::Step),
+    WifiDone(Option<String>),
 }
 
 enum Hand {
@@ -128,6 +131,8 @@ pub struct Settings {
     blue_back: LoopSender<BlueNews>,
     blue_searching: bool,
     step_pops: Vec<(usize, std::time::Instant)>,
+    wifi_held: Option<(Option<drifter_core::net::Wifi>, bool)>,
+    wifi_asked: Option<String>,
     shake: Option<(String, std::time::Instant)>,
     started: std::time::Instant,
     fresh: LoopSender<Fresh>,
@@ -351,6 +356,8 @@ pub fn run() -> Result<(), String> {
         blue_back,
         blue_searching: false,
         step_pops: Vec::new(),
+        wifi_held: None,
+        wifi_asked: None,
         shake: None,
         started: std::time::Instant::now(),
         fresh,
@@ -408,10 +415,18 @@ pub fn run() -> Result<(), String> {
     };
     settings.load_row_icons();
     settings.start_blue();
+    settings.start_net();
     settings.refresh(settings.section);
     settings.take_ask(false);
     if let Some(role) = std::env::args().nth(2).and_then(|word| drifter_core::desktop::Role::from_key(&word)) {
         settings.open_picker(For::Default(role));
+    }
+    if settings.section == Section::Network {
+        match std::env::args().nth(2).as_deref() {
+            Some("hidden") => settings.net_ask(drifter_core::settings::NetAsk::Hidden),
+            Some("enterprise" | "join") => settings.wifi_asked = std::env::args().nth(3),
+            _ => {}
+        }
     }
 
     while !settings.exit {
@@ -422,6 +437,7 @@ pub fn run() -> Result<(), String> {
             )
             .map_err(|e| format!("event loop: {e}"))?;
         settings.step_glide();
+        settings.take_held_wifi();
         if settings.save_due() {
             settings.save();
         }
@@ -1055,10 +1071,19 @@ impl Settings {
         self.show(&image);
     }
 
+    fn shown_steps(&self) -> Option<(&Vec<(String, drifter_core::blue::Step)>, fn(usize) -> Id)> {
+        match self.section {
+            Section::Bluetooth => Some((&self.model.blue_steps, Id::BlueStep)),
+            Section::Network => Some((&self.model.wifi_steps, Id::WifiStep)),
+            _ => None,
+        }
+    }
+
     fn pop_steps(&mut self, image: &drifter_core::Image) -> Option<drifter_core::Image> {
-        if (self.step_pops.is_empty() && !self.step_turning()) || self.section != Section::Bluetooth {
+        if (self.step_pops.is_empty() && !self.step_turning()) || self.shown_steps().is_none() {
             return None;
         }
+        let step_id = self.shown_steps().map_or(Id::BlueStep as fn(usize) -> Id, |(_, id)| id);
         let side = ROW_ICON * scale();
         let done = drifter_core::blue::step_icon("done", side, self.look.accent, self.look.off);
         let mut canvas = drifter_core::paint::Canvas::on(image.clone());
@@ -1072,7 +1097,7 @@ impl Settings {
                 settled.push(at);
                 continue;
             }
-            let spot = drifter_core::settings::Spot::Row(Id::BlueStep(at), 0);
+            let spot = drifter_core::settings::Spot::Row(step_id(at), 0);
             let Some(row) = self.look.spot_rect(self.view(), self.section, &self.model, self.scroll, spot, &self.fonts.1) else {
                 settled.push(at);
                 continue;
@@ -1088,11 +1113,12 @@ impl Settings {
             true => self.started.elapsed().as_secs_f64() / 0.9,
             false => 0.0,
         };
-        for (at, (_, step)) in self.model.blue_steps.iter().enumerate() {
-            if *step != drifter_core::blue::Step::Doing {
-                continue;
-            }
-            let spot = drifter_core::settings::Spot::Row(Id::BlueStep(at), 0);
+        let doing: Vec<usize> = self
+            .shown_steps()
+            .map(|(steps, _)| steps.iter().enumerate().filter(|(_, (_, step))| *step == drifter_core::blue::Step::Doing).map(|(at, _)| at).collect())
+            .unwrap_or_default();
+        for at in doing {
+            let spot = drifter_core::settings::Spot::Row(step_id(at), 0);
             if let Some(row) = self.look.spot_rect(self.view(), self.section, &self.model, self.scroll, spot, &self.fonts.1) {
                 let middle = Vec2::new(row.origin.x + 27.0, row.center().y);
                 canvas.arc_from(middle, 26.0 * 0.345, 26.0 * 0.08, turn, 0.3, self.look.accent, 1.0);
@@ -1100,8 +1126,13 @@ impl Settings {
         }
         if !settled.is_empty() {
             self.step_pops.retain(|(at, _)| !settled.contains(at));
+            let wifi = self.section == Section::Network;
             for at in settled {
-                if let Some(step) = self.model.blue_steps.get_mut(at) {
+                let steps = match wifi {
+                    true => &mut self.model.wifi_steps,
+                    false => &mut self.model.blue_steps,
+                };
+                if let Some(step) = steps.get_mut(at) {
                     step.1 = drifter_core::blue::Step::Done;
                 }
             }
@@ -1504,12 +1535,7 @@ impl Settings {
                 }
                 None => self.save(),
             },
-            Some(Hit::Open(Id::Net(at))) => {
-                if let Some(net) = self.model.wifi.as_ref().and_then(|wifi| wifi.nets.get(at)) {
-                    let lines = crate::net::details(net);
-                    self.sheet = Some(Sheet::info(For::NetInfo(at), &net.ssid, lines));
-                }
-            }
+            Some(Hit::Open(Id::Net(at))) => self.wifi_details(at),
             Some(Hit::Open(Id::Gadget(at))) => self.blue_ask(drifter_core::settings::NetAsk::Options(at)),
             Some(Hit::Open(Id::BlueName)) => self.blue_ask(drifter_core::settings::NetAsk::Rename),
             Some(Hit::Open(_)) => return,
@@ -1653,11 +1679,11 @@ impl Settings {
                 Section::Time
             }
             Fresh::Net(wifi) => {
-                if wifi == self.model.wifi {
+                let missing = !crate::net::running();
+                if wifi == self.model.wifi && missing == self.model.wifi_service {
                     return;
                 }
-                self.model.wifi = wifi.clone();
-                self.saved.wifi = wifi;
+                self.take_wifi(wifi, missing);
                 Section::Network
             }
             Fresh::Users(users) => {
@@ -1683,6 +1709,9 @@ impl Settings {
             }
             Section::Network => {
                 self.model.net_note = None;
+                if self.step_pops.is_empty() && !self.model.wifi_steps.iter().any(|(_, step)| *step == drifter_core::blue::Step::Doing) {
+                    self.model.wifi_steps.clear();
+                }
                 self.fetch(section);
                 let done = self.net_done.clone();
                 let _ = std::thread::Builder::new()
@@ -2061,6 +2090,194 @@ impl Settings {
         }
     }
 
+    fn wifi_details(&mut self, at: usize) {
+        if let Some(net) = self.model.wifi.as_ref().and_then(|wifi| wifi.nets.get(at)) {
+            let lines = crate::net::details(net);
+            self.sheet = Some(Sheet::info(For::NetInfo(at), &net.ssid, lines));
+        }
+    }
+
+    fn take_wifi(&mut self, wifi: Option<drifter_core::net::Wifi>, missing: bool) {
+        self.model.wifi_service = missing;
+        self.saved.wifi_service = missing;
+        self.model.wifi = wifi.clone();
+        self.saved.wifi = wifi;
+        let gone = self.model.wifi_open.as_deref().is_some_and(|ssid| {
+            !self.model.wifi.as_ref().is_some_and(|wifi| wifi.find(ssid).is_some() && !wifi.saved_for(ssid).is_empty())
+        });
+        if gone {
+            self.model.wifi_open = None;
+        }
+        if let Some(ssid) = self.wifi_asked.take() {
+            match self.model.wifi.as_ref().and_then(|wifi| wifi.nets.iter().position(|net| net.ssid == ssid)) {
+                Some(at) => self.net_ask(drifter_core::settings::NetAsk::Join(at)),
+                None if self.model.wifi.is_none() => self.wifi_asked = Some(ssid),
+                None => self.model.net_note = Some(drifter_core::lang::tf("{} is not in range.", &[&ssid])),
+            }
+        }
+    }
+
+    fn start_net(&mut self) {
+        let bus = match drifter_net::Bus::system() {
+            Ok(bus) => bus,
+            Err(error) => {
+                log!("drifter-settings: {error}");
+                return;
+            }
+        };
+        let back = self.blue_back.clone();
+        if let Err(error) = bus.watch(move |seen| {
+            let missing = seen.is_err();
+            let wifi = seen.ok().filter(|wifi| wifi.card.is_some());
+            let _ = back.send(BlueNews::Wifi(wifi, missing));
+        }) {
+            log!("drifter-settings: {error}");
+        }
+    }
+
+    fn wifi_sheet_open(&self) -> bool {
+        matches!(
+            self.sheet.as_ref().map(|sheet| sheet.purpose()),
+            Some(For::Wifi(_) | For::WifiEnterprise(_) | For::NetInfo(_))
+        )
+    }
+
+    fn take_held_wifi(&mut self) {
+        if self.wifi_sheet_open() {
+            return;
+        }
+        if let Some((wifi, missing)) = self.wifi_held.take() {
+            self.take_wifi(wifi, missing);
+            if self.section == Section::Network && self.sheet.is_none() {
+                self.stale = true;
+            }
+        }
+    }
+
+    fn wifi_job(&mut self, note: String, work: impl FnOnce() -> Result<(), String> + Send + 'static) {
+        self.model.net_note = Some(note);
+        self.stale = true;
+        let back = self.blue_back.clone();
+        let spawned = std::thread::Builder::new().name("settings-wifi".into()).spawn(move || {
+            let _ = back.send(BlueNews::WifiDone(work().err()));
+        });
+        if let Err(error) = spawned {
+            self.model.net_note = Some(drifter_core::lang::tf("Cannot start: {}", &[&(error)]));
+        }
+    }
+
+    fn wifi_fix(&mut self) {
+        use drifter_core::blue::Step;
+        let back = self.blue_back.clone();
+        self.step_pops.clear();
+        let steps = [
+            drifter_core::lang::t("Check that NetworkManager is running"),
+            drifter_core::lang::t("Check the Wi-Fi switch"),
+            drifter_core::lang::t("Check that NetworkManager runs the card"),
+            drifter_core::lang::t("Turn off Wi-Fi power saving"),
+            drifter_core::lang::t("Join a saved network again"),
+            drifter_core::lang::t("Check for an address"),
+            drifter_core::lang::t("Check the internet"),
+        ];
+        self.model.wifi_steps = steps.iter().map(|words| (words.to_string(), Step::Wait)).collect();
+        self.load_row_icons();
+        let step = move |at: usize, state: Step| {
+            let _ = back.send(BlueNews::WifiStep(at, state));
+        };
+        self.wifi_job(drifter_core::lang::t("Fixing Wi-Fi…").to_string(), move || {
+            let run = |at: usize, work: &mut dyn FnMut() -> Result<(), String>| {
+                step(at, Step::Doing);
+                let done = work();
+                step(at, if done.is_ok() { Step::Done } else { Step::Failed });
+                done
+            };
+            run(0, &mut || match crate::net::running() {
+                true => Ok(()),
+                false => {
+                    drifter_net::Bus::start_service()?;
+                    std::thread::sleep(std::time::Duration::from_secs(2));
+                    match crate::net::running() {
+                        true => Ok(()),
+                        false => Err(drifter_core::lang::t("NetworkManager did not start. Install it, then try again.").to_string()),
+                    }
+                }
+            })?;
+            let bus = drifter_net::Bus::system()?;
+            run(1, &mut || {
+                let wifi = bus.snapshot().ok_or_else(|| drifter_core::net::Missing::Service.words().to_string())?;
+                if !wifi.hardware {
+                    let unblocked = std::process::Command::new("rfkill")
+                        .args(["unblock", "wifi"])
+                        .stdin(std::process::Stdio::null())
+                        .status()
+                        .is_ok_and(|status| status.success());
+                    std::thread::sleep(std::time::Duration::from_millis(800));
+                    if !unblocked || !bus.snapshot().is_some_and(|wifi| wifi.hardware) {
+                        return Err(drifter_core::lang::t("A switch or airplane mode blocks Wi-Fi. Turn it off on the computer, then try again.").to_string());
+                    }
+                }
+                if !wifi.on {
+                    bus.power(true)?;
+                    if !bus.wait(|wifi| wifi.on, std::time::Duration::from_secs(5)) {
+                        return Err(drifter_core::lang::t("Wi-Fi did not turn on.").to_string());
+                    }
+                }
+                Ok(())
+            })?;
+            run(2, &mut || match bus.snapshot().is_some_and(|wifi| wifi.managed) {
+                true => Ok(()),
+                false => Err(drifter_core::lang::t("Another tool runs the Wi-Fi card. Stop that tool, or let NetworkManager run the card.").to_string()),
+            })?;
+            run(3, &mut || {
+                let wifi = bus.snapshot().ok_or_else(|| drifter_core::net::Missing::Service.words().to_string())?;
+                for saved in wifi.saved.iter().filter(|each| each.kind == drifter_core::net::Kind::Wifi && each.powersave != 2) {
+                    bus.set_powersave(&saved.uuid, true)?;
+                }
+                Ok(())
+            })?;
+            run(4, &mut || {
+                let wifi = bus.snapshot().ok_or_else(|| drifter_core::net::Missing::Service.words().to_string())?;
+                let target = wifi
+                    .joined
+                    .clone()
+                    .or_else(|| wifi.nets.iter().find(|net| net.known).map(|net| net.ssid.clone()))
+                    .ok_or_else(|| drifter_core::lang::t("No saved network is in range. Pick one under Networks.").to_string())?;
+                let active = bus.join(&target)?;
+                match bus.settle(&active, std::time::Duration::from_secs(150)) {
+                    drifter_net::bus::Joined::Done => Ok(()),
+                    outcome => Err(bus.outcome_words(outcome, &target)),
+                }
+            })?;
+            run(5, &mut || {
+                let has = |wifi: &drifter_core::net::Wifi| wifi.card.as_ref().is_some_and(|card| !card.ip4.is_empty() || !card.ip6.is_empty());
+                match bus.wait(has, std::time::Duration::from_secs(10)) {
+                    true => Ok(()),
+                    false => Err(drifter_core::lang::t("The network did not give this computer an address. Restart the router, then try again.").to_string()),
+                }
+            })?;
+            run(6, &mut || {
+                let online = bus.check_online();
+                match online {
+                    drifter_core::net::Online::Full | drifter_core::net::Online::Unknown => {}
+                    drifter_core::net::Online::Portal => {
+                        return Err(drifter_core::lang::t("This network wants you to sign in. Open a web page to sign in.").to_string());
+                    }
+                    _ => {}
+                }
+                use std::net::ToSocketAddrs;
+                match ("nmcheck.gnome.org", 80).to_socket_addrs() {
+                    Ok(mut found) if found.next().is_some() => match online {
+                        drifter_core::net::Online::None | drifter_core::net::Online::Limited => {
+                            Err(drifter_core::lang::t("Names work, but the internet does not answer. The router may be offline.").to_string())
+                        }
+                        _ => Ok(()),
+                    },
+                    _ => Err(drifter_core::lang::t("Web names do not turn into addresses (DNS). The router's DNS may be down.").to_string()),
+                }
+            })
+        });
+    }
+
     fn net_job(&mut self, job: crate::net::Job, note: String) {
         self.model.net_note = Some(note);
         let done = self.net_done.clone();
@@ -2122,6 +2339,38 @@ impl Settings {
                     let note = drifter_core::lang::tf("Forgetting {}…", &[&(net.ssid)]);
                     self.net_job(Job::Forget(net.ssid), note);
                 }
+            }
+            NetAsk::NetOptions(at) => {
+                let Some(net) = net(at) else {
+                    return;
+                };
+                self.model.wifi_open = match self.model.wifi_open.as_deref() == Some(net.ssid.as_str()) {
+                    true => None,
+                    false => Some(net.ssid),
+                };
+                self.stale = true;
+            }
+            NetAsk::NetDetails => {
+                if let Some(at) = self.model.wifi_open.as_deref().and_then(|ssid| self.model.wifi.as_ref()?.nets.iter().position(|net| net.ssid == ssid)) {
+                    self.wifi_details(at);
+                }
+            }
+            NetAsk::NetForget => {
+                if let Some(ssid) = self.model.wifi_open.take() {
+                    let note = drifter_core::lang::tf("Forgetting {}…", &[&(ssid)]);
+                    self.net_job(Job::Forget(ssid), note);
+                }
+            }
+            NetAsk::NetUp | NetAsk::NetDown => {
+                if let Some(ssid) = self.model.wifi_open.clone() {
+                    let up = matches!(ask, NetAsk::NetUp);
+                    self.net_job(Job::Raise(ssid, up), drifter_core::lang::t("Changing the join order…").to_string());
+                }
+            }
+            NetAsk::NetFix | NetAsk::WifiFix => self.wifi_fix(),
+            NetAsk::NetService => {
+                let note = drifter_core::lang::t("Starting NetworkManager. Type your password if asked.").to_string();
+                self.net_job(Job::StartService, note);
             }
             NetAsk::Hidden => {
                 self.sheet = Some(Sheet::form(
@@ -2559,9 +2808,10 @@ impl Settings {
     }
 
     fn step_turning(&self) -> bool {
-        self.section == Section::Bluetooth
-            && self.sheet.is_none()
-            && self.model.blue_steps.iter().any(|(_, step)| *step == drifter_core::blue::Step::Doing)
+        self.sheet.is_none()
+            && self
+                .shown_steps()
+                .is_some_and(|(steps, _)| steps.iter().any(|(_, step)| *step == drifter_core::blue::Step::Doing))
     }
 
     fn wheel(&mut self, by: f64, click: bool) {
@@ -2864,6 +3114,7 @@ impl Settings {
             };
             self.blue_job(note.to_string(), move |bus| bus.power(on));
         }
+        self.apply_wifi(&before);
         self.apply_blue(&before);
         self.apply_air(&before);
         if let Some(now) = self.model.profile.as_ref()
@@ -3397,6 +3648,43 @@ impl Settings {
                 }
                 self.load_row_icons();
             }
+            BlueNews::Wifi(wifi, missing) => {
+                match self.wifi_sheet_open() {
+                    true => self.wifi_held = Some((wifi, missing)),
+                    false => self.take_wifi(wifi, missing),
+                }
+                if self.section == Section::Network && self.sheet.is_none() {
+                    self.stale = true;
+                }
+                return;
+            }
+            BlueNews::WifiStep(at, step) => {
+                if let Some(held) = self.model.wifi_steps.get_mut(at) {
+                    held.1 = match step {
+                        drifter_core::blue::Step::Done => {
+                            self.step_pops.push((at, std::time::Instant::now()));
+                            drifter_core::blue::Step::Popping
+                        }
+                        other => other,
+                    };
+                }
+                self.load_row_icons();
+                if self.section == Section::Network && self.sheet.is_none() {
+                    self.stale = true;
+                }
+                return;
+            }
+            BlueNews::WifiDone(error) => {
+                self.model.net_note = match error {
+                    None if !self.model.wifi_steps.is_empty() => Some(drifter_core::lang::t("Fixed. Wi-Fi is joined and online.").to_string()),
+                    None => None,
+                    Some(error) => Some(error),
+                };
+                if self.section == Section::Network && self.sheet.is_none() {
+                    self.stale = true;
+                }
+                return;
+            }
             BlueNews::Done(error) => {
                 if error.is_none() && !self.model.blue_steps.is_empty() {
                     self.model.net_note = Some(drifter_core::lang::t("Fixed. It is set up and connected.").to_string());
@@ -3680,6 +3968,25 @@ impl Settings {
             })?;
             bus.connect(&address).map_err(|error| drifter_core::blue::plain_error(&error, &name, kind))
         });
+    }
+
+    fn apply_wifi(&mut self, before: &drifter_core::settings::Model) {
+        let Some(ssid) = self.model.wifi_open.clone() else {
+            return;
+        };
+        let find = |model: &drifter_core::settings::Model| model.wifi.as_ref().and_then(|wifi| wifi.saved_for(&ssid).first().map(|saved| (*saved).clone()));
+        let (Some(now), Some(was)) = (find(&self.model), find(before)) else {
+            return;
+        };
+        if now.autoconnect != was.autoconnect {
+            self.net_job(crate::net::Job::Autojoin(ssid.clone(), now.autoconnect), drifter_core::lang::t("Saving…").to_string());
+        }
+        if now.private != was.private {
+            self.net_job(crate::net::Job::Private(ssid.clone(), now.private), drifter_core::lang::t("Saving. It takes effect the next time you join.").to_string());
+        }
+        if now.metered != was.metered {
+            self.net_job(crate::net::Job::Metered(ssid.clone(), now.metered), drifter_core::lang::t("Saving…").to_string());
+        }
     }
 
     fn air_fetch(&mut self) {
