@@ -170,7 +170,9 @@ impl Agent {
             Some(secret) => {
                 let mut values = HashMap::new();
                 values.insert(key.to_string(), secret);
-                Ok(answer_of(part_name, values))
+                let out = answer_of(part_name, values);
+                eprintln!("drifter-net: agent answers {part_name} {key} {:?}", out.keys().collect::<Vec<_>>());
+                Ok(out)
             }
             None => Err(Refusal::UserCanceled("Canceled".into())),
         }
