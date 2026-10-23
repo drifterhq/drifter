@@ -1,6 +1,9 @@
 use super::*;
 use drifter_core::hud::Gauge;
 
+const MENU_SLIDE: f64 = 24.0;
+const MENU_SLIDE_TIME: f64 = 0.22;
+
 impl State {
     pub(super) fn dock_band(&self) -> Option<Rect> {
         let drawer = self.drawers[Edge::Bottom.index()];
@@ -77,6 +80,10 @@ impl State {
             }
             _ => (from, None),
         };
+        let slide = match (self.menu_slide.take(), self.popover.as_ref()) {
+            (Some(way), Some(was)) if same_menu(&was.target, &target) => was.art.clone().map(|art| (art, was.rect, Instant::now(), way)),
+            _ => None,
+        };
         self.popover = Some(Popover {
             items,
             rect,
@@ -86,6 +93,7 @@ impl State {
             target,
             lane: worker::Lane::default(),
             keyed: None,
+            slide,
         });
         self.paint_popover();
         self.hover_rows();
@@ -133,13 +141,36 @@ impl State {
             let anchor = open.anchor.clamp(open.rect.origin, open.rect.max());
             let scale = drop.size.x / open.rect.size.x.max(1.0);
             let lift = (anchor + (open.rect.origin - anchor) * scale).y - drop.origin.y;
-            self.lit_elements(super::fade::Pane::Menu, anchor, scale, lift, shown as f32, elements);
-            self.menu_skin(art, drop, shown as f32, elements);
+            match self.slide_look(open) {
+                Some((t, way, old, old_rect)) => {
+                    let ease = drifter_core::drawer::ease(t);
+                    let out = drifter_core::motion::smooth(t);
+                    let new_rect = Rect::new(drop.origin + Vec2::new(MENU_SLIDE * way * (1.0 - ease), 0.0), drop.size);
+                    let old_rect = Rect::new(old_rect.origin - Vec2::new(MENU_SLIDE * way * out, 0.0), old_rect.size);
+                    self.menu_skin(art, new_rect, (shown * out) as f32, elements);
+                    self.menu_skin(old, old_rect, (shown * (1.0 - out)) as f32, elements);
+                }
+                None => {
+                    self.lit_elements(super::fade::Pane::Menu, anchor, scale, lift, shown as f32, elements);
+                    self.menu_skin(art, drop, shown as f32, elements);
+                }
+            }
         }
     }
 
+    fn slide_look<'a>(&self, open: &'a Popover) -> Option<(f64, f64, &'a TextureBuffer<Tex>, Rect)> {
+        let (old, rect, since, way) = open.slide.as_ref()?;
+        let pace = self.window_pace;
+        if pace <= 0.0 {
+            return None;
+        }
+        let t = since.elapsed().as_secs_f64() / (MENU_SLIDE_TIME / pace);
+        (t < 1.0).then_some((t, *way, old, *rect))
+    }
+
     pub(super) fn popover_busy(&self) -> bool {
-        self.window_pace > 0.0
+        self.popover.as_ref().is_some_and(|open| self.slide_look(open).is_some())
+            || self.window_pace > 0.0
             && self.popover.as_ref().and_then(|open| open.opened).is_some_and(|at| {
             at.elapsed().as_secs_f64() * self.window_pace < drifter_core::menu::GROW_WAIT + drifter_core::menu::GROW
         })
@@ -236,13 +267,18 @@ impl State {
                     match deeper {
                         true => {
                             match chosen.id == drifter_core::menu::BACK {
-                                true => trail.pop(),
+                                true => {
+                                    trail.pop();
+                                    self.menu_titles.pop();
+                                    self.menu_slide = Some(-1.0);
+                                }
                                 false => {
                                     trail.push(chosen.id);
-                                    None
+                                    self.menu_titles.push(chosen.label.clone());
+                                    self.menu_slide = Some(1.0);
                                 }
-                            };
-                            bus.ask_menu(&service, trail, at.x, at.y);
+                            }
+                            bus.ask_menu(&service, trail, at.x, at.y, self.palette.ink);
                             return true;
                         }
                         false => bus.choose(&service, chosen.id),
@@ -440,7 +476,7 @@ impl State {
         {
             let service = self.icons[slot].0.clone();
             if let Some(bus) = self.tray_bus.as_ref() {
-                bus.ask_menu(&service, Vec::new(), self.pointer.x, self.pointer.y);
+                bus.ask_menu(&service, Vec::new(), self.pointer.x, self.pointer.y, self.palette.ink);
             }
             return true;
         }

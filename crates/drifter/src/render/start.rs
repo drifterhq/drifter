@@ -685,6 +685,8 @@ pub fn open(
         place_saves: Vec::new(),
         note_folders: std::collections::HashMap::new(),
         note_links: std::collections::HashMap::new(),
+        menu_titles: Vec::new(),
+        menu_slide: None,
         access: config.access,
         a11y: None,
         speech: None,
@@ -765,8 +767,14 @@ pub fn open(
                         } => {
                             let at = Vec2::new(at.0, at.1);
                             let items = match trail.is_empty() {
-                                true => items,
-                                false => drifter_core::menu::with_back(items),
+                                true => {
+                                    state.menu_titles.clear();
+                                    items
+                                }
+                                false => {
+                                    let title = state.menu_titles.last().cloned().unwrap_or_default();
+                                    drifter_core::menu::with_back(items, &title)
+                                }
                             };
                             state.open_popover(items, at, Target::Tray { service, trail, at });
                         }

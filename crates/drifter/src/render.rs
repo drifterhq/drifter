@@ -371,6 +371,7 @@ struct Popover {
     target: Target,
     lane: worker::Lane,
     keyed: Option<usize>,
+    slide: Option<(TextureBuffer<Tex>, Rect, Instant, f64)>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -622,6 +623,8 @@ pub struct State {
     density: u32,
     palette: drifter_core::theme::Palette,
     popover: Option<Popover>,
+    menu_titles: Vec<String>,
+    menu_slide: Option<f64>,
     desk_menu: Option<deskmenu::DeskMenu>,
     ripple: Option<deskmenu::Ripple>,
     ripple_program: Option<Option<smithay::backend::renderer::gles::GlesTexProgram>>,

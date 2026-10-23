@@ -56,6 +56,7 @@ pub enum Glyph {
     Wifi,
     Bluetooth,
     Plus,
+    Back,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -168,6 +169,7 @@ const QUIT_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 
 const SETTINGS_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M3.5 6h13M3.5 14h13" stroke="#000" stroke-width="1.7" stroke-linecap="round"/><circle cx="7.4" cy="6" r="2.4"/><circle cx="12.6" cy="14" r="2.4"/></svg>"##;
 const ABOUT_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7" fill="none" stroke="#000" stroke-width="1.8"/><path d="M10 9v4.6" stroke="#000" stroke-width="1.9" stroke-linecap="round"/><circle cx="10" cy="6.4" r="1.1"/></svg>"##;
 const MORE_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><circle cx="5" cy="10" r="1.5"/><circle cx="10" cy="10" r="1.5"/><circle cx="15" cy="10" r="1.5"/></svg>"##;
+const BACK_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M12.4 4.4L6.8 10l5.6 5.6" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
 const PLUS_SVG: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M10 4v12M4 10h12" stroke="#000" stroke-width="1.9" stroke-linecap="round"/></svg>"##;
 
 pub fn glyph_svg(glyph: Glyph) -> &'static str {
@@ -187,6 +189,7 @@ pub fn glyph_svg(glyph: Glyph) -> &'static str {
         Glyph::Wifi => "",
         Glyph::Bluetooth => crate::blue::rune(),
         Glyph::Plus => PLUS_SVG,
+        Glyph::Back => BACK_SVG,
     }
 }
 

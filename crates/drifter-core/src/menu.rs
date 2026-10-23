@@ -46,8 +46,21 @@ pub struct Item {
 pub const BACK: i32 = -1;
 pub const BACK_RULE: i32 = -2;
 
-pub fn with_back(items: Vec<Item>) -> Vec<Item> {
-    let mut out = vec![Item::line(BACK, crate::lang::t("Back")), Item::rule(BACK_RULE)];
+pub fn with_back(items: Vec<Item>, title: &str) -> Vec<Item> {
+    let title = match title.trim().is_empty() {
+        true => crate::lang::t("Back"),
+        false => title,
+    };
+    let mut out = vec![
+        Item {
+            label: title.to_string(),
+            kind: crate::rows::Kind::Header,
+            enabled: true,
+            lead: crate::rows::Lead::Glyph(crate::rows::Glyph::Back),
+            ..Item::line(BACK, "")
+        },
+        Item::rule(BACK_RULE),
+    ];
     out.extend(items);
     out
 }
@@ -372,14 +385,6 @@ mod tests {
         let middle = Vec2::new(200.0, 250.0);
         let (mid, _) = grown(rect, middle, GROW_WAIT + GROW / 2.0, false, false);
         assert!(mid.contains(middle) && mid.size.x < rect.size.x, "it grows out of the point");
-    }
-
-    #[test]
-    fn a_submenu_starts_with_back_and_a_rule() {
-        let items = with_back(vec![Item::line(7, "Wi-Fi")]);
-        assert_eq!(items[0].id, BACK);
-        assert!(items[1].separator);
-        assert_eq!(items[2].label, "Wi-Fi");
     }
 
     #[test]

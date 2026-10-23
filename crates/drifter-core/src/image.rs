@@ -419,6 +419,10 @@ pub fn orient(image: &Image, turn: u16) -> Image {
     }
 }
 
+pub fn decode_png(bytes: &[u8]) -> Result<Image, String> {
+    load_png(Path::new("menu icon"), bytes)
+}
+
 fn load_png(path: &Path, bytes: &[u8]) -> Result<Image, String> {
     let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
     decoder.set_transformations(png::Transformations::normalize_to_color8());
