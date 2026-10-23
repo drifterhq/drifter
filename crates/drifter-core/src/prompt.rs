@@ -10,6 +10,7 @@ pub struct Ask {
     pub typed: usize,
     pub error: Option<String>,
     pub busy: bool,
+    pub join: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -109,7 +110,18 @@ fn title(word: &str) -> String {
 
 impl Look {
     fn lines(&self, ask: &Ask, font: &Font) -> Vec<String> {
-        crate::notify::wrap(font, &plain(&ask.message), self.width - self.pad * 2.0, 3)
+        let message = match ask.join {
+            true => ask.message.clone(),
+            false => plain(&ask.message),
+        };
+        crate::notify::wrap(font, &message, self.width - self.pad * 2.0, 3)
+    }
+
+    fn wifi(&self, canvas: &mut Canvas, center: Vec2) {
+        canvas.shadow(Rect::from_center(center, Vec2::splat(52.0)), 26.0, 5.0, 0.2);
+        canvas.circle(center, 26.0, self.accent, 1.0);
+        let mark = crate::net::glyph(crate::net::Glyph::Wifi, crate::paint::dense(30.0), [255, 255, 255]);
+        canvas.stamp(&mark, center - Vec2::new(15.0, 16.0), 1.0);
     }
 
     fn top(&self, ask: &Ask, font: &Font) -> f64 {
@@ -183,14 +195,17 @@ impl Look {
         canvas.round_rect(Rect::new(Vec2::ZERO, size), self.radius, self.back, 1.0);
         let line = font.line_height().ceil();
         let middle = size.x / 2.0;
-        self.lock(&mut canvas, Vec2::new(middle, self.pad + LOCK / 2.0));
+        match ask.join {
+            true => self.wifi(&mut canvas, Vec2::new(middle, self.pad + LOCK / 2.0)),
+            false => self.lock(&mut canvas, Vec2::new(middle, self.pad + LOCK / 2.0)),
+        }
         let mut y = self.pad + LOCK + 14.0;
         for text in self.lines(ask, font) {
             let painted = font.paint_bold(&text, self.ink);
             canvas.stamp(&painted, Vec2::new(middle - crate::paint::logical(&painted).x / 2.0, y).round(), 1.0);
             y += line;
         }
-        let painted = font.paint(ASK, self.dim);
+        let painted = font.paint(if ask.join { crate::lang::t("It is saved for the next time.") } else { ASK }, self.dim);
         canvas.stamp(&painted, Vec2::new(middle - crate::paint::logical(&painted).x / 2.0, y + 4.0).round(), 1.0);
 
         let field = self.field_rect(size, line);
@@ -226,7 +241,7 @@ impl Look {
         }
         for (rect, label, color, ink) in [
             (self.cancel_rect(size), crate::lang::t("Cancel"), self.off, self.ink),
-            (self.go_rect(size), crate::lang::t("Allow"), self.accent, [255, 255, 255]),
+            (self.go_rect(size), if ask.join { crate::lang::t("Join") } else { crate::lang::t("Allow") }, self.accent, [255, 255, 255]),
         ] {
             canvas.round_rect(rect, 8.0, color, if ask.busy { 0.5 } else { 1.0 });
             let painted = font.paint(label, ink);

@@ -207,6 +207,17 @@ impl State {
             }
             Pane::Prompt => {
                 let (art, rect) = self.prompt_art.as_ref()?;
+                let pace = self.window_pace;
+                let shake = self
+                    .prompts
+                    .first()
+                    .and_then(|pending| pending.shaken)
+                    .filter(|_| pace > 0.0 && !self.window_still)
+                    .map_or(0.0, |at| {
+                        let t = (at.elapsed().as_secs_f64() / (super::ctllist::SHAKE / pace)).clamp(0.0, 1.0);
+                        (t * std::f64::consts::TAU * 3.0).sin() * 9.0 * (1.0 - t) * (1.0 - t)
+                    });
+                let rect = &Rect::new(rect.origin + Vec2::new(shake, 0.0), rect.size);
                 let mut layers = vec![Layer::new(art, *rect, Shadow::Modal)];
                 if let Some(haze) = self.prompt_haze.as_ref() {
                     layers.push(Layer {
@@ -336,7 +347,7 @@ impl State {
                 let t = (now.duration_since(fader.born).as_secs_f64() / (State::share_in() / pace)).clamp(0.0, 1.0);
                 State::share_look_in(t, self.window_still)
             }
-            None if pane == Pane::Pair => {
+            None if pane == Pane::Pair || (pane == Pane::Prompt && self.prompts.first().is_some_and(Pending::joins)) => {
                 let t = (now.duration_since(fader.born).as_secs_f64() / (State::pairing_in() / pace)).clamp(0.0, 1.0);
                 State::pairing_look(t, self.window_still)
             }

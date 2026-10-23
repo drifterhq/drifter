@@ -42,16 +42,22 @@ impl State {
                 Err(error) => log!("drifter: {error}"),
             }
         }
-        self.tray.net = self.net_slot().is_some();
+        self.tray.net = self.net_slot().is_some() || self.wifi_owns_icon();
     }
 
     pub(super) fn net_slot(&self) -> Option<usize> {
+        if self.wifi_owns_icon() {
+            return None;
+        }
         self.icons.iter().position(|icon| icon.3)
     }
 
     pub(super) fn tray_row(&self) -> Vec<usize> {
         let net = self.net_slot();
-        (0..self.icons.len()).filter(|slot| Some(*slot) != net).collect()
+        let ours = self.wifi_owns_icon();
+        (0..self.icons.len())
+            .filter(|slot| Some(*slot) != net && !(ours && self.icons[*slot].3))
+            .collect()
     }
 
     pub(super) fn open_popover(&mut self, items: Vec<Item>, at: Vec2, target: Target) {
@@ -234,6 +240,11 @@ impl State {
                 self.blue_menu_pick(chosen.id);
                 return true;
             }
+            Target::Wifi(_) => {
+                self.popover = None;
+                self.wifi_menu_pick(chosen.id);
+                return true;
+            }
             Target::App(app) => {
                 let app = app.clone();
                 self.popover = None;
@@ -333,6 +344,13 @@ impl State {
             return;
         }
 
+        if self.popover.is_none()
+            && let Some((text, rect)) = self.wifi_tip()
+        {
+            self.show_tip(&text, rect, true);
+            return;
+        }
+
         if let Some(band) = self.tray_band()
             && let Some(slot) = self.tray_icon_at(band)
         {
@@ -355,6 +373,10 @@ impl State {
     pub(super) fn open_context(&mut self) -> bool {
         if self.blue_tray_rect().is_some_and(|rect| rect.contains(self.pointer)) {
             self.open_blue_menu();
+            return true;
+        }
+        if self.wifi_tray_rect().is_some_and(|rect| rect.contains(self.pointer)) {
+            self.open_wifi_menu(false);
             return true;
         }
         if let Some(band) = self.tray_band()
@@ -421,6 +443,9 @@ impl State {
         }
         if code == BTN_LEFT && self.control_rect().is_some_and(|rect| rect.contains(self.pointer)) {
             self.toggle_control();
+            return true;
+        }
+        if code == BTN_LEFT && self.press_wifi_tray(had_menu, self.alt_held()) {
             return true;
         }
         if code == BTN_LEFT && self.press_blue_tray(had_menu) {
@@ -591,6 +616,7 @@ impl State {
             .as_ref()
             .map(|(_, _, rect)| rect.origin.x)
             .or_else(|| self.blue_tray_rect().map(|rect| rect.origin.x))
+            .or_else(|| self.wifi_tray_rect().map(|rect| rect.origin.x))
             .or_else(|| self.control_rect().map(|rect| rect.origin.x))
             .unwrap_or_else(|| self.tray.power_rect(band).origin.x)
     }

@@ -421,13 +421,7 @@ pub fn run() -> Result<(), String> {
     if let Some(role) = std::env::args().nth(2).and_then(|word| drifter_core::desktop::Role::from_key(&word)) {
         settings.open_picker(For::Default(role));
     }
-    if settings.section == Section::Network {
-        match std::env::args().nth(2).as_deref() {
-            Some("hidden") => settings.net_ask(drifter_core::settings::NetAsk::Hidden),
-            Some("enterprise" | "join") => settings.wifi_asked = std::env::args().nth(3),
-            _ => {}
-        }
-    }
+
 
     while !settings.exit {
         events
@@ -1886,18 +1880,36 @@ impl Settings {
     }
 
     fn take_ask(&mut self, running: bool) {
-        let Some(at) = drifter_core::settings::take_dock_ask() else {
+        use drifter_core::settings::SettingsAsk;
+        let Some(ask) = drifter_core::settings::take_settings_ask() else {
             return;
         };
-        if running {
-            if self.unsaved {
-                self.save();
+        match ask {
+            SettingsAsk::Dock(at) => {
+                if running {
+                    if self.unsaved {
+                        self.save();
+                    }
+                    self.reload();
+                }
+                self.parked = None;
+                self.go_to(Section::Dock);
+                self.edit_dock(at);
             }
-            self.reload();
+            SettingsAsk::WifiHidden => {
+                self.sheet = None;
+                self.go_to(Section::Network);
+                self.net_ask(drifter_core::settings::NetAsk::Hidden);
+            }
+            SettingsAsk::WifiJoin(ssid) => {
+                self.sheet = None;
+                self.go_to(Section::Network);
+                match self.model.wifi.as_ref().and_then(|wifi| wifi.nets.iter().position(|net| net.ssid == ssid)) {
+                    Some(at) => self.net_ask(drifter_core::settings::NetAsk::Join(at)),
+                    None => self.wifi_asked = Some(ssid),
+                }
+            }
         }
-        self.parked = None;
-        self.go_to(Section::Dock);
-        self.edit_dock(at);
         self.stale = true;
     }
 

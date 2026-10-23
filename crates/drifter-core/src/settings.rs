@@ -2547,6 +2547,7 @@ pub fn write_scale(text: &str, name: &str, scale: f64) -> Result<String, String>
 
 const ASK_FRESH: std::time::Duration = std::time::Duration::from_secs(15);
 const ASK_DOCK: &str = "dock-item";
+const ASK_WIFI: &str = "wifi";
 
 fn ask_path() -> PathBuf {
     Config::state_dir().join("settings-ask")
@@ -2560,7 +2561,26 @@ pub fn ask_dock_item(at: usize) -> Result<(), String> {
     std::fs::write(&path, format!("{ASK_DOCK} {at}\n")).map_err(|error| error.to_string())
 }
 
-pub fn take_dock_ask() -> Option<usize> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SettingsAsk {
+    Dock(usize),
+    WifiHidden,
+    WifiJoin(String),
+}
+
+pub fn ask_wifi(join: Option<&str>) -> Result<(), String> {
+    let path = ask_path();
+    if let Some(folder) = path.parent() {
+        std::fs::create_dir_all(folder).map_err(|error| error.to_string())?;
+    }
+    let line = match join {
+        Some(ssid) => format!("{ASK_WIFI} join {ssid}\n"),
+        None => format!("{ASK_WIFI} hidden\n"),
+    };
+    std::fs::write(&path, line).map_err(|error| error.to_string())
+}
+
+pub fn take_settings_ask() -> Option<SettingsAsk> {
     let path = ask_path();
     let fresh = std::fs::metadata(&path)
         .and_then(|meta| meta.modified())
@@ -2572,7 +2592,15 @@ pub fn take_dock_ask() -> Option<usize> {
     if !fresh {
         return None;
     }
-    read_dock_ask(&text)
+    if let Some(at) = read_dock_ask(&text) {
+        return Some(SettingsAsk::Dock(at));
+    }
+    let rest = text.trim_end_matches('\n').strip_prefix(ASK_WIFI)?.trim_start();
+    match rest.split_once(' ') {
+        Some(("join", ssid)) if !ssid.is_empty() => Some(SettingsAsk::WifiJoin(ssid.to_string())),
+        _ if rest.trim() == "hidden" => Some(SettingsAsk::WifiHidden),
+        _ => None,
+    }
 }
 
 fn read_dock_ask(text: &str) -> Option<usize> {

@@ -1204,6 +1204,8 @@ pub struct Keys {
     pub shot_bar: String,
     #[serde(default = "key_screen_reader")]
     pub screen_reader: String,
+    #[serde(default)]
+    pub wifi: String,
 }
 
 fn key_shot_screen() -> String {
@@ -1264,6 +1266,7 @@ impl Default for Keys {
             shot_part: String::new(),
             shot_bar: String::new(),
             screen_reader: String::new(),
+            wifi: String::new(),
         };
         for action in Action::ALL {
             *keys.get_mut(action) = action.default_combo().to_string();
@@ -1290,6 +1293,7 @@ impl Keys {
             Action::ShotPart => &self.shot_part,
             Action::ShotBar => &self.shot_bar,
             Action::ScreenReader => &self.screen_reader,
+            Action::Wifi => &self.wifi,
         }
     }
 
@@ -1310,6 +1314,7 @@ impl Keys {
             Action::ShotPart => &mut self.shot_part,
             Action::ShotBar => &mut self.shot_bar,
             Action::ScreenReader => &mut self.screen_reader,
+            Action::Wifi => &mut self.wifi,
         }
     }
 

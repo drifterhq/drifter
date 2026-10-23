@@ -376,6 +376,8 @@ pub fn steps(signal: u8) -> u8 {
 
 pub const WEAK: u8 = 30;
 
+pub const PORTAL_PAGE: &str = "http://neverssl.com/";
+
 pub fn plain_error(reason: u32, name: &str) -> String {
     match reason {
         7 | 8 | 9 | 10 | 11 => crate::lang::t("Wrong password").to_string(),
@@ -899,4 +901,93 @@ pub fn bars(signal: u8) -> &'static str {
         50..=74 => "good",
         _ => "strong",
     }
+}
+
+const ARCS: [&str; 3] = [
+    "M6.535 12.735A4.9 4.9 0 0 1 13.465 12.735",
+    "M3.919 10.119A8.6 8.6 0 0 1 16.081 10.119",
+    "M1.303 7.503A12.3 12.3 0 0 1 18.697 7.503",
+];
+
+fn arc_svg(at: usize) -> String {
+    format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="{}" fill="none" stroke="#000" stroke-width="2.3" stroke-linecap="round"/></svg>"##,
+        ARCS[at.min(2)]
+    )
+}
+
+const DOT: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><circle cx="10" cy="16.2" r="1.9"/></svg>"##;
+
+fn fan_svg() -> String {
+    format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><g fill="none" stroke="#000" stroke-width="2.3" stroke-linecap="round"><path d="{}"/><path d="{}"/><path d="{}"/></g><circle cx="10" cy="16.2" r="1.9"/></svg>"##,
+        ARCS[0], ARCS[1], ARCS[2]
+    )
+}
+
+fn hollow_svg() -> String {
+    let paths = ARCS.iter().map(|d| format!(r#"<path d="{d}"/>"#)).collect::<String>();
+    format!(
+        r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><mask id="m"><rect width="20" height="20" fill="#fff"/><g fill="none" stroke="#000" stroke-width="0.85" stroke-linecap="round">{paths}</g><circle cx="10" cy="16.2" r="0.75" fill="#000"/></mask><g mask="url(#m)"><g fill="none" stroke="#000" stroke-width="2.6" stroke-linecap="round">{paths}</g><circle cx="10" cy="16.2" r="2.05"/></g></svg>"##
+    )
+}
+
+const WIRED: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M4.5 4.5h11a1.5 1.5 0 0 1 1.5 1.5v6.5a1.5 1.5 0 0 1-1.5 1.5H13v2.2H7V14H4.5A1.5 1.5 0 0 1 3 12.5V6a1.5 1.5 0 0 1 1.5-1.5z" fill="none" stroke="#000" stroke-width="1.8" stroke-linejoin="round"/><path d="M7 7.4v2.2M10 7.4v2.2M13 7.4v2.2" stroke="#000" stroke-width="1.4" stroke-linecap="round"/></svg>"##;
+
+const ALERT: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M18.4 12.3v3.5" stroke="#000" stroke-width="1.9" stroke-linecap="round"/><circle cx="18.4" cy="18.5" r="1.1"/></svg>"##;
+
+const LOCK_BADGE: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M1.75 15.6v-1.5a1.35 1.35 0 0 1 2.7 0v1.5" fill="none" stroke="#000" stroke-width="1.1"/><rect x="0.7" y="15.2" width="4.8" height="4.1" rx="0.9"/></svg>"##;
+
+const LOCK: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12 12"><path d="M3.6 5.4V4a2.4 2.4 0 0 1 4.8 0v1.4" fill="none" stroke="#000" stroke-width="1.3"/><rect x="2.2" y="5.2" width="7.6" height="5.8" rx="1.3"/></svg>"##;
+
+const SHIELD: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M10 2.2l6.3 2.4v4.6c0 4.1-2.7 7.3-6.3 8.6-3.6-1.3-6.3-4.5-6.3-8.6V4.6z" fill="none" stroke="#000" stroke-width="1.8" stroke-linejoin="round"/><path d="M7.4 9.9l1.9 1.9 3.5-3.6" fill="none" stroke="#000" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>"##;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Glyph {
+    Wifi,
+    Wired,
+    Vpn,
+}
+
+pub fn glyph(glyph: Glyph, side: u32, ink: [u8; 3]) -> crate::image::Image {
+    match glyph {
+        Glyph::Wifi => crate::blue::svg_glyph(&fan_svg(), side, ink),
+        Glyph::Wired => crate::blue::svg_glyph(WIRED, side, ink),
+        Glyph::Vpn => crate::blue::svg_glyph(SHIELD, side, ink),
+    }
+}
+
+pub fn lock_glyph(side: u32, ink: [u8; 3]) -> crate::image::Image {
+    crate::blue::svg_glyph(LOCK, side, ink)
+}
+
+pub struct TrayArt {
+    pub dot: crate::image::Image,
+    pub arcs: [crate::image::Image; 3],
+    pub hollow: crate::image::Image,
+    pub wired: crate::image::Image,
+    pub alert: crate::image::Image,
+    pub portal: crate::image::Image,
+    pub lock: crate::image::Image,
+}
+
+pub fn tray_art(side: u32, ink: [u8; 3], accent: [u8; 3]) -> TrayArt {
+    TrayArt {
+        dot: crate::blue::svg_glyph(DOT, side, ink),
+        arcs: [0, 1, 2].map(|at| crate::blue::svg_glyph(&arc_svg(at), side, ink)),
+        hollow: crate::blue::svg_glyph(&hollow_svg(), side, ink),
+        wired: crate::blue::svg_glyph(WIRED, side, ink),
+        alert: crate::blue::svg_glyph(ALERT, side, ink),
+        portal: crate::blue::svg_glyph(ALERT, side, accent),
+        lock: crate::blue::svg_glyph(LOCK_BADGE, side, ink),
+    }
+}
+
+pub const BASE: f64 = 0.3;
+pub const OFF: f64 = 0.45;
+
+pub fn wave(seconds: f64, arc: usize) -> f64 {
+    let phase = (seconds - 0.15 * arc as f64) / 1.2;
+    let lift = 0.5 - 0.5 * (phase * std::f64::consts::TAU).cos();
+    BASE + (1.0 - BASE) * lift
 }
