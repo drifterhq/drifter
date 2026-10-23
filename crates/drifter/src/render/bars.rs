@@ -376,7 +376,7 @@ impl State {
             return true;
         }
         if self.wifi_tray_rect().is_some_and(|rect| rect.contains(self.pointer)) {
-            self.open_wifi_menu(false);
+            self.open_wifi_menu();
             return true;
         }
         if let Some(band) = self.tray_band()
@@ -445,7 +445,7 @@ impl State {
             self.toggle_control();
             return true;
         }
-        if code == BTN_LEFT && self.press_wifi_tray(had_menu, self.alt_held()) {
+        if code == BTN_LEFT && self.press_wifi_tray(had_menu) {
             return true;
         }
         if code == BTN_LEFT && self.press_blue_tray(had_menu) {

@@ -243,7 +243,7 @@ impl State {
                 self.follow_reader();
                 self.save_key(|text| drifter_core::settings::write_flag(text, "access", "screen_reader", on));
             }
-            Action::Wifi => self.open_wifi_menu(false),
+            Action::Wifi => self.open_wifi_menu(),
         }
     }
 

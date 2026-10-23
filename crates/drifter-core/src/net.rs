@@ -563,57 +563,6 @@ pub fn menu(wifi: &Wifi, airdrop: bool) -> Vec<crate::menu::Item> {
     items
 }
 
-pub fn detail_menu(lines: &[(String, String)]) -> Vec<crate::menu::Item> {
-    use crate::menu::Item;
-    let mut items: Vec<Item> = lines
-        .iter()
-        .filter(|(_, value)| !value.is_empty())
-        .map(|(key, value)| Item {
-            enabled: false,
-            ..Item::line(-20, &format!("{key}: {value}"))
-        })
-        .collect();
-    items.push(Item::rule(-21));
-    items.push(Item::line(MENU_SETTINGS, crate::lang::t("Wi-Fi Settings…")));
-    items
-}
-
-pub fn quick_lines(wifi: &Wifi, net: &Net, ap: Option<&Ap>, link: Option<&Link>) -> Vec<(String, String)> {
-    let mut lines: Vec<(String, String)> = Vec::new();
-    let mut add = |key: &str, value: String| lines.push((key.to_string(), value));
-    add(crate::lang::t("Network"), net.ssid.clone());
-    let field = |key: &str| {
-        link.and_then(|link| {
-            link.device
-                .iter()
-                .find(|(field, _)| field == key || field.starts_with(&format!("{key}[")))
-                .map(|(_, value)| value.clone())
-        })
-        .unwrap_or_default()
-    };
-    add(crate::lang::t("IP address"), field("IP4.ADDRESS"));
-    add(crate::lang::t("Router"), field("IP4.GATEWAY"));
-    if let Some(ap) = ap {
-        add(crate::lang::t("Band"), band(ap.mhz).to_string());
-        add(crate::lang::t("Channel"), ap.channel.to_string());
-        add(crate::lang::t("Security"), match ap.security.is_empty() {
-            true => crate::lang::t("None").to_string(),
-            false => ap.security.clone(),
-        });
-    }
-    match link.and_then(|link| link.dbm) {
-        Some(dbm) => add(crate::lang::t("Signal"), format!("{dbm} dBm, {}%", net.signal)),
-        None => add(crate::lang::t("Signal"), format!("{}%", net.signal)),
-    }
-    if let Some(rate) = link.and_then(|link| link.bitrate.clone()) {
-        add(crate::lang::t("Speed now"), rate);
-    }
-    if let Some(card) = wifi.card.as_ref() {
-        add(crate::lang::t("Card"), card.iface.clone());
-    }
-    lines
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Peer {
     pub public_key: String,

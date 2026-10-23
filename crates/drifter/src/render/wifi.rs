@@ -870,41 +870,18 @@ impl State {
         }
     }
 
-    pub(super) fn open_wifi_menu(&mut self, details: bool) {
+    pub(super) fn open_wifi_menu(&mut self) {
         let at = self.wifi_tray_rect().map_or(self.pointer, |rect| Vec2::new(rect.origin.x, rect.max().y + 6.0));
         let airdrop = self.airdrop_holds_wifi();
-        if !details {
-            let items = match self.wifi.now.as_ref() {
-                Some(wifi) => net::menu(wifi, airdrop),
-                None => vec![drifter_core::menu::Item::line(net::MENU_SETTINGS, drifter_core::lang::t("Wi-Fi Settings…"))],
-            };
-            self.wifi.menu_nets = self.wifi.now.as_ref().map(|wifi| wifi.nets.iter().map(|net| net.ssid.clone()).collect()).unwrap_or_default();
-            self.wifi.menu_vpns = self.wifi.now.as_ref().map(|wifi| wifi.vpns.iter().map(|vpn| vpn.uuid.clone()).collect()).unwrap_or_default();
-            self.close_panels();
-            self.open_popover(items, at, Target::Wifi);
-            self.wifi_scan_as_needed();
-            return;
-        }
-        let Some(bus) = self.wifi.bus.clone() else {
-            return;
+        let items = match self.wifi.now.as_ref() {
+            Some(wifi) => net::menu(wifi, airdrop),
+            None => vec![drifter_core::menu::Item::line(net::MENU_SETTINGS, drifter_core::lang::t("Wi-Fi Settings…"))],
         };
-        let Some(wifi) = self.wifi.now.clone() else {
-            return;
-        };
-        self.background("wifi details", move || {
-            let lines = match wifi.joined_net().cloned() {
-                Some(joined) => {
-                    let ap = bus.points(&joined.ssid).into_iter().next();
-                    let link = bus.link();
-                    net::quick_lines(&wifi, &joined, ap.as_ref(), link.as_ref())
-                }
-                None => vec![(drifter_core::lang::t("Wi-Fi").to_string(), net::tip(&wifi, false))],
-            };
-            move |state: &mut State| {
-                state.close_panels();
-                state.open_popover(net::detail_menu(&lines), at, Target::Wifi);
-            }
-        });
+        self.wifi.menu_nets = self.wifi.now.as_ref().map(|wifi| wifi.nets.iter().map(|net| net.ssid.clone()).collect()).unwrap_or_default();
+        self.wifi.menu_vpns = self.wifi.now.as_ref().map(|wifi| wifi.vpns.iter().map(|vpn| vpn.uuid.clone()).collect()).unwrap_or_default();
+        self.close_panels();
+        self.open_popover(items, at, Target::Wifi);
+        self.wifi_scan_as_needed();
     }
 
     pub(super) fn wifi_menu_pick(&mut self, id: i32) {
@@ -940,16 +917,12 @@ impl State {
         self.kick_now();
     }
 
-    pub(super) fn alt_held(&self) -> bool {
-        self.wayland.keyboard.modifier_state().alt
-    }
-
-    pub(super) fn press_wifi_tray(&mut self, had_menu: bool, details: bool) -> bool {
+    pub(super) fn press_wifi_tray(&mut self, had_menu: bool) -> bool {
         if !self.wifi_tray_rect().is_some_and(|rect| rect.contains(self.pointer)) {
             return false;
         }
         if !had_menu {
-            self.open_wifi_menu(details);
+            self.open_wifi_menu();
         }
         true
     }
