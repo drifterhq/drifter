@@ -2324,7 +2324,6 @@ impl Settings {
                     Job::Join {
                         ssid: net.ssid,
                         password: None,
-                        known: net.known,
                     },
                     note,
                 );
@@ -2550,7 +2549,6 @@ impl Settings {
                         crate::net::Job::Join {
                             ssid: net.ssid,
                             password: Some(text),
-                            known: false,
                         },
                         note,
                     );

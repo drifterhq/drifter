@@ -821,15 +821,6 @@ impl Bus {
         })
     }
 
-    pub fn reconnect(&self) -> Result<(), String> {
-        let wifi = self.snapshot().ok_or_else(|| Missing::Service.words().to_string())?;
-        let card = wifi.card.clone().ok_or_else(|| Missing::Card.words().to_string())?;
-        let joined = wifi.joined.clone().ok_or_else(|| drifter_core::lang::t("Not connected").to_string())?;
-        let saved = wifi.saved_for(&joined).first().map(|each| each.path.clone()).ok_or_else(|| drifter_core::lang::t("That network is not saved.").to_string())?;
-        let point = wifi.find(&joined).map(|net| net.point.clone()).unwrap_or_default();
-        self.activate(&saved, &card.path, &point).map(drop)
-    }
-
     pub fn vpn(&self, uuid: &str, on: bool) -> Result<(), String> {
         let objects = self.objects().ok_or_else(|| Missing::Service.words().to_string())?;
         let saved = self.saved_all(&objects);

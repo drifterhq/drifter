@@ -7,7 +7,7 @@ use drifter_net::bus::Joined;
 
 pub enum Job {
     WifiPower(bool),
-    Join { ssid: String, password: Option<String>, known: bool },
+    Join { ssid: String, password: Option<String> },
     JoinHidden { ssid: String, password: Option<String> },
     JoinEnterprise { ssid: String, user: String, password: String, domain: Option<String> },
     Leave(String),
@@ -16,8 +16,6 @@ pub enum Job {
     Private(String, Private),
     Metered(String, bool),
     Raise(String, bool),
-    Powersave(String),
-    Reconnect,
     StartService,
 }
 
@@ -114,7 +112,5 @@ pub fn run(job: Job) -> Result<(), String> {
             }
             Ok(())
         }
-        Job::Powersave(ssid) => bus.set_powersave(&uuid_of(bus, &ssid)?, true),
-        Job::Reconnect => bus.reconnect(),
     }
 }
