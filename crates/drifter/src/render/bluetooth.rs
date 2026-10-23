@@ -34,14 +34,14 @@ pub(super) struct Pill {
 pub(super) struct Art {
     key: Option<(drifter_core::theme::Palette, [u8; 3], u32)>,
     busy: bool,
-    discs: HashMap<(Kind, bool), TextureBuffer<Tex>>,
-    ring: Vec<TextureBuffer<Tex>>,
+    pub discs: HashMap<(Kind, bool), TextureBuffer<Tex>>,
+    pub ring: Vec<TextureBuffer<Tex>>,
     pub symbols: HashMap<u8, TextureBuffer<Tex>>,
     pub accent_disc: Option<TextureBuffer<Tex>>,
     tray: Vec<TextureBuffer<Tex>>,
     dot: Option<TextureBuffer<Tex>>,
-    fills: Vec<TextureBuffer<Tex>>,
-    bars: Option<TextureBuffer<Tex>>,
+    pub fills: Vec<TextureBuffer<Tex>>,
+    pub bars: Option<TextureBuffer<Tex>>,
     pub glyphs: HashMap<Kind, TextureBuffer<Tex>>,
 }
 

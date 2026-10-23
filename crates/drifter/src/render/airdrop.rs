@@ -230,7 +230,7 @@ impl State {
             };
         }
         self.control_status.airdrop = shown.then(|| (self.drop.until.is_some(), self.airdrop_note()));
-        self.blue_fill(drifter_core::control::Tile::AirDrop);
+        self.fill_tile(drifter_core::control::Tile::AirDrop);
     }
 
     fn airdrop_note(&self) -> String {
