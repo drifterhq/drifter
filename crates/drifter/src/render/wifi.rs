@@ -197,6 +197,7 @@ impl State {
             self.wifi.busy.retain(|ssid| ssid.starts_with("vpn:") || wifi.joined.as_deref() != Some(ssid.as_str()));
         }
         self.wifi_face();
+        self.wifi_art();
         let was = self.control_status.wifi.clone();
         self.control_status.wifi = self.wifi.now.as_ref().filter(|wifi| wifi.card.is_some()).map(|wifi| {
             let name = match (wifi.joined.clone(), wifi.joining.clone()) {

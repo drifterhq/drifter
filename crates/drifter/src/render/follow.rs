@@ -413,6 +413,7 @@ impl State {
         self.tip_of = None;
         self.tip_want = None;
         self.tray.ink = palette.ink;
+        self.wifi_art();
         self.battery_seen = None;
         self.battery_at = None;
         self.show_battery = config.tray.battery;
@@ -421,6 +422,7 @@ impl State {
         self.app_label = None;
         self.search = None;
         self.control = None;
+        self.control_list = None;
         self.notes_panel = None;
         self.charges = None;
         self.glance_panel = None;
