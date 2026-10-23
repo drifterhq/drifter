@@ -858,7 +858,7 @@ impl Settings {
             .chain(&chosen)
             .map(Model::icon_key)
             .chain(
-                [Section::Login, Section::Bluetooth]
+                [Section::Login, Section::Bluetooth, Section::Network]
                     .into_iter()
                     .flat_map(|section| self.model.groups(section))
                     .flat_map(|group| group.rows.into_iter().filter_map(|row| row.icon)),
