@@ -902,6 +902,11 @@ impl Bus {
                 })
                 .collect()
         };
+        let whole_tunnel = setup
+            .peers
+            .iter()
+            .flat_map(|peer| peer.allowed.iter())
+            .any(|each| each.trim() == "0.0.0.0/0" || each.trim() == "::/0");
         let mut ip4: Part = HashMap::new();
         let v4 = split(false);
         match v4.is_empty() {
@@ -919,7 +924,9 @@ impl Bus {
                     .collect();
                 if !dns.is_empty() {
                     ip4.insert("dns", Value::from(dns));
-                    ip4.insert("dns-priority", Value::from(-50i32));
+                    if whole_tunnel {
+                        ip4.insert("dns-priority", Value::from(-50i32));
+                    }
                 }
             }
         }
