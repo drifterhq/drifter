@@ -1,6 +1,6 @@
 # Top-bar menus and panels: one visual language
 
-Goal: every menu and panel that opens from the top bar looks and moves like one family. Today Control Center and Notification Center have rich rows, while the menus are plain lines of text.
+Goal: every menu and panel that opens from the top bar looks and moves like one family. Control Center is the reference: the user likes its detail, so every other surface copies its material, rows, discs, highlight and motion. Today Control Center and Notification Center have rich rows, while the menus are plain lines of text.
 
 Audit done on main `a89e1e9` (2026-10-22), with screenshots of each surface from the trixie VM. Line numbers drift: check them before each edit.
 
@@ -48,7 +48,7 @@ Work rules (same as txt/network.md):
 
 One surface:
 - Radius 14 for every panel and menu; tooltips 10.
-- Backing 0.92 with the frost behind it, for every surface (`veil` applies on top, as now).
+- Backing 0.96 with the frost behind it, Control Center's value, for every surface (`veil` applies on top, as now).
 - Shadow `Shadow::Menu` for all.
 - Inner padding 6 px for menus, 12 px for panels.
 - Rule: a hairline at 10% ink, inset 12 px, with 5 px space above and below.
@@ -69,8 +69,8 @@ One set of rows (a new `menu::Row` kind on each item):
 - Rule.
 
 One hover:
-- A soft accent wash (accent at 22%, radius 8) that glides between rows on the GPU, like Control Center's `lit`. The text stays ink. The menu image is painted once and not repainted on hover.
-- A pressed row flashes the wash to 40% for 0.08 s before the menu closes.
+- Control Center's own soft highlight (`lit.rs`: radius 9, 7% ink, glides 0.12 s) on every row. The text stays ink. The menu image is painted once and not repainted on hover.
+- A pressed row flashes the highlight to 16% for 0.08 s before the menu closes.
 
 One motion:
 - Open: fade in and drop 6 px from the bar, scale 0.96 to 1 on `drawer::ease`, 0.2 s. Rich rows stagger in 0.02 s apart.
@@ -92,8 +92,8 @@ One keyboard:
   - `Item::line`, `more` and `rule` stay, so callers keep working.
   - Heights per kind in `Look::height` and `item_rect`.
 - [ ] **2. One look for every surface.**
-  - `menu::Look`: radius 14, backing 0.92, pad 6, the type scale above. The accent already follows the user's accent (follow.rs:294).
-  - `control::Look`, `calendar::Look`, the charges card and `glance::Card`: backing 0.92 and the same rule and section style.
+  - `menu::Look`: radius 14, backing 0.96, pad 6, the type scale above. The accent already follows the user's accent (follow.rs:294).
+  - `calendar::Look`, the charges card and `glance::Card`: backing 0.96 and the same rule and section style. `control::Look` is the reference and does not change.
   - Tooltips keep radius 10.
 - [ ] **3. Paint every row kind.**
   - New file `crates/drifter-core/src/menu/rows.rs` (split `menu.rs`, now 631 lines): paint Action, Header with switch, Section, Rich (disc and trailing marks from the control art), Info, Message, Rule.

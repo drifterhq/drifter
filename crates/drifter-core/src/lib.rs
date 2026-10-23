@@ -47,6 +47,7 @@ pub mod power;
 pub mod prompt;
 pub mod reopen;
 pub mod ripple;
+pub mod rows;
 pub mod screens;
 pub mod search;
 pub mod settings;

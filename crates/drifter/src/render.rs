@@ -369,9 +369,8 @@ struct Popover {
     opened: Option<Instant>,
     art: Option<TextureBuffer<Tex>>,
     target: Target,
-    hover: Option<usize>,
-    want: Option<usize>,
     lane: worker::Lane,
+    keyed: Option<usize>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1443,7 +1442,6 @@ impl State {
     fn hover(&mut self) {
         self.aim_shooter();
         self.watch_corner();
-        self.repaint_popover();
         self.hover_desk_menu();
         self.hover_welcome();
         self.hover_rows();

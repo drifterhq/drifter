@@ -729,7 +729,7 @@ impl State {
             .find(|(_, slot)| *slot == Slot::Options)
             .map(|(rect, _)| rect)
             .unwrap_or(Rect::new(Vec2::ZERO, bar.size));
-        let size = self.menu_look().size(&items, self.font.as_deref());
+        let size = self.menu_look().size(&items, self.font.as_deref(), self.card_font.as_deref());
         let top = (bar.origin.y - size.y - 8.0).max(4.0);
         let at = Vec2::new(bar.origin.x + options.origin.x, top);
         let from = Vec2::new(bar.origin.x + options.center().x, bar.origin.y);

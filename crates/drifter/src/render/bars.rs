@@ -69,7 +69,7 @@ impl State {
             return;
         }
         let look = self.menu_look();
-        let size = look.size(&items, self.note_head.as_deref());
+        let size = look.size(&items, self.note_head.as_deref(), self.card_font.as_deref());
         let rect = look.rect(at, size, self.screen);
         let (anchor, opened) = match self.popover.as_ref() {
             Some(was) if same_menu(&was.target, &target) => {
@@ -84,49 +84,35 @@ impl State {
             opened,
             art: None,
             target,
-            hover: None,
-            want: None,
             lane: worker::Lane::default(),
+            keyed: None,
         });
         self.paint_popover();
-    }
-
-    pub(super) fn repaint_popover(&mut self) {
-        let pointer = self.pointer;
-        let Some(open) = self.popover.as_mut() else {
-            return;
-        };
-        let inside = pointer - open.rect.origin;
-        let hover = self.look.item_at(&open.items, open.rect.size, inside);
-        if hover == open.want {
-            return;
-        }
-        open.want = hover;
-        self.paint_popover();
+        self.hover_rows();
     }
 
     pub(super) fn paint_popover(&mut self) {
         let look = self.menu_look();
         let font = self.note_head.clone();
+        let small = self.card_font.clone();
         let frosting = self.frosting();
         let Some(open) = self.popover.as_ref() else {
             return;
         };
         let items = open.items.clone();
-        let (size, origin, want) = (open.rect.size, open.rect.origin, open.want);
+        let (size, origin) = (open.rect.size, open.rect.origin);
         self.paint_in_lane(
             "menu",
             |state| state.popover.as_mut().map(|open| &mut open.lane),
             State::paint_popover,
             move || {
-                let mut image = look.paint(&items, size, want, font.as_deref());
+                let mut image = look.paint(&items, size, None, font.as_deref(), small.as_deref());
                 worker::frost(&frosting, &mut image, origin, f64::from(look.back_alpha) / 255.0);
                 Some(image)
             },
             move |state, art| {
                 if let Some(open) = state.popover.as_mut() {
                     open.art = Some(art);
-                    open.hover = want;
                     open.opened.get_or_insert_with(Instant::now);
                 }
             },
@@ -144,6 +130,10 @@ impl State {
         let instant = self.window_pace <= 0.0;
         let (drop, shown) = drifter_core::menu::grown(open.rect, open.anchor, gone, instant, self.window_still);
         if shown > 0.0 {
+            let anchor = open.anchor.clamp(open.rect.origin, open.rect.max());
+            let scale = drop.size.x / open.rect.size.x.max(1.0);
+            let lift = (anchor + (open.rect.origin - anchor) * scale).y - drop.origin.y;
+            self.lit_elements(super::fade::Pane::Menu, anchor, scale, lift, shown as f32, elements);
             self.menu_skin(art, drop, shown as f32, elements);
         }
     }
@@ -165,13 +155,75 @@ impl State {
         }
 
         let inside = self.pointer - open.rect.origin;
-        let Some(index) = self.look.item_at(&open.items, open.rect.size, inside) else {
+        let Some(index) = self.menu_look().item_at(&open.items, open.rect.size, inside) else {
             return true;
         };
-        let chosen = open.items[index].clone();
-        if !chosen.enabled {
+        self.pick_popover(index)
+    }
+
+    pub(super) fn popover_key(&mut self, key: LockKey) -> bool {
+        let Some(open) = self.popover.as_ref() else {
+            return false;
+        };
+        let pickable: Vec<usize> = (0..open.items.len()).filter(|at| open.items[*at].picks()).collect();
+        if pickable.is_empty() && !matches!(key, LockKey::Clear) {
             return true;
         }
+        let now = open.keyed.and_then(|at| pickable.iter().position(|each| *each == at));
+        match key {
+            LockKey::Down | LockKey::Up => {
+                let step = |at: usize| match key {
+                    LockKey::Down => (at + 1) % pickable.len(),
+                    _ => (at + pickable.len() - 1) % pickable.len(),
+                };
+                let next = match now {
+                    Some(at) => pickable[step(at)],
+                    None if matches!(key, LockKey::Down) => pickable[0],
+                    None => pickable[pickable.len() - 1],
+                };
+                let look = self.menu_look();
+                let rect = self.popover.as_mut().map(|open| {
+                    open.keyed = Some(next);
+                    let row = look.lit_rect(&open.items, open.rect.size, next);
+                    Rect::new(open.rect.origin + row.origin, row.size)
+                });
+                if let Some(rect) = rect {
+                    self.light_row(super::fade::Pane::Menu, rect);
+                }
+            }
+            LockKey::Enter | LockKey::Right => {
+                if let Some(at) = open.keyed {
+                    let deeper = open.items[at].children;
+                    if matches!(key, LockKey::Enter) || deeper {
+                        self.pick_popover(at);
+                    }
+                }
+            }
+            LockKey::Left => {
+                if let Some(at) = open.items.iter().position(|item| item.id == drifter_core::menu::BACK && item.picks()) {
+                    self.pick_popover(at);
+                }
+            }
+            LockKey::Clear => {
+                self.popover = None;
+            }
+            _ => {}
+        }
+        self.kick_now();
+        true
+    }
+
+    fn pick_popover(&mut self, index: usize) -> bool {
+        let Some(open) = self.popover.as_ref() else {
+            return false;
+        };
+        let Some(chosen) = open.items.get(index).cloned() else {
+            return true;
+        };
+        if !chosen.picks() {
+            return true;
+        }
+        self.press_lit();
 
         match &open.target {
             Target::Tray { service, trail, at } => {
@@ -283,9 +335,10 @@ impl State {
         let items = vec![Item::line(0, text)];
         let look = Look {
             least_width: 0.0,
+            radius: 10.0,
             ..self.menu_look()
         };
-        let size = look.size(&items, self.note_head.as_deref());
+        let size = look.size(&items, self.note_head.as_deref(), None);
         let at = Vec2::new(
             under.center().x - size.x / 2.0,
             if below {
@@ -304,7 +357,7 @@ impl State {
             |state| Some(&mut state.tip_lane),
             |state| state.tip_want = None,
             move || {
-                let mut image = look.paint(&items, size, None, font.as_deref());
+                let mut image = look.paint(&items, size, None, font.as_deref(), None);
                 worker::frost(&frosting, &mut image, rect.origin, f64::from(look.back_alpha) / 255.0);
                 Some(image)
             },
