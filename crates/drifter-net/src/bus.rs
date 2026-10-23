@@ -1101,3 +1101,17 @@ pub fn plain_bus(text: &str) -> String {
     }
     text.rsplit(": ").next().unwrap_or(text).trim().to_string()
 }
+
+pub fn tell(summary: &str, body: &str) {
+    let Ok(bus) = Connection::session() else {
+        return;
+    };
+    let hints: HashMap<&str, Value> = HashMap::new();
+    let _ = bus.call_method(
+        Some("org.freedesktop.Notifications"),
+        "/org/freedesktop/Notifications",
+        Some("org.freedesktop.Notifications"),
+        "Notify",
+        &(drifter_core::lang::t("Wi-Fi"), 0u32, "network-wireless", summary, body, Vec::<&str>::new(), hints, 6000i32),
+    );
+}

@@ -296,6 +296,7 @@ mod tests {
             typed: 5,
             error: None,
             busy: false,
+            join: false,
         }
     }
 

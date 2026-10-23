@@ -653,7 +653,7 @@ impl State {
         self.kick_now();
     }
 
-    fn wifi_leave(&mut self, ssid: &str) {
+    pub(super) fn wifi_leave(&mut self, ssid: &str) {
         let Some(bus) = self.wifi.bus.clone() else {
             return;
         };

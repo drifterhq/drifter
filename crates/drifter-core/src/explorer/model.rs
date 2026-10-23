@@ -100,6 +100,7 @@ pub enum Act {
     CopyThisPath(PathBuf),
     SendTo(String),
     AirDrop,
+    AddVpn(PathBuf),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -447,6 +448,7 @@ pub enum Effect {
     Measure(PathBuf),
     Send(String, String, Vec<PathBuf>),
     AirDrop(Vec<PathBuf>),
+    AddVpn(PathBuf),
     Close,
 }
 
@@ -2307,6 +2309,10 @@ impl Model {
                     self.effects.push(Effect::Send(address, name, files));
                 }
             }
+            Act::AddVpn(path) => {
+                self.say(crate::lang::t("Adding the VPN…"), false);
+                self.effects.push(Effect::AddVpn(path));
+            }
             Act::CopyThisPath(path) => {
                 self.hold(Held::Text(path.to_string_lossy().into_owned()));
                 self.say(crate::lang::t("Path copied"), false);
@@ -2684,6 +2690,12 @@ impl Model {
         if files && !self.phones.is_empty() {
             let phones = self.phones.iter().map(|(address, name)| Item::new(name, "", Act::SendTo(address.clone()))).collect();
             items.push(Item::more(crate::lang::t("Send with Bluetooth"), phones));
+        }
+        if let [only] = self.chosen().as_slice()
+            && !only.folder
+            && crate::net::is_wireguard(&only.path)
+        {
+            items.push(Item::new(crate::lang::t("Add as VPN"), "", Act::AddVpn(only.path.clone())));
         }
         let archives = self.chosen().iter().all(|each| !each.folder && super::pack::kind_of(&each.name).is_some());
         if archives {

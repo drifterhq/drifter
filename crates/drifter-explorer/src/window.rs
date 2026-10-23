@@ -582,6 +582,22 @@ impl Explorer {
                         }
                     });
                 }
+                Effect::AddVpn(path) => {
+                    std::thread::spawn(move || {
+                        let name = path.file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_else(|| "VPN".to_string());
+                        let added = std::fs::read_to_string(&path)
+                            .map_err(|error| error.to_string())
+                            .and_then(|text| drifter_core::net::wireguard(&name, &text))
+                            .and_then(|setup| drifter_net::Bus::system()?.add_wireguard(&setup));
+                        match added {
+                            Ok(()) => drifter_net::bus::tell(
+                                &drifter_core::lang::tf("{} is ready", &[&name]),
+                                drifter_core::lang::t("Turn it on from the Wi-Fi menu or Control Center."),
+                            ),
+                            Err(error) => drifter_net::bus::tell(&drifter_core::lang::tf("{} was not added", &[&name]), &error),
+                        }
+                    });
+                }
                 Effect::Close => self.exit = true,
             }
         }

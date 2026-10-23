@@ -27,6 +27,7 @@ impl State {
             all: drifter_core::search::settings()
                 .into_iter()
                 .chain(self.radio.now.as_ref().map(drifter_core::search::devices).unwrap_or_default())
+                .chain(self.wifi.now.as_ref().map(drifter_core::search::networks).unwrap_or_default())
                 .collect(),
             results: Vec::new(),
             selected: 0,
@@ -234,6 +235,13 @@ impl State {
             }
             Kind::Setting => self.open_settings_at(&found.key),
             Kind::Device => self.blue_connect(&found.key),
+            Kind::Network => {
+                let joined = self.wifi.now.as_ref().and_then(|wifi| wifi.find(&found.key)).is_some_and(|net| net.active);
+                match joined {
+                    true => self.wifi_leave(&found.key),
+                    false => self.wifi_join(&found.key),
+                }
+            }
             Kind::File => {
                 let path = std::path::Path::new(&found.key);
                 match path.is_dir() {

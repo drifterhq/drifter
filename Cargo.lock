@@ -755,6 +755,7 @@ dependencies = [
  "accesskit_unix",
  "drifter-blue",
  "drifter-core",
+ "drifter-net",
  "smithay-client-toolkit",
  "wayland-client",
 ]

@@ -907,7 +907,7 @@ mod tests {
         assert!(matches!(look.hit(Vec2::new(sound.origin.x + 1.0, sound.center().y), &[]), Some(Hit::Volume(_))));
         assert_eq!(look.hit(Vec2::new(1.0, 1.0), &[]), None);
         assert_eq!(look.hit(look.tile_rect(Tile::Bluetooth).center(), &[]), Some(Hit::More(Tile::Bluetooth)));
-        assert_eq!(look.hit(look.tile_rect(Tile::Wifi).center(), &[]), Some(Hit::Tile(Tile::Wifi)));
+        assert_eq!(look.hit(look.tile_rect(Tile::Wifi).center(), &[]), Some(Hit::More(Tile::Wifi)));
         let size = look.size();
         assert!(look.slider_rect(1).max().y <= size.y);
     }

@@ -10,6 +10,7 @@ drifter-core.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 drifter-blue.workspace = true
+drifter-net.workspace = true
 accesskit = "0.25"
 accesskit_unix = "0.24"
 smithay-client-toolkit = { version = "0.19", default-features = false, features = ["calloop", "xkbcommon"] }

@@ -4517,3 +4517,384 @@ No app is playing sound right now.
 
 No Wi-Fi card found through NetworkManager. If another tool runs your Wi-Fi, keep using it.
 = Keine WLAN-Karte über NetworkManager gefunden. Wenn ein anderes Werkzeug dein WLAN steuert, nutze es weiter.
+
+Wi-Fi did not change
+= WLAN hat sich nicht geändert
+
+This network wants you to sign in before you use the internet. Click to open the sign-in page.
+= Dieses Netzwerk will, dass du dich anmeldest, bevor du das Internet nutzt. Klicke, um die Anmeldeseite zu öffnen.
+
+Did not join
+= Nicht verbunden
+
+It did not connect. Check the VPN in Wi-Fi Settings.
+= Keine Verbindung. Prüfe das VPN in den WLAN-Einstellungen.
+
+NetworkManager is not running
+= NetworkManager läuft nicht
+
+Wi-Fi Settings…
+= WLAN-Einstellungen …
+
+Joined, sign in to use the internet
+= Verbunden, melde dich an, um das Internet zu nutzen
+
+Joined, no internet yet
+= Verbunden, noch kein Internet
+
+Joined
+= Verbunden
+
+Drifter cannot ask for this VPN's password yet. Set the password in the VPN's own settings, then try again.
+= Drifter kann das Passwort dieses VPN noch nicht abfragen. Lege es in den Einstellungen des VPN fest und versuche es erneut.
+
+Sign in to {}
+= Bei {} anmelden
+
+{} did not join
+= {} wurde nicht verbunden
+
+{} did not change
+= {} hat sich nicht geändert
+
+{} needs a password
+= {} braucht ein Passwort
+
+Enter the password for “{}”.
+= Gib das Passwort für „{}“ ein.
+
+NetworkManager would not take the password helper: {}
+= NetworkManager hat den Passworthelfer nicht angenommen: {}
+
+Cannot reach NetworkManager: {}
+= NetworkManager ist nicht erreichbar: {}
+
+No Wi-Fi card found.
+= Keine WLAN-Karte gefunden.
+
+NetworkManager did not start. Install it, then try again.
+= NetworkManager ist nicht gestartet. Installiere es und versuche es erneut.
+
+Joining was stopped.
+= Das Verbinden wurde abgebrochen.
+
+That network is not saved.
+= Dieses Netzwerk ist nicht gespeichert.
+
+That VPN is not saved.
+= Dieses VPN ist nicht gespeichert.
+
+This account is not allowed to change the network.
+= Dieses Konto darf das Netzwerk nicht ändern.
+
+The network went away. Look again.
+= Das Netzwerk ist verschwunden. Sieh noch einmal nach.
+
+The network asked for a kind of password Drifter cannot send. Join it from Wi-Fi Settings.
+= Das Netzwerk verlangt eine Passwortart, die Drifter nicht senden kann. Verbinde dich in den WLAN-Einstellungen.
+
+No password was given.
+= Es wurde kein Passwort eingegeben.
+
+Cannot watch NetworkManager: {}
+= NetworkManager kann nicht beobachtet werden: {}
+
+{} is not joined.
+= {} ist nicht verbunden.
+
+{} is not saved.
+= {} ist nicht gespeichert.
+
+{} is not on.
+= {} ist nicht an.
+
+Check that NetworkManager is running
+= Prüfen, ob NetworkManager läuft
+
+Check the Wi-Fi switch
+= WLAN-Schalter prüfen
+
+Check that NetworkManager runs the card
+= Prüfen, ob NetworkManager die Karte steuert
+
+Turn off Wi-Fi power saving
+= WLAN-Energiesparen ausschalten
+
+Join a saved network again
+= Erneut mit einem gespeicherten Netzwerk verbinden
+
+Check for an address
+= Prüfen, ob es eine Adresse gibt
+
+Check the internet
+= Internet prüfen
+
+Fixing Wi-Fi…
+= WLAN wird repariert …
+
+A switch or airplane mode blocks Wi-Fi. Turn it off on the computer, then try again.
+= Ein Schalter oder der Flugmodus blockiert WLAN. Schalte ihn am Computer aus und versuche es erneut.
+
+Wi-Fi did not turn on.
+= WLAN hat sich nicht eingeschaltet.
+
+Another tool runs the Wi-Fi card. Stop that tool, or let NetworkManager run the card.
+= Ein anderes Werkzeug steuert die WLAN-Karte. Beende es oder lass NetworkManager die Karte steuern.
+
+No saved network is in range. Pick one under Networks.
+= Kein gespeichertes Netzwerk ist in Reichweite. Wähle eines unter Netzwerke.
+
+The network did not give this computer an address. Restart the router, then try again.
+= Das Netzwerk hat diesem Computer keine Adresse gegeben. Starte den Router neu und versuche es erneut.
+
+This network wants you to sign in. Open a web page to sign in.
+= Dieses Netzwerk will eine Anmeldung. Öffne eine Webseite, um dich anzumelden.
+
+Names work, but the internet does not answer. The router may be offline.
+= Namen funktionieren, aber das Internet antwortet nicht. Der Router ist vielleicht offline.
+
+Web names do not turn into addresses (DNS). The router's DNS may be down.
+= Webnamen werden nicht in Adressen umgewandelt (DNS). Das DNS des Routers ist vielleicht ausgefallen.
+
+Changing the join order…
+= Reihenfolge wird geändert …
+
+Starting NetworkManager. Type your password if asked.
+= NetworkManager wird gestartet. Gib dein Passwort ein, wenn danach gefragt wird.
+
+Fixed. Wi-Fi is joined and online.
+= Repariert. WLAN ist verbunden und online.
+
+Saving. It takes effect the next time you join.
+= Wird gespeichert. Es gilt ab der nächsten Verbindung.
+
+{} is not in range.
+= {} ist nicht in Reichweite.
+
+Turn it on from the Wi-Fi menu or Control Center.
+= Schalte es im WLAN-Menü oder im Kontrollzentrum ein.
+
+{} is ready
+= {} ist bereit
+
+{} was not added
+= {} wurde nicht hinzugefügt
+
+Fix Wi-Fi
+= WLAN reparieren
+
+Checks each part of Wi-Fi and fixes what it can
+= Prüft jeden Teil des WLAN und repariert, was es kann
+
+NetworkManager
+= NetworkManager
+
+NetworkManager is not running, so Drifter cannot show your networks.
+= NetworkManager läuft nicht, daher kann Drifter deine Netzwerke nicht zeigen.
+
+Connected, sign in to use the internet
+= Verbunden, melde dich an, um das Internet zu nutzen
+
+Connected, no internet
+= Verbunden, kein Internet
+
+Joining…
+= Verbinden …
+
+Move Up
+= Nach oben
+
+Move Down
+= Nach unten
+
+The only saved network
+= Das einzige gespeicherte Netzwerk
+
+Join on its own
+= Automatisch verbinden
+
+Joins this network when it is in range
+= Verbindet sich mit diesem Netzwerk, wenn es in Reichweite ist
+
+Private address
+= Private Adresse
+
+The network sees this computer's real address
+= Das Netzwerk sieht die echte Adresse dieses Computers
+
+A made-up address that stays the same on this network
+= Eine erfundene Adresse, die in diesem Netzwerk gleich bleibt
+
+A new made-up address each time you join
+= Bei jeder Verbindung eine neue erfundene Adresse
+
+Low data mode
+= Datensparmodus
+
+Tells apps to use less data, for phone hotspots
+= Sagt Apps, weniger Daten zu nutzen, für Handy-Hotspots
+
+Join order
+= Reihenfolge
+
+Address, band, channel and signal
+= Adresse, Band, Kanal und Signal
+
+Forget this network
+= Dieses Netzwerk vergessen
+
+Removes its password from this computer
+= Entfernt sein Passwort von diesem Computer
+
+Network options
+= Netzwerkoptionen
+
+{} of {} when more than one is in range
+= {} von {}, wenn mehrere in Reichweite sind
+
+Changes
+= Wechselt
+
+NetworkManager is not running.
+= NetworkManager läuft nicht.
+
+No address from the network
+= Keine Adresse vom Netzwerk
+
+Out of range
+= Außer Reichweite
+
+The Wi-Fi card went away
+= Die WLAN-Karte ist verschwunden
+
+The Wi-Fi card went away. Check that it is still plugged in.
+= Die WLAN-Karte ist verschwunden. Prüfe, ob sie noch eingesteckt ist.
+
+AirDrop is using Wi-Fi.
+= AirDrop nutzt das WLAN.
+
+Ethernet, Connected
+= Ethernet, verbunden
+
+Wi-Fi is off.
+= WLAN ist aus.
+
+Stop AirDrop
+= AirDrop stoppen
+
+Ethernet, Cable unplugged
+= Ethernet, Kabel nicht eingesteckt
+
+Ethernet, Not connected
+= Ethernet, nicht verbunden
+
+Turn Wi-Fi Off
+= WLAN ausschalten
+
+Turn Wi-Fi On
+= WLAN einschalten
+
+Router
+= Router
+
+Band
+= Band
+
+Channel
+= Kanal
+
+This file has no private key, so it is not a WireGuard setup.
+= Diese Datei hat keinen privaten Schlüssel, also ist sie keine WireGuard-Einrichtung.
+
+This file names no server to connect to.
+= Diese Datei nennt keinen Server zum Verbinden.
+
+Could not join {}
+= Verbindung mit {} fehlgeschlagen
+
+The password for {} was not right.
+= Das Passwort für {} war falsch.
+
+{} did not give this computer an address. Try again, or restart the router.
+= {} hat diesem Computer keine Adresse gegeben. Versuche es erneut oder starte den Router neu.
+
+{} is out of range. Move closer, then try again.
+= {} ist außer Reichweite. Geh näher heran und versuche es erneut.
+
+Could not join {}. Try Fix It in Wi-Fi settings.
+= Verbindung mit {} fehlgeschlagen. Versuche Reparieren in den WLAN-Einstellungen.
+
+{}: sign in to use the internet
+= {}: melde dich an, um das Internet zu nutzen
+
+{}: no internet
+= {}: kein Internet
+
+{}, joined
+= {}, verbunden
+
+{}, joining…
+= {}, verbindet …
+
+{}, weak
+= {}, schwach
+
+{}, connecting…
+= {}, verbindet …
+
+{}, on
+= {}, an
+
+Turn On NetworkManager
+= NetworkManager einschalten
+
+Cable unplugged
+= Kabel nicht eingesteckt
+
+Ethernet
+= Ethernet
+
+Another tool runs this Wi-Fi card.
+= Ein anderes Werkzeug steuert diese WLAN-Karte.
+
+A switch or airplane mode blocks Wi-Fi.
+= Ein Schalter oder der Flugmodus blockiert WLAN.
+
+Sign in to use the internet
+= Melde dich an, um das Internet zu nutzen
+
+No internet
+= Kein Internet
+
+Weak signal
+= Schwaches Signal
+
+Work or school sign-in
+= Anmeldung für Arbeit oder Schule
+
+Known
+= Bekannt
+
+Looking for networks…
+= Suche nach Netzwerken …
+
+No other networks
+= Keine weiteren Netzwerke
+
+Other networks
+= Andere Netzwerke
+
+Adding the VPN…
+= VPN wird hinzugefügt …
+
+Add as VPN
+= Als VPN hinzufügen
+
+It is saved for the next time.
+= Es wird für das nächste Mal gespeichert.
+
+Open the Wi-Fi menu
+= WLAN-Menü öffnen
+
+Leave {}
+= {} trennen
