@@ -2265,14 +2265,15 @@ impl Settings {
                     _ => {}
                 }
                 use std::net::ToSocketAddrs;
-                match ("nmcheck.gnome.org", 80).to_socket_addrs() {
-                    Ok(mut found) if found.next().is_some() => match online {
+                let resolves = ("nmcheck.gnome.org", 80).to_socket_addrs().is_ok_and(|mut found| found.next().is_some());
+                match resolves {
+                    true => match online {
                         drifter_core::net::Online::None | drifter_core::net::Online::Limited => {
                             Err(drifter_core::lang::t("Names work, but the internet does not answer. The router may be offline.").to_string())
                         }
                         _ => Ok(()),
                     },
-                    _ => Err(drifter_core::lang::t("Web names do not turn into addresses (DNS). The router's DNS may be down.").to_string()),
+                    false => Err(drifter_core::lang::t("Web names do not turn into addresses (DNS). The router's DNS may be down.").to_string()),
                 }
             })
         });
