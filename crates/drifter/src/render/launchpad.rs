@@ -364,8 +364,7 @@ impl State {
         }
         let launch = drifter_core::Launch::App(found.key.clone());
         crate::apps::run(&launch, &self.socket);
-        self.bounces.retain(|(held, _)| held != &found.key);
-        self.bounces.push((found.key.clone(), Instant::now()));
+        self.bounce(&found.key);
     }
 }
 

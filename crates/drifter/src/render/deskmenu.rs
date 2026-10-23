@@ -497,8 +497,7 @@ impl State {
         match pick {
             Pick::App(app) => {
                 crate::apps::run(&drifter_core::Launch::App(app.clone()), &self.socket);
-                self.bounces.retain(|(held, _)| *held != app);
-                self.bounces.push((app, Instant::now()));
+                self.bounce(&app);
             }
             Pick::Wallpaper => self.open_settings_at("wallpaper"),
             Pick::Settings => self.open_settings(),

@@ -27,13 +27,18 @@ const BAR_TRASH: i32 = 4;
 const BAR_SETTINGS: i32 = 5;
 const BAR_SIZE_BASE: i32 = 1000;
 const DOCK_SIZES: [(i64, &str); 3] = [(52, "Small"), (64, "Medium"), (84, "Large")];
-const HOP: f64 = 0.42;
 
 pub(super) struct DockApp {
     pub launch: drifter_core::Launch,
     pub key: String,
     pub pinned: bool,
     pub place: Option<String>,
+}
+
+pub(super) struct Bounce {
+    pub key: String,
+    pub since: Instant,
+    pub lands: Option<f64>,
 }
 
 pub(super) struct DockDrag {
@@ -82,6 +87,17 @@ impl State {
             apps.push(DockApp {
                 launch: drifter_core::Launch::App(window.app.clone()),
                 key: window.app.clone(),
+                pinned: false,
+                place: None,
+            });
+        }
+        for bounce in &self.bounces {
+            if apps.iter().any(|app| same_app(&app.key, &bounce.key)) {
+                continue;
+            }
+            apps.push(DockApp {
+                launch: drifter_core::Launch::App(bounce.key.clone()),
+                key: bounce.key.clone(),
                 pinned: false,
                 place: None,
             });
@@ -241,7 +257,9 @@ impl State {
     fn open_from_dock(&mut self, launch: &drifter_core::Launch, key: &str) {
         let windows = self.windows_of(key);
         let Some(&top) = windows.last() else {
-            self.launch_from_dock(launch, key);
+            if !self.launching(key) {
+                self.launch_from_dock(launch, key);
+            }
             return;
         };
         let shown: Vec<usize> = windows
@@ -262,23 +280,34 @@ impl State {
 
     fn launch_from_dock(&mut self, launch: &drifter_core::Launch, key: &str) {
         crate::apps::run(launch, &self.socket);
-        self.bounces.retain(|(held, _)| held != key);
-        self.bounces.push((key.to_string(), Instant::now()));
+        self.bounce(key);
+    }
+
+    pub(super) fn bounce(&mut self, key: &str) {
+        self.bounces.retain(|held| held.key != key);
+        self.bounces.push(Bounce { key: key.to_string(), since: Instant::now(), lands: None });
         self.kick_now();
     }
 
+    fn launching(&self, key: &str) -> bool {
+        self.bounces.iter().any(|held| held.lands.is_none() && same_app(&held.key, key))
+    }
+
     pub(super) fn settle_bounces(&mut self) {
-        let done = HOP * f64::from(drifter_core::dock::BOUNCES);
+        use drifter_core::dock::{HOP, MOST_HOPS, landing};
+        let done = HOP * f64::from(MOST_HOPS);
         let windows: Vec<String> = self
             .windows
             .iter()
             .filter(|window| window.placed)
             .map(|window| window.app.clone())
             .collect();
-        self.bounces.retain(|(key, since)| {
-            let elapsed = since.elapsed().as_secs_f64();
-            let arrived = elapsed > HOP && windows.iter().any(|app| same_app(key, app));
-            elapsed < done && !arrived
+        self.bounces.retain_mut(|held| {
+            let elapsed = held.since.elapsed().as_secs_f64();
+            if held.lands.is_none() && windows.iter().any(|app| same_app(&held.key, app)) {
+                held.lands = Some(landing(elapsed));
+            }
+            elapsed < held.lands.unwrap_or(done).min(done)
         });
     }
 
@@ -481,8 +510,8 @@ impl State {
     fn bounce_of(&self, key: &str) -> f64 {
         self.bounces
             .iter()
-            .find(|(held, _)| held == key)
-            .map(|(_, since)| drifter_core::dock::bounce(since.elapsed().as_secs_f64(), self.dock.icon))
+            .find(|held| held.key == key)
+            .map(|held| drifter_core::dock::bounce(held.since.elapsed().as_secs_f64(), self.dock.icon))
             .unwrap_or(0.0)
     }
 

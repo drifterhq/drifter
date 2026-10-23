@@ -603,7 +603,7 @@ pub struct State {
     search_icons: std::collections::HashMap<String, Option<drifter_core::Image>>,
     app_label: Option<(String, TextureBuffer<Tex>, Vec2)>,
     window_shadow: Option<(TextureBuffer<Tex>, f64)>,
-    bounces: Vec<(String, Instant)>,
+    bounces: Vec<dock::Bounce>,
     dock_press: Option<(usize, Vec2)>,
     dock_drag: Option<dock::DockDrag>,
     trash_full: bool,

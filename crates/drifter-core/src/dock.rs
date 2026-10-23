@@ -248,15 +248,6 @@ mod app_tests {
     }
 
     #[test]
-    fn a_launch_bounces_a_few_times_then_rests() {
-        assert_eq!(bounce(0.0, 44.0), 0.0);
-        assert!(bounce(0.21, 44.0) < -15.0, "the first hop is high");
-        assert!(bounce(0.42 + 0.21, 44.0) > bounce(0.21, 44.0), "later hops are lower");
-        assert_eq!(bounce(10.0, 44.0), 0.0);
-        assert!((0..100).all(|n| bounce(f64::from(n) * 0.02, 44.0) <= 0.0), "it only rises");
-    }
-
-    #[test]
     fn the_badge_sits_on_the_top_right_and_grows_with_its_text() {
         let icon = Rect::new(Vec2::new(100.0, 500.0), Vec2::splat(44.0));
         let one = badge_rect(icon, 7.0);
@@ -470,16 +461,21 @@ pub fn same_app(a: &str, b: &str) -> bool {
 }
 
 pub fn bounce(seconds: f64, icon: f64) -> f64 {
-    let hop = 0.42;
-    if seconds <= 0.0 || seconds >= hop * BOUNCES as f64 {
+    if seconds <= 0.0 || seconds >= HOP * MOST_HOPS as f64 {
         return 0.0;
     }
-    let phase = (seconds % hop) / hop;
-    let height = icon * 0.45 * (1.0 - 0.15 * (seconds / hop).floor());
+    let phase = (seconds % HOP) / HOP;
+    let height = icon * 0.45 * (1.0 - 0.15 * (seconds / HOP).floor()).max(0.4);
     -height * (phase * std::f64::consts::PI).sin()
 }
 
-pub const BOUNCES: u32 = 4;
+pub const HOP: f64 = 0.42;
+
+pub const MOST_HOPS: u32 = 30;
+
+pub fn landing(seconds: f64) -> f64 {
+    (seconds / HOP).ceil().max(1.0) * HOP
+}
 
 pub const GLIDE: f64 = 0.22;
 

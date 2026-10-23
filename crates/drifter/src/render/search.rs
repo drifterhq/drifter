@@ -232,6 +232,7 @@ impl State {
             Kind::App => {
                 let launch = drifter_core::Launch::App(found.key.clone());
                 crate::apps::run(&launch, &self.socket);
+                self.bounce(&found.key);
             }
             Kind::Setting => self.open_settings_at(&found.key),
             Kind::Device => self.blue_connect(&found.key),
