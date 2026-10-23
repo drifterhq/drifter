@@ -223,6 +223,7 @@ How it works today (the items change this):
   - When `Connectivity` becomes 2 (portal), post a note with `show_note` (see `blue_low`, bluetooth.rs:412-436): app "Wi-Fi", summary "Sign in to {name}", the 64 px glyph, one action "Open". The action opens `http://nmcheck.gnome.org/` in the default browser, so the portal takes over.
   - Fedora checks connectivity by default. Debian needs `network-manager-config-connectivity-debian`. Add it to the `recommends` list (crates/drifter/Cargo.toml:51).
   - As built: the note click opens http://neverssl.com/ in the default browser (`note_links`), so the portal takes over the page.
+  - As built: no "Open" button; a click on the note opens the page.
 
 - [x] **22. Fix It for Wi-Fi in Settings.**
   - Waits on: 5.
@@ -235,6 +236,7 @@ How it works today (the items change this):
   - Waits on: 13.
   - When a wired device is connected, the list shows a heading-free row "Ethernet, Connected" at the top. The tray shows `wired_rune` when the primary connection is wired.
   - Cable out: the note says "Cable unplugged" while the device exists.
+  - As built: the "Cable unplugged" row shows for 60 s after the cable comes out, then hides, so a computer with an unused port does not show it forever.
 
 - [x] **24. WireGuard rows.**
   - Waits on: 13.
@@ -246,7 +248,7 @@ How it works today (the items change this):
   - Waits on: 5.
   - The network details sheet (`For::NetInfo`) gets: Auto-join (switch), Private address (segments Off, Fixed, Changes; maps to `cloned-mac-address` permanent, stable, random), Low data mode (switch, `connection.metered` 1 or 2).
   - Priority: "Move up" and "Move down" buttons on known networks change `connection.autoconnect-priority`.
-  - As built: a "Network options" group on the Wi-Fi page (opened with the row's Options button), like Bluetooth's device options, not the details sheet. The private address is `assigned-mac-address`; unset reads as Off.
+  - As built: Move Up and Move Down renumber every saved Wi-Fi network's priority (10, 20, 30 …). A "Network options" group on the Wi-Fi page (opened with the row's Options button), like Bluetooth's device options, not the details sheet. The private address is `assigned-mac-address`; unset reads as Off.
 
 - [x] **26. Spotlight and a shortcut.**
   - Waits on: 20.
