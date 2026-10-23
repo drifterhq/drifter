@@ -9,6 +9,7 @@ drifter-core.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 drifter-blue.workspace = true
+drifter-net.workspace = true
 smithay-client-toolkit = { version = "0.19", default-features = false, features = ["calloop", "xkbcommon"] }
 wayland-client = "0.31"
 wayland-protocols-wlr = { version = "0.3", features = ["client"] }

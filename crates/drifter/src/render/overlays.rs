@@ -192,22 +192,67 @@ impl State {
             return;
         }
         self.prompts.push(Pending {
-            request,
+            asker: Asker::Polkit(request),
             pad: Pad::new(),
             error: None,
             busy: false,
+            shaken: None,
         });
         self.paint_prompt();
     }
 
-    pub(super) fn prompt_end(&mut self, cookie: &str, granted: bool) {
-        if let Some(at) = self
+    pub(super) fn wifi_prompt(&mut self, ask: drifter_net::agent::Ask, reply: drifter_net::agent::Reply) {
+        if self.font.is_none() || self.lock.is_some() {
+            self.wifi_cancelled(&ask.ssid);
+            drifter_net::agent::answer(&reply, None);
+            return;
+        }
+        let again = ask.again;
+        let pending = Pending {
+            asker: Asker::Wifi(ask.clone(), reply),
+            pad: Pad::new(),
+            error: again.then(|| drifter_core::lang::t("Wrong password. Try again.").to_string()),
+            busy: false,
+            shaken: again.then(Instant::now),
+        };
+        let same = self
             .prompts
             .iter()
-            .position(|pending| pending.request.cookie == cookie)
-        {
-            let pending = self.prompts.remove(at);
-            let _ = pending.request.reply.try_send(granted);
+            .position(|held| matches!(&held.asker, Asker::Wifi(held, _) if held.ssid == ask.ssid));
+        match same {
+            Some(at) => {
+                if let Asker::Wifi(_, old) = &self.prompts[at].asker {
+                    drifter_net::agent::answer(old, None);
+                }
+                self.prompts[at] = pending;
+            }
+            None => self.prompts.push(pending),
+        }
+        self.paint_prompt();
+        self.kick_now();
+    }
+
+    pub(super) fn wifi_prompt_done(&mut self, id: u64) {
+        let cookie = format!("wifi:{id}");
+        if self.prompts.iter().any(|pending| pending.cookie() == cookie) {
+            self.prompt_end(&cookie, false);
+        }
+    }
+
+    pub(super) fn prompt_end(&mut self, cookie: &str, granted: bool) {
+        if let Some(at) = self.prompts.iter().position(|pending| pending.cookie() == cookie) {
+            let mut pending = self.prompts.remove(at);
+            pending.pad.wipe();
+            match &pending.asker {
+                Asker::Polkit(request) => {
+                    let _ = request.reply.try_send(granted);
+                }
+                Asker::Wifi(ask, reply) => {
+                    let ssid = ask.ssid.clone();
+                    drifter_net::agent::answer(reply, None);
+                    self.wifi_cancelled(&ssid);
+                }
+            }
         }
         self.paint_prompt();
     }
@@ -216,7 +261,7 @@ impl State {
         if self.prompts.first().is_some_and(|pending| pending.busy) {
             return;
         }
-        if let Some(cookie) = self.prompts.first().map(|p| p.request.cookie.clone()) {
+        if let Some(cookie) = self.prompts.first().map(Pending::cookie) {
             self.prompt_end(&cookie, false);
         }
     }
@@ -228,11 +273,25 @@ impl State {
         if pending.busy || pending.pad.is_empty() {
             return;
         }
+        if let Asker::Wifi(_, reply) = &pending.asker {
+            let typed = pending.pad.take();
+            let end = typed.iter().position(|byte| *byte == 0).unwrap_or(typed.len());
+            let secret = String::from_utf8_lossy(&typed[..end]).into_owned();
+            drifter_net::agent::answer(reply, Some(secret));
+            pending.pad.wipe();
+            self.prompts.remove(0);
+            self.list_refresh();
+            self.paint_prompt();
+            return;
+        }
         pending.busy = true;
         pending.error = None;
         let password = pending.pad.take();
-        let user = pending.request.user.clone();
-        let cookie = pending.request.cookie.clone();
+        let Asker::Polkit(request) = &pending.asker else {
+            return;
+        };
+        let user = request.user.clone();
+        let cookie = request.cookie.clone();
         let reply = self.checked.clone();
         let spawned = std::thread::Builder::new()
             .name("drifter-polkit-check".to_string())
@@ -251,13 +310,10 @@ impl State {
         match outcome {
             crate::polkit::Outcome::Granted => self.prompt_end(cookie, true),
             crate::polkit::Outcome::Refused(message) => {
-                if let Some(pending) = self
-                    .prompts
-                    .iter_mut()
-                    .find(|pending| pending.request.cookie == cookie)
-                {
+                if let Some(pending) = self.prompts.iter_mut().find(|pending| pending.cookie() == cookie) {
                     pending.busy = false;
                     pending.error = Some(message);
+                    pending.shaken = Some(Instant::now());
                     pending.pad.wipe();
                 }
                 self.paint_prompt();
@@ -301,12 +357,17 @@ impl State {
             self.kick_now();
             return;
         };
+        let (message, user) = match &pending.asker {
+            Asker::Polkit(request) => (request.message.clone(), request.user.clone()),
+            Asker::Wifi(ask, _) => (drifter_core::lang::tf("Enter the password for “{}”.", &[&ask.ssid]), String::new()),
+        };
         let ask = drifter_core::prompt::Ask {
-            message: pending.request.message.clone(),
-            user: pending.request.user.clone(),
+            message,
+            user,
             typed: pending.pad.len(),
             error: pending.error.clone(),
             busy: pending.busy,
+            join: pending.joins(),
         };
         if self.prompt_haze.is_none() {
             self.paint_in_lane(
@@ -568,7 +629,12 @@ impl State {
             return false;
         };
         let id = self.cards[at].note.id;
-        if let Some(folder) = self.note_folders.remove(&id)
+        let link = self.note_links.remove(&id);
+        if let Some(url) = link.as_deref()
+            && code == BTN_LEFT
+        {
+            self.open_link(url);
+        } else if let Some(folder) = self.note_folders.remove(&id)
             && code == BTN_LEFT
         {
             crate::apps::open_folder(
@@ -602,4 +668,22 @@ impl State {
         self.pane_elements(super::fade::Pane::Switch, elements);
     }
 
+}
+
+pub(super) enum Asker {
+    Polkit(crate::polkit::Request),
+    Wifi(drifter_net::agent::Ask, drifter_net::agent::Reply),
+}
+
+impl Pending {
+    pub(super) fn cookie(&self) -> String {
+        match &self.asker {
+            Asker::Polkit(request) => request.cookie.clone(),
+            Asker::Wifi(ask, _) => format!("wifi:{}", ask.id),
+        }
+    }
+
+    pub(super) fn joins(&self) -> bool {
+        matches!(self.asker, Asker::Wifi(..))
+    }
 }

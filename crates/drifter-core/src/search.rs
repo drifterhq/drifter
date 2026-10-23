@@ -13,6 +13,7 @@ pub enum Kind {
     Setting,
     File,
     Device,
+    Network,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,6 +68,26 @@ pub fn devices(blue: &crate::blue::Blue) -> Vec<Found> {
             detail: crate::lang::t("Bluetooth").to_string(),
             key: device.address.clone(),
             extra: format!("bluetooth {} {}", device.shown_name(), device.kind.label()).to_lowercase(),
+            icon: None,
+        })
+        .collect()
+}
+
+pub fn networks(wifi: &crate::net::Wifi) -> Vec<Found> {
+    if !wifi.on || !wifi.managed {
+        return Vec::new();
+    }
+    wifi.nets
+        .iter()
+        .map(|net| Found {
+            kind: Kind::Network,
+            title: match net.active {
+                true => crate::lang::tf("Leave {}", &[&net.ssid]),
+                false => crate::lang::tf("Join {}", &[&net.ssid]),
+            },
+            detail: crate::lang::t("Wi-Fi").to_string(),
+            key: net.ssid.clone(),
+            extra: format!("wifi wi-fi wireless network {}", net.ssid).to_lowercase(),
             icon: None,
         })
         .collect()
@@ -128,7 +149,7 @@ fn score(found: &Found, query: &str) -> Option<u32> {
     let title = found.title.to_lowercase();
     let kind = match found.kind {
         Kind::App => 30,
-        Kind::Device => 25,
+        Kind::Device | Kind::Network => 25,
         Kind::Setting => 20,
         Kind::File => 0,
     };
@@ -348,6 +369,10 @@ fn glyph(canvas: &mut Canvas, spot: Rect, kind: Kind, ink: [u8; 3]) {
         Kind::Device => {
             let rune = crate::blue::svg_glyph(crate::blue::rune(), crate::paint::dense(spot.size.x * 0.8), ink);
             canvas.stamp(&rune, spot.origin + spot.size * 0.1, 1.0);
+        }
+        Kind::Network => {
+            let fan = crate::net::glyph(crate::net::Glyph::Wifi, crate::paint::dense(spot.size.x * 0.8), ink);
+            canvas.stamp(&fan, spot.origin + spot.size * 0.1, 1.0);
         }
         Kind::File | Kind::App => {
             let page = Rect::new(

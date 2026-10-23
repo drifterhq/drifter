@@ -116,6 +116,16 @@ pub enum What {
         battery: Option<u8>,
         bars: Option<u8>,
     },
+    Network {
+        name: String,
+        note: String,
+        glyph: crate::net::Glyph,
+        joined: bool,
+        lock: bool,
+        bars: Option<u8>,
+        switch: Option<bool>,
+        busy: bool,
+    },
     Heading(String),
     Link(String),
 }
@@ -129,7 +139,7 @@ pub struct Item {
 impl Item {
     pub fn height(&self) -> f64 {
         match self.what {
-            What::Device { .. } => 46.0,
+            What::Device { .. } | What::Network { .. } => 46.0,
             What::Heading(_) => 28.0,
             What::Link(_) => 36.0,
         }
@@ -142,6 +152,165 @@ impl Item {
     pub fn address(&self) -> Option<&str> {
         self.key.strip_prefix("device:")
     }
+
+    pub fn ssid(&self) -> Option<&str> {
+        self.key.strip_prefix("net:")
+    }
+
+    pub fn vpn(&self) -> Option<&str> {
+        self.key.strip_prefix("vpn:")
+    }
+}
+
+pub const OTHER_KEY: &str = "link:wifi-other";
+pub const WIFI_SETTINGS_KEY: &str = "link:wifi-settings";
+pub const STOP_AIRDROP_KEY: &str = "link:stop-airdrop";
+pub const NET_SERVICE_KEY: &str = "link:net-service";
+pub const WIRED_KEY: &str = "wired:";
+const MOST_OTHERS: usize = 8;
+
+pub struct Seen<'a> {
+    pub wifi: Result<&'a crate::net::Wifi, crate::net::Missing>,
+    pub airdrop: bool,
+    pub busy: &'a [String],
+    pub failed: &'a [(String, String)],
+    pub scanning: bool,
+    pub unplugged: bool,
+}
+
+pub fn wifi_items(seen: Seen) -> Vec<Item> {
+    let mut out = Vec::new();
+    let heading = |key: &str, words: &str| Item {
+        key: key.to_string(),
+        what: What::Heading(words.to_string()),
+    };
+    let link = |key: &str, words: &str| Item {
+        key: key.to_string(),
+        what: What::Link(words.to_string()),
+    };
+    let wifi = match seen.wifi {
+        Err(missing) => {
+            out.push(heading("heading:none", missing.words()));
+            if missing == crate::net::Missing::Service {
+                out.push(link(NET_SERVICE_KEY, crate::lang::t("Turn On NetworkManager")));
+            }
+            out.push(link(WIFI_SETTINGS_KEY, crate::lang::t("Wi-Fi Settings…")));
+            return out;
+        }
+        Ok(wifi) => wifi,
+    };
+    if let Some(wired) = wifi.wired.as_ref().filter(|wired| wired.connected() || wired.busy() || wired.carrier || seen.unplugged) {
+        let note = match (wired.connected(), wired.busy(), wired.carrier) {
+            (true, _, _) => match wifi.primary {
+                crate::net::Primary::Wired => match wifi.online {
+                    crate::net::Online::None | crate::net::Online::Limited => crate::lang::t("Connected, no internet"),
+                    _ => crate::lang::t("Connected"),
+                },
+                _ => crate::lang::t("Connected"),
+            },
+            (false, true, _) => crate::lang::t("Connecting…"),
+            (false, false, false) => crate::lang::t("Cable unplugged"),
+            (false, false, true) => crate::lang::t("Not connected"),
+        };
+        out.push(Item {
+            key: WIRED_KEY.to_string(),
+            what: What::Network {
+                name: crate::lang::t("Ethernet").to_string(),
+                note: note.to_string(),
+                glyph: crate::net::Glyph::Wired,
+                joined: wired.connected(),
+                lock: false,
+                bars: None,
+                switch: None,
+                busy: wired.busy(),
+            },
+        });
+    }
+    if seen.airdrop {
+        out.push(heading("heading:airdrop", crate::lang::t("AirDrop is using Wi-Fi.")));
+        out.push(link(STOP_AIRDROP_KEY, crate::lang::t("Stop AirDrop")));
+    } else if !wifi.managed {
+        out.push(heading("heading:unmanaged", crate::lang::t("Another tool runs this Wi-Fi card.")));
+    } else if !wifi.hardware {
+        out.push(heading("heading:blocked", crate::lang::t("A switch or airplane mode blocks Wi-Fi.")));
+    } else if !wifi.on {
+        out.push(heading("heading:off", crate::lang::t("Wi-Fi is off.")));
+    } else {
+        let row = |net: &crate::net::Net| {
+            let busy = net.busy || seen.busy.iter().any(|each| *each == net.ssid);
+            let failed = seen.failed.iter().find(|(ssid, _)| *ssid == net.ssid).map(|(_, words)| words.clone());
+            let note = match (busy, failed, net.active) {
+                (true, _, _) => crate::lang::t("Connecting…").to_string(),
+                (false, Some(words), _) => words,
+                (false, None, true) => match wifi.online {
+                    crate::net::Online::Portal => crate::lang::t("Sign in to use the internet").to_string(),
+                    crate::net::Online::None | crate::net::Online::Limited => crate::lang::t("No internet").to_string(),
+                    _ => crate::lang::t("Joined").to_string(),
+                },
+                (false, None, false) if net.signal < crate::net::WEAK => crate::lang::t("Weak signal").to_string(),
+                (false, None, false) if net.known => crate::lang::t("Saved").to_string(),
+                (false, None, false) if net.enterprise => crate::lang::t("Work or school sign-in").to_string(),
+                (false, None, false) if net.secure => crate::lang::t("Password").to_string(),
+                (false, None, false) => crate::lang::t("Open").to_string(),
+            };
+            Item {
+                key: format!("net:{}", net.ssid),
+                what: What::Network {
+                    name: net.ssid.clone(),
+                    note,
+                    glyph: crate::net::Glyph::Wifi,
+                    joined: net.active,
+                    lock: net.secure,
+                    bars: Some(crate::net::steps(net.signal)),
+                    switch: None,
+                    busy,
+                },
+            }
+        };
+        let known: Vec<Item> = wifi.known().map(row).collect();
+        if !known.is_empty() {
+            out.push(heading("heading:known", crate::lang::t("Known")));
+            out.extend(known);
+        }
+        let others: Vec<Item> = wifi.others().take(MOST_OTHERS).map(row).collect();
+        let lonely = others.is_empty() && !seen.scanning && wifi.known().next().is_some();
+        if !lonely {
+            out.push(heading(
+                "heading:others",
+                match (others.is_empty(), seen.scanning) {
+                    (true, true) => crate::lang::t("Looking for networks…"),
+                    (true, false) => crate::lang::t("No networks in range"),
+                    (false, _) => crate::lang::t("Other networks"),
+                },
+            ));
+        }
+        out.extend(others);
+        out.push(link(OTHER_KEY, crate::lang::t("Other…")));
+    }
+    if !wifi.vpns.is_empty() {
+        out.push(heading("heading:vpn", "VPN"));
+        for vpn in &wifi.vpns {
+            out.push(Item {
+                key: format!("vpn:{}", vpn.uuid),
+                what: What::Network {
+                    name: vpn.name.clone(),
+                    note: match (vpn.busy, vpn.active) {
+                        (true, _) => crate::lang::t("Connecting…").to_string(),
+                        (false, true) => crate::lang::t("On").to_string(),
+                        (false, false) => crate::lang::t("Off").to_string(),
+                    },
+                    glyph: crate::net::Glyph::Vpn,
+                    joined: vpn.active,
+                    lock: false,
+                    bars: None,
+                    switch: Some(vpn.active),
+                    busy: vpn.busy || seen.busy.iter().any(|each| *each == format!("vpn:{}", vpn.uuid)),
+                },
+            });
+        }
+    }
+    out.push(link(WIFI_SETTINGS_KEY, crate::lang::t("Wi-Fi Settings…")));
+    out
 }
 
 pub const SETTINGS_KEY: &str = "link:settings";
@@ -237,6 +406,7 @@ pub struct Look {
     pub off: [u8; 3],
     pub accent: [u8; 3],
     pub airdrop: bool,
+    pub listing: Option<Tile>,
 }
 
 impl Look {
@@ -264,6 +434,7 @@ impl Look {
             off: p.off,
             accent,
             airdrop: false,
+            listing: None,
         }
     }
 
@@ -376,7 +547,7 @@ impl Look {
         if let Some(tile) = self.tiles().into_iter().find(|tile| self.tile_rect(*tile).contains(inside)) {
             let on_dot = (inside - self.dot(tile)).length() <= 19.0;
             return Some(match (tile, on_dot) {
-                (Tile::Bluetooth, false) => Hit::More(tile),
+                (Tile::Bluetooth | Tile::Wifi, false) => Hit::More(tile),
                 _ => Hit::Tile(tile),
             });
         }
@@ -409,11 +580,13 @@ impl Look {
             let dot = self.dot(tile);
             canvas.circle(dot, 15.0, if on { self.accent } else { self.off }, 1.0);
             symbol(&mut canvas, tile, dot, if on { [255, 255, 255] } else { self.ink });
-            if tile == Tile::Bluetooth {
-                chevron(&mut canvas, Vec2::new(rect.max().x - 14.0, rect.center().y), !items.is_empty(), self.dim);
+            let lists = matches!(tile, Tile::Bluetooth | Tile::Wifi);
+            if lists {
+                let open = !items.is_empty() && self.listing.is_none_or(|listing| listing == tile);
+                chevron(&mut canvas, Vec2::new(rect.max().x - 14.0, rect.center().y), open, self.dim);
             }
             let x = rect.origin.x + 50.0;
-            let spare = if tile == Tile::Bluetooth { 16.0 } else { 0.0 };
+            let spare = if lists { 16.0 } else { 0.0 };
             let room = (rect.max().x - x - 8.0 - spare).max(1.0);
             let label = font.paint_weight(&fit(font, tile.label(), room), self.ink, 600.0);
             let note = small.paint(&fit(small, &status.note(tile), room), self.dim);
@@ -456,6 +629,19 @@ impl Look {
         let glyph = crate::blue::glyph(kind, crate::paint::dense(18.0), if lit { [255, 255, 255] } else { self.ink });
         canvas.stamp(&glyph, Vec2::splat(7.0), 1.0);
         canvas.image
+    }
+
+    pub fn net_disc(&self, glyph: crate::net::Glyph, lit: bool) -> Image {
+        let mut canvas = Canvas::new(32, 32);
+        canvas.circle(Vec2::splat(16.0), 15.0, if lit { self.accent } else { self.off }, 1.0);
+        let mark = crate::net::glyph(glyph, crate::paint::dense(18.0), if lit { [255, 255, 255] } else { self.ink });
+        canvas.stamp(&mark, Vec2::splat(7.0), 1.0);
+        canvas.image
+    }
+
+    pub fn switch_rect(&self, item: &Item) -> Rect {
+        let size = Vec2::new(self.width - self.pad * 2.0, item.height());
+        Rect::new(Vec2::new(size.x - 46.0, size.y / 2.0 - 10.0), Vec2::new(34.0, 20.0))
     }
 
     pub fn ring_frame(&self, frame: usize, frames: usize) -> Image {
@@ -513,6 +699,32 @@ impl Look {
             What::Link(text) => {
                 let label = font.paint(&fit(font, text, size.x - 24.0), self.ink);
                 canvas.stamp(&label, Vec2::new(12.0, (size.y - crate::paint::logical(&label).y) / 2.0), 1.0);
+            }
+            What::Network { name, note, lock, bars: signal, switch, .. } => {
+                let mut right = size.x - 10.0;
+                if let Some(on) = switch {
+                    let rect = self.switch_rect(item);
+                    canvas.round_rect(rect, rect.size.y / 2.0, if *on { self.accent } else { self.off }, 1.0);
+                    let knob = Vec2::new(if *on { rect.max().x - 10.0 } else { rect.origin.x + 10.0 }, rect.center().y);
+                    canvas.circle(knob + Vec2::new(0.0, 0.6), 8.6, [0, 0, 0], 0.18);
+                    canvas.circle(knob, 8.0, [255, 255, 255], 1.0);
+                    right = rect.origin.x - 8.0;
+                } else if let Some(lit) = signal {
+                    bars(&mut canvas, self.bars_rect(item), if bare { 0 } else { *lit }, self.ink, self.off);
+                    right -= 28.0;
+                }
+                if *lock {
+                    let mark = crate::net::lock_glyph(crate::paint::dense(12.0), self.dim);
+                    let at = Vec2::new(right - 14.0, (size.y - 12.0) / 2.0);
+                    canvas.stamp(&mark, at.round(), 0.9);
+                    right -= 18.0;
+                }
+                let x = 50.0;
+                let room = (right - x).max(1.0);
+                let label = font.paint_weight(&fit(font, name, room), self.ink, 600.0);
+                let words = small.paint(&fit(small, note, room), self.dim);
+                canvas.stamp(&label, Vec2::new(x, size.y / 2.0 - crate::paint::logical(&label).y), 1.0);
+                canvas.stamp(&words, Vec2::new(x, size.y / 2.0 + 1.0), 1.0);
             }
             What::Device { name, note, battery, bars: signal, .. } => {
                 let mut right = size.x - 10.0;
@@ -624,14 +836,11 @@ fn shape(canvas: &mut Canvas, at: Vec2, ink: [u8; 3], inside: impl Fn(f64, Vec2)
 fn symbol(canvas: &mut Canvas, tile: Tile, at: Vec2, ink: [u8; 3]) {
     match tile {
         Tile::Wifi => {
-            for step in 0..3 {
-                let tall = 4.0 + f64::from(step) * 4.0;
-                let bar = Rect::new(
-                    at + Vec2::new(-7.5 + f64::from(step) * 5.5, 6.0 - tall),
-                    Vec2::new(3.5, tall),
-                );
-                canvas.round_rect(bar, 1.0, ink, 1.0);
+            let base = at + Vec2::new(0.0, 5.5);
+            for radius in [4.6, 8.1, 11.6] {
+                canvas.arc_from(base, radius, 2.1, -0.125, 0.25, ink, 1.0);
             }
+            canvas.circle(base, 1.8, ink, 1.0);
         }
         Tile::Bluetooth => {
             canvas.round_rect(Rect::new(at + Vec2::new(-1.0, -8.0), Vec2::new(2.0, 16.0)), 1.0, ink, 1.0);
@@ -701,7 +910,7 @@ mod tests {
         assert!(matches!(look.hit(Vec2::new(sound.origin.x + 1.0, sound.center().y), &[]), Some(Hit::Volume(_))));
         assert_eq!(look.hit(Vec2::new(1.0, 1.0), &[]), None);
         assert_eq!(look.hit(look.tile_rect(Tile::Bluetooth).center(), &[]), Some(Hit::More(Tile::Bluetooth)));
-        assert_eq!(look.hit(look.tile_rect(Tile::Wifi).center(), &[]), Some(Hit::Tile(Tile::Wifi)));
+        assert_eq!(look.hit(look.tile_rect(Tile::Wifi).center(), &[]), Some(Hit::More(Tile::Wifi)));
         let size = look.size();
         assert!(look.slider_rect(1).max().y <= size.y);
     }

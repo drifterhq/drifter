@@ -1112,14 +1112,18 @@ impl PillLook {
     }
 
     pub fn paint(&self, name: &str, kind: Kind, battery: Option<u8>, words: &str, font: &crate::text::Font, small: &crate::text::Font) -> Image {
+        let mark = glyph(kind, crate::paint::dense(26.0), [255, 255, 255]);
+        self.paint_mark(name, &mark, battery, words, font, small)
+    }
+
+    pub fn paint_mark(&self, name: &str, mark: &Image, battery: Option<u8>, words: &str, font: &crate::text::Font, small: &crate::text::Font) -> Image {
         use crate::geom::{Rect, Vec2};
         let size = self.size;
         let mut canvas = crate::paint::Canvas::new(size.x as u32, size.y as u32);
         canvas.round_rect(Rect::new(Vec2::ZERO, size), size.y / 2.0, self.back, self.back_alpha);
         let disc = Vec2::new(size.y / 2.0, size.y / 2.0);
         canvas.circle(disc, 22.0, self.accent, 1.0);
-        let glyph = glyph(kind, crate::paint::dense(26.0), [255, 255, 255]);
-        canvas.stamp(&glyph, disc - Vec2::splat(13.0), 1.0);
+        canvas.stamp(mark, disc - Vec2::splat(13.0), 1.0);
         let x = size.y + 2.0;
         let mut right = size.x - 22.0;
         if let Some(level) = battery {

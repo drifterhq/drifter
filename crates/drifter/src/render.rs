@@ -13,6 +13,7 @@ mod camera;
 mod capture;
 mod centers;
 mod charges;
+mod ctllist;
 mod clients;
 mod deskmenu;
 mod dock;
@@ -37,6 +38,7 @@ mod reveal;
 mod search;
 mod start;
 mod welcome;
+mod wifi;
 mod worker;
 #[cfg(test)]
 mod tests;
@@ -270,6 +272,7 @@ enum Target {
     Shooter,
     Shot(u64),
     Bluetooth,
+    Wifi,
 }
 
 struct Switch {
@@ -351,11 +354,13 @@ struct Card {
 }
 
 struct Pending {
-    request: crate::polkit::Request,
+    asker: overlays::Asker,
     pad: Pad,
     error: Option<String>,
     busy: bool,
+    shaken: Option<Instant>,
 }
+
 
 struct Popover {
     items: Vec<Item>,
@@ -564,6 +569,8 @@ pub struct State {
     control_icon: Option<TextureBuffer<Tex>>,
     control_status: drifter_core::control::Status,
     radio: bluetooth::Radio,
+    wifi: wifi::Wireless,
+    control_list: Option<ctllist::List>,
     drop: airdrop::Drop,
     control_stale: bool,
     notes_panel: Option<(TextureBuffer<Tex>, Rect, usize)>,
@@ -740,6 +747,7 @@ pub struct State {
     places: Vec<(drifter_core::place::Place, Option<drifter_core::shortcut::Combo>)>,
     place_saves: Vec<(usize, drifter_core::shortcut::Combo)>,
     note_folders: std::collections::HashMap<u32, PathBuf>,
+    note_links: std::collections::HashMap<u32, String>,
     access: drifter_core::Access,
     a11y: Option<crate::a11y::Monitor>,
     speech: Option<speech::Speech>,
@@ -792,6 +800,8 @@ impl State {
             || self.welcome_busy()
             || self.dock_logo.hot
             || self.blue_moving()
+            || self.wifi_moving()
+            || self.list_moving()
             || self.share_moving()
             || self.heads.iter().enumerate().any(|(index, head)| {
                 index != self.at
@@ -986,6 +996,7 @@ impl State {
         }
         if self.tray_band().is_some() {
             self.blue_tray_elements(&mut elements);
+            self.wifi_tray_elements(&mut elements);
         }
         if let (Some(band), Some(buffer)) = (self.tray_band(), self.power.as_ref()) {
             elements.push(Skin::Texture(element(
@@ -1568,13 +1579,14 @@ impl Screen {
         }
         state.reopen_desk();
         state.start_bluetooth();
+        state.start_wifi();
         state.start_airdrop();
         if let Some(media) = state.media.as_ref() {
             media.read();
         }
         if state.autostart {
             let found = drifter_core::autostart::installed();
-            for entry in drifter_core::autostart::to_start(&found, &state.login) {
+            for entry in state.wifi_autostart(drifter_core::autostart::to_start(&found, &state.login)) {
                 match entry.argv() {
                     Some(argv) => crate::apps::launch(&argv, &state.socket),
                     None => log!("drifter: cannot read the autostart line {:?}", entry.exec),

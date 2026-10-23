@@ -52,39 +52,31 @@ impl State {
         }
     }
 
-    fn refresh_radios(&self) {
-        self.background("control-status", || {
-            let wifi = radios();
-            move |state: &mut State| {
-                state.control_status.wifi = wifi;
-                if state.control.is_some() {
-                    state.paint_control();
-                }
-            }
-        });
+    pub(super) fn control_look(&self) -> drifter_core::control::Look {
+        self.control_look_for(self.listing())
     }
 
-    pub(super) fn control_look(&self) -> drifter_core::control::Look {
+    pub(super) fn control_look_for(&self, owner: Option<super::ctllist::Owner>) -> drifter_core::control::Look {
         let plain = drifter_core::control::Look::themed(&self.palette, self.look.accent);
         drifter_core::control::Look {
             back_alpha: self.veil(plain.back_alpha),
             airdrop: self.airdrop_shown(),
+            listing: owner.map(super::ctllist::Owner::tile),
             ..plain
         }
     }
 
     pub(super) fn toggle_control(&mut self) {
         if self.control.take().is_some() {
-            self.radio.list = None;
-            self.blue_search_as_needed();
+            self.close_list();
             self.kick_now();
             return;
         }
         self.close_panels();
         self.control_status = self.control_status();
         self.blue_art();
+        self.wifi_art();
         self.paint_control();
-        self.refresh_radios();
     }
 
     pub(super) fn control_retarget(&mut self, height: f64) {
@@ -93,7 +85,7 @@ impl State {
             return;
         };
         let now = drawn.unwrap_or(height);
-        match height < open.art_height - 0.5 && self.radio.list.as_ref().is_some_and(|list| list.closing) {
+        match height < open.art_height - 0.5 && self.control_list.as_ref().is_some_and(|list| list.closing) {
             true => {
                 open.drawn = (now, height, Instant::now());
                 open.pending = None;
@@ -144,7 +136,7 @@ impl State {
                     if open.pending.is_some_and(|want| (want - size.y).abs() < 0.5) {
                         open.pending = None;
                         open.drawn = (drawn.unwrap_or(size.y), size.y, Instant::now());
-                    } else if open.pending.is_none() && !state.radio.list.as_ref().is_some_and(|list| list.closing) {
+                    } else if open.pending.is_none() && !state.control_list.as_ref().is_some_and(|list| list.closing) {
                         let (_, to, _) = open.drawn;
                         if (to - size.y).abs() > 0.5 {
                             open.drawn = (drawn.unwrap_or(size.y), size.y, Instant::now());
@@ -158,7 +150,7 @@ impl State {
     pub(super) fn close_panels(&mut self) {
         self.popover = None;
         self.control = None;
-        self.radio.list = None;
+        self.close_list();
         self.notes_panel = None;
         self.glance_panel = None;
         self.charges = None;
@@ -169,10 +161,10 @@ impl State {
             let rect = Rect::new(open.rect.origin, Vec2::new(open.rect.size.x, open.drawn_now(self)));
             if !rect.contains(self.pointer) {
                 let on_button = self.control_rect().is_some_and(|button| button.contains(self.pointer))
-                    || self.blue_tray_rect().is_some_and(|button| button.contains(self.pointer));
+                    || self.blue_tray_rect().is_some_and(|button| button.contains(self.pointer))
+                    || self.wifi_tray_rect().is_some_and(|button| button.contains(self.pointer));
                 self.control = None;
-                self.radio.list = None;
-                self.blue_search_as_needed();
+                self.close_list();
                 self.kick_now();
                 return on_button;
             }
@@ -181,7 +173,11 @@ impl State {
                 let items = self.shown_items().to_vec();
                 match look.hit(self.pointer - rect.origin, &items) {
                     Some(ControlHit::Tile(tile)) => self.flip_tile(tile),
-                    Some(ControlHit::More(_)) => self.blue_toggle_list(),
+                    Some(ControlHit::More(tile)) => {
+                        if let Some(owner) = super::ctllist::Owner::of(tile) {
+                            self.list_toggle(owner);
+                        }
+                    }
                     Some(ControlHit::Item(index)) => self.press_control_item(index),
                     Some(ControlHit::Light(level)) => {
                         if let Some(open) = self.control.as_mut() {
@@ -271,22 +267,15 @@ impl State {
         if std::mem::take(&mut self.control_stale) && self.control.is_some() {
             self.paint_control_art();
         }
-        self.blue_list_wind();
+        self.list_wind();
+        self.blue_wind();
         self.blue_search_as_needed();
+        self.wifi_wind();
         self.airdrop_wind();
     }
 
     fn flip_tile(&mut self, tile: Tile) {
         let on = !self.control_status.on(tile);
-        let spawn = |program: &str, args: &[&str]| {
-            let _ = std::process::Command::new(program)
-                .args(args)
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn();
-        };
-        let word = if on { "on" } else { "off" };
         match tile {
             Tile::Wifi => {
                 if on && self.airdrop_holds_wifi() {
@@ -294,7 +283,7 @@ impl State {
                 }
                 if let Some((held, _)) = self.control_status.wifi.as_mut() {
                     *held = on;
-                    spawn("nmcli", &["radio", "wifi", word]);
+                    self.wifi_power(on);
                 }
             }
             Tile::Bluetooth => {
@@ -318,7 +307,7 @@ impl State {
                 self.save_key(|text| drifter_core::settings::write_word(text, "appearance", "style", style));
             }
         }
-        self.blue_fill(tile);
+        self.fill_tile(tile);
         self.paint_control();
     }
 
@@ -402,29 +391,4 @@ impl State {
         );
     }
 
-}
-
-fn radios() -> Option<(bool, String)> {
-    let read = |program: &str, args: &[&str]| {
-        std::process::Command::new(program)
-            .args(args)
-            .stderr(std::process::Stdio::null())
-            .output()
-            .ok()
-            .filter(|out| out.status.success())
-            .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
-    };
-    let wifi = read("nmcli", &["-t", "radio", "wifi"]).map(|radio| {
-        let on = radio.trim() == "enabled";
-        let name = read("nmcli", &["-t", "-f", "ACTIVE,SSID", "device", "wifi", "list", "--rescan", "no"])
-            .and_then(|list| {
-                list.lines()
-                    .map(drifter_core::net::terse)
-                    .find(|fields| fields.first().is_some_and(|active| active == "yes"))
-                    .and_then(|fields| fields.get(1).cloned())
-            })
-            .unwrap_or_default();
-        (on, name)
-    });
-    wifi
 }

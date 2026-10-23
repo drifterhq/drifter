@@ -237,6 +237,7 @@ search = "super+space"
 shot_screen = "shift+super+3"
 shot_part = "shift+super+4"
 shot_bar = "shift+super+5"
+wifi = ""
 
 [power]
 # Minutes with no input before the computer sleeps. 0 never sleeps.

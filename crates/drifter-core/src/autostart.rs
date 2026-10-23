@@ -45,6 +45,12 @@ const BUILT_IN: [&str; 11] = [
     "light-locker",
 ];
 
+const NETWORK_APPLETS: [&str; 3] = ["nm-applet", "nm-tray", "network-manager-applet"];
+
+pub fn network_applet(program: &str) -> bool {
+    NETWORK_APPLETS.contains(&program)
+}
+
 pub fn built_in(program: &str) -> bool {
     program.contains("polkit") || program.contains("policykit") || BUILT_IN.contains(&program)
 }

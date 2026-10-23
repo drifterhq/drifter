@@ -17,10 +17,11 @@ pub enum Action {
     ShotPart,
     ShotBar,
     ScreenReader,
+    Wifi,
 }
 
 impl Action {
-    pub const ALL: [Action; 15] = [
+    pub const ALL: [Action; 16] = [
         Action::Switch,
         Action::Close,
         Action::Screenshot,
@@ -36,6 +37,7 @@ impl Action {
         Action::ShotPart,
         Action::ShotBar,
         Action::ScreenReader,
+        Action::Wifi,
     ];
 
     pub fn key(self) -> &'static str {
@@ -55,6 +57,7 @@ impl Action {
             Action::ShotPart => "shot_part",
             Action::ShotBar => "shot_bar",
             Action::ScreenReader => "screen_reader",
+            Action::Wifi => "wifi",
         }
     }
 
@@ -75,6 +78,7 @@ impl Action {
             Action::ShotPart => crate::lang::t("Screenshot of a part or a window"),
             Action::ShotBar => crate::lang::t("Screenshot and recording bar"),
             Action::ScreenReader => crate::lang::t("Turn the screen reader on or off"),
+            Action::Wifi => crate::lang::t("Open the Wi-Fi menu"),
         }
     }
 
@@ -95,6 +99,7 @@ impl Action {
             Action::ShotPart => "shift+super+4",
             Action::ShotBar => "shift+super+5",
             Action::ScreenReader => "alt+super+s",
+            Action::Wifi => "",
         }
     }
 }

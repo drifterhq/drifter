@@ -365,6 +365,9 @@ pub struct Model {
     pub blue_address: bool,
     pub blue_naming: Option<String>,
     pub blue_steps: Vec<(String, crate::blue::Step)>,
+    pub wifi_open: Option<String>,
+    pub wifi_steps: Vec<(String, crate::blue::Step)>,
+    pub wifi_service: bool,
     pub net_note: Option<String>,
     pub display_note: Option<String>,
     pub users: Option<crate::users::Users>,
@@ -377,7 +380,14 @@ pub enum NetAsk {
     Join(usize),
     Hidden,
     Leave(usize),
-    Forget(usize),
+    NetOptions(usize),
+    NetForget,
+    NetDetails,
+    NetFix,
+    NetUp,
+    NetDown,
+    NetService,
+    WifiFix,
     Pair(usize),
     Connect(usize),
     Disconnect(usize),
@@ -575,6 +585,9 @@ impl Model {
             blue_address: false,
             blue_naming: None,
             blue_steps: Vec::new(),
+            wifi_open: None,
+            wifi_steps: Vec::new(),
+            wifi_service: false,
             net_note: None,
             display_note: None,
             users: None,
@@ -2533,6 +2546,7 @@ pub fn write_scale(text: &str, name: &str, scale: f64) -> Result<String, String>
 
 const ASK_FRESH: std::time::Duration = std::time::Duration::from_secs(15);
 const ASK_DOCK: &str = "dock-item";
+const ASK_WIFI: &str = "wifi";
 
 fn ask_path() -> PathBuf {
     Config::state_dir().join("settings-ask")
@@ -2546,7 +2560,26 @@ pub fn ask_dock_item(at: usize) -> Result<(), String> {
     std::fs::write(&path, format!("{ASK_DOCK} {at}\n")).map_err(|error| error.to_string())
 }
 
-pub fn take_dock_ask() -> Option<usize> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SettingsAsk {
+    Dock(usize),
+    WifiHidden,
+    WifiJoin(String),
+}
+
+pub fn ask_wifi(join: Option<&str>) -> Result<(), String> {
+    let path = ask_path();
+    if let Some(folder) = path.parent() {
+        std::fs::create_dir_all(folder).map_err(|error| error.to_string())?;
+    }
+    let line = match join {
+        Some(ssid) => format!("{ASK_WIFI} join {ssid}\n"),
+        None => format!("{ASK_WIFI} hidden\n"),
+    };
+    std::fs::write(&path, line).map_err(|error| error.to_string())
+}
+
+pub fn take_settings_ask() -> Option<SettingsAsk> {
     let path = ask_path();
     let fresh = std::fs::metadata(&path)
         .and_then(|meta| meta.modified())
@@ -2558,7 +2591,15 @@ pub fn take_dock_ask() -> Option<usize> {
     if !fresh {
         return None;
     }
-    read_dock_ask(&text)
+    if let Some(at) = read_dock_ask(&text) {
+        return Some(SettingsAsk::Dock(at));
+    }
+    let rest = text.trim_end_matches('\n').strip_prefix(ASK_WIFI)?.trim_start();
+    match rest.split_once(' ') {
+        Some(("join", ssid)) if !ssid.is_empty() => Some(SettingsAsk::WifiJoin(ssid.to_string())),
+        _ if rest.trim() == "hidden" => Some(SettingsAsk::WifiHidden),
+        _ => None,
+    }
 }
 
 fn read_dock_ask(text: &str) -> Option<usize> {
@@ -2715,6 +2756,16 @@ pub enum Id {
     WifiOn,
     Net(usize),
     WifiHidden,
+    NetAuto,
+    NetPrivate,
+    NetMetered,
+    NetOrder,
+    NetDetails,
+    NetFix,
+    NetForget,
+    WifiFix,
+    WifiStep(usize),
+    NetService,
     BlueOn,
     Gadget(usize),
     BlueName,
@@ -4788,19 +4839,22 @@ mod tests {
             enterprise: false,
             active,
             known,
+            ..Net::default()
         };
         model.wifi = Some(Wifi {
             managed: true,
             on: true,
             nets: vec![net("Home", true, true), net("Work", false, true), net("Cafe", false, false)],
+            ..Wifi::default()
         });
         assert_eq!(model.press(Id::Net(0), 0), Some(Ask::Net(NetAsk::Leave(0))));
         assert_eq!(model.press(Id::Net(1), 0), Some(Ask::Net(NetAsk::Join(1))));
-        assert_eq!(model.press(Id::Net(1), 1), Some(Ask::Net(NetAsk::Forget(1))));
+        assert_eq!(model.press(Id::Net(1), 1), Some(Ask::Net(NetAsk::NetOptions(1))));
         assert_eq!(model.press(Id::Net(2), 0), Some(Ask::Net(NetAsk::Join(2))));
         let rows: Vec<Row> = model.groups(Section::Network).into_iter().flat_map(|g| g.rows).collect();
-        assert_eq!(rows.len(), 5);
+        assert_eq!(rows.len(), 6);
         assert_eq!(rows[4].id, Id::WifiHidden);
+        assert_eq!(rows[5].id, Id::WifiFix);
         assert_eq!(model.press(Id::WifiHidden, 0), Some(Ask::Net(NetAsk::Hidden)));
         let look = Look::default();
         let groups = model.groups(Section::Network);
@@ -4814,10 +4868,10 @@ mod tests {
         assert_eq!(rows[1].detail.as_deref(), Some("Connected"));
         assert_eq!(rows[3].detail.as_deref(), Some("Secured, strong signal"));
         model.set(Id::WifiOn, Value::Switch(false));
-        assert_eq!(model.groups(Section::Network).into_iter().flat_map(|g| g.rows).count(), 1);
+        assert_eq!(model.groups(Section::Network).into_iter().flat_map(|g| g.rows).count(), 2);
         model.wifi.as_mut().unwrap().managed = false;
         let groups = model.groups(Section::Network);
-        assert_eq!(groups.iter().flat_map(|g| &g.rows).count(), 0, "no switch for a card we do not run");
+        assert_eq!(groups.iter().flat_map(|g| &g.rows).count(), 1, "no switch for a card we do not run, only Fix It");
         assert!(groups[0].footer.as_deref().is_some_and(|words| words.contains("Another tool")));
 
     }

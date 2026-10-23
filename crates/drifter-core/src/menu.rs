@@ -179,7 +179,8 @@ impl Look {
     }
 
     pub fn rect(&self, at: Vec2, size: Vec2, screen: Vec2) -> Rect {
-        let x = at.x.min(screen.x - size.x).max(0.0);
+        const EDGE: f64 = 6.0;
+        let x = at.x.min(screen.x - size.x - EDGE).max(EDGE.min(at.x));
         let y = at.y.min(screen.y - size.y).max(0.0);
         Rect::new(Vec2::new(x, y).round(), size)
     }
@@ -555,7 +556,7 @@ mod tests {
         let look = Look::default();
         let size = Vec2::new(200.0, 120.0);
         let rect = look.rect(Vec2::new(1900.0, 36.0), size, SCREEN);
-        assert_eq!(rect.max().x, SCREEN.x);
+        assert_eq!(rect.max().x, SCREEN.x - 6.0);
         assert!(rect.origin.x < 1900.0);
     }
 
