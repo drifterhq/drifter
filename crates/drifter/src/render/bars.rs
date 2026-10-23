@@ -240,7 +240,7 @@ impl State {
                 self.blue_menu_pick(chosen.id);
                 return true;
             }
-            Target::Wifi(_) => {
+            Target::Wifi => {
                 self.popover = None;
                 self.wifi_menu_pick(chosen.id);
                 return true;

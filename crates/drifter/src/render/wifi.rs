@@ -479,7 +479,7 @@ impl State {
 
     pub(super) fn wifi_scan_as_needed(&mut self) {
         let looking = (self.control.is_some() && self.listing() == Some(Owner::Wifi))
-            || self.popover.as_ref().is_some_and(|open| matches!(open.target, Target::Wifi(_)));
+            || self.popover.as_ref().is_some_and(|open| matches!(open.target, Target::Wifi));
         let on = self.wifi.now.as_ref().is_some_and(|wifi| wifi.on && wifi.managed) && !self.airdrop_holds_wifi();
         if !looking || !on {
             if self.wifi.scanning {
@@ -794,7 +794,7 @@ impl State {
                 None => vec![drifter_core::menu::Item::line(net::MENU_SETTINGS, drifter_core::lang::t("Wi-Fi Settings…"))],
             };
             self.close_panels();
-            self.open_popover(items, at, Target::Wifi(false));
+            self.open_popover(items, at, Target::Wifi);
             self.wifi_scan_as_needed();
             return;
         }
@@ -815,7 +815,7 @@ impl State {
             };
             move |state: &mut State| {
                 state.close_panels();
-                state.open_popover(net::detail_menu(&lines), at, Target::Wifi(true));
+                state.open_popover(net::detail_menu(&lines), at, Target::Wifi);
             }
         });
     }

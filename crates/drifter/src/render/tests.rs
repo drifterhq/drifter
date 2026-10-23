@@ -2173,7 +2173,7 @@ fn the_bluetooth_list_springs_open_and_rows_follow_the_devices() {
     settle(&mut run, 150);
     let closed = run.screen.state.control.as_ref().unwrap().drawn_now(&run.screen.state);
     run.shot("blue-closed");
-    run.screen.state.blue_toggle_list();
+    run.screen.state.list_toggle(super::ctllist::Owner::Bluetooth);
     for step in 0..6 {
         settle(&mut run, 45);
         run.shot(&format!("blue-opening-{step}"));
@@ -2183,9 +2183,9 @@ fn the_bluetooth_list_springs_open_and_rows_follow_the_devices() {
     let open = run.screen.state.control.as_ref().unwrap().drawn_now(&run.screen.state);
     run.shot("blue-open");
     assert!(open > closed + 200.0, "the list grows the panel: {closed} -> {open}");
-    let rows = run.screen.state.radio.list.as_ref().unwrap().rows.len();
+    let rows = run.screen.state.control_list.as_ref().unwrap().rows.len();
     assert_eq!(rows, run.screen.state.shown_items().len());
-    assert!(run.screen.state.radio.list.as_ref().unwrap().rows.iter().all(|row| row.art.is_some()), "every row is painted");
+    assert!(run.screen.state.control_list.as_ref().unwrap().rows.iter().all(|row| row.art.is_some()), "every row is painted");
 
     let mut later = fake_blue(true);
     later.devices.retain(|device| device.name != "Pixel 8");
@@ -2206,13 +2206,13 @@ fn the_bluetooth_list_springs_open_and_rows_follow_the_devices() {
     settle(&mut run, 120);
     run.shot("blue-busy");
 
-    run.screen.state.blue_toggle_list();
+    run.screen.state.list_toggle(super::ctllist::Owner::Bluetooth);
     settle(&mut run, 80);
     run.shot("blue-closing");
     settle(&mut run, 400);
     let shut = run.screen.state.control.as_ref().unwrap().drawn_now(&run.screen.state);
     assert!((shut - closed).abs() < 1.0, "the list closes back to the panel: {shut}");
-    assert!(run.screen.state.radio.list.is_none());
+    assert!(run.screen.state.control_list.is_none());
     run.shot("blue-shut");
     run.screen.state.toggle_control();
 }
@@ -2273,7 +2273,7 @@ fn with_reduce_motion_the_bluetooth_list_opens_at_once() {
     run.screen.state.blue_now(Ok(fake_blue(false)));
     run.screen.state.toggle_control();
     pump(&mut run.screen, |state| state.control.as_ref().is_some_and(|open| open.art.is_some()) && !state.fades_busy());
-    run.screen.state.blue_toggle_list();
+    run.screen.state.list_toggle(super::ctllist::Owner::Bluetooth);
     pump(&mut run.screen, |state| {
         state.control.as_ref().is_some_and(|open| open.art_height > state.control_look().size().y + 100.0)
     });
@@ -2297,7 +2297,7 @@ fn the_real_adapter_fills_the_bluetooth_list() {
     assert!(run.screen.state.radio.now.is_some(), "the adapter reports in");
     run.screen.state.toggle_control();
     pump(&mut run.screen, |state| state.control.as_ref().is_some_and(|open| open.art.is_some()));
-    run.screen.state.blue_toggle_list();
+    run.screen.state.list_toggle(super::ctllist::Owner::Bluetooth);
     settle(&mut run, 4000);
     run.shot("blue-live");
     let state = &run.screen.state;

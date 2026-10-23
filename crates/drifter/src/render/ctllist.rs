@@ -167,10 +167,6 @@ impl State {
         }
     }
 
-    pub(super) fn blue_toggle_list(&mut self) {
-        self.list_toggle(Owner::Bluetooth);
-    }
-
     pub(super) fn list_toggle(&mut self, owner: Owner) {
         let pace = self.window_pace.max(0.01);
         let now = Instant::now();

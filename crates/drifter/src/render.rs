@@ -272,7 +272,7 @@ enum Target {
     Shooter,
     Shot(u64),
     Bluetooth,
-    Wifi(bool),
+    Wifi,
 }
 
 struct Switch {
