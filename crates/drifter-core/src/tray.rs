@@ -17,6 +17,7 @@ pub struct Tray {
     pub button_gap: f64,
     pub battery: f64,
     pub blue: bool,
+    pub net: bool,
 }
 
 impl Default for Tray {
@@ -31,6 +32,7 @@ impl Default for Tray {
             button_gap: 14.0,
             battery: 0.0,
             blue: false,
+            net: false,
         }
     }
 }
@@ -43,6 +45,19 @@ impl Tray {
     pub fn battery_rect(&self, band: Rect, size: Vec2) -> Rect {
         let x = self.control_rect(band).origin.x - self.button_gap - size.x;
         Rect::new(Vec2::new(x, self.centered(band, size.y)), size)
+    }
+
+    pub fn net_rect(&self, band: Rect) -> Rect {
+        let size = Vec2::splat(self.icon);
+        let x = self.after_battery(band) - self.button_gap - size.x;
+        Rect::new(Vec2::new(x, self.centered(band, size.y)), size)
+    }
+
+    fn after_net(&self, band: Rect) -> f64 {
+        match self.net {
+            true => self.net_rect(band).origin.x,
+            false => self.after_battery(band),
+        }
     }
 
     pub fn status_rect(&self, band: Rect, size: Vec2) -> Rect {
@@ -58,13 +73,13 @@ impl Tray {
     }
 
     pub fn blue_rect(&self, band: Rect) -> Rect {
-        self.left_of(band, self.after_battery(band))
+        self.left_of(band, self.after_net(band))
     }
 
     pub fn clock_rect(&self, band: Rect, text: Vec2) -> Rect {
         let left = match self.blue {
             true => self.blue_rect(band).origin.x,
-            false => self.after_battery(band),
+            false => self.after_net(band),
         };
         let x = left - self.button_gap - text.x;
         Rect::new(Vec2::new(x, self.centered(band, text.y)), text)
@@ -118,28 +133,14 @@ impl Tray {
         app.map(|size| size.x + self.gap * 1.5).unwrap_or(0.0)
     }
 
-    pub fn stats_rect(&self, band: Rect, lead: f64, text: Vec2) -> Rect {
-        let x = band.origin.x + self.margin + lead;
-        Rect::new(Vec2::new(x, self.centered(band, text.y)), text)
+    pub fn dot_rect(&self, band: Rect, right: f64, size: Vec2) -> Rect {
+        let x = right - self.button_gap - size.x;
+        Rect::new(Vec2::new(x, self.centered(band, size.y)), size)
     }
 
-    pub fn layout(
-        &self,
-        band: Rect,
-        lead: f64,
-        right: f64,
-        icons: usize,
-        stats: Option<f64>,
-    ) -> (usize, bool) {
+    pub fn layout(&self, band: Rect, lead: f64, right: f64, icons: usize) -> usize {
         let left = band.origin.x + self.margin + lead;
-        let alone = icons.min(self.room(left, right));
-        if let Some(width) = stats {
-            let shown = icons.min(self.room(left + width + self.gap, right));
-            if shown == alone {
-                return (shown, true);
-            }
-        }
-        (alone, false)
+        icons.min(self.room(left, right))
     }
 
     pub fn icon_at(&self, band: Rect, right: f64, pointer: Vec2, shown: usize) -> Option<usize> {
@@ -279,25 +280,26 @@ mod tests {
     }
 
     #[test]
-    fn the_app_name_comes_first_and_the_stats_follow_it() {
+    fn the_app_name_comes_first_and_takes_room_from_the_icons() {
         let tray = Tray::default();
         let name = tray.app_rect(band(), Vec2::new(80.0, 16.0));
         assert_eq!(name.origin.x, tray.margin);
         let lead = tray.lead(Some(name.size));
-        let stats = tray.stats_rect(band(), lead, Vec2::new(200.0, 14.0));
-        assert!(stats.origin.x > name.max().x);
         assert_eq!(tray.lead(None), 0.0);
-        let roomy = tray.layout(band(), 0.0, 400.0, 50, None).0;
-        let squeezed = tray.layout(band(), lead, 400.0, 50, None).0;
+        let roomy = tray.layout(band(), 0.0, 400.0, 50);
+        let squeezed = tray.layout(band(), lead, 400.0, 50);
         assert!(squeezed < roomy, "the name takes room from the icons");
     }
 
     #[test]
-    fn the_stats_sit_at_the_left_margin() {
+    fn the_activity_dot_sits_just_left_of_the_date() {
         let tray = Tray::default();
-        let rect = tray.stats_rect(band(), 0.0, Vec2::new(200.0, 14.0));
-        assert_eq!(rect.origin.x, tray.margin);
-        assert_eq!(rect.center().y, band().center().y);
+        let clock = tray.clock_rect(band(), Vec2::new(240.0, 26.0));
+        let dot = tray.dot_rect(band(), clock.origin.x, Vec2::new(14.0, 14.0));
+        assert_eq!(clock.origin.x - dot.max().x, tray.button_gap);
+        assert_eq!(dot.center().y, band().center().y);
+        let last = tray.icon_rect(band(), dot.origin.x, 3, 2);
+        assert_eq!(dot.origin.x - last.max().x, tray.button_gap);
     }
 
     #[test]
@@ -319,29 +321,16 @@ mod tests {
     }
 
     #[test]
-    fn with_room_every_icon_and_the_stats_show() {
+    fn with_room_every_icon_shows() {
         let tray = Tray::default();
-        assert_eq!(tray.layout(band(), 0.0, 1500.0, 4, Some(200.0)), (4, true));
-        assert_eq!(tray.layout(band(), 0.0, 1500.0, 4, None), (4, false));
-    }
-
-    #[test]
-    fn the_stats_give_way_to_the_icons() {
-        let tray = Tray::default();
-        let right = 400.0;
-        let alone = tray.layout(band(), 0.0, right, 50, None).0;
-        assert_eq!(tray.layout(band(), 0.0, right, 50, Some(200.0)), (alone, false));
-        let few = tray.layout(band(), 0.0, right, 2, Some(200.0));
-        assert_eq!(few, (2, true));
-        let stats = tray.stats_rect(band(), 0.0, Vec2::new(200.0, 14.0));
-        assert!(stats.max().x + tray.gap <= tray.icon_rect(band(), right, 2, 0).origin.x);
+        assert_eq!(tray.layout(band(), 0.0, 1500.0, 4), 4);
     }
 
     #[test]
     fn icons_never_cross_the_left_margin() {
         let tray = Tray::default();
         let right = 300.0;
-        let (shown, _) = tray.layout(band(), 0.0, right, 50, None);
+        let shown = tray.layout(band(), 0.0, right, 50);
         assert!(shown > 0);
         assert!(tray.icon_rect(band(), right, shown, 0).origin.x >= tray.margin);
         assert!(tray.icon_rect(band(), right, shown + 1, 0).origin.x < tray.margin);
@@ -434,6 +423,30 @@ mod tests {
         let power = tray.power_rect(band());
         assert_eq!(power.origin.x - control.max().x, tray.button_gap);
         assert_eq!(control.origin.x - clock.max().x, tray.button_gap);
+    }
+
+    #[test]
+    fn the_network_icon_sits_between_the_battery_and_bluetooth() {
+        let tray = Tray { net: true, blue: true, battery: 60.0, ..Tray::default() };
+        let control = tray.control_rect(band());
+        let battery = tray.battery_rect(band(), Vec2::new(60.0, 26.0));
+        let net = tray.net_rect(band());
+        let blue = tray.blue_rect(band());
+        let clock = tray.clock_rect(band(), Vec2::new(240.0, 26.0));
+        assert_eq!(control.origin.x - battery.max().x, tray.button_gap);
+        assert_eq!(battery.origin.x - net.max().x, tray.button_gap);
+        assert_eq!(net.origin.x - blue.max().x, tray.button_gap);
+        assert_eq!(blue.origin.x - clock.max().x, tray.button_gap);
+        assert_eq!(net.center().y, band().center().y);
+    }
+
+    #[test]
+    fn with_no_bluetooth_the_clock_sits_left_of_the_network_icon() {
+        let tray = Tray { net: true, ..Tray::default() };
+        let net = tray.net_rect(band());
+        let clock = tray.clock_rect(band(), Vec2::new(240.0, 26.0));
+        assert_eq!(net.origin.x - clock.max().x, tray.button_gap);
+        assert_eq!(tray.control_rect(band()).origin.x - net.max().x, tray.button_gap);
     }
 
     #[test]

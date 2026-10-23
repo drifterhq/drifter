@@ -17,6 +17,16 @@ pub struct Icon {
     pub image: Image,
     pub symbolic: bool,
     pub placeholder: bool,
+    pub network: bool,
+}
+
+const NETWORK: [&str; 6] = ["nm-applet", "nm-tray", "network-manager-applet", "iwgtk", "connman-gtk", "cmst"];
+
+fn network(id: Option<&str>, comm: Option<&str>) -> bool {
+    [id, comm]
+        .into_iter()
+        .flatten()
+        .any(|name| NETWORK.iter().any(|known| name.eq_ignore_ascii_case(known)))
 }
 
 pub enum Update {
@@ -163,6 +173,7 @@ fn read_icon(connection: &zbus::blocking::Connection, service: &str) -> Option<I
     let text = |key: &str| proxy.get_property::<String>(key).ok().filter(|text| !text.is_empty());
     let id = text("Id");
     let comm = owner_command(connection, &name);
+    let network = network(id.as_deref(), comm.as_deref());
     let desktop = |key: &str| crate::apps::find(key).and_then(|entry| entry.name);
     let title = label(Label {
         tip: tip(&proxy),
@@ -180,6 +191,7 @@ fn read_icon(connection: &zbus::blocking::Connection, service: &str) -> Option<I
         image,
         symbolic,
         placeholder,
+        network,
     })
 }
 
@@ -607,6 +619,15 @@ fn watch_signals(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn network_applets_are_known_by_id_or_command() {
+        assert!(super::network(Some("nm-applet"), None));
+        assert!(super::network(None, Some("iwgtk")));
+        assert!(super::network(Some("NM-Applet"), Some("python3")));
+        assert!(!super::network(Some("blueman"), Some("blueman-applet")));
+        assert!(!super::network(None, None));
+    }
+
     use super::*;
 
     #[test]
