@@ -208,7 +208,7 @@ impl State {
             return false;
         };
         let rect = *rect;
-        if !rect.contains(self.pointer) {
+        if !rect.contains_round(self.pointer, self.search_look().radius) {
             self.search = None;
             self.kick_now();
             return true;

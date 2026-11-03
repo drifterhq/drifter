@@ -969,7 +969,7 @@ impl State {
                 ..fade::Layer::new(tex, drawn, fade::Shadow::None)
             });
         }
-        layers.push(fade::Layer::new(art, *rect, fade::Shadow::Modal));
+        layers.push(fade::Layer::new(art, *rect, fade::Shadow::Modal(look.radius)));
         if let Some(haze) = share.haze.as_ref() {
             layers.push(fade::Layer {
                 scales: false,
@@ -1014,7 +1014,7 @@ impl State {
         match self.share_look().hit(count, self.pointer - rect.origin) {
             Some(Press::Cancel) => self.airdrop_close_share(),
             Some(Press::Target(index)) => self.airdrop_send(index),
-            None if !rect.contains(self.pointer) => {
+            None if !rect.contains_round(self.pointer, self.share_look().radius) => {
                 let busy = self
                     .drop
                     .share

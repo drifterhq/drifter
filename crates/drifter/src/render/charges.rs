@@ -68,7 +68,7 @@ impl State {
         let Some(rect) = self.charges.as_ref().map(|panel| panel.rect) else {
             return false;
         };
-        if rect.contains(self.pointer) {
+        if rect.contains_round(self.pointer, drifter_core::glance::RADIUS) {
             return true;
         }
         let on_icon = self.battery_rect().is_some_and(|spot| spot.contains(self.pointer));

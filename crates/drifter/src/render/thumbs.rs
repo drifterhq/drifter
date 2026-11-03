@@ -259,7 +259,7 @@ impl State {
             thumb.leaving.is_none()
                 && !thumb.hidden
                 && self.thumbs.dragged != Some(thumb.id)
-                && card_of(self.thumb_drawn(at).0).contains(point)
+                && card_of(self.thumb_drawn(at).0).contains_round(point, grab::THUMB_RADIUS)
         })
     }
 
@@ -432,11 +432,11 @@ impl State {
             }
             if thumb.kept == Kept::Saving
                 && (thumb.born.elapsed() >= SLOW_SAVE || !thumb.chores.is_empty())
-                && let Some((_, inks)) = self.shot_inks.as_ref()
+                && let Some(accent) = self.accent_round.as_ref()
             {
                 let beat = (thumb.born.elapsed().as_secs_f64() * std::f64::consts::TAU / 1.2).sin() * 0.5 + 0.5;
                 let dot = Rect::from_center(card.max() - Vec2::splat(12.0), Vec2::splat(8.0));
-                elements.push(Skin::Texture(fill(&inks.accent, dot, (0.35 + 0.5 * beat) as f32 * alpha)));
+                self.round_fill(accent, dot.size.y / 2.0, dot, (0.35 + 0.5 * beat) as f32 * alpha, elements);
             }
             elements.push(Skin::Texture(element(art, rect, alpha)));
         }
@@ -508,7 +508,7 @@ impl State {
             self.kick_now();
             return;
         }
-        if card_of(self.thumb_drawn(at).0).contains(pointer) {
+        if card_of(self.thumb_drawn(at).0).contains_round(pointer, grab::THUMB_RADIUS) {
             self.thumb_chore(id, Chore::Edit);
         }
     }
@@ -639,7 +639,7 @@ impl State {
         if !self.shot_menu_open() {
             return None;
         }
-        if self.popover.as_ref().is_some_and(|open| open.rect.contains(self.pointer)) {
+        if self.popover.as_ref().is_some_and(|open| open.rect.contains_round(self.pointer, self.look.radius)) {
             return Some(self.press_popover());
         }
         self.popover = None;

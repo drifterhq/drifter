@@ -104,7 +104,7 @@ pub fn height(rows: usize) -> f64 {
 pub fn paint(card: &Card, font: &Font, bold: &Font, charges: &[Charge]) -> Image {
     let size = Vec2::new(card.width, height(charges.len()));
     let mut canvas = Canvas::new(size.x as u32, size.y.ceil() as u32);
-    canvas.round_rect(Rect::new(Vec2::ZERO, size), 14.0, card.back, card.back_alpha);
+    canvas.round_rect(Rect::new(Vec2::ZERO, size), crate::glance::RADIUS, card.back, card.back_alpha);
     let title = bold.paint_bold(crate::lang::t("Batteries"), card.ink);
     canvas.stamp(&title, Vec2::new(PAD, 14.0), 1.0);
     if charges.is_empty() {

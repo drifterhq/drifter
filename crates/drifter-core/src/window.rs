@@ -120,6 +120,15 @@ impl Piece {
         }
     }
 
+    fn hole(self, chrome: &Chrome) -> Option<(Vec2, f64)> {
+        let inner = chrome.radius - chrome.edge;
+        match self {
+            Piece::CornerBottomLeft if inner > 0.0 => Some((Vec2::new(chrome.radius, 0.0), inner)),
+            Piece::CornerBottomRight if inner > 0.0 => Some((Vec2::ZERO, inner)),
+            _ => None,
+        }
+    }
+
     fn corners(self, radius: f64) -> [f64; 4] {
         match self {
             Piece::TitleLeft => [radius, 0.0, 0.0, 0.0],
@@ -321,13 +330,30 @@ pub fn paint(piece: Piece, chrome: &Chrome, active: bool) -> Image {
         true => (chrome.frame, chrome.frame_alpha),
         false => (chrome.idle, chrome.idle_alpha),
     };
-    rounded(
+    let mut image = rounded(
         piece.size(chrome),
         piece.corners(chrome.radius),
         color,
         alpha,
         1.0,
-    )
+    );
+    if let Some((center, inner)) = piece.hole(chrome) {
+        hollow(&mut image, center, inner);
+    }
+    image
+}
+
+fn hollow(image: &mut Image, center: Vec2, inner: f64) {
+    for y in 0..image.height {
+        for x in 0..image.width {
+            let p = Vec2::new(f64::from(x) + 0.5, f64::from(y) + 0.5);
+            let keep = ((p - center).length() - inner + 0.5).clamp(0.0, 1.0);
+            let at = ((y * image.width + x) * 4) as usize;
+            for channel in &mut image.rgba[at..at + 4] {
+                *channel = (f64::from(*channel) * keep).round() as u8;
+            }
+        }
+    }
 }
 
 pub fn painted(name: &str, chrome: &Chrome) -> Option<Image> {
@@ -518,11 +544,11 @@ impl Chrome {
             ),
             edge_left: Rect::new(
                 Vec2::new(frame.origin.x, content.origin.y),
-                Vec2::new(self.edge, content.size.y),
+                Vec2::new(self.edge, (bottom - self.radius - content.origin.y).max(0.0)),
             ),
             edge_right: Rect::new(
                 Vec2::new(content.max().x, content.origin.y),
-                Vec2::new(self.edge, content.size.y),
+                Vec2::new(self.edge, (bottom - self.radius - content.origin.y).max(0.0)),
             ),
             edge_bottom: Rect::new(
                 Vec2::new(frame.origin.x + self.radius, bottom - self.edge),
@@ -676,11 +702,73 @@ pub fn round_slices(rect: Rect, patch: f64, radius: f64) -> Vec<(Rect, Rect)> {
     out
 }
 
-pub fn shadow_slices(frame: Rect, corner: f64, zoom: f64, drop: f64) -> Vec<(Rect, Rect)> {
+pub fn round_slices_each(rect: Rect, patch: f64, corners: [f64; 4]) -> Vec<(Rect, Rect)> {
+    let k = patch.max(0.0).ceil();
+    let most = (rect.size.x / 2.0).min(rect.size.y / 2.0).max(0.0);
+    let [tl, tr, br, bl] = corners.map(|r| r.clamp(0.0, most));
+    let (o, m) = (rect.origin, rect.max());
+    let mut out = Vec::new();
+    let mut push = |source: Rect, target: Rect| {
+        if target.size.x > 0.0 && target.size.y > 0.0 {
+            out.push((source, target));
+        }
+    };
+    let piece = |x: f64, y: f64| Rect::new(Vec2::new(x, y), Vec2::splat(k));
+    push(piece(0.0, 0.0), Rect::new(o, Vec2::splat(tl)));
+    push(piece(k + 1.0, 0.0), Rect::new(Vec2::new(m.x - tr, o.y), Vec2::splat(tr)));
+    push(piece(k + 1.0, k + 1.0), Rect::new(m - Vec2::splat(br), Vec2::splat(br)));
+    push(piece(0.0, k + 1.0), Rect::new(Vec2::new(o.x, m.y - bl), Vec2::splat(bl)));
+    let mut cuts = vec![o.y, o.y + tl, o.y + tr, m.y - br, m.y - bl, m.y];
+    cuts.sort_by(f64::total_cmp);
+    cuts.dedup();
+    let middle = Rect::new(Vec2::splat(k), Vec2::splat(1.0));
+    for band in cuts.windows(2) {
+        let (top, bottom) = (band[0], band[1]);
+        let y = (top + bottom) / 2.0;
+        let left = if y < o.y + tl {
+            o.x + tl
+        } else if y > m.y - bl {
+            o.x + bl
+        } else {
+            o.x
+        };
+        let right = if y < o.y + tr {
+            m.x - tr
+        } else if y > m.y - br {
+            m.x - br
+        } else {
+            m.x
+        };
+        push(middle, Rect::new(Vec2::new(left, top), Vec2::new(right - left, bottom - top)));
+    }
+    out
+}
+
+pub fn app_corners(area: Rect, opaque: impl Fn(Vec2) -> bool) -> Option<[f64; 4]> {
+    let reach = 32.0_f64.min(area.size.x / 2.0).min(area.size.y / 2.0).floor();
+    if reach < 1.0 || !opaque(area.center()) {
+        return None;
+    }
+    let first = |from: Vec2, step: Vec2| (0..reach as u32).map(f64::from).find(|d| opaque(from + step * (d + 0.5)));
+    let corner = |at: Vec2, sx: f64, sy: f64| {
+        let across = first(Vec2::new(at.x, at.y + sy * 0.5), Vec2::new(sx, 0.0))?;
+        let down = first(Vec2::new(at.x + sx * 0.5, at.y), Vec2::new(0.0, sy))?;
+        Some((across + down) / 2.0)
+    };
+    let (o, m) = (area.origin, area.max());
+    Some([
+        corner(o, 1.0, 1.0)?,
+        corner(Vec2::new(m.x, o.y), -1.0, 1.0)?,
+        corner(m, -1.0, -1.0)?,
+        corner(Vec2::new(o.x, m.y), 1.0, -1.0)?,
+    ])
+}
+
+pub fn shadow_slices(frame: Rect, corner: f64, blur: f64, zoom: f64, drop: f64) -> Vec<(Rect, Rect)> {
     let c = corner * zoom;
     let outer = Rect::new(
-        frame.origin - Vec2::splat(c - (corner - SHADOW_BLUR).max(0.0) * zoom) + Vec2::new(0.0, drop * zoom),
-        frame.size + Vec2::splat(2.0 * (c - (corner - SHADOW_BLUR).max(0.0) * zoom)),
+        frame.origin - Vec2::splat(blur * zoom) + Vec2::new(0.0, drop * zoom),
+        frame.size + Vec2::splat(2.0 * blur * zoom),
     );
     let middle = Vec2::new((outer.size.x - 2.0 * c).max(0.0), (outer.size.y - 2.0 * c).max(0.0));
     let cols = [(0.0, corner, outer.origin.x, c), (corner, 1.0, outer.origin.x + c, middle.x), (corner + 1.0, corner, outer.origin.x + c + middle.x, c)];
@@ -735,13 +823,60 @@ mod tests {
         assert!(alpha(middle, 0) < 20, "faded out at the far edge");
         let frame = Rect::new(Vec2::new(100.0, 100.0), Vec2::new(400.0, 300.0));
         let corner = f64::from(side - 1) / 2.0;
-        let slices = shadow_slices(frame, corner, 1.0, 0.0);
+        let slices = shadow_slices(frame, corner, SHADOW_BLUR, 1.0, 0.0);
         assert_eq!(slices.len(), 8, "eight pieces, no middle");
         let left = slices.iter().map(|(_, d)| d.origin.x).fold(f64::MAX, f64::min);
         assert_eq!(left, frame.origin.x - SHADOW_BLUR);
-        let half = shadow_slices(frame, corner, 0.5, 0.0);
+        let half = shadow_slices(frame, corner, SHADOW_BLUR, 0.5, 0.0);
         let narrow = half.iter().map(|(_, d)| d.origin.x).fold(f64::MAX, f64::min);
         assert_eq!(narrow, frame.origin.x - SHADOW_BLUR * 0.5, "the shadow shrinks with the zoom");
+    }
+
+    #[test]
+    fn each_corner_can_round_on_its_own_and_nothing_overlaps() {
+        let rect = Rect::new(Vec2::new(20.0, 30.0), Vec2::new(200.0, 120.0));
+        let slices = round_slices_each(rect, 12.0, [8.0, 8.0, 0.0, 0.0]);
+        let area: f64 = slices.iter().map(|(_, d)| d.size.x * d.size.y).sum();
+        assert!((area - rect.size.x * rect.size.y).abs() < 1e-6, "the pieces cover the rect once: {area}");
+        for (at, (_, a)) in slices.iter().enumerate() {
+            for (_, b) in &slices[at + 1..] {
+                let wide = a.max().x.min(b.max().x) - a.origin.x.max(b.origin.x);
+                let tall = a.max().y.min(b.max().y) - a.origin.y.max(b.origin.y);
+                assert!(wide <= 1e-9 || tall <= 1e-9, "{a:?} overlaps {b:?}");
+            }
+        }
+        assert!(
+            slices.iter().any(|(_, d)| d.max().y == rect.max().y && d.size.x == rect.size.x),
+            "the square bottom runs the full width"
+        );
+    }
+
+    #[test]
+    fn an_apps_corners_come_from_the_part_it_says_is_opaque() {
+        let area = Rect::new(Vec2::new(24.0, 24.0), Vec2::new(400.0, 300.0));
+        let (o, m) = (area.origin, area.max());
+        let cut = 12.0;
+        let gtk = |p: Vec2| {
+            let near_x = p.x < o.x + cut || p.x >= m.x - cut;
+            area.contains(p) && !(near_x && p.y < o.y + cut)
+        };
+        assert_eq!(app_corners(area, gtk), Some([cut, cut, 0.0, 0.0]), "round top, square bottom");
+        assert_eq!(app_corners(area, |p| area.contains(p)), Some([0.0; 4]), "a fully opaque app is square");
+        assert_eq!(app_corners(area, |_| false), None, "no opaque part says nothing");
+    }
+
+    #[test]
+    fn a_rounder_card_casts_a_rounder_shadow() {
+        let blur = 26.0;
+        let alpha = |patch: &Image, at: f64| patch.rgba[((at as u32 * patch.width + at as u32) * 4 + 3) as usize];
+        let tight = shadow_patch(6.0, blur);
+        let round = shadow_patch(14.0, blur);
+        let outside = blur - 6.0;
+        assert!(alpha(&round, outside) + 30 < alpha(&tight, outside), "past a rounder corner the shadow is lighter");
+        let frame = Rect::new(Vec2::new(100.0, 100.0), Vec2::new(300.0, 80.0));
+        let slices = shadow_slices(frame, f64::from(round.width - 1) / 2.0, blur, 1.0, 0.0);
+        let left = slices.iter().map(|(_, d)| d.origin.x).fold(f64::MAX, f64::min);
+        assert_eq!(left, frame.origin.x - blur, "the shadow reaches one blur past the card");
     }
 
     #[test]
@@ -930,7 +1065,8 @@ mod tests {
         let chrome = chrome();
         let left = paint(Piece::CornerBottomLeft, &chrome, true);
         assert_eq!(pixel(&left, 0, left.height - 1)[3], 0);
-        assert_eq!(pixel(&left, left.width - 1, 0)[3], chrome.frame_alpha);
+        assert_eq!(pixel(&left, 1, 0)[3], chrome.frame_alpha);
+        assert_eq!(pixel(&left, left.width - 1, 0)[3], 0, "the app shows through the middle of the ring");
     }
 
     #[test]
@@ -1101,7 +1237,49 @@ mod tests {
         let layout = chrome.layout(content);
         assert_eq!(layout.edge_left.max().x, content.origin.x);
         assert_eq!(layout.edge_right.origin.x, content.max().x);
-        assert_eq!(layout.edge_left.size.y, content.size.y);
+        assert_eq!(layout.edge_left.max().y, layout.corner_left.origin.y, "the side stops where the corner starts");
+        assert_eq!(layout.edge_right.max().y, layout.corner_right.origin.y);
+    }
+
+    #[test]
+    fn the_bottom_corner_is_an_even_ring_that_rounds_the_content() {
+        let chrome = chrome();
+        let content = Rect::new(Vec2::new(chrome.edge, chrome.title), Vec2::new(200.0, 150.0));
+        let layout = chrome.layout(content);
+        let size = layout.frame.size;
+        let mut cover = vec![0.0; (size.x * size.y) as usize];
+        let pieces = [
+            (Piece::TitleLeft, layout.title_left),
+            (Piece::TitleMid, layout.title_mid),
+            (Piece::TitleRight, layout.title_right),
+            (Piece::EdgeLeft, layout.edge_left),
+            (Piece::EdgeRight, layout.edge_right),
+            (Piece::EdgeBottom, layout.edge_bottom),
+            (Piece::CornerBottomLeft, layout.corner_left),
+            (Piece::CornerBottomRight, layout.corner_right),
+        ];
+        for (piece, rect) in pieces {
+            let art = paint(piece, &chrome, true);
+            for y in rect.origin.y as u32..rect.max().y as u32 {
+                for x in rect.origin.x as u32..rect.max().x as u32 {
+                    let (ax, ay) = match piece {
+                        Piece::TitleMid | Piece::EdgeLeft | Piece::EdgeRight | Piece::EdgeBottom => (0, 0),
+                        _ => (x - rect.origin.x as u32, y - rect.origin.y as u32),
+                    };
+                    let a = f64::from(pixel(&art, ax, ay)[3]) / 255.0;
+                    let at = (y * size.x as u32 + x) as usize;
+                    cover[at] = a + cover[at] * (1.0 - a);
+                }
+            }
+        }
+        let at = |x: f64, y: f64| cover[(y as u32 * size.x as u32 + x as u32) as usize];
+        let bottom = size.y;
+        let solid = f64::from(chrome.frame_alpha) / 255.0;
+        assert!(at(0.0, bottom - 5.0) < 0.05, "nothing pokes out past the round corner");
+        assert!(at(chrome.edge, bottom - chrome.edge - 1.0) > solid * 0.9, "the app's square corner is covered");
+        assert!(at(chrome.radius - 3.0, bottom - chrome.radius + 2.0) < 0.05, "inside the ring the app shows");
+        assert!(at(1.0, bottom - chrome.radius - 4.0) > solid * 0.9, "the side edge still meets the corner");
+        assert!(at(chrome.radius + 4.0, bottom - 2.0) > solid * 0.9, "the bottom edge still meets the corner");
     }
 
     #[test]

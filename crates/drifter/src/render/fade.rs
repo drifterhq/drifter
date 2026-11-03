@@ -99,21 +99,21 @@ pub(super) struct Fades {
 }
 
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum Shadow {
     None,
-    Tip,
-    Menu,
-    Modal,
+    Tip(f64),
+    Menu(f64),
+    Modal(f64),
 }
 
 impl Shadow {
-    fn cast(self) -> Option<(f64, f64, f32)> {
+    fn cast(self) -> Option<(f64, f64, f32, f64)> {
         match self {
             Shadow::None => None,
-            Shadow::Tip => Some((0.35, 3.0, 0.22)),
-            Shadow::Menu => Some((0.6, 6.0, 0.30)),
-            Shadow::Modal => Some((1.0, 8.0, 0.38)),
+            Shadow::Tip(round) => Some((0.35, 3.0, 0.22, round)),
+            Shadow::Menu(round) => Some((0.6, 6.0, 0.30, round)),
+            Shadow::Modal(round) => Some((1.0, 8.0, 0.38, round)),
         }
     }
 }
@@ -127,17 +127,18 @@ impl State {
     fn pane_layers(&self, pane: Pane) -> Option<(Vec<Layer>, Rect)> {
         let one = |art: &TextureBuffer<Tex>, rect: Rect, shadow: Shadow| Some((vec![Layer::new(art, rect, shadow)], rect));
         match pane {
-            Pane::Menu => self.popover.as_ref().and_then(|open| Some((open.art.as_ref()?, open.rect))).and_then(|(art, rect)| one(art, rect, Shadow::Menu)),
+            Pane::Menu => self.popover.as_ref().and_then(|open| Some((open.art.as_ref()?, open.rect))).and_then(|(art, rect)| one(art, rect, Shadow::Menu(self.look.radius))),
             Pane::DeskMenu => {
                 let open = self.desk_menu.as_ref()?;
                 let frame = open.arts.iter().map(|(_, rect)| *rect).reduce(|a, b| {
                     let origin = a.origin.min(b.origin);
                     Rect::new(origin, a.max().max(b.max()) - origin)
                 })?;
-                let layers = open.arts.iter().rev().map(|(art, rect)| Layer::new(art, *rect, Shadow::Menu)).collect();
+                let round = self.cascade_look().radius;
+                let layers = open.arts.iter().rev().map(|(art, rect)| Layer::new(art, *rect, Shadow::Menu(round))).collect();
                 Some((layers, frame))
             }
-            Pane::Tip => self.tip.as_ref().and_then(|(art, rect)| one(art, *rect, Shadow::Tip)),
+            Pane::Tip => self.tip.as_ref().and_then(|(art, rect)| one(art, *rect, Shadow::Tip(super::bars::TIP_RADIUS))),
             Pane::Search => {
                 let (parts, frame) = self.search_layers()?;
                 let mut layers: Vec<Layer> = parts
@@ -148,7 +149,7 @@ impl State {
                     })
                     .collect();
                 if let Some(first) = layers.first_mut() {
-                    first.shadow = Shadow::Modal;
+                    first.shadow = Shadow::Modal(self.search_look().radius);
                     first.shade = Some(frame);
                 }
                 Some((layers, frame))
@@ -158,14 +159,14 @@ impl State {
             Pane::Pair => self.pairing_layers(),
             Pane::Pill => self.pill_layers(),
             Pane::Share => self.share_layers(),
-            Pane::Notes => self.notes_panel.as_ref().and_then(|(art, rect, _)| one(art, *rect, Shadow::Menu)),
-            Pane::Charges => self.charges.as_ref().and_then(|panel| one(panel.art.as_ref()?, panel.rect, Shadow::Menu)),
-            Pane::Glance => self.glance_panel.as_ref().and_then(|panel| one(panel.art.as_ref()?, panel.rect, Shadow::Menu)),
-            Pane::GlanceCard => self.glance_card.as_ref().and_then(|(art, rect)| one(art, *rect, Shadow::Modal)),
+            Pane::Notes => self.notes_panel.as_ref().and_then(|(art, rect, _)| one(art, *rect, Shadow::Menu(self.notes_look().radius))),
+            Pane::Charges => self.charges.as_ref().and_then(|panel| one(panel.art.as_ref()?, panel.rect, Shadow::Menu(drifter_core::glance::RADIUS))),
+            Pane::Glance => self.glance_panel.as_ref().and_then(|panel| one(panel.art.as_ref()?, panel.rect, Shadow::Menu(drifter_core::glance::RADIUS))),
+            Pane::GlanceCard => self.glance_card.as_ref().and_then(|(art, rect)| one(art, *rect, Shadow::Modal(drifter_core::glance::RADIUS))),
             Pane::Hud => self.hud_layers(),
             Pane::Card(id) => {
                 let (card, rect) = self.cards.iter().zip(self.card_shown()).find(|(card, _)| card.note.id == id)?;
-                one(&card.art, rect, Shadow::Menu)
+                one(&card.art, rect, Shadow::Menu(drifter_core::notify::Look::themed(&self.palette).radius))
             }
             Pane::Switch => {
                 let open = self.switch.as_ref()?;
@@ -188,7 +189,7 @@ impl State {
                         });
                     }
                 }
-                layers.push(Layer::new(art, panel, Shadow::Modal));
+                layers.push(Layer::new(art, panel, Shadow::Modal(drifter_core::switcher::Look::themed(&self.palette).radius)));
                 Some((layers, panel))
             }
             Pane::Alert => {
@@ -206,7 +207,7 @@ impl State {
                         });
                     }
                 }
-                layers.push(Layer::new(art, open.rect, Shadow::Modal));
+                layers.push(Layer::new(art, open.rect, Shadow::Modal(self.alert_look().radius)));
                 Some((layers, open.rect))
             }
             Pane::Prompt => {
@@ -222,7 +223,7 @@ impl State {
                         (t * std::f64::consts::TAU * 3.0).sin() * 9.0 * (1.0 - t) * (1.0 - t)
                     });
                 let rect = &Rect::new(rect.origin + Vec2::new(shake, 0.0), rect.size);
-                let mut layers = vec![Layer::new(art, *rect, Shadow::Modal)];
+                let mut layers = vec![Layer::new(art, *rect, Shadow::Modal(drifter_core::prompt::Look::themed(&self.palette).radius))];
                 if let Some(haze) = self.prompt_haze.as_ref() {
                     layers.push(Layer {
                         scales: false,
@@ -270,7 +271,7 @@ impl State {
                 ..Layer::new(icon, Rect::from_center(centre, spot.size * scale), Shadow::None)
             });
         }
-        layers.push(Layer::new(&hud.art, hud.rect, Shadow::Menu));
+        layers.push(Layer::new(&hud.art, hud.rect, Shadow::Menu(hud.rect.size.y / 2.0)));
         Some((layers, hud.rect))
     }
 
@@ -475,16 +476,65 @@ impl State {
         }
     }
 
+    pub(super) fn round_fill_each(
+        &self,
+        patch: &TextureBuffer<Tex>,
+        corners: [f64; 4],
+        rect: Rect,
+        alpha: f32,
+        elements: &mut Vec<Skin>,
+    ) {
+        if alpha <= 0.0 {
+            return;
+        }
+        for (source, target) in drifter_core::window::round_slices_each(rect, ROUND_PATCH, corners) {
+            elements.push(Skin::Texture(faded(patch, source, target, alpha)));
+        }
+    }
+
     pub(super) fn panel_shadow(&self, rect: Rect, kind: Shadow, alpha: f32, elements: &mut Vec<Skin>) {
-        let (Some((zoom, drop, dark)), Some((buffer, corner))) = (kind.cast(), self.window_shadow.as_ref()) else {
+        let Some((zoom, drop, dark, round)) = kind.cast() else {
             return;
         };
         if alpha <= 0.0 {
             return;
         }
-        for (source, target) in drifter_core::window::shadow_slices(rect, *corner, zoom, drop) {
+        let blur = (drifter_core::window::SHADOW_BLUR * zoom).round();
+        let Some((buffer, corner)) = self.shade(blur, round.min(rect.size.x / 2.0).min(rect.size.y / 2.0)) else {
+            return;
+        };
+        for (source, target) in drifter_core::window::shadow_slices(rect, *corner, blur, 1.0, drop * zoom) {
             elements.push(Skin::Texture(faded(buffer, source, target, dark * alpha)));
         }
+    }
+
+    pub(super) fn shade(&self, blur: f64, round: f64) -> Option<&(TextureBuffer<Tex>, f64)> {
+        let key = (blur.round() as u32, round.max(0.0).round() as u32);
+        match self.shades.get(&key) {
+            Some(shade) => shade.as_ref(),
+            None => {
+                self.shades_wanted.borrow_mut().push(key);
+                None
+            }
+        }
+    }
+
+    pub(super) fn bake_shades(&mut self) -> bool {
+        let wanted = std::mem::take(self.shades_wanted.get_mut());
+        let mut baked = false;
+        for (blur, round) in wanted {
+            if self.shades.contains_key(&(blur, round)) {
+                continue;
+            }
+            let patch = drifter_core::window::shadow_patch(f64::from(round), f64::from(blur));
+            let shade = upload_flat(&mut self.renderer, Some(&patch), "panel shadow")
+                .ok()
+                .flatten()
+                .map(|buffer| (buffer, f64::from(patch.width - 1) / 2.0));
+            baked |= shade.is_some();
+            self.shades.insert((blur, round), shade);
+        }
+        baked
     }
 
     pub(super) fn rebake_rounds(&mut self) {

@@ -1,5 +1,7 @@
+import bmesh
 import bpy
 import json
+import math
 import os
 import sys
 from mathutils import Vector
@@ -176,6 +178,35 @@ def build(key):
             solid(o, thick[p["role"]], bev[p["role"]], z[p["role"]])
     for t in s["texts"]:
         word(t, z[t["role"]], soft)
+    if s.get("clip"):
+        clip([p["obj"] for p in parts if p["role"] == "body"], s["clip"] / 100 + bb, bb)
+
+
+def clip(objs, radius, bevel):
+    bpy.ops.mesh.primitive_cylinder_add(vertices=256, radius=radius, depth=4)
+    cut = bpy.context.object
+    for o in objs:
+        bpy.ops.object.select_all(action="DESELECT")
+        o.select_set(True)
+        bpy.context.view_layer.objects.active = o
+        bpy.ops.object.convert(target="MESH")
+        bm = bmesh.new()
+        bm.from_mesh(o.data)
+        bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.0005)
+        bm.to_mesh(o.data)
+        bm.free()
+        mod = o.modifiers.new("clip", "BOOLEAN")
+        mod.operation = "INTERSECT"
+        mod.object = cut
+        bpy.ops.object.modifier_apply(modifier=mod.name)
+        rim = o.modifiers.new("rim", "BEVEL")
+        rim.limit_method = "ANGLE"
+        rim.angle_limit = math.radians(60)
+        rim.width = bevel
+        rim.segments = 6
+        bpy.ops.object.modifier_apply(modifier=rim.name)
+        bpy.ops.object.shade_smooth()
+    bpy.data.objects.remove(cut)
 
 
 def camera():

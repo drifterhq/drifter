@@ -45,7 +45,7 @@ pub(super) struct Alert {
 }
 
 impl State {
-    fn cascade_look(&self) -> drifter_core::cascade::Look {
+    pub(super) fn cascade_look(&self) -> drifter_core::cascade::Look {
         let plain = drifter_core::cascade::Look::themed(&self.palette, self.look.accent);
         drifter_core::cascade::Look {
             back_alpha: self.veil(plain.back_alpha),
@@ -299,6 +299,7 @@ impl State {
         };
         let instant = self.window_pace <= 0.0;
         let fade_only = self.window_still;
+        let round = self.cascade_look().radius;
         for (level, (art, rect)) in open.arts.iter().enumerate().rev() {
             let gone = open.opened.get(level).map_or(f64::MAX, |at| at.elapsed().as_secs_f64());
             let (drop, shown) = match (level, instant) {
@@ -313,13 +314,13 @@ impl State {
             if shown <= 0.0 {
                 continue;
             }
-            self.menu_skin(art, drop, shown as f32, elements);
+            self.menu_skin(art, drop, round, shown as f32, elements);
         }
     }
 
-    pub(super) fn menu_skin(&self, art: &TextureBuffer<Tex>, drop: Rect, shown: f32, elements: &mut Vec<Skin>) {
+    pub(super) fn menu_skin(&self, art: &TextureBuffer<Tex>, drop: Rect, round: f64, shown: f32, elements: &mut Vec<Skin>) {
         elements.push(Skin::Texture(element(art, drop, shown)));
-        self.panel_shadow(drop, fade::Shadow::Menu, shown, elements);
+        self.panel_shadow(drop, fade::Shadow::Menu(round), shown, elements);
     }
 
     pub(super) fn desk_menu_busy(&self) -> bool {

@@ -791,7 +791,7 @@ impl State {
             vec![fade::Layer {
                 alpha: alpha as f32,
                 scales: false,
-                ..fade::Layer::new(art, rect, fade::Shadow::Menu)
+                ..fade::Layer::new(art, rect, fade::Shadow::Menu(rect.size.y / 2.0))
             }],
             rect,
         ))
@@ -925,7 +925,7 @@ impl State {
                 layers.push(fade::Layer::new(dot, Rect::from_center(rect.origin + centre, Vec2::splat(10.0 * scale)), fade::Shadow::None));
             }
         }
-        layers.push(fade::Layer::new(art, *rect, fade::Shadow::Modal));
+        layers.push(fade::Layer::new(art, *rect, fade::Shadow::Modal(look.radius)));
         if let Some(haze) = self.radio.pair_haze.as_ref() {
             layers.push(fade::Layer {
                 scales: false,

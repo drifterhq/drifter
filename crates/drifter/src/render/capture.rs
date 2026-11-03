@@ -347,9 +347,9 @@ impl State {
         let whole = self.physical();
         let scale = whole.x / self.screen.x.max(1.0);
         let flash = match (window.and_then(|id| self.place_of(id)), crop) {
-            (Some(index), _) => self.frame_on_screen(index),
-            (None, Some(rect)) => rect,
-            (None, None) => Rect::new(Vec2::ZERO, self.screen),
+            (Some(index), _) => self.shape_on_screen(index),
+            (None, Some(rect)) => (rect, [0.0; 4]),
+            (None, None) => (Rect::new(Vec2::ZERO, self.screen), [0.0; 4]),
         };
         let image = match alone {
             Some(image) => Some(image),
@@ -376,7 +376,7 @@ impl State {
             },
         };
         if let Some(image) = image {
-            self.shot_flash.push((name, flash, Instant::now()));
+            self.shot_flash.push((name, flash.0, flash.1, Instant::now()));
             let place = self.heads[self.at].place;
             let screen = self.screen;
             if let Some(round) = self.shot_round.as_mut() {

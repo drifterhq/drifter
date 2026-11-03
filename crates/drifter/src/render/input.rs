@@ -696,7 +696,7 @@ impl State {
             return true;
         }
         if self.shooter.is_some() {
-            if self.popover.as_ref().is_some_and(|open| open.rect.contains(self.pointer)) {
+            if self.popover.as_ref().is_some_and(|open| open.rect.contains_round(self.pointer, self.look.radius)) {
                 return self.press_popover();
             }
             self.popover = None;
@@ -709,7 +709,7 @@ impl State {
             && !self
                 .popover
                 .as_ref()
-                .is_some_and(|open| open.rect.contains(self.pointer))
+                .is_some_and(|open| open.rect.contains_round(self.pointer, self.look.radius))
         {
             self.popover = None;
             return self.press_launchpad(code);

@@ -172,7 +172,7 @@ impl State {
         let chosen = look
             .slot_at(size, inside, on_page)
             .and_then(|slot| pad.shown.get(pad.page * per + slot).cloned());
-        if pad.rect.contains(self.pointer) && chosen.is_none() {
+        if pad.rect.contains_round(self.pointer, look.radius) && chosen.is_none() {
             return true;
         }
         if code == BTN_RIGHT {
@@ -305,7 +305,7 @@ impl State {
             layers.push(crop(art, part, part, 1.0));
         }
         if let Some(first) = layers.first_mut() {
-            first.shadow = Shadow::Modal;
+            first.shadow = Shadow::Modal(look.radius);
             first.shade = Some(pad.rect);
         }
         Some((layers, pad.rect))

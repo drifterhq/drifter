@@ -537,7 +537,7 @@ fn a_window_wears_a_frame_that_hugs_it_at_every_zoom() {
             want(x, inner.max().y + edge / 2.0, true, "bottom edge");
             want(x, frame.max().y + 2.0, false, "below the frame");
         }
-        let down = inner.origin.y as i64 + 2..inner.max().y as i64 - 2;
+        let down = inner.origin.y as i64 + 2..(inner.max().y - (radius - edge)) as i64;
         for y in down.step_by(5) {
             let y = y as f64;
             want(inner.origin.x - edge / 2.0, y, true, "left edge");
@@ -745,13 +745,7 @@ fn a_theme_flip_without_a_gpu_applies_at_once() {
 #[test]
 fn an_open_menu_casts_a_shadow() {
     let mut run = start("menu-shadow", &Config::default(), None);
-    let item = |id: i32, label: &str| drifter_core::menu::Item {
-        id,
-        label: label.to_string(),
-        enabled: true,
-        separator: false,
-        children: false,
-    };
+    let item = drifter_core::menu::Item::line;
     let at = Vec2::new(f64::from(SIZE.0) / 3.0, f64::from(SIZE.1) / 4.0);
     run.screen
         .state

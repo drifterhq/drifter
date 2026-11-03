@@ -94,7 +94,16 @@ impl State {
             self.dress(shown, (lit, maximized), &title, fade * chrome, elements);
         }
         let edge = self.on_screen(shown);
-        self.idle_wash(edge, lit, fade, elements);
+        let corners = self
+            .windows
+            .iter()
+            .find(|window| window.toplevel.wl_surface() == &surface)
+            .map_or([self.chrome.radius; 4], |window| self.corners_of(window));
+        let washed = match dressed {
+            true => [0.0; 4],
+            false => corners.map(|round| round * zoom * stretch),
+        };
+        self.idle_wash(edge, washed, lit, fade, elements);
         let crop = smithay::utils::Rectangle::<i32, smithay::utils::Physical>::new(
             (edge.origin.x.round() as i32, edge.origin.y.round() as i32).into(),
             (edge.size.x.round() as i32, edge.size.y.round() as i32).into(),
@@ -109,7 +118,7 @@ impl State {
             .map(Skin::Clipped)
         }));
         if shadow && !maximized {
-            self.cast_shadow(shown, dressed, lit, fade, elements);
+            self.cast_shadow(shown, dressed, corners, lit, fade, elements);
         }
     }
 
@@ -120,10 +129,18 @@ impl State {
         }
     }
 
-    pub(super) fn idle_wash(&self, edge: Rect, lit: f64, fade: f32, elements: &mut Vec<Skin>) {
+    pub(super) fn idle_wash(&self, edge: Rect, corners: [f64; 4], lit: f64, fade: f32, elements: &mut Vec<Skin>) {
         let wash = self.chrome.idle_wash * (1.0 - drifter_core::motion::smooth(lit));
-        if let Some(black) = self.black.as_ref().filter(|_| wash > 0.0) {
-            elements.push(Skin::Texture(fill(black, edge, wash as f32 * fade)));
+        if let Some(black) = self.black_round.as_ref().filter(|_| wash > 0.0) {
+            self.round_fill_each(black, corners, edge, wash as f32 * fade, elements);
+        }
+    }
+
+    pub(super) fn corners_of(&self, window: &crate::shell::Window) -> [f64; 4] {
+        match (window.full.is_some(), window.decorated) {
+            (true, _) => [0.0; 4],
+            (false, true) => [self.chrome.radius; 4],
+            (false, false) => window.corners.unwrap_or([self.chrome.radius; 4]),
         }
     }
 
@@ -535,22 +552,30 @@ impl State {
         for (source, target) in drifter_core::window::round_slices(rect, radius, radius) {
             elements.push(Skin::Texture(faded(art, source, target, alpha)));
         }
-        self.panel_shadow(rect, fade::Shadow::Modal, alpha, elements);
+        self.panel_shadow(rect, fade::Shadow::Modal(radius), alpha, elements);
     }
 
-    pub(super) fn modal_shadow(&self, rect: Rect, elements: &mut Vec<Skin>) {
-        self.panel_shadow(rect, fade::Shadow::Modal, 1.0, elements);
+    pub(super) fn modal_shadow(&self, rect: Rect, round: f64, elements: &mut Vec<Skin>) {
+        self.panel_shadow(rect, fade::Shadow::Modal(round), 1.0, elements);
     }
 
     pub(super) fn cast_shadow(
         &self,
         content: Rect,
         dressed: bool,
+        corners: [f64; 4],
         lit: f64,
         fade: f32,
         elements: &mut Vec<Skin>,
     ) {
-        let Some((buffer, corner)) = self.window_shadow.as_ref() else {
+        let Some(framed) = self.window_shadow.as_ref() else {
+            return;
+        };
+        let round = corners.into_iter().fold(0.0, f64::max);
+        let Some((buffer, corner)) = (match (round - self.chrome.radius).abs() < 0.5 {
+            true => Some(framed),
+            false => self.shade(drifter_core::window::SHADOW_BLUR, round),
+        }) else {
             return;
         };
         let strength = fade * drifter_core::window::focus_look(lit, self.chrome.idle_title).1;
@@ -560,7 +585,7 @@ impl State {
         };
         let frame = self.on_screen(edge);
         for (source, target) in
-            drifter_core::window::shadow_slices(frame, *corner, self.camera.zoom, 10.0)
+            drifter_core::window::shadow_slices(frame, *corner, drifter_core::window::SHADOW_BLUR, self.camera.zoom, 10.0)
         {
             elements.push(Skin::Texture(faded(buffer, source, target, strength)));
         }
@@ -608,6 +633,17 @@ impl State {
         if size.x <= 0.0 || size.y <= 0.0 {
             return;
         }
+        let corners = smithay::wayland::compositor::with_states(surface, |states| {
+            let opaque = states
+                .cached_state
+                .get::<smithay::wayland::compositor::SurfaceAttributes>()
+                .current()
+                .opaque_region
+                .clone()?;
+            drifter_core::window::app_corners(Rect::new(inset, size), |p| {
+                opaque.contains((p.x.floor() as i32, p.y.floor() as i32))
+            })
+        });
 
         let (app, title) = smithay::wayland::compositor::with_states(surface, |states| {
             let held = states
@@ -650,6 +686,7 @@ impl State {
         };
 
         window.inset = inset;
+        window.corners = corners;
         let grew = window.content.size != size;
         window.content.size = size;
         if let Some((_, screen)) = window.full {

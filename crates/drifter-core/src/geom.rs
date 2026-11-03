@@ -121,6 +121,31 @@ impl Rect {
         let m = self.max();
         p.x >= self.origin.x && p.y >= self.origin.y && p.x < m.x && p.y < m.y
     }
+
+    pub fn contains_round(&self, p: Vec2, radius: f64) -> bool {
+        self.contains_corners(p, [radius; 4])
+    }
+
+    pub fn contains_corners(&self, p: Vec2, corners: [f64; 4]) -> bool {
+        if !self.contains(p) {
+            return false;
+        }
+        let most = (self.size.x / 2.0).min(self.size.y / 2.0).max(0.0);
+        let (o, m) = (self.origin, self.max());
+        let [tl, tr, br, bl] = corners.map(|r| r.clamp(0.0, most));
+        let centre = if p.x < o.x + tl && p.y < o.y + tl {
+            Some((Vec2::new(o.x + tl, o.y + tl), tl))
+        } else if p.x >= m.x - tr && p.y < o.y + tr {
+            Some((Vec2::new(m.x - tr, o.y + tr), tr))
+        } else if p.x >= m.x - br && p.y >= m.y - br {
+            Some((Vec2::new(m.x - br, m.y - br), br))
+        } else if p.x < o.x + bl && p.y >= m.y - bl {
+            Some((Vec2::new(o.x + bl, m.y - bl), bl))
+        } else {
+            None
+        };
+        centre.is_none_or(|(at, radius)| (p - at).length() <= radius)
+    }
 }
 
 #[cfg(test)]
@@ -224,6 +249,19 @@ mod tests {
         let snapped = rect.round_out();
         assert_eq!(snapped.origin, Vec2::new(10.0, 21.0));
         assert_eq!(snapped.max(), Vec2::new(111.0, 72.0));
+    }
+
+    #[test]
+    fn a_round_rect_leaves_its_corners_out() {
+        let rect = Rect::new(Vec2::new(10.0, 10.0), Vec2::new(100.0, 60.0));
+        assert!(rect.contains_round(Vec2::new(60.0, 40.0), 14.0));
+        assert!(rect.contains_round(Vec2::new(60.0, 10.5), 14.0), "the straight edge is in");
+        assert!(!rect.contains_round(Vec2::new(11.0, 11.0), 14.0), "the top left corner is out");
+        assert!(!rect.contains_round(Vec2::new(109.0, 69.0), 14.0), "the bottom right corner is out");
+        assert!(rect.contains_round(Vec2::new(16.0, 16.0), 14.0), "just inside the curve is in");
+        let square_bottom = [8.0, 8.0, 0.0, 0.0];
+        assert!(rect.contains_corners(Vec2::new(10.5, 69.5), square_bottom), "a square corner keeps its tip");
+        assert!(!rect.contains_corners(Vec2::new(10.5, 10.5), square_bottom));
     }
 
     #[test]

@@ -71,7 +71,7 @@ impl State {
             return;
         };
         let (groups, total) = groups;
-        let held = self.glance_panel.as_ref().is_some_and(|panel| panel.rect.contains(self.pointer));
+        let held = self.glance_panel.as_ref().is_some_and(|panel| panel.rect.contains_round(self.pointer, drifter_core::glance::RADIUS));
         if let Some(panel) = self.glance_panel.as_mut() {
             panel.ready = true;
             let fresh = glance::pick(&groups, total);
@@ -197,7 +197,7 @@ impl State {
         };
         let local = pointer - panel.rect.origin;
         let undo = panel.undo.as_ref().map(|gone| gone.name.clone());
-        let hit = match panel.rect.contains(pointer) {
+        let hit = match panel.rect.contains_round(pointer, drifter_core::glance::RADIUS) {
             true => layout.hit(panel.tops.len(), panel.open, &font, undo.as_deref(), local),
             false => None,
         };
@@ -217,7 +217,7 @@ impl State {
         let Some(rect) = self.glance_panel.as_ref().map(|panel| panel.rect) else {
             return false;
         };
-        if !rect.contains(self.pointer) {
+        if !rect.contains_round(self.pointer, drifter_core::glance::RADIUS) {
             let on_dot = self.stats_spot().is_some_and(|spot| spot.contains(self.pointer));
             self.glance_panel = None;
             self.sampler.watch(false);

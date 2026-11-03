@@ -17,6 +17,7 @@ pub fn heat(value: f64) -> [u8; 3] {
     }
 }
 pub const HISTORY: usize = 30;
+pub const RADIUS: f64 = 14.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Style {
@@ -184,7 +185,7 @@ pub fn paint_card(card: &Card, font: &Font, bold: &Font, fields: &[(String, u8)]
     let spark = history.len() > 1;
     let size = Vec2::new(card.width, card.height(fields.len(), spark));
     let mut canvas = Canvas::new(size.x as u32, size.y as u32);
-    canvas.round_rect(Rect::new(Vec2::ZERO, size), 14.0, card.back, card.back_alpha);
+    canvas.round_rect(Rect::new(Vec2::ZERO, size), RADIUS, card.back, card.back_alpha);
     paint_system(&mut canvas, card, font, bold, fields, history);
     canvas.image
 }
@@ -270,7 +271,7 @@ pub fn paint_rows(
 ) -> Image {
     let size = Vec2::new(card.width, rows_height(rows.len(), meter.is_some()));
     let mut canvas = Canvas::new(size.x as u32, size.y as u32);
-    canvas.round_rect(Rect::new(Vec2::ZERO, size), 14.0, card.back, card.back_alpha);
+    canvas.round_rect(Rect::new(Vec2::ZERO, size), RADIUS, card.back, card.back_alpha);
     let pad = 14.0;
     let title = bold.paint_bold(head, card.ink);
     canvas.stamp(&title, Vec2::new(pad, 14.0), 1.0);

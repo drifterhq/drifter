@@ -42,7 +42,7 @@ pub(super) struct Shooter {
     pub hover: Option<Slot>,
     pub from: Option<Vec2>,
     pub chosen: Option<Rect>,
-    pub under: Option<Rect>,
+    pub under: Option<(Rect, [f64; 4])>,
     pub tag: Option<(TextureBuffer<Tex>, String, Vec2)>,
     pub tag_want: Option<String>,
     pub sources: Vec<grab::Source>,
@@ -63,7 +63,6 @@ pub(super) struct Recording {
 
 pub(super) struct Inks {
     pub cross: TextureBuffer<Tex>,
-    pub accent: TextureBuffer<Tex>,
     pub sides: Vec<TextureBuffer<Tex>>,
     pub shades: Vec<TextureBuffer<Tex>>,
 }
@@ -104,8 +103,7 @@ impl State {
     }
 
     pub(super) fn shooter_inks(&mut self) {
-        let fresh = self.shot_inks.as_ref().is_some_and(|(accent, _)| *accent == self.look.accent);
-        if !fresh {
+        if self.shot_inks.is_none() {
             let pixel = |rgb: [u8; 3]| drifter_core::Image {
                 width: 1,
                 height: 1,
@@ -119,17 +117,8 @@ impl State {
             };
             let sides = four([255, 255, 255], "selection edge");
             let shades = four([0, 0, 0], "selection shade");
-            let made = (
-                upload(&mut self.renderer, Some(&cross), "crosshair"),
-                upload(&mut self.renderer, Some(&pixel(self.look.accent)), "accent"),
-            );
-            if let (Ok(Some(cross)), Ok(Some(accent)), 4, 4) = (made.0, made.1, sides.len(), shades.len()) {
-                self.shot_inks = Some((self.look.accent, Inks {
-                    cross,
-                    accent,
-                    sides,
-                    shades,
-                }));
+            if let (Ok(Some(cross)), 4, 4) = (upload(&mut self.renderer, Some(&cross), "crosshair"), sides.len(), shades.len()) {
+                self.shot_inks = Some(Inks { cross, sides, shades });
             }
         }
     }
@@ -172,6 +161,10 @@ impl State {
     }
 
     pub(super) fn frame_on_screen(&self, index: usize) -> Rect {
+        self.shape_on_screen(index).0
+    }
+
+    pub(super) fn shape_on_screen(&self, index: usize) -> (Rect, [f64; 4]) {
         let window = &self.windows[index];
         let chrome = self.chrome;
         let frame = match window.decorated && window.full.is_none() {
@@ -182,13 +175,25 @@ impl State {
             false => window.content,
         };
         let shown = self.on_screen(frame);
-        grab::drag_rect(shown.origin, shown.max(), self.screen)
+        let kept = grab::drag_rect(shown.origin, shown.max(), self.screen);
+        let tips = |rect: Rect| {
+            let (o, m) = (rect.origin, rect.max());
+            [o, Vec2::new(m.x, o.y), m, Vec2::new(o.x, m.y)]
+        };
+        let (whole, cut) = (tips(shown), tips(kept));
+        let round = self.corners_of(window).map(|round| round * self.camera.zoom);
+        let corners = std::array::from_fn(|at| match (whole[at] - cut[at]).length() < 0.5 {
+            true => round[at],
+            false => 0.0,
+        });
+        (kept, corners)
     }
 
     fn window_under_pointer(&self) -> Option<usize> {
         self.windows.iter().enumerate().rev().find_map(|(index, window)| {
             let usable = window.placed && !window.hidden && !window.going;
-            (usable && self.frame_on_screen(index).contains(self.pointer)).then_some(index)
+            let (rect, corners) = self.shape_on_screen(index);
+            (usable && rect.contains_corners(self.pointer, corners)).then_some(index)
         })
     }
 
@@ -200,9 +205,9 @@ impl State {
             .shooter
             .as_ref()
             .and_then(|shooter| shooter.bar.as_ref())
-            .is_some_and(|(_, rect)| rect.contains(self.pointer));
+            .is_some_and(|(_, rect)| rect.contains_round(self.pointer, self.bar_look().radius));
         let under = match (tool.pick, on_bar) {
-            (Pick::Window, false) => self.window_under_pointer().map(|index| self.frame_on_screen(index)),
+            (Pick::Window, false) => self.window_under_pointer().map(|index| self.shape_on_screen(index)),
             _ => None,
         };
         let hover = match on_bar {
@@ -302,7 +307,7 @@ impl State {
             return true;
         }
         if let Some((_, rect)) = shooter.bar.as_ref()
-            && rect.contains(self.pointer)
+            && rect.contains_round(self.pointer, self.bar_look().radius)
         {
             let rect = *rect;
             match self.bar_look().hit(self.pointer - rect.origin) {
@@ -583,26 +588,26 @@ impl State {
     }
 
     pub(super) fn shot_flash_elements(&self, elements: &mut Vec<Skin>) {
-        let Some((_, inks)) = self.shot_inks.as_ref() else {
+        let Some(white) = self.plain_round.as_ref() else {
             return;
         };
         let Some(head) = self.heads.get(self.at) else {
             return;
         };
-        for (name, rect, since) in &self.shot_flash {
+        for (name, rect, corners, since) in &self.shot_flash {
             if *name != head.name {
                 continue;
             }
             let t = (since.elapsed().as_secs_f64() / FLASH).min(1.0);
             let alpha = (1.0 - drifter_core::motion::smooth(t)) * 0.7;
             if alpha > 0.0 {
-                elements.push(Skin::Texture(fill(&inks.sides[0], *rect, alpha as f32)));
+                self.round_fill_each(white, *corners, *rect, alpha as f32, elements);
             }
         }
     }
 
     pub(super) fn wind_the_flash(&mut self) {
-        self.shot_flash.retain(|(_, _, since)| since.elapsed().as_secs_f64() < FLASH);
+        self.shot_flash.retain(|(_, _, _, since)| since.elapsed().as_secs_f64() < FLASH);
         if self.shot_count.is_some() {
             self.wind_the_countdown();
         }
@@ -970,7 +975,7 @@ impl State {
             .recording
             .as_ref()
             .and_then(|recording| recording.art.as_ref())
-            .is_some_and(|(_, rect)| rect.contains(self.pointer));
+            .is_some_and(|(_, rect)| rect.contains_round(self.pointer, rect.size.y / 2.0));
         if on && code == BTN_LEFT {
             self.stop_recording();
         }
@@ -995,11 +1000,11 @@ impl State {
         let on_bar = shooter
             .bar
             .as_ref()
-            .is_some_and(|(_, rect)| rect.contains(self.pointer));
+            .is_some_and(|(_, rect)| rect.contains_round(self.pointer, self.bar_look().radius));
         if on_bar || shooter.tool.pick != Pick::Portion {
             return None;
         }
-        let (_, inks) = self.shot_inks.as_ref()?;
+        let inks = self.shot_inks.as_ref()?;
         let mut elements = Vec::new();
         if let Some((art, _, size)) = shooter.tag.as_ref() {
             let size = *size;
@@ -1017,7 +1022,7 @@ impl State {
         let Some(shooter) = self.shooter.as_ref() else {
             return;
         };
-        let Some((_, inks)) = self.shot_inks.as_ref() else {
+        let Some(inks) = self.shot_inks.as_ref() else {
             return;
         };
         self.popover_elements(elements);
@@ -1031,7 +1036,7 @@ impl State {
         }
         if let Some((art, rect)) = shooter.bar.as_ref() {
             elements.push(Skin::Texture(element(art, *rect, 1.0)));
-            self.modal_shadow(*rect, elements);
+            self.modal_shadow(*rect, self.bar_look().radius, elements);
         }
         let boxed = shooter
             .from
@@ -1067,8 +1072,8 @@ impl State {
                 }
             }
         }
-        if let Some(rect) = shooter.under {
-            elements.push(Skin::Texture(fill(&inks.accent, rect, 0.3)));
+        if let (Some((rect, corners)), Some(accent)) = (shooter.under, self.accent_round.as_ref()) {
+            self.round_fill_each(accent, corners, rect, 0.3, elements);
         }
     }
 }

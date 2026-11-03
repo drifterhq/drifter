@@ -977,11 +977,11 @@ impl State {
                 let spot = drifter_core::dock::badge_rect(rect, size.x - size.y * 0.55);
                 elements.push(Skin::Texture(element(&buffer, Rect::new(spot.origin, size), 1.0)));
             }
-            if let (Some(progress), Some(plain)) = (badge.progress, self.plain.as_ref()) {
+            if let (Some(progress), Some(plain)) = (badge.progress, self.plain_round.as_ref()) {
                 let bar = drifter_core::dock::progress_rect(rect);
                 let filled = Rect::new(bar.origin, Vec2::new(bar.size.x * progress.clamp(0.0, 1.0), bar.size.y));
-                elements.push(Skin::Texture(fill(plain, filled, 0.95)));
-                elements.push(Skin::Texture(fill(plain, bar, 0.3)));
+                self.round_fill(plain, bar.size.y / 2.0, filled, 0.95, elements);
+                self.round_fill(plain, bar.size.y / 2.0, bar, 0.3, elements);
             }
         }
 

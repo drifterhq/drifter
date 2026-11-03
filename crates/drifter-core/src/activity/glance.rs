@@ -172,7 +172,7 @@ pub fn paint(layout: &Layout, what: &Paint) -> Image {
     let card = &layout.card;
     let size = Vec2::new(card.width, layout.height(what.tops.len(), what.open));
     let mut canvas = Canvas::new(size.x as u32, size.y.ceil() as u32);
-    canvas.round_rect(Rect::new(Vec2::ZERO, size), 14.0, card.back, card.back_alpha);
+    canvas.round_rect(Rect::new(Vec2::ZERO, size), crate::glance::RADIUS, card.back, card.back_alpha);
     crate::glance::paint_system(&mut canvas, card, what.font, what.bold, what.fields, what.history);
     let head = what.font.paint_weight(crate::lang::t("Using the most"), card.dim, 600.0);
     canvas.stamp(&head, Vec2::new(PAD, layout.system() + HEAD - 6.0 - logical(&head).y).round(), 1.0);

@@ -602,7 +602,8 @@ impl State {
         for note in refrost {
             self.paint_note(note, false);
         }
-        let over = rects.iter().position(|rect| rect.contains(self.pointer));
+        let round = drifter_core::notify::Look::themed(&self.palette).radius;
+        let over = rects.iter().position(|rect| rect.contains_round(self.pointer, round));
         let mut gone = Vec::new();
         for (at, card) in self.cards.iter_mut().enumerate() {
             if Some(at) == over {
@@ -624,7 +625,7 @@ impl State {
         let Some(at) = self
             .card_rects()
             .iter()
-            .position(|rect| rect.contains(self.pointer))
+            .position(|rect| rect.contains_round(self.pointer, drifter_core::notify::Look::themed(&self.palette).radius))
         else {
             return false;
         };

@@ -143,7 +143,7 @@ impl State {
         .ok()
         .flatten();
         let accent = self.look.accent;
-        let patch = drifter_core::window::shadow_patch(drifter_core::welcome::RADIUS, 44.0);
+        let patch = drifter_core::window::shadow_patch(drifter_core::welcome::RADIUS, drifter_core::window::SHADOW_BLUR);
         let shadow = upload_flat(&mut self.renderer, Some(&patch), "welcome shadow")
             .ok()
             .flatten()
@@ -661,7 +661,7 @@ impl State {
             elements.push(Skin::Texture(element(art, gone, (fade * (1.0 - t)) as f32)));
         }
         if let Some((buffer, corner)) = open.shadow.as_ref() {
-            for (source, target) in drifter_core::window::shadow_slices(here, *corner, 1.0, 10.0) {
+            for (source, target) in drifter_core::window::shadow_slices(here, *corner, drifter_core::window::SHADOW_BLUR, 1.0, 10.0) {
                 elements.push(Skin::Texture(faded(buffer, source, target, 0.2 * fade as f32)));
             }
         }
@@ -759,7 +759,7 @@ impl State {
         let Some(open) = self.welcome.as_mut().filter(|open| open.closing.is_none()) else {
             return;
         };
-        let hit = match rect.contains(self.pointer) {
+        let hit = match rect.contains_round(self.pointer, drifter_core::welcome::RADIUS) {
             true => look.hit(&open.view, &open.fonts, inside),
             false => None,
         };
@@ -788,7 +788,7 @@ impl State {
         let Some(rect) = self.welcome_rect() else {
             return false;
         };
-        if self.welcome.as_ref().is_some_and(|open| open.closing.is_some()) || !rect.contains(self.pointer) {
+        if self.welcome.as_ref().is_some_and(|open| open.closing.is_some()) || !rect.contains_round(self.pointer, drifter_core::welcome::RADIUS) {
             return false;
         }
         if code != BTN_LEFT {

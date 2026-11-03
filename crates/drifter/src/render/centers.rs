@@ -159,7 +159,7 @@ impl State {
     pub(super) fn press_centers(&mut self, code: u32) -> bool {
         if let Some(open) = self.control.as_ref() {
             let rect = Rect::new(open.rect.origin, Vec2::new(open.rect.size.x, open.drawn_now(self)));
-            if !rect.contains(self.pointer) {
+            if !rect.contains_round(self.pointer, self.control_look().radius) {
                 let on_button = self.control_rect().is_some_and(|button| button.contains(self.pointer))
                     || self.blue_tray_rect().is_some_and(|button| button.contains(self.pointer))
                     || self.wifi_tray_rect().is_some_and(|button| button.contains(self.pointer));
@@ -199,7 +199,7 @@ impl State {
             return true;
         }
         if let Some((_, rect, rows)) = self.notes_panel.as_ref().map(|(art, rect, rows)| (art.clone(), *rect, *rows)) {
-            if !rect.contains(self.pointer) {
+            if !rect.contains_round(self.pointer, self.notes_look().radius) {
                 let on_clock = self.clock.as_ref().is_some_and(|(_, _, clock)| clock.contains(self.pointer));
                 self.notes_panel = None;
                 self.kick_now();
@@ -323,7 +323,7 @@ impl State {
         }
     }
 
-    fn notes_look(&self) -> drifter_core::calendar::Look {
+    pub(super) fn notes_look(&self) -> drifter_core::calendar::Look {
         let plain = drifter_core::calendar::Look::themed(&self.palette, self.look.accent);
         drifter_core::calendar::Look {
             back_alpha: self.veil(plain.back_alpha),

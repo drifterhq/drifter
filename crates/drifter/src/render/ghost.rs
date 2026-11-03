@@ -7,6 +7,7 @@ pub(super) struct Ghost {
     content: Rect,
     inset: Vec2,
     dressed: bool,
+    corners: [f64; 4],
     maximized: bool,
     title: String,
     motion: Motion,
@@ -52,6 +53,7 @@ impl State {
             content: window.content,
             inset: window.inset,
             dressed: window.decorated && window.full.is_none(),
+            corners: self.corners_of(window),
             maximized: window.restore.is_some(),
             title: window.title.clone(),
             motion,
@@ -87,7 +89,7 @@ impl State {
                 elements.push(Skin::Texture(element(art, self.on_screen(at), fade)));
             }
             if !ghost.maximized {
-                self.cast_shadow(shown, ghost.dressed, 0.0, fade, elements);
+                self.cast_shadow(shown, ghost.dressed, ghost.corners, 0.0, fade, elements);
             }
         }
     }

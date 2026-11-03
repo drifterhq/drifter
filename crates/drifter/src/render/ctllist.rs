@@ -636,7 +636,7 @@ impl State {
         layers.push(fade::Layer {
             source: Some(Rect::new(Vec2::ZERO, Vec2::new(width, body))),
             shade: Some(frame),
-            ..fade::Layer::new(art, Rect::new(origin, Vec2::new(width, body)), fade::Shadow::Menu)
+            ..fade::Layer::new(art, Rect::new(origin, Vec2::new(width, body)), fade::Shadow::Menu(look.radius))
         });
         Some((layers, frame))
     }

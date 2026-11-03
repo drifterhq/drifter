@@ -110,10 +110,10 @@ def text(s, color=WHITE, x=50, y=72, h=11, maxw=56, role="mark"):
 ICONS = {}
 
 
-def icon(path, parts, texts=(), transform=None, soft=1.0):
+def icon(path, parts, texts=(), transform=None, soft=1.0, clip=None):
     shapes = [p for p in parts if "s" not in p]
     words = [p for p in parts if "s" in p] + list(texts)
-    ICONS[path] = {"parts": shapes, "texts": words, "transform": transform, "soft": soft}
+    ICONS[path] = {"parts": shapes, "texts": words, "transform": transform, "soft": soft, "clip": clip}
 
 
 def folder(back, front, marks=()):
@@ -401,10 +401,13 @@ def app(name, parts, **kw):
     icon(f"apps/{name}", parts, **kw)
 
 
-def brand(name, slug, color, marks=(), soft=0.8):
+def logo(slug):
     s = open(os.path.join(HERE, "brands", f"{slug}.svg")).read()
-    d = re.search(r'<path[^>]* d="([^"]+)"', s).group(1)
-    icon(f"apps/{name}", [part("logo", "body", color, d)] + list(marks), transform="translate(10 10) scale(3.3333)", soft=soft)
+    return re.search(r'<path[^>]* d="([^"]+)"', s).group(1)
+
+
+def brand(name, slug, color, marks=(), soft=0.8):
+    icon(f"apps/{name}", [part("logo", "body", color, logo(slug))] + list(marks), transform="translate(10 10) scale(3.3333)", soft=soft)
 
 
 app("drifter-explorer", folder(BLUE_D, BLUE, [part("star", "mark", WHITE, star(50, 59, 5, 13, 4, -90))]))
@@ -656,7 +659,15 @@ brand("docker-desktop", "docker", "#2496ed")
 brand("element-desktop", "element", "#0dbd8b")
 brand("emacs", "gnuemacs", "#7f5ab6")
 brand("gvim", "vim", "#019733")
-brand("firefox", "firefoxbrowser", "#ff7139")
+def firefox(name, globe, fox, marks=(), soft=1.0):
+    app(name, [
+        part("globe", "body", globe, circle(12.2, 12.4, 9)),
+        part("fox", "top", fox, logo("firefoxbrowser")),
+    ] + list(marks), transform="translate(10 10) scale(3.3333)", soft=soft)
+
+
+firefox("firefox", "#7542e5", "#ff7139", [part("belly", "mark", "#ffbd4f", "M3.4 14.5A8.73 8.73 0 0 0 20.8 14.5A10.66 10.66 0 0 1 3.4 14.5Z")])
+firefox("firefox-developer-edition", "#3537b8", "#0090ed")
 brand("gimp", "gimp", "#7a6f55")
 brand("github-desktop", "github", "#6e40c9")
 brand("inkscape", "inkscape", "#2b2f3a")
@@ -684,20 +695,34 @@ brand("torbrowser", "torbrowser", "#9b5bd0")
 brand("transmission", "transmission", "#d70008")
 brand("virtualbox", "virtualbox", "#2f61b4")
 brand("vlc", "vlcmediaplayer", "#ff8800")
-app("google-chrome", [
-    part("red", "body", "#ea4335", sector(50, 50, 16, 39, -150, -30)),
-    part("yellow", "body", "#fbbc04", sector(50, 50, 16, 39, -30, 90)),
-    part("green", "body", "#34a853", sector(50, 50, 16, 39, 90, 210)),
-    part("white", "top", WHITE, circle(50, 50, 18)),
-    part("blue", "mark", "#4285f4", circle(50, 50, 13)),
-])
-app("chromium", [
-    part("a", "body", "#4a8af4", sector(50, 50, 16, 39, -150, -30)),
-    part("b", "body", "#a1c2fa", sector(50, 50, 16, 39, -30, 90)),
-    part("c", "body", "#1a5fd0", sector(50, 50, 16, 39, 90, 210)),
-    part("white", "top", WHITE, circle(50, 50, 18)),
-    part("blue", "mark", "#4285f4", circle(50, 50, 13)),
-])
+def chrome_piece(turn, gap, reach=30):
+    a = math.radians(turn)
+    at = lambda x, y: f"{24 + (x - 24) * math.cos(a) - (y - 24) * math.sin(a):.3f} {24 + (x - 24) * math.sin(a) + (y - 24) * math.cos(a):.3f}"
+    hit = lambda px, py, dx, dy, r: (lambda b, c: max((-b + s * math.sqrt(b * b - c)) for s in (-1, 1)))(dx * (px - 24) + dy * (py - 24), (px - 24) ** 2 + (py - 24) ** 2 - r * r)
+    rx, ry = 24 - 6 * math.sqrt(3) + gap * math.sqrt(3) / 2, 30 - gap / 2
+    dx, dy = -0.5, -math.sqrt(3) / 2
+    t_in, t_out = hit(rx, ry, dx, dy, 12), hit(rx, ry, dx, dy, reach)
+    return (
+        f"M{at(24, 12 - gap)}L{at(24 + math.sqrt(reach * reach - (12 + gap) ** 2), 12 - gap)}"
+        f"A{reach} {reach} 0 0 0 {at(rx + t_out * dx, ry + t_out * dy)}L{at(rx + t_in * dx, ry + t_in * dy)}"
+        f"A12 12 0 0 1 {at(24, 12)}Z"
+    )
+
+
+def chrome(name, top, left, right, centre, eye=9.5, soft=1.0):
+    gap = 3 * soft
+    app(name, [
+        part("top", "body", top, chrome_piece(0, gap)),
+        part("left", "body", left, chrome_piece(240, gap)),
+        part("right", "body", right, chrome_piece(120, gap)),
+        part("white", "top", WHITE, circle(24, 24, 12)),
+        part("centre", "mark", centre, circle(24, 24, eye)),
+    ], transform="translate(10 10) scale(1.6667)", soft=soft, clip=40)
+
+
+chrome("google-chrome", "#ea4335", "#34a853", "#fbbc04", "#1a73e8")
+chrome("google-chrome-canary", "#f29900", "#fbbc04", "#fdd663", "#fbbc04")
+chrome("chromium", "#1767d1", "#679ef5", "#afccf9", "#1a74e7", 9.75)
 app("slack", [
     part("bl", "body", "#36c5f0", rr(14, 40, 48, 52, 6)), part("bs", "body", "#36c5f0", rr(36, 14, 48, 36, 6)),
     part("gl", "body", "#2eb67d", rr(48, 14, 60, 48, 6)), part("gs", "body", "#2eb67d", rr(64, 36, 86, 48, 6)),
@@ -915,7 +940,7 @@ def write():
             f.write(f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">{inner}</svg>')
         with open(os.path.join(OUT, f"{key}.blend.svg"), "w") as f:
             f.write(f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">{ref}{inner}</svg>')
-        meta[key] = {"path": path, "parts": s["parts"], "texts": s["texts"], "soft": s["soft"]}
+        meta[key] = {"path": path, "parts": s["parts"], "texts": s["texts"], "soft": s["soft"], "clip": s["clip"]}
     with open(os.path.join(OUT, "subjects.json"), "w") as f:
         json.dump(meta, f, indent=1)
     return meta
