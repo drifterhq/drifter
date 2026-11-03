@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 
 use super::{
-    Control, Group, Id, Mark, Model, NetAsk, PROFILES, Row, Value, drop_key, put,
+    Control, Group, Id, Mark, Model, NetAsk, PROFILES, Row, UPDATES_SHOWN, UpdateAsk, Value, Work,
+    drop_key, put,
 };
 use crate::config::{
     ShotFormat,
@@ -1438,6 +1439,68 @@ impl Model {
         ]
     }
 
+    pub(super) fn update_groups(&self) -> Vec<Group> {
+        let kit = &self.updates;
+        let idle = kit.work == Work::Idle;
+        let mut rows = vec![
+            Row::new(Id::UpdateStatus, crate::lang::t("Status"), Control::Note(kit.status())),
+            Row::new(
+                Id::UpdateCheck,
+                crate::lang::t("Check for updates"),
+                Control::Buttons(vec![Mark::Text(crate::lang::t("Check now"))]),
+            )
+            .enabled(idle),
+        ];
+        if !kit.missing {
+            rows.push(
+                Row::new(
+                    Id::UpdateInstall,
+                    crate::lang::t("Install all updates"),
+                    Control::Buttons(vec![Mark::Text(crate::lang::t("Install all"))]),
+                )
+                .enabled(idle && !kit.ids().is_empty()),
+            );
+        }
+        let footer = match (&kit.note, kit.missing, kit.restart) {
+            (_, true, _) => crate::lang::t("Install the packagekit package, then click Check now.").to_string(),
+            (Some(note), _, _) => note.clone(),
+            (None, _, true) => crate::lang::t("Restart to finish.").to_string(),
+            (None, _, false) => crate::lang::t("The system may ask for your password.").to_string(),
+        };
+        let mut groups = vec![Group {
+            header: None,
+            rows,
+            footer: Some(footer),
+            thumbs: None,
+        }];
+        let found = kit.found.as_deref().unwrap_or_default();
+        if !kit.missing && !found.is_empty() {
+            let more = found.len().saturating_sub(UPDATES_SHOWN);
+            groups.push(Group {
+                header: Some(crate::lang::t("Available updates")),
+                rows: found
+                    .iter()
+                    .take(UPDATES_SHOWN)
+                    .enumerate()
+                    .map(|(at, each)| {
+                        let row = Row::new(Id::Update(at), each.name(), Control::Note(each.version().to_string()));
+                        let detail = match each.info {
+                            super::INFO_SECURITY => crate::lang::tf("Security fix. {}", &[&(each.summary)]),
+                            _ => each.summary.clone(),
+                        };
+                        match detail.trim().is_empty() {
+                            true => row,
+                            false => row.detail(detail.trim()),
+                        }
+                    })
+                    .collect(),
+                footer: (more > 0).then(|| crate::lang::tf("And {} more.", &[&more])),
+                thumbs: None,
+            });
+        }
+        groups
+    }
+
     pub(super) fn about_groups(&self) -> Vec<Group> {
         let reset = match self.confirm_reset {
             true => crate::lang::t("Click to confirm"),
@@ -1765,6 +1828,12 @@ impl Model {
                 return Some(Ask::Reset);
             }
             (Id::ResetAll, _) => self.confirm_reset = true,
+            (Id::UpdateCheck, _) if self.updates.work == Work::Idle => {
+                return Some(Ask::Update(UpdateAsk::Check));
+            }
+            (Id::UpdateInstall, _) if self.updates.work == Work::Idle && !self.updates.ids().is_empty() => {
+                return Some(Ask::Update(UpdateAsk::Install));
+            }
             _ => {}
         }
         None

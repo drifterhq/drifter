@@ -19,7 +19,7 @@ sudo dnf install -y --skip-unavailable \
     xorg-x11-server-Xwayland foot grim slurp wf-recorder \
     pipewire wireplumber xdg-desktop-portal xdg-desktop-portal-wlr xdg-desktop-portal-gtk wlr-randr kanshi \
     NetworkManager-wifi bluez bluez-obexd udisks2 iw accountsservice openssl \
-    libnotify pulseaudio-utils
+    libnotify pulseaudio-utils gnome-keyring gnome-keyring-pam PackageKit greetd
 
 sudo install -Dm644 "$here/conf/drifter-portals.conf" /usr/share/xdg-desktop-portal/drifter-portals.conf
 sudo install -Dm644 "$here/conf/xdpw.conf" /etc/xdg/xdg-desktop-portal-wlr/config

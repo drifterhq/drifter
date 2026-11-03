@@ -33,6 +33,7 @@ wayland-protocols = { version = "0.32.13", default-features = false, features = 
 xcursor = "0.3.11"
 zbus = { version = "5.19.0", features = ["blocking-api"] }
 zeroize = "1.9.0"
+serde_json = "1"
 async-channel = "2"
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
@@ -49,7 +50,7 @@ extended-description = "A Wayland desktop where the window manager is a camera o
 section = "x11"
 priority = "optional"
 depends = "$auto, libegl1, libgles2, adwaita-icon-theme, pipewire, wireplumber, xdg-desktop-portal, xdg-desktop-portal-wlr, xdg-desktop-portal-gtk, seatd | systemd"
-recommends = "drifter-explorer, network-manager, network-manager-config-connectivity-debian, bluez, bluez-obexd, udisks2, power-profiles-daemon, iw, xwayland, foot, grim, qt6-gtk-platformtheme, qt5-gtk-platformtheme, accountsservice, openssl, wf-recorder, pulseaudio-utils, xsettingsd"
+recommends = "drifter-explorer, network-manager, network-manager-config-connectivity-debian, bluez, bluez-obexd, udisks2, power-profiles-daemon, iw, xwayland, foot, grim, qt6-gtk-platformtheme, qt5-gtk-platformtheme, accountsservice, openssl, wf-recorder, pulseaudio-utils, xsettingsd, gnome-keyring, libpam-gnome-keyring"
 suggests = "orca"
 assets = [
     ["target/release/drifter", "usr/bin/", "755"],
@@ -60,6 +61,7 @@ assets = [
     ["../../scripts/drifter-session", "usr/bin/", "755"],
     ["../../dist/drifter.desktop", "usr/share/wayland-sessions/", "644"],
     ["../../dist/pam-drifter", "etc/pam.d/drifter", "644"],
+    ["../../dist/drifter-session.target", "usr/lib/systemd/user/", "644"],
     ["../../dist/61-drifter-pixelbook.hwdb", "usr/lib/udev/hwdb.d/", "644"],
     ["../../conf/drifter-portals.conf", "usr/share/xdg-desktop-portal/", "644"],
     ["../../conf/xdpw.conf", "etc/xdg/xdg-desktop-portal-wlr/drifter", "644"],

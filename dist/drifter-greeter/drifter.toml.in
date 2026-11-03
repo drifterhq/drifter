@@ -1,0 +1,8 @@
+# Drifter's login screen. greetd reads this file through
+# /usr/lib/systemd/system/greetd.service.d/drifter-greeter.conf.
+[terminal]
+vt = @VT@
+
+[default_session]
+command = "drifter"
+user = "@USER@"

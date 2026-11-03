@@ -11,10 +11,12 @@ here=$(cd "$(dirname "$0")/.." && pwd)
 if [ -f /etc/pam.d/common-auth ]; then
     stack='#%PAM-1.0
 @include common-auth
+-auth     optional pam_gnome_keyring.so
 @include common-account'
 elif [ -f /etc/pam.d/system-auth ]; then
     stack='#%PAM-1.0
 auth     include  system-auth
+-auth    optional pam_gnome_keyring.so
 account  include  system-auth'
 else
     echo "found neither /etc/pam.d/common-auth nor /etc/pam.d/system-auth" >&2
@@ -38,6 +40,10 @@ DesktopNames=drifter
 DESKTOP
 sudo chmod 0644 /usr/share/wayland-sessions/drifter.desktop
 echo "wrote /usr/share/wayland-sessions/drifter.desktop, which runs $here/scripts/drifter-session"
+
+sudo install -Dm644 "$here/dist/drifter-session.target" /usr/lib/systemd/user/drifter-session.target
+command -v systemctl >/dev/null 2>&1 && systemctl --user daemon-reload 2>/dev/null || true
+echo "wrote /usr/lib/systemd/user/drifter-session.target, which starts graphical-session.target"
 
 sudo install -d /usr/share/applications
 sed "s|^Exec=drifter-explorer|Exec=$here/target/release/drifter-explorer|" "$here/dist/drifter-explorer.desktop" |
@@ -64,6 +70,28 @@ command -v bluetoothd >/dev/null 2>&1 || [ -x /usr/lib/bluetooth/bluetoothd ] ||
     || echo "install BlueZ for Bluetooth: bluez and bluez-obexd (Debian, Fedora) or bluez and bluez-utils (Arch)"
 command -v pactl >/dev/null 2>&1 \
     || echo "install pactl so Bluetooth headphones can pick their sound: pulseaudio-utils (Debian, Fedora) or libpulse (Arch)"
+
+if command -v greetd >/dev/null 2>&1 && [ -x "$here/target/release/drifter" ]; then
+    sudo install -Dm755 "$here/target/release/drifter" /usr/local/libexec/drifter/drifter
+    sudo install -Dm644 "$here/conf/default.toml" /usr/share/drifter/conf/default.toml
+    sudo install -Dm644 "$here/img/cursor.png" /usr/share/drifter/img/cursor.png
+    for dir in shaders fonts img/dock img/window img/users; do
+        sudo install -d "/usr/share/drifter/$dir"
+        sudo cp -r "$here/$dir/." "/usr/share/drifter/$dir/"
+    done
+    greeter=_greetd
+    getent passwd greetd >/dev/null && greeter=greetd
+    vt=$(sed -n 's/^ *vt *= *\([0-9]*\).*/\1/p' /etc/greetd/config.toml 2>/dev/null | head -1)
+    sed -e "s/@VT@/${vt:-1}/" -e "s/@USER@/$greeter/" \
+        -e 's|^command = "drifter"|command = "/usr/local/libexec/drifter/drifter"|' \
+        "$here/dist/drifter-greeter/drifter.toml.in" | sudo tee /etc/greetd/drifter.toml >/dev/null
+    sudo install -Dm644 "$here/dist/drifter-greeter/greetd.conf" /etc/systemd/system/greetd.service.d/drifter-greeter.conf
+    command -v restorecon >/dev/null 2>&1 && sudo restorecon -R /usr/local/libexec/drifter /usr/share/drifter /etc/greetd || true
+    sudo systemctl daemon-reload
+    echo "set up the Drifter login screen for greetd; run this again after each build to update it"
+    systemctl is-enabled --quiet greetd 2>/dev/null \
+        || echo "to use it: sudo systemctl disable gdm sddm lightdm 2>/dev/null; sudo systemctl enable greetd; then reboot"
+fi
 
 if [ -x "$here/target/release/owlyd" ]; then
     sudo "$here/scripts/airdrop-service.sh"

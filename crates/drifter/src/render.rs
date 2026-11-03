@@ -603,6 +603,8 @@ pub struct State {
     search_icons: std::collections::HashMap<String, Option<drifter_core::Image>>,
     app_label: Option<(String, TextureBuffer<Tex>, Vec2)>,
     window_shadow: Option<(TextureBuffer<Tex>, f64)>,
+    shades: std::collections::HashMap<(u32, u32), Option<(TextureBuffer<Tex>, f64)>>,
+    shades_wanted: std::cell::RefCell<Vec<(u32, u32)>>,
     bounces: Vec<dock::Bounce>,
     dock_press: Option<(usize, Vec2)>,
     dock_drag: Option<dock::DockDrag>,
@@ -634,6 +636,7 @@ pub struct State {
     reopening: Option<(drifter_core::reopen::Desk, Instant)>,
     switch: Option<Switch>,
     lock: Option<Lock>,
+    greeter: Option<crate::greeter::Greeter>,
     unlocking: Option<(Lock, Instant)>,
     client_lock: Option<ClientLock>,
     volume: Option<(f64, bool)>,
@@ -687,7 +690,8 @@ pub struct State {
     round: Option<TextureBuffer<Tex>>,
     accent_round: Option<TextureBuffer<Tex>>,
     snap_art: Option<TextureBuffer<Tex>>,
-    black: Option<TextureBuffer<Tex>>,
+    black_round: Option<TextureBuffer<Tex>>,
+    plain_round: Option<TextureBuffer<Tex>>,
     dock_hover: std::collections::HashMap<drifter_core::dock::Slot, (f64, f64, bool)>,
     dock_dots: std::collections::HashMap<String, (f64, f64)>,
     dock_hover_mode: drifter_core::DockHover,
@@ -720,7 +724,7 @@ pub struct State {
     cursor_count: usize,
     shot_round: Option<shoot::Round>,
     shot_count: Option<shoot::Countdown>,
-    shot_flash: Vec<(String, Rect, Instant)>,
+    shot_flash: Vec<(String, Rect, [f64; 4], Instant)>,
     restyle_due: Option<Box<Config>>,
     style_shots: Vec<(usize, TextureBuffer<Tex>)>,
     style_tex: Vec<(usize, smithay::backend::renderer::gles::GlesTexture)>,
@@ -734,7 +738,7 @@ pub struct State {
     shot_tool: drifter_core::grab::Tool,
     shot_clip: bool,
     shot_window: Option<u64>,
-    shot_inks: Option<([u8; 3], shoot::Inks)>,
+    shot_inks: Option<shoot::Inks>,
     shooter: Option<shoot::Shooter>,
     recording: Option<shoot::Recording>,
     thumbs: thumbs::Thumbs,
@@ -881,6 +885,14 @@ impl State {
     }
 
     fn elements(&mut self) -> Vec<Skin> {
+        let elements = self.gather_elements();
+        match self.bake_shades() {
+            true => self.gather_elements(),
+            false => elements,
+        }
+    }
+
+    fn gather_elements(&mut self) -> Vec<Skin> {
         let live = self.at == self.hand;
         if self.client_lock.is_some() {
             let mut elements = match live {
@@ -1565,6 +1577,16 @@ impl Screen {
             ..
         } = self;
 
+        if state.greeter.is_some() {
+            if !state.lock_now() {
+                return Err("the login screen cannot start".to_string());
+            }
+            state.draw()?;
+            events
+                .run(None, &mut state, |_| {})
+                .map_err(|e| format!("event loop failed: {e}"))?;
+            return state.failure.take().map_or(Ok(()), Err);
+        }
         if lock_marker().is_some_and(|marker| marker.exists())
             || (state.login_lock && crate::logind::from_console())
         {

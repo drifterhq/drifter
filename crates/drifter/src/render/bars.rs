@@ -2,6 +2,7 @@ use super::*;
 use drifter_core::hud::Gauge;
 
 const MENU_SLIDE: f64 = 24.0;
+pub(super) const TIP_RADIUS: f64 = 10.0;
 const MENU_SLIDE_TIME: f64 = 0.22;
 
 impl State {
@@ -147,12 +148,12 @@ impl State {
                     let out = drifter_core::motion::smooth(t);
                     let new_rect = Rect::new(drop.origin + Vec2::new(MENU_SLIDE * way * (1.0 - ease), 0.0), drop.size);
                     let old_rect = Rect::new(old_rect.origin - Vec2::new(MENU_SLIDE * way * out, 0.0), old_rect.size);
-                    self.menu_skin(art, new_rect, (shown * out) as f32, elements);
-                    self.menu_skin(old, old_rect, (shown * (1.0 - out)) as f32, elements);
+                    self.menu_skin(art, new_rect, self.look.radius, (shown * out) as f32, elements);
+                    self.menu_skin(old, old_rect, self.look.radius, (shown * (1.0 - out)) as f32, elements);
                 }
                 None => {
                     self.lit_elements(super::fade::Pane::Menu, anchor, scale, lift, shown as f32, elements);
-                    self.menu_skin(art, drop, shown as f32, elements);
+                    self.menu_skin(art, drop, self.look.radius, shown as f32, elements);
                 }
             }
         }
@@ -180,7 +181,7 @@ impl State {
         let Some(open) = self.popover.as_ref() else {
             return false;
         };
-        if !open.rect.contains(self.pointer) {
+        if !open.rect.contains_round(self.pointer, self.look.radius) {
             self.popover = None;
             return false;
         }
@@ -287,6 +288,10 @@ impl State {
             }
             Target::Desktop => {
                 self.popover = None;
+                if self.greeter.as_mut().is_some_and(|greeter| greeter.pick(chosen.id)) {
+                    self.greeter_changed();
+                    return true;
+                }
                 match Action::from_id(chosen.id) {
                     Some(Action::Lock) => {
                         self.lock_now();
@@ -374,7 +379,7 @@ impl State {
         let items = vec![Item::line(0, text)];
         let look = Look {
             least_width: 0.0,
-            radius: 10.0,
+            radius: TIP_RADIUS,
             ..self.menu_look()
         };
         let size = look.size(&items, self.note_head.as_deref(), None);
@@ -677,7 +682,7 @@ impl State {
             || self
                 .card_rects()
                 .iter()
-                .any(|rect| rect.contains(self.pointer))
+                .any(|rect| rect.contains_round(self.pointer, drifter_core::notify::Look::themed(&self.palette).radius))
             || self.over_drawer()
             || self.over_thumbs()
             || self.countdown_rect().is_some_and(|rect| rect.contains(self.pointer))
@@ -685,11 +690,11 @@ impl State {
                 .recording
                 .as_ref()
                 .and_then(|recording| recording.art.as_ref())
-                .is_some_and(|(_, rect)| rect.contains(self.pointer))
+                .is_some_and(|(_, rect)| rect.contains_round(self.pointer, rect.size.y / 2.0))
             || self
                 .popover
                 .as_ref()
-                .is_some_and(|open| open.rect.contains(self.pointer))
+                .is_some_and(|open| open.rect.contains_round(self.pointer, self.look.radius))
     }
 
     pub(super) fn tray_layout(&self, band: Rect) -> usize {

@@ -14,6 +14,8 @@ mod logo;
 #[cfg(target_os = "linux")]
 mod net;
 #[cfg(target_os = "linux")]
+mod packagekit;
+#[cfg(target_os = "linux")]
 mod users;
 #[cfg(target_os = "linux")]
 mod window;

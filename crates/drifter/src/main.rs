@@ -32,6 +32,10 @@ mod cursors;
 #[cfg(target_os = "linux")]
 mod disks;
 #[cfg(target_os = "linux")]
+mod greeter;
+#[cfg(target_os = "linux")]
+mod keyring;
+#[cfg(target_os = "linux")]
 mod logind;
 #[cfg(target_os = "linux")]
 mod launcher;
@@ -229,16 +233,37 @@ fn keep_crashes() {
     }));
 }
 
+#[cfg(target_os = "linux")]
+fn greeting() -> Option<std::path::PathBuf> {
+    if !greeter::active() {
+        return None;
+    }
+    let made = std::path::PathBuf::from("/etc/drifter/greeter.toml");
+    let shared = Path::new(drifter_core::config::SHARED).join("default.toml");
+    Some(if made.is_file() { made } else { shared })
+}
+
+#[cfg(not(target_os = "linux"))]
+fn greeting() -> Option<std::path::PathBuf> {
+    None
+}
+
 pub static CONFIG_ERROR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 fn main() -> ExitCode {
     keep_crashes();
-    let path = Config::config_path();
-    match Config::first_run(&path) {
-        Ok(true) => out!("config      made {} from the defaults", path.display()),
-        Ok(false) => {}
-        Err(error) => log!("drifter: cannot make {}: {error}", path.display()),
-    }
+    let path = match greeting() {
+        Some(path) => path,
+        None => {
+            let path = Config::config_path();
+            match Config::first_run(&path) {
+                Ok(true) => out!("config      made {} from the defaults", path.display()),
+                Ok(false) => {}
+                Err(error) => log!("drifter: cannot make {}: {error}", path.display()),
+            }
+            path
+        }
+    };
     let config = match Config::load_from(&path) {
         Ok(config) => config,
         Err(error) => {

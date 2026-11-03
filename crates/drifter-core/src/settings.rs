@@ -56,11 +56,12 @@ pub enum Section {
     Time,
     Login,
     Apps,
+    Updates,
     About,
 }
 
 impl Section {
-    pub const ALL: [Section; 24] = [
+    pub const ALL: [Section; 25] = [
         Section::Desktop,
         Section::Wallpaper,
         Section::Appearance,
@@ -84,6 +85,7 @@ impl Section {
         Section::Time,
         Section::Login,
         Section::Apps,
+        Section::Updates,
         Section::About,
     ];
 
@@ -100,7 +102,7 @@ impl Section {
             Section::Displays | Section::Sound | Section::Power => crate::lang::t("Hardware"),
             Section::Keyboard | Section::Mouse | Section::Touchpad | Section::Shortcuts => crate::lang::t("Input"),
             Section::Users | Section::Lock | Section::Access => crate::lang::t("Users & Security"),
-            Section::Time | Section::Login | Section::Apps | Section::About => crate::lang::t("System"),
+            Section::Time | Section::Login | Section::Apps | Section::Updates | Section::About => crate::lang::t("System"),
         }
     }
 
@@ -129,6 +131,7 @@ impl Section {
             Section::Time => crate::lang::t("Date & Time"),
             Section::Login => crate::lang::t("Login Items"),
             Section::Apps => crate::lang::t("Default Apps"),
+            Section::Updates => crate::lang::t("Software Updates"),
             Section::About => crate::lang::t("About"),
         }
     }
@@ -158,6 +161,7 @@ impl Section {
             Section::Time => "clock zone ntp date language español deutsch français translation",
             Section::Login => "startup autostart apps",
             Section::Apps => "browser terminal file manager",
+            Section::Updates => "software update updates upgrade packages packagekit security patch install dnf apt",
             Section::About => "system version computer reset import export",
         }
     }
@@ -203,6 +207,7 @@ impl Section {
             Section::Time => [60, 130, 220],
             Section::Login => [220, 80, 90],
             Section::Apps => [214, 160, 40],
+            Section::Updates => [52, 132, 236],
             Section::About => [128, 134, 150],
         }
     }
@@ -220,6 +225,13 @@ pub enum Ask {
     User(UserAsk),
     RenamePlace(usize),
     EditDock(usize),
+    Update(UpdateAsk),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateAsk {
+    Check,
+    Install,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -373,6 +385,7 @@ pub struct Model {
     pub users: Option<crate::users::Users>,
     pub user_note: Option<String>,
     pub faces: Vec<PathBuf>,
+    pub updates: Updates,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -407,6 +420,72 @@ pub enum NetAsk {
 pub struct Profiles {
     pub now: String,
     pub offered: Vec<String>,
+}
+
+pub const UPDATES_SHOWN: usize = 30;
+pub const INFO_BLOCKED: u32 = 9;
+pub const INFO_SECURITY: u32 = 8;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Update {
+    pub id: String,
+    pub info: u32,
+    pub summary: String,
+}
+
+impl Update {
+    pub fn name(&self) -> &str {
+        package_part(&self.id, 0)
+    }
+
+    pub fn version(&self) -> &str {
+        package_part(&self.id, 1)
+    }
+}
+
+pub fn package_part(id: &str, at: usize) -> &str {
+    id.split(';').nth(at).unwrap_or("")
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Work {
+    #[default]
+    Idle,
+    Checking,
+    Installing(Option<u32>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Updates {
+    pub found: Option<Vec<Update>>,
+    pub missing: bool,
+    pub work: Work,
+    pub restart: bool,
+    pub note: Option<String>,
+}
+
+impl Updates {
+    pub fn ids(&self) -> Vec<String> {
+        self.found
+            .iter()
+            .flatten()
+            .filter(|each| each.info != INFO_BLOCKED)
+            .map(|each| each.id.clone())
+            .collect()
+    }
+
+    pub fn status(&self) -> String {
+        match (self.work, self.found.as_ref().map(Vec::len)) {
+            (Work::Checking, _) => crate::lang::t("Checking…").into(),
+            (Work::Installing(Some(done)), _) if done <= 100 => crate::lang::tf("Installing… {}%", &[&done]),
+            (Work::Installing(_), _) => crate::lang::t("Installing…").into(),
+            _ if self.missing => crate::lang::t("PackageKit is not installed").into(),
+            (Work::Idle, None) => crate::lang::t("Not checked yet").into(),
+            (Work::Idle, Some(0)) => crate::lang::t("Up to date").into(),
+            (Work::Idle, Some(1)) => crate::lang::t("1 update").into(),
+            (Work::Idle, Some(count)) => crate::lang::tf("{} updates", &[&count]),
+        }
+    }
 }
 
 pub const PROFILES: [(&str, &str); 3] = [
@@ -593,6 +672,7 @@ impl Model {
             users: None,
             user_note: None,
             faces: crate::users::stock(&config.faces_dir()),
+            updates: Updates::default(),
             keys: config.keys.clone(),
             variants: crate::keyboard::variants(&config.keyboard.layout),
             recent: Vec::new(),
@@ -1390,6 +1470,7 @@ impl Model {
             Section::Power => self.power_groups(),
             Section::Time => self.time_groups(),
             Section::About => self.about_groups(),
+            Section::Updates => self.update_groups(),
             Section::Users => self.user_groups(),
             Section::Touchpad => self.touchpad_groups(),
             Section::Displays => {
@@ -2876,6 +2957,10 @@ pub enum Id {
     MyPassword,
     User(usize),
     AddUser,
+    UpdateStatus,
+    UpdateCheck,
+    UpdateInstall,
+    Update(usize),
 }
 
 const SHOWS: [&str; 6] = [
@@ -3193,8 +3278,9 @@ impl Look {
         let drop = logo.center() + Vec2::new(0.0, logo.size.y * 0.24);
         canvas.shadow(Rect::from_center(drop, Vec2::new(logo.size.y * 0.42, 14.0)), 7.0, 16.0, 0.2);
         if !model.live_logo {
-            canvas.circle(logo.center(), logo.size.y * 0.27, self.accent, 1.0);
-            canvas.circle(logo.center() - Vec2::new(logo.size.y * 0.08, logo.size.y * 0.09), logo.size.y * 0.08, [255, 255, 255], 0.35);
+            let still = crate::blob::still(crate::paint::dense(logo.size.y), crate::shader::hour_now(), false);
+            let side = crate::paint::logical(&still);
+            canvas.stamp(&still, (logo.center() - side / 2.0).round(), 1.0);
         }
     }
 
@@ -4190,6 +4276,19 @@ fn paint_glyph(canvas: &mut Canvas, section: Section, icon: Rect) {
             canvas.circle(o + Vec2::new(11.0, 11.0), 7.5, white, 1.0);
             canvas.round_rect(r(10.2, 6.0, 1.6, 5.8), 0.8, section.tint(), 1.0);
             canvas.round_rect(r(10.2, 10.2, 4.8, 1.6), 0.8, section.tint(), 1.0);
+        }
+        Section::Updates => {
+            canvas.circle(o + Vec2::new(11.0, 11.0), 7.5, white, 1.0);
+            canvas.round_rect(r(10.0, 5.5, 2.0, 7.0), 1.0, section.tint(), 1.0);
+            canvas.triangle(
+                [
+                    o + Vec2::new(7.0, 11.5),
+                    o + Vec2::new(15.0, 11.5),
+                    o + Vec2::new(11.0, 16.0),
+                ],
+                section.tint(),
+                1.0,
+            );
         }
         Section::About => {
             canvas.circle(o + Vec2::new(11.0, 11.0), 7.5, white, 1.0);

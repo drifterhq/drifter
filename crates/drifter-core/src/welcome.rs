@@ -711,12 +711,12 @@ impl Look {
     }
 
     fn paint_hello(&self, canvas: &mut Canvas, view: &View, fonts: &Fonts) {
-        match view.live_logo {
-            true => {
-                let under = self.logo_rect().center() + Vec2::new(0.0, 46.0);
-                canvas.shadow(Rect::from_center(under, Vec2::new(110.0, 26.0)), 13.0, 22.0, if self.light { 0.16 } else { 0.3 });
-            }
-            false => mark(canvas, Vec2::new(SIZE.x / 2.0, 168.0), 46.0, self.accent),
+        let under = self.logo_rect().center() + Vec2::new(0.0, 46.0);
+        canvas.shadow(Rect::from_center(under, Vec2::new(110.0, 26.0)), 13.0, 22.0, if self.light { 0.16 } else { 0.3 });
+        if !view.live_logo {
+            let rect = self.logo_rect();
+            let still = crate::blob::still(crate::paint::dense(rect.size.x), crate::shader::hour_now(), true);
+            canvas.stamp(&still, rect.origin, 1.0);
         }
         let hero = fonts.hero.paint_bold(crate::lang::t("Welcome to Drifter"), self.ink);
         let size = logical(&hero);
@@ -1469,20 +1469,6 @@ fn pointer(canvas: &mut Canvas, tip: Vec2) {
     for corners in shape(1.0) {
         canvas.triangle(corners, WHITE, 1.0);
     }
-}
-
-fn mark(canvas: &mut Canvas, center: Vec2, radius: f64, accent: [u8; 3]) {
-    canvas.glow(center, radius * 2.4, accent, 0.35);
-    canvas.shadow(Rect::from_center(center + Vec2::new(0.0, 6.0), Vec2::splat(radius * 2.0)), radius, 14.0, 0.35);
-    let violet = [175, 82, 222];
-    canvas.shade(Rect::from_center(center, Vec2::splat(radius * 2.0)), radius, lift(accent, 0.35), violet, 1.0);
-    for (at, alpha) in [(-0.32, 0.95), (0.0, 0.7), (0.32, 0.45)] {
-        let middle = center + Vec2::new(radius * at, radius * at * -0.25);
-        let card = Rect::from_center(middle, Vec2::new(radius * 0.62, radius * 0.46));
-        canvas.shadow(card, 5.0, 4.0, 0.2);
-        canvas.round_rect(card, radius * 0.1, WHITE, alpha);
-    }
-    canvas.glow(center - Vec2::new(radius * 0.35, radius * 0.45), radius * 0.7, WHITE, 0.35);
 }
 
 fn role_word(role: Role) -> &'static str {

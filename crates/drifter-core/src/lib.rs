@@ -2,6 +2,7 @@ pub mod activity;
 pub mod airdrop;
 pub mod alert;
 pub mod autostart;
+pub mod blob;
 pub mod blue;
 pub mod calendar;
 pub mod camera;

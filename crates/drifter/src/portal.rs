@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+const SESSION_TARGET: &str = "drifter-session.target";
+
 const UNITS: [&str; 2] = [
     "xdg-desktop-portal-wlr.service",
     "xdg-desktop-portal.service",
@@ -77,5 +79,15 @@ fn tell(pairs: &HashMap<String, String>) -> Result<(), String> {
             log!("drifter: {unit}: {error}");
         }
     }
+    systemd("StartUnit", &|| {
+        bus.call_method(
+            Some("org.freedesktop.systemd1"),
+            "/org/freedesktop/systemd1",
+            Some("org.freedesktop.systemd1.Manager"),
+            "StartUnit",
+            &(SESSION_TARGET, "replace"),
+        )
+    })
+    .map_err(|error| format!("{error}; install {SESSION_TARGET} in /usr/lib/systemd/user"))?;
     Ok(())
 }

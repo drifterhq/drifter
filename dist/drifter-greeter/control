@@ -1,0 +1,11 @@
+Package: drifter-greeter
+Version: @VERSION@
+Architecture: all
+Maintainer: donuts-are-good <96031819+donuts-are-good@users.noreply.github.com>
+Section: x11
+Priority: optional
+Depends: drifter (>= @VERSION@), greetd
+Description: Drifter's login screen
+ The Drifter lock screen as the login screen, run by greetd. Pick a person
+ with the arrow keys or by clicking the name, and pick a session from the
+ power menu in the corner.

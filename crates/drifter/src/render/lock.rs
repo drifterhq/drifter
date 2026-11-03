@@ -94,12 +94,19 @@ impl State {
         if self.lock.is_some() {
             return true;
         }
-        let user = match crate::auth::ready() {
-            Ok(user) => user,
-            Err(error) => {
-                log!("drifter: cannot lock: {error}");
-                return false;
-            }
+        let picked = self.greeter.as_ref().map(|greeter| {
+            let login = greeter.person().map_or("", |person| person.login.as_str());
+            (std::ffi::CString::new(login).unwrap_or_default(), greeter.title())
+        });
+        let user = match picked.as_ref() {
+            Some((login, _)) => login.clone(),
+            None => match crate::auth::ready() {
+                Ok(user) => user,
+                Err(error) => {
+                    log!("drifter: cannot lock: {error}");
+                    return false;
+                }
+            },
         };
 
         let refocus = self.hush();
@@ -126,7 +133,7 @@ impl State {
             shown: (String::new(), String::new(), usize::MAX, Note::Ask, [0; 3]),
             lane: worker::Lane::default(),
             top_lane: worker::Lane::default(),
-            name: full_name(&user),
+            name: picked.map_or_else(|| full_name(&user), |(_, title)| title),
             user,
             refocus,
         });
@@ -566,6 +573,10 @@ impl State {
                 lock.pad.wipe();
                 lock.note = Note::Ask;
             }
+            LockKey::Left | LockKey::Right if self.greeter.is_some() => {
+                self.next_person(matches!(key, LockKey::Right));
+                return;
+            }
             LockKey::Enter => {
                 if lock.pad.is_empty() {
                     return;
@@ -579,8 +590,14 @@ impl State {
                 lock.note = Note::Checking;
                 let user = lock.user.clone();
                 let sender = self.verify.clone();
+                let session = self.greeter.as_ref().and_then(|greeter| greeter.session().cloned());
+                let greeting = self.greeter.is_some();
                 std::thread::spawn(move || {
-                    let verdict = crate::auth::verify(&user, secret);
+                    let verdict = match (greeting, session) {
+                        (true, Some(session)) => crate::greeter::log_in(&user.to_string_lossy(), secret, &session),
+                        (true, None) => crate::auth::Verdict::Broken("no session is installed in /usr/share/wayland-sessions".to_string()),
+                        (false, _) => crate::auth::verify(&user, secret),
+                    };
                     let _ = sender.send((ticket, verdict));
                 });
             }
@@ -653,6 +670,15 @@ impl State {
         lock.checking = None;
         lock.ticket = None;
         match verdict {
+            Verdict::Granted if self.greeter.is_some() => {
+                lock.pad.wipe();
+                if let Some(greeter) = self.greeter.as_ref() {
+                    greeter.remember();
+                }
+                out!("greeter     logged in, so drifter steps aside for the session");
+                self.signal.stop();
+                return;
+            }
             Verdict::Granted => {
                 self.unlock();
                 return;
@@ -670,6 +696,9 @@ impl State {
         use smithay::reexports::wayland_server::Resource;
         use smithay::utils::SERIAL_COUNTER;
 
+        if self.greeter.is_some() {
+            return;
+        }
         let Some(mut lock) = self.lock.take() else {
             return;
         };
@@ -736,19 +765,57 @@ impl State {
             return;
         };
         let _ = (look, size);
+        let card = look.rect(self.screen);
+        let above_field = card.origin.y + look.field_rect().origin.y;
+        if self.greeter.is_some() && card.contains(self.pointer) && self.pointer.y < above_field {
+            let forward = self.pointer.x >= card.center().x;
+            self.next_person(forward);
+            return;
+        }
         let power = self.tray.power_rect(self.top_rest_band());
         if power.contains(self.pointer) {
             use drifter_core::menu::Item;
             use drifter_core::power::Action;
-            let items = vec![
+            let mut items = self.greeter.as_ref().map(|greeter| greeter.menu()).unwrap_or_default();
+            items.extend([
                 Item::line(Action::Suspend.id(), drifter_core::lang::t("Sleep")),
                 Item::line(Action::Reboot.id(), drifter_core::lang::t("Restart…")),
                 Item::line(Action::Shutdown.id(), drifter_core::lang::t("Shut Down…")),
-            ];
+            ]);
             let at = Vec2::new(power.max().x, power.max().y + 6.0);
             self.open_popover(items, at, Target::Desktop);
             self.kick_now();
         }
+    }
+}
+
+impl State {
+    fn next_person(&mut self, forward: bool) {
+        let Some(greeter) = self.greeter.as_mut() else {
+            return;
+        };
+        if !greeter.step(forward) {
+            return;
+        }
+        self.greeter_changed();
+    }
+
+    pub(super) fn greeter_changed(&mut self) {
+        let Some(greeter) = self.greeter.as_ref() else {
+            return;
+        };
+        let login = greeter.person().map_or("", |person| person.login.as_str());
+        let user = std::ffi::CString::new(login).unwrap_or_default();
+        let title = greeter.title();
+        if let Some(lock) = self.lock.as_mut() {
+            lock.pad.wipe();
+            lock.note = Note::Ask;
+            lock.user = user;
+            lock.name = title;
+            lock.shown.2 = usize::MAX;
+        }
+        self.paint_lock();
+        self.kick_now();
     }
 }
 

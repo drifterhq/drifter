@@ -13,6 +13,7 @@ pub(super) struct DockLogo {
     pub(super) pace: f64,
     squircle: bool,
     lift: (f64, Instant),
+    still: Option<(TextureBuffer<Tex>, (i32, i32))>,
 }
 
 impl Default for DockLogo {
@@ -27,6 +28,7 @@ impl Default for DockLogo {
             pace: drifter_core::welcome::LOGO_PACE,
             squircle: false,
             lift: (0.0, Instant::now()),
+            still: None,
         }
     }
 }
@@ -53,6 +55,25 @@ impl State {
 }
 
 fn logo_frame(logo: &mut DockLogo, renderer: &mut Painter, shown: Vec2, hot: bool, name: &str) -> Option<TextureBuffer<Tex>> {
+    if let Some(frame) = live_frame(logo, renderer, shown, hot, name) {
+        return Some(frame);
+    }
+    if !logo.failed {
+        return None;
+    }
+    let side = dense(shown.x.round() as u32) as i32;
+    if let Some((frame, had)) = logo.still.as_ref()
+        && *had == (side, side)
+    {
+        return Some(frame.clone());
+    }
+    let image = drifter_core::blob::still(side as u32, drifter_core::shader::hour_now(), logo.squircle);
+    let frame = upload(renderer, Some(&image), name).ok().flatten()?;
+    logo.still = Some((frame.clone(), (side, side)));
+    Some(frame)
+}
+
+fn live_frame(logo: &mut DockLogo, renderer: &mut Painter, shown: Vec2, hot: bool, name: &str) -> Option<TextureBuffer<Tex>> {
     let now = Instant::now();
     let goal = match hot && logo.pace > 0.0 && logo.squircle {
         true => 1.0,

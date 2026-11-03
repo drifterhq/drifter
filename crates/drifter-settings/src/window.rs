@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use drifter_core::desktop::App;
 use drifter_core::settings::{Art, Ask, Fonts, Hit, Id, Look, Model, Move, Press, Section, Spot, Value};
-use drifter_core::settings::UserAsk;
+use drifter_core::settings::{UpdateAsk, UserAsk, Work};
 use drifter_core::sheet::{Choice, Field, For, Pick, Sheet};
 use drifter_core::shortcut::{self, Combo, Mods};
 use drifter_core::stats::{self, Mount};
@@ -126,6 +126,7 @@ pub struct Settings {
     keyboard: Option<wl_keyboard::WlKeyboard>,
     mods: Modifiers,
     chores: LoopSender<Option<String>>,
+    kit: LoopSender<crate::packagekit::Kit>,
     net_done: LoopSender<(bool, Result<(), String>)>,
     blue_bus: Option<drifter_blue::Bus>,
     blue_back: LoopSender<BlueNews>,
@@ -314,6 +315,15 @@ pub fn run() -> Result<(), String> {
             }
         })
         .map_err(|e| format!("cannot watch the user changes: {e}"))?;
+    let (kit, kit_back) = loop_channel::<crate::packagekit::Kit>();
+    events
+        .handle()
+        .insert_source(kit_back, |event, _, settings: &mut Settings| {
+            if let ChannelEvent::Msg(news) = event {
+                settings.kit_news(news);
+            }
+        })
+        .map_err(|e| format!("cannot watch PackageKit: {e}"))?;
     let (chores, chores_done) = loop_channel::<Option<String>>();
     events
         .handle()
@@ -352,6 +362,7 @@ pub fn run() -> Result<(), String> {
         keyboard: None,
         mods: Modifiers::default(),
         chores,
+        kit,
         net_done,
         blue_bus: None,
         blue_back,
@@ -1519,6 +1530,7 @@ impl Settings {
                 Some(Ask::Reset) => self.reset_all(),
                 Some(Ask::Net(ask)) => self.net_ask(ask),
                 Some(Ask::User(ask)) => self.user_ask(ask),
+                Some(Ask::Update(ask)) => self.update_ask(ask),
                 Some(Ask::EditDock(at)) => self.edit_dock(at),
                 Some(Ask::RenamePlace(at)) => {
                     let name = self.model.places.get(at).map(|place| place.name.clone()).unwrap_or_default();
@@ -1747,7 +1759,89 @@ impl Settings {
                 self.model.user_note = None;
                 self.fetch(section);
             }
+            Section::Updates if self.model.updates.found.is_none() && self.model.updates.work == Work::Idle => {
+                self.update_ask(UpdateAsk::Check);
+            }
             _ => {}
+        }
+    }
+
+    fn update_ask(&mut self, ask: UpdateAsk) {
+        if self.model.updates.work != Work::Idle {
+            return;
+        }
+        let ids = self.model.updates.ids();
+        let tell = self.kit.clone();
+        let job: Box<dyn FnOnce() + Send> = match ask {
+            UpdateAsk::Check => Box::new(move || {
+                crate::packagekit::check(|news| {
+                    let _ = tell.send(news);
+                })
+            }),
+            UpdateAsk::Install if ids.is_empty() => return,
+            UpdateAsk::Install => Box::new(move || {
+                crate::packagekit::install(ids, |news| {
+                    let _ = tell.send(news);
+                })
+            }),
+        };
+        let spawned = std::thread::Builder::new()
+            .name("settings-updates".to_string())
+            .spawn(job);
+        if let Err(error) = spawned {
+            log!("drifter-settings: cannot talk to PackageKit: {error}");
+            return;
+        }
+        let kit = &mut self.model.updates;
+        kit.note = None;
+        kit.missing = false;
+        kit.work = match ask {
+            UpdateAsk::Check => Work::Checking,
+            UpdateAsk::Install => {
+                kit.restart = false;
+                Work::Installing(None)
+            }
+        };
+        self.saved.updates = self.model.updates.clone();
+        self.stale = true;
+    }
+
+    fn kit_news(&mut self, news: crate::packagekit::Kit) {
+        use crate::packagekit::Kit;
+        let kit = &mut self.model.updates;
+        let mut again = false;
+        match news {
+            Kit::Missing => {
+                kit.missing = true;
+                kit.found = None;
+                kit.work = Work::Idle;
+            }
+            Kit::Percent(done) => {
+                if let Work::Installing(_) = kit.work {
+                    kit.work = Work::Installing(done);
+                }
+            }
+            Kit::Found(found, note) => {
+                kit.found = Some(found);
+                kit.note = note;
+                kit.work = Work::Idle;
+            }
+            Kit::Installed(restart) => {
+                kit.restart |= restart;
+                kit.work = Work::Idle;
+                again = true;
+            }
+            Kit::Failed(error) => {
+                kit.note = Some(error);
+                kit.work = Work::Idle;
+            }
+        }
+        self.saved.updates = self.model.updates.clone();
+        if again {
+            self.update_ask(UpdateAsk::Check);
+        }
+        if self.section == Section::Updates && self.sheet.is_none() {
+            self.stale = true;
         }
     }
 

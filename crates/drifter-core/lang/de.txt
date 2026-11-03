@@ -4946,3 +4946,63 @@ Nothing connected
 
 battery {}%
 = Akku {} %
+
+Session
+= Sitzung
+
+Software Updates
+= Softwareaktualisierung
+
+Installing… {}%
+= Wird installiert… {} %
+
+Installing…
+= Wird installiert…
+
+PackageKit is not installed
+= PackageKit ist nicht installiert
+
+Not checked yet
+= Noch nicht geprüft
+
+Up to date
+= Auf dem neuesten Stand
+
+1 update
+= 1 Aktualisierung
+
+{} updates
+= {} Aktualisierungen
+
+Check for updates
+= Nach Aktualisierungen suchen
+
+Check now
+= Jetzt prüfen
+
+Install all updates
+= Alle Aktualisierungen installieren
+
+Install all
+= Alle installieren
+
+Install the packagekit package, then click Check now.
+= Installieren Sie das Paket packagekit und klicken Sie dann auf Jetzt prüfen.
+
+Restart to finish.
+= Zum Abschließen neu starten.
+
+Available updates
+= Verfügbare Aktualisierungen
+
+Security fix. {}
+= Sicherheitskorrektur. {}
+
+And {} more.
+= Und {} weitere.
+
+No network. Connect to the internet, then try again.
+= Kein Netzwerk. Verbinden Sie sich mit dem Internet und versuchen Sie es erneut.
+
+Stopped before the end.
+= Vor dem Ende angehalten.

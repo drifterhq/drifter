@@ -698,6 +698,7 @@ dependencies = [
  "drifter-net",
  "drm-ffi",
  "libc",
+ "serde_json",
  "smithay",
  "smithay-client-toolkit",
  "wayland-client",

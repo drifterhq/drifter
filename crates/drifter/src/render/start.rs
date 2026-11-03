@@ -120,6 +120,7 @@ pub fn open(
     let events: EventLoop<'static, State> =
         EventLoop::try_new().map_err(|e| format!("cannot create the event loop: {e}"))?;
     let live = seat.is_some();
+    let full = live && !crate::greeter::active();
     let signals = match live {
         true => Some(
             Signals::new(&[
@@ -273,7 +274,7 @@ pub fn open(
         },
     );
 
-    let (tray_bus, tray_icons) = match live.then(crate::tray::start) {
+    let (tray_bus, tray_icons) = match full.then(crate::tray::start) {
         Some(Ok((bus, icons))) => (Some(bus), Some(icons)),
         Some(Err(error)) => {
             log!("drifter: no tray: {error}");
@@ -281,7 +282,7 @@ pub fn open(
         }
         None => (None, None),
     };
-    let (notes_bus, note_events) = match live.then(crate::notes::start) {
+    let (notes_bus, note_events) = match full.then(crate::notes::start) {
         Some(Ok((bus, events))) => (Some(bus), Some(events)),
         Some(Err(error)) => {
             log!("drifter: no notifications: {error}");
@@ -289,7 +290,7 @@ pub fn open(
         }
         None => (None, None),
     };
-    let shown_files = match live.then(crate::filemanager::start) {
+    let shown_files = match full.then(crate::filemanager::start) {
         Some(Ok(shows)) => Some(shows),
         Some(Err(error)) => {
             log!("drifter: {error}");
@@ -297,7 +298,7 @@ pub fn open(
         }
         None => None,
     };
-    let (media, media_readings) = match live.then(crate::media::start) {
+    let (media, media_readings) = match full.then(crate::media::start) {
         Some(Ok((media, readings))) => (Some(media), Some(readings)),
         Some(Err(error)) => {
             log!("drifter: no media keys: {error}");
@@ -378,13 +379,9 @@ pub fn open(
         rgba: vec![255, 255, 255, 255],
     };
     let plain = upload(&mut renderer, Some(&plain_image), "outline")?;
-    let black_image = drifter_core::Image {
-        width: 1,
-        height: 1,
-        rgba: vec![0, 0, 0, 255],
-    };
-    let black = upload(&mut renderer, Some(&black_image), "inactive wash")?;
     let round = fade::round_art(&mut renderer, palette.shade);
+    let black_round = fade::round_art(&mut renderer, [0, 0, 0]);
+    let plain_round = fade::round_art(&mut renderer, [255, 255, 255]);
     let hud_pill = upload(&mut renderer, Some(&drifter_core::hud::Look::themed(&palette).pill()), "hud bar")
         .ok()
         .flatten();
@@ -559,12 +556,14 @@ pub fn open(
         fit_busy: false,
         battery_glow: None,
         ebb_from: Instant::now(),
-        welcome_wanted: live && config.welcome.show,
-        login_lock: live && !config.login.automatic,
+        welcome_wanted: full && config.welcome.show,
+        login_lock: full && !config.login.automatic,
         search_font: Font::find(config.font_path(), 20.0).ok().map(std::sync::Arc::new),
         search_icons: std::collections::HashMap::new(),
         app_label: None,
         window_shadow,
+        shades: std::collections::HashMap::new(),
+        shades_wanted: std::cell::RefCell::new(Vec::new()),
         bounces: Vec::new(),
         dock_press: None,
         dock_drag: None,
@@ -609,7 +608,7 @@ pub fn open(
         paper_tint: None,
         told_accent: None,
         chores,
-        config_path: match live {
+        config_path: match full {
             true => Config::config_path(),
             false => PathBuf::new(),
         },
@@ -619,7 +618,8 @@ pub fn open(
         round,
         accent_round,
         snap_art,
-        black,
+        black_round,
+        plain_round,
         dock_hover: std::collections::HashMap::new(),
         dock_dots: std::collections::HashMap::new(),
         dock_hover_mode: config.dock.hover,
@@ -706,6 +706,7 @@ pub fn open(
         clip,
         signal: events.get_signal(),
         failure: None,
+        greeter: (live && !full).then(crate::greeter::Greeter::start),
     };
 
     let mut state = state;
@@ -808,7 +809,7 @@ pub fn open(
             .map_err(|e| format!("cannot watch the notifications: {e}"))?;
     }
 
-    if live {
+    if full {
         match crate::launcher::start() {
             Ok(badges) => {
                 handle
@@ -883,7 +884,7 @@ pub fn open(
         Err(_) => {}
     }
 
-    match live
+    match full
         .then(crate::disks::start)
         .unwrap_or(Err(String::new()))
     {
@@ -896,11 +897,11 @@ pub fn open(
                 })
                 .map_err(|e| format!("cannot watch disks: {e}"))?;
         }
-        Err(error) if live => log!("drifter: plugged in disks are not opened: {error}"),
+        Err(error) if full => log!("drifter: plugged in disks are not opened: {error}"),
         Err(_) => {}
     }
 
-    match live
+    match full
         .then(crate::polkit::start)
         .unwrap_or(Err(String::new()))
     {
@@ -918,7 +919,7 @@ pub fn open(
                 })
                 .map_err(|e| format!("cannot watch polkit: {e}"))?;
         }
-        Err(error) if live => log!("drifter: no password prompt: {error}"),
+        Err(error) if full => log!("drifter: no password prompt: {error}"),
         Err(_) => {}
     }
 
@@ -963,9 +964,10 @@ pub fn open(
         .map_err(|e| format!("cannot watch the wayland socket: {e}"))?;
 
     state.socket = socket_name.clone();
-    if live {
+    if full {
         crate::apps::start_x11(&socket_name);
         crate::portal::announce(&socket_name);
+        crate::keyring::start();
         state.follow_reader();
     }
     let poll = state_poll_fd(&mut state);
