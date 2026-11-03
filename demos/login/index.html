@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Drifter login to desktop: transition demos</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #15171c; color: #e8e8ee; font: 15px/1.4 -apple-system, "Work Sans", system-ui, sans-serif; }
+  header { padding: 22px 28px 6px; }
+  h1 { font-size: 20px; margin: 0 0 6px; font-weight: 600; }
+  header p { margin: 0; color: #a4a8b4; }
+  .bar { display: flex; gap: 14px; align-items: center; padding: 12px 28px; }
+  button { background: #2b2f38; color: #e8e8ee; border: 0; border-radius: 8px; padding: 7px 14px; font: inherit; cursor: pointer; }
+  button:hover { background: #363b46; }
+  button.on { background: #0a84ff; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(620px, 1fr)); gap: 22px; padding: 10px 28px 40px; }
+  .card { background: #1d2027; border-radius: 14px; padding: 14px; }
+  .card h2 { font-size: 16px; margin: 2px 4px 4px; font-weight: 600; }
+  .card p { margin: 0 4px 12px; color: #a4a8b4; min-height: 42px; }
+  .frame { position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 8px; background: #000; cursor: pointer; }
+  .stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; }
+  .stage img, .stage .layer { position: absolute; display: block; }
+  .full { left: 0; top: 0; width: 1920px; height: 1080px; }
+  .lock { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; }
+  .tag { position: absolute; right: 10px; bottom: 8px; font-size: 12px; color: #fff; background: rgba(0,0,0,.45); padding: 2px 8px; border-radius: 6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>From the login screen to the desktop</h1>
+  <p>Five ways to go from "password accepted" to your desktop. All pictures are real Drifter screenshots from the VM. Each one loops. Click a picture to play it again.</p>
+</header>
+<div class="bar">
+  <button id="slow">Slow motion (3x)</button>
+  <span style="color:#a4a8b4">The letter on each card is its name. Tell me the letter you like, or what to change.</span>
+</div>
+<div class="grid" id="grid"></div>
+
+<script>
+const L = {
+  clock: { x: 700, y: 80, w: 520, h: 260 },
+  blob: { x: 860, y: 720, w: 200, h: 190 },
+  login: { x: 780, y: 915, w: 360, h: 145 },
+  corner: { x: 1780, y: 0, w: 140, h: 40 },
+};
+const BLOB = { x: 960, y: 818 };
+
+const demos = [
+  { key: "A", name: "Unlock", ms: 450,
+    text: "What the lock screen does today. The clock rises, the name and field sink, all of it fades in 0.45 s." },
+  { key: "B", name: "Blob opens", ms: 900,
+    text: "The blob swells and a round window grows out of it until the desktop fills the screen." },
+  { key: "C", name: "Fly in", ms: 800,
+    text: "Drifter is a camera. The login screen falls away toward you while the desktop comes up from a little further back." },
+  { key: "D", name: "Frost clears", ms: 900,
+    text: "The login screen fades, and the desktop starts frosted and sharpens into focus." },
+  { key: "E", name: "Lift", ms: 700,
+    text: "The whole login screen lifts up like a sheet of glass and slides off the top." },
+];
+
+let slow = 1;
+document.getElementById("slow").onclick = (event) => {
+  slow = slow === 1 ? 3 : 1;
+  event.target.classList.toggle("on", slow === 3);
+};
+
+const smooth = (t) => t * t * (3 - 2 * t);
+const out = (t) => 1 - Math.pow(1 - t, 3);
+const clamp = (v) => Math.min(1, Math.max(0, v));
+const span = (t, a, b) => clamp((t - a) / (b - a));
+
+function piece(name) {
+  const box = L[name];
+  const img = document.createElement("img");
+  img.src = name + ".png";
+  img.style.left = box.x + "px";
+  img.style.top = box.y + "px";
+  img.style.width = box.w + "px";
+  img.style.height = box.h + "px";
+  return img;
+}
+
+function card(demo) {
+  const el = document.createElement("div");
+  el.className = "card";
+  el.innerHTML = `<h2>${demo.key}. ${demo.name}</h2><p>${demo.text}</p>`;
+  const frame = document.createElement("div");
+  frame.className = "frame";
+  const stage = document.createElement("div");
+  stage.className = "stage";
+  const desk = document.createElement("img");
+  desk.src = "desktop.png";
+  desk.className = "full";
+  const lock = document.createElement("div");
+  lock.className = "lock";
+  const veil = document.createElement("img");
+  veil.src = "veiled.png";
+  veil.className = "full";
+  lock.append(veil);
+  const parts = {};
+  for (const name of ["clock", "blob", "login", "corner"]) {
+    parts[name] = piece(name);
+    lock.append(parts[name]);
+  }
+  stage.append(desk, lock);
+  const tag = document.createElement("div");
+  tag.className = "tag";
+  frame.append(stage, tag);
+  el.append(frame);
+
+  const fit = () => { stage.style.transform = `scale(${frame.clientWidth / 1920})`; };
+  new ResizeObserver(fit).observe(frame);
+
+  const hold = 1400, rest = 1600;
+  let start = performance.now();
+  frame.onclick = () => { start = performance.now(); };
+
+  function reset() {
+    for (const node of [desk, lock, veil, ...Object.values(parts)]) {
+      node.style.opacity = 1;
+      node.style.transform = "";
+      node.style.filter = "";
+      node.style.clipPath = "";
+    }
+  }
+
+  function draw(t) {
+    reset();
+    if (demo.key === "A") {
+      const s = smooth(t);
+      lock.style.opacity = 1 - s;
+      parts.clock.style.transform = `translateY(${-18 * s}px)`;
+      for (const name of ["blob", "login"]) parts[name].style.transform = `translateY(${18 * s}px)`;
+    } else if (demo.key === "B") {
+      const grow = out(span(t, 0.1, 1));
+      const swell = smooth(span(t, 0, 0.25));
+      parts.blob.style.transform = `scale(${1 + swell * 0.25})`;
+      for (const name of ["clock", "login", "corner"]) parts[name].style.opacity = 1 - smooth(span(t, 0, 0.3));
+      const radius = 40 + grow * 2300;
+      desk.style.zIndex = 2;
+      desk.style.clipPath = `circle(${radius}px at ${BLOB.x}px ${BLOB.y}px)`;
+      parts.blob.style.opacity = 1 - smooth(span(t, 0.2, 0.5));
+    } else if (demo.key === "C") {
+      const s = smooth(t);
+      lock.style.transform = `scale(${1 + 0.18 * s})`;
+      lock.style.transformOrigin = "960px 540px";
+      lock.style.opacity = 1 - smooth(span(t, 0, 0.75));
+      desk.style.transform = `scale(${0.92 + 0.08 * out(t)})`;
+      desk.style.transformOrigin = "960px 540px";
+      desk.style.opacity = smooth(span(t, 0.05, 0.6));
+    } else if (demo.key === "D") {
+      const s = smooth(t);
+      for (const name of ["clock", "blob", "login", "corner"]) {
+        parts[name].style.opacity = 1 - smooth(span(t, 0, 0.45));
+        parts[name].style.transform = `scale(${1 - 0.04 * s})`;
+      }
+      veil.style.opacity = 1 - smooth(span(t, 0.15, 0.7));
+      desk.style.filter = `blur(${28 * (1 - out(span(t, 0.1, 1)))}px) saturate(${1 + 0.3 * (1 - t)})`;
+      desk.style.transform = "scale(1.02)";
+      if (t >= 1) desk.style.transform = "";
+    } else if (demo.key === "E") {
+      const lift = smooth(span(t, 0.05, 1));
+      lock.style.transform = `translateY(${-1120 * lift}px)`;
+      lock.style.boxShadow = `0 30px 80px rgba(0,0,0,${0.35 * lift})`;
+      parts.clock.style.transform = `translateY(${-30 * smooth(span(t, 0, 0.4))}px)`;
+      desk.style.filter = `brightness(${0.85 + 0.15 * lift})`;
+    }
+  }
+
+  function tick(now) {
+    const ms = demo.ms * slow;
+    const at = (now - start) % (hold + ms + rest);
+    let t;
+    if (at < hold) { t = 0; tag.textContent = "password accepted"; }
+    else if (at < hold + ms) { t = (at - hold) / ms; tag.textContent = (ms / 1000).toFixed(2) + " s"; }
+    else { t = 1; tag.textContent = "desktop"; }
+    draw(t);
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+  return el;
+}
+
+const grid = document.getElementById("grid");
+for (const demo of demos) grid.append(card(demo));
+</script>
+</body>
+</html>
