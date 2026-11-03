@@ -6,6 +6,7 @@ use crate::text::Font;
 
 pub const MAX_LEN: usize = 256;
 pub const TINT: f64 = 0.45;
+const DARK_FILL: f32 = 0.8;
 pub const BLINK: std::time::Duration = std::time::Duration::from_millis(530);
 const INDENT: f64 = 26.0;
 const SHADE: f64 = 28.0;
@@ -289,7 +290,11 @@ pub fn frosted_clock(font: &Font, clock: &str, dark: bool) -> Frosted {
         for x in 0..width {
             let at = y * width + x;
             let rim = cover[at] * (1.0 - (inner[at] * 1.6 - 0.6).clamp(0.0, 1.0));
-            let a = cover[at] * TINT as f32 + rim * (1.0 - TINT as f32) * 0.85;
+            let fill = match dark {
+                true => DARK_FILL,
+                false => TINT as f32,
+            };
+            let a = cover[at] * fill + rim * (1.0 - fill) * 0.85;
             let v = byte(a);
             let tone = match dark {
                 true => 0,
