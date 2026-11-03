@@ -11,6 +11,12 @@ log=$state/crash.log
 err=$state/drifter.log
 : >"$err"
 
+userbin=${XDG_BIN_HOME:-$HOME/.local/bin}
+case ":$PATH:" in
+*":$userbin:"*) ;;
+*) export PATH="$userbin:$PATH" ;;
+esac
+
 export XDG_CURRENT_DESKTOP=drifter
 export XDG_SESSION_DESKTOP=drifter
 export XDG_SESSION_TYPE=wayland

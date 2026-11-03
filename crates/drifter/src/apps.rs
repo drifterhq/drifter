@@ -159,6 +159,43 @@ fn free_display() -> Option<u32> {
     })
 }
 
+/// Older xwayland-satellite gives X focus to override-redirect menus, so
+/// toolkits that close a menu when its window loses focus (Chromium, CEF,
+/// Steam) show it for a split second only. Fixed upstream in 0.8.3 (add2795).
+const SATELLITE_LEAST: (u32, u32, u32) = (0, 8, 3);
+
+fn satellite_version(text: &str) -> Option<(u32, u32, u32)> {
+    let word = text.split_whitespace().next()?.trim_start_matches('v');
+    let mut parts = word.split(['-', '+']).next()?.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next().map_or(Some(0), |part| part.parse().ok())?;
+    let patch = parts.next().map_or(Some(0), |part| part.parse().ok())?;
+    Some((major, minor, patch))
+}
+
+fn check_satellite(program: &std::path::Path) {
+    let Ok(output) = std::process::Command::new(program)
+        .arg("-version")
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+    else {
+        return;
+    };
+    let text = String::from_utf8_lossy(&output.stdout);
+    let Some(found) = satellite_version(&text) else {
+        return;
+    };
+    if found < SATELLITE_LEAST {
+        let (major, minor, patch) = SATELLITE_LEAST;
+        log!(
+            "drifter: {} is version {}; X11 menus (Steam, Chromium apps) close as they open; install {major}.{minor}.{patch} or newer with scripts/satellite.sh",
+            program.display(),
+            text.trim()
+        );
+    }
+}
+
 pub fn start_x11(socket: &str) {
     let Some(program) = on_path("xwayland-satellite") else {
         log!("drifter: xwayland-satellite is not installed, so X11 apps cannot run");
@@ -183,6 +220,7 @@ pub fn start_x11(socket: &str) {
             start_xsettings(&display);
             let _ = X11.set(display);
             std::thread::spawn(move || {
+                check_satellite(&program);
                 let _ = child.wait();
                 log!("drifter: xwayland-satellite stopped");
             });
@@ -366,6 +404,17 @@ pub fn defaults(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn satellite_versions_read_from_any_describe_form() {
+        assert_eq!(satellite_version("0.8.2\n"), Some((0, 8, 2)));
+        assert_eq!(satellite_version("v0.8.3"), Some((0, 8, 3)));
+        assert_eq!(satellite_version("v0.8.3-14-g7bf5e0d"), Some((0, 8, 3)));
+        assert_eq!(satellite_version("0.8"), Some((0, 8, 0)));
+        assert_eq!(satellite_version("abc"), None);
+        assert!(satellite_version("0.8.2").unwrap() < SATELLITE_LEAST);
+        assert!(satellite_version("v0.8.3-14-g7bf5e0d").unwrap() >= SATELLITE_LEAST);
+    }
 
     #[test]
     fn x11_settings_name_the_theme_icons_and_pointer() {

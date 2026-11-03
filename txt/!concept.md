@@ -325,7 +325,7 @@ Drifter speaks these, beside the core ones:
 - Idle inhibit. While any inhibitor is alive, the idle lock and the screen off both wait.
 - wlr layer shell. Overlay layers draw over everything but Drifter's cursor. Top layers draw under Drifter's drawers and menus and over windows. Bottom and background layers draw under windows. A layer that asks for the keyboard gets it, and gives it back to the top window when it goes. Maximize leaves room for the space a bar reserves.
 
-X11 apps run through `xwayland-satellite`, when it is installed. Drifter starts it on the first free display number and gives every app it launches that `DISPLAY`. Without it Drifter says so on stderr and X11 apps cannot run.
+X11 apps run through `xwayland-satellite` 0.8.3 or newer, when it is installed (`scripts/satellite.sh` puts a pinned build in ~/.local/bin, which `drifter-session` puts first on PATH; older ones give X focus to menus, so Steam and Chromium menus close as they open, and Drifter logs a warning). Drifter starts it on the first free display number and gives every app it launches that `DISPLAY`. Without it Drifter says so on stderr and X11 apps cannot run.
 
 ## Running it
 
