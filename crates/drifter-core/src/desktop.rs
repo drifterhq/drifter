@@ -217,16 +217,11 @@ pub fn own_apps() -> Vec<App> {
 }
 
 pub fn with_own(mut apps: Vec<App>, own: Vec<App>) -> Vec<App> {
-    let mut added = false;
     for app in own {
-        if !apps.iter().any(|each| each.id == app.id) {
-            apps.push(app);
-            added = true;
-        }
+        apps.retain(|each| each.id != app.id && each.name != app.name);
+        apps.push(app);
     }
-    if added {
-        apps.sort_by_key(|app| app.name.to_lowercase());
-    }
+    apps.sort_by_key(|app| app.name.to_lowercase());
     apps
 }
 
