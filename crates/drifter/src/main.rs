@@ -258,7 +258,7 @@ pub fn started() -> std::time::Instant {
 }
 
 pub fn mark(what: &str) {
-    out!("timing      {what} at {} ms", started().elapsed().as_millis());
+    log!("timing      {what} at {} ms", started().elapsed().as_millis());
 }
 
 fn main() -> ExitCode {
