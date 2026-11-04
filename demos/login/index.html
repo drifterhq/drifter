@@ -28,7 +28,7 @@
 <body>
 <header>
   <h1>From the login screen to the desktop</h1>
-  <p>Five ways to go from "password accepted" to your desktop. All pictures are real Drifter screenshots from the VM. Each one loops. Click a picture to play it again.</p>
+  <p>New combined versions F, G and H, with C and D kept for reference. Ways to go from "password accepted" to your desktop. All pictures are real Drifter screenshots from the VM. Each one loops. Click a picture to play it again.</p>
 </header>
 <div class="bar">
   <button id="slow">Slow motion (3x)</button>
@@ -46,17 +46,17 @@ const L = {
 const BLOB = { x: 960, y: 818 };
 
 const demos = [
-  { key: "A", name: "Unlock", ms: 450,
-    text: "What the lock screen does today. The clock rises, the name and field sink, all of it fades in 0.45 s." },
-  { key: "B", name: "Blob opens", ms: 900,
-    text: "The blob swells and a round window grows out of it until the desktop fills the screen." },
-  { key: "C", name: "Fly in", ms: 800,
-    text: "Drifter is a camera. The login screen falls away toward you while the desktop comes up from a little further back." },
-  { key: "D", name: "Frost clears", ms: 900,
-    text: "The login screen fades, and the desktop starts frosted and sharpens into focus." },
-  { key: "E", name: "Lift", ms: 700,
-    text: "The whole login screen lifts up like a sheet of glass and slides off the top." },
-];
+  { key: "F", name: "Fly in + frost clears", ms: 1000,
+    text: "C and D together. The login screen grows past you and fades. The desktop comes up from further back, frosted, and sharpens as it lands." },
+  { key: "G", name: "Deep flight", ms: 1300,
+    text: "Bigger. The clock shoots up and out, the name and field fall away, the blob comes at you. The desktop rises from far back, overshoots a hair and settles while the frost burns off." },
+  { key: "H", name: "Through the blob", ms: 1400,
+    text: "The blob swells first. Then you fly through it: everything grows out of the blob, and a clear round hole opens in the frost from the blob outward until the desktop is sharp." },
+  { key: "C", name: "Fly in (before)", ms: 800,
+    text: "For reference: C alone." },
+  { key: "D", name: "Frost clears (before)", ms: 900,
+    text: "For reference: D alone." },
+]
 
 let slow = 1;
 document.getElementById("slow").onclick = (event) => {
@@ -102,7 +102,11 @@ function card(demo) {
     parts[name] = piece(name);
     lock.append(parts[name]);
   }
-  stage.append(desk, lock);
+  const frost = document.createElement("img");
+  frost.src = "desktop.png";
+  frost.className = "full";
+  frost.style.filter = "blur(30px) saturate(1.3)";
+  stage.append(desk, frost, lock);
   const tag = document.createElement("div");
   tag.className = "tag";
   frame.append(stage, tag);
@@ -116,11 +120,17 @@ function card(demo) {
   frame.onclick = () => { start = performance.now(); };
 
   function reset() {
+    frost.style.opacity = 0;
+    frost.style.transform = "scale(1.04)";
+    frost.style.clipPath = "";
+    frost.style.webkitMaskImage = "";
+    frost.style.maskImage = "";
     for (const node of [desk, lock, veil, ...Object.values(parts)]) {
       node.style.opacity = 1;
       node.style.transform = "";
       node.style.filter = "";
       node.style.clipPath = "";
+      node.style.transformOrigin = "";
     }
   }
 
@@ -158,6 +168,60 @@ function card(demo) {
       desk.style.filter = `blur(${28 * (1 - out(span(t, 0.1, 1)))}px) saturate(${1 + 0.3 * (1 - t)})`;
       desk.style.transform = "scale(1.02)";
       if (t >= 1) desk.style.transform = "";
+    } else if (demo.key === "F") {
+      const s = smooth(t);
+      lock.style.transform = `scale(${1 + 0.22 * s})`;
+      lock.style.transformOrigin = "960px 540px";
+      lock.style.opacity = 1 - smooth(span(t, 0, 0.6));
+      const land = out(t);
+      const zoom = 0.9 + 0.1 * land;
+      for (const node of [desk, frost]) {
+        node.style.transformOrigin = "960px 540px";
+      }
+      desk.style.transform = `scale(${zoom})`;
+      frost.style.transform = `scale(${zoom * 1.04})`;
+      frost.style.opacity = 1 - smooth(span(t, 0.3, 1));
+    } else if (demo.key === "G") {
+      const away = span(t, 0, 0.7);
+      const e = away * away * (3 - 2 * away);
+      lock.style.transformOrigin = "960px 540px";
+      lock.style.transform = `scale(${1 + 0.5 * e})`;
+      veil.style.opacity = 1 - smooth(span(t, 0.05, 0.55));
+      parts.clock.style.transformOrigin = "960px 210px";
+      parts.clock.style.transform = `translateY(${-260 * e * e}px) scale(${1 + 0.6 * e})`;
+      parts.clock.style.opacity = 1 - smooth(span(t, 0.05, 0.5));
+      parts.login.style.transform = `translateY(${220 * e * e}px) scale(${1 - 0.15 * e})`;
+      parts.login.style.opacity = 1 - smooth(span(t, 0, 0.4));
+      parts.blob.style.transformOrigin = "960px 815px";
+      parts.blob.style.transform = `translateY(${-120 * e}px) scale(${1 + 2.4 * e * e})`;
+      parts.blob.style.opacity = 1 - smooth(span(t, 0.25, 0.6));
+      parts.corner.style.opacity = 1 - smooth(span(t, 0, 0.3));
+      const rise = span(t, 0.1, 1);
+      const back = 0.8 + 0.2 * (1 - Math.pow(1 - rise, 3)) + 0.012 * Math.sin(Math.PI * rise) * rise;
+      for (const node of [desk, frost]) node.style.transformOrigin = "960px 540px";
+      desk.style.transform = `scale(${back})`;
+      frost.style.transform = `scale(${back * 1.04})`;
+      frost.style.opacity = 1 - smooth(span(t, 0.4, 1));
+      desk.style.filter = `brightness(${0.75 + 0.25 * smooth(rise)})`;
+    } else if (demo.key === "H") {
+      const swell = smooth(span(t, 0, 0.2));
+      const fly = span(t, 0.15, 0.75);
+      const e = fly * fly * (3 - 2 * fly);
+      lock.style.transformOrigin = `${BLOB.x}px ${BLOB.y}px`;
+      lock.style.transform = `scale(${1 + 1.2 * e})`;
+      lock.style.opacity = 1 - smooth(span(t, 0.2, 0.7));
+      parts.blob.style.transformOrigin = "960px 815px";
+      parts.blob.style.transform = `scale(${1 + 0.3 * swell + 3 * e})`;
+      const hole = Math.pow(span(t, 0.25, 1), 1.6) * 2400;
+      for (const node of [desk, frost]) node.style.transformOrigin = `${BLOB.x}px ${BLOB.y}px`;
+      const zoom = 0.86 + 0.14 * out(span(t, 0.15, 1));
+      desk.style.transform = `scale(${zoom})`;
+      frost.style.transform = `scale(${zoom * 1.04})`;
+      frost.style.opacity = t < 0.15 ? 0 : 1 - smooth(span(t, 0.85, 1));
+      const edge = Math.max(0, hole - 120);
+      const mask = `radial-gradient(circle at ${BLOB.x}px ${BLOB.y}px, transparent ${edge}px, black ${hole}px)`;
+      frost.style.maskImage = mask;
+      frost.style.webkitMaskImage = mask;
     } else if (demo.key === "E") {
       const lift = smooth(span(t, 0.05, 1));
       lock.style.transform = `translateY(${-1120 * lift}px)`;
