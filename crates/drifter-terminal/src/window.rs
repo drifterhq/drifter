@@ -101,7 +101,7 @@ fn pty_source(handle: &LoopHandle<'static, Term>, fd: RawFd) -> Result<Registrat
 pub fn run() -> Result<(), String> {
     let cfg = Config::load();
     let grid = Grid::new(&cfg)?;
-    let ui_font = Font::find(None, 13.0)?;
+    let ui_font = crate::font::ui(13.0)?;
     let menu_look = Look::themed(&drifter_core::theme::DARK);
     let accent = menu_look.accent;
     let on_accent = menu_look.on_accent;

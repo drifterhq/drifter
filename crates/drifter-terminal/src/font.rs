@@ -18,6 +18,10 @@ pub struct Face {
     cache: HashMap<(String, [u8; 3], bool, bool), Image>,
 }
 
+pub fn ui(px: f64) -> Result<Font, String> {
+    Font::find(None, px).or_else(|_| Font::from_bytes(REGULAR.to_vec(), px))
+}
+
 fn one(bytes: &[u8], path: Option<&std::path::Path>, px: f64) -> Result<Font, String> {
     match path {
         Some(path) => Font::load(path, px).or_else(|_| Font::from_bytes(bytes.to_vec(), px)),
