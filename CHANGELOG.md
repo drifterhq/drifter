@@ -10,6 +10,8 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Settings > Terminal > Window: Columns and Rows set the size a new terminal
+  window opens at. The default is 100 by 30.
 - Clipboard tools: data-control (wlr and ext) lets clipboard managers such as
   cliphist, clipman and `wl-paste --watch` read and set the clipboard and the
   primary selection. Sandboxed apps cannot use it.

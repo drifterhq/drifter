@@ -42,6 +42,8 @@ pub struct Config {
     pub palette: Palette,
     pub theme: Theme,
     pub still: bool,
+    pub columns: u32,
+    pub rows: u32,
 }
 
 const ACCENT: [u8; 3] = [0x0a, 0x7a, 0xff];
@@ -94,6 +96,8 @@ impl Config {
             accent,
             palette: drifter_core::theme::of(style),
             theme,
+            columns: t.columns.clamp(drifter_core::config::TERM_COLUMNS.0, drifter_core::config::TERM_COLUMNS.1),
+            rows: t.rows.clamp(drifter_core::config::TERM_ROWS.0, drifter_core::config::TERM_ROWS.1),
             still: whole.access.reduce_motion || whole.motion.animation == drifter_core::Animation::Off,
         }
     }

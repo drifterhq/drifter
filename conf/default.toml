@@ -287,6 +287,10 @@ padding = 8
 tabs = "top"
 # Show the tabs even when only one is open.
 always_show_tabs = false
+# How wide a new window opens, in characters, 20 to 400.
+columns = 100
+# How tall a new window opens, in lines, 5 to 200.
+rows = 30
 
 [welcome]
 # The welcome card that shows when Drifter starts. Programs > Welcome

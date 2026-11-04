@@ -15,13 +15,8 @@ pub struct Cell {
 }
 
 pub struct Snapshot {
-    pub cols: u16,
-    pub rows: u16,
     pub grid: Vec<Vec<Cell>>,
-    pub fg: [u8; 3],
-    pub bg: [u8; 3],
     pub cursor: Option<(u16, u16)>,
-    pub cursor_block: bool,
     pub top: u64,
 }
 
@@ -160,12 +155,6 @@ impl Vt {
         unsafe {
             ffi::ghostty_render_state_update(self.state, self.term);
 
-            let mut colors: ffi::GhosttyRenderStateColors = std::mem::zeroed();
-            colors.size = std::mem::size_of::<ffi::GhosttyRenderStateColors>();
-            ffi::ghostty_render_state_get(self.state, ffi::DATA_COLORS, &mut colors as *mut _ as *mut c_void);
-            let fg = rgb(colors.foreground);
-            let bg = rgb(colors.background);
-
             let blank = Cell { text: String::new(), fg: None, bg: None, bold: false, italic: false, inverse: false, underline: false };
             let mut grid: Vec<Vec<Cell>> = vec![vec![blank.clone(); self.cols as usize]; self.rows as usize];
 
@@ -195,10 +184,9 @@ impl Vt {
             } else {
                 None
             };
-            let cursor_block = cur.visual_style == 0 || cur.visual_style == 1;
 
             let top = self.scrollbar().offset;
-            Snapshot { cols: self.cols, rows: self.rows, grid, fg, bg, cursor, cursor_block, top }
+            Snapshot { grid, cursor, top }
         }
     }
 

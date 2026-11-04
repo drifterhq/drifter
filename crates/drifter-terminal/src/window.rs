@@ -44,7 +44,7 @@ use crate::tabs;
 use crate::ui::{self, Action, Menu};
 use crate::vt::Vt;
 
-const START: (u32, u32) = (960, 600);
+const LARGEST: (u32, u32) = (7680, 4320);
 const APP_ID: &str = "drifter-terminal";
 const SETTINGS_APP: &str = "drifter-settings";
 const RECOLOR: Duration = Duration::from_millis(1000);
@@ -119,10 +119,10 @@ struct Win {
 }
 
 impl Win {
-    fn new(window: Window, panes: Vec<Pane>) -> Win {
+    fn new(window: Window, panes: Vec<Pane>, size: (u32, u32)) -> Win {
         Win {
             window,
-            size: START,
+            size,
             configured: false,
             resized: true,
             needs_draw: true,
@@ -253,7 +253,7 @@ pub fn run() -> Result<(), String> {
     let shell = XdgShell::bind(&globals, &qh).map_err(|e| format!("no xdg shell: {e}"))?;
     let shm = Shm::bind(&globals, &qh).map_err(|e| format!("no wl_shm: {e}"))?;
 
-    let pool = SlotPool::new((START.0 * START.1 * 4) as usize, &shm).map_err(|e| format!("no shared memory: {e}"))?;
+    let pool = SlotPool::new(960 * 600 * 4, &shm).map_err(|e| format!("no shared memory: {e}"))?;
     let mut events: EventLoop<'static, Term> = EventLoop::try_new().map_err(|e| format!("no event loop: {e}"))?;
     WaylandSource::new(connection, queue)
         .insert(events.handle())
@@ -303,8 +303,9 @@ pub fn run() -> Result<(), String> {
         pointer_pos: Vec2::ZERO,
         wheel: 0.0,
     };
-    let first = term.make_pane(START, false)?;
-    term.open_window(vec![first]);
+    let size = term.start_size(term.cfg.tab_always);
+    let first = term.make_pane(size, term.cfg.tab_always)?;
+    term.open_window(vec![first], size);
 
     while !term.wins.is_empty() {
         let busy = term.wins.iter().any(Win::busy);
@@ -361,14 +362,18 @@ impl Term {
         Ok(Pane { vt, fd: p.fd, child: p.child, token, title: "Terminal".into(), name: None, sel: None, lines: Lines::new() })
     }
 
-    fn open_window(&mut self, panes: Vec<Pane>) {
+    fn start_size(&self, tabs: bool) -> (u32, u32) {
+        ui::window_for(self.cfg.tab_edge, tabs, self.grid.text_size(self.cfg.columns, self.cfg.rows), LARGEST)
+    }
+
+    fn open_window(&mut self, panes: Vec<Pane>, size: (u32, u32)) {
         let surface = self.compositor.create_surface(&self.qh);
         let window = self.shell.create_window(surface, WindowDecorations::RequestServer, &self.qh);
         window.set_title("Terminal");
         window.set_app_id(APP_ID);
         window.set_min_size(Some((320, 200)));
         window.commit();
-        self.wins.push(Win::new(window, panes));
+        self.wins.push(Win::new(window, panes, size));
     }
 
     fn win_of(&self, surface: &wl_surface::WlSurface) -> Option<usize> {
@@ -401,8 +406,9 @@ impl Term {
     }
 
     fn new_window(&mut self) {
-        match self.make_pane(START, self.cfg.tab_always) {
-            Ok(pane) => self.open_window(vec![pane]),
+        let size = self.start_size(self.cfg.tab_always);
+        match self.make_pane(size, self.cfg.tab_always) {
+            Ok(pane) => self.open_window(vec![pane], size),
             Err(error) => log!("drifter-terminal: {error}"),
         }
     }
@@ -895,7 +901,8 @@ impl Term {
         if one {
             self.fit_panes(at, false);
         }
-        self.open_window(taken);
+        let size = self.wins[at].size;
+        self.open_window(taken, size);
     }
 
     fn resize_font(&mut self, by: Option<f64>) {

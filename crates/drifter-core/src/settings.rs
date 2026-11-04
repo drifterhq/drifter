@@ -2183,6 +2183,14 @@ impl Model {
                 let (least, most) = crate::config::TERM_PADDING;
                 self.terminal.padding = n.round().clamp(f64::from(least), f64::from(most)) as u32
             }
+            (Id::TermColumns, Value::Number(n)) => {
+                let (least, most) = crate::config::TERM_COLUMNS;
+                self.terminal.columns = n.round().clamp(f64::from(least), f64::from(most)) as u32
+            }
+            (Id::TermRows, Value::Number(n)) => {
+                let (least, most) = crate::config::TERM_ROWS;
+                self.terminal.rows = n.round().clamp(f64::from(least), f64::from(most)) as u32
+            }
             (Id::DockShow(at), Value::Switch(on)) if at < 6 => self.shows[at] = on,
             (Id::WallpaperMode, Value::Choice(n)) => {
                 self.wallpaper_mode = match n {
@@ -3208,6 +3216,8 @@ pub enum Id {
     TermCursor,
     TermOpacity,
     TermPadding,
+    TermColumns,
+    TermRows,
     TermTabs,
     TermTabsAlways,
 }

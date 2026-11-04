@@ -1,6 +1,6 @@
 use super::{Control, Group, Id, Mark, Model, Row, drop_key, put};
 use crate::sheet::Choice;
-use crate::config::{TERM_OPACITY, TERM_PADDING, TERM_TEXT, TermColors, TermCursor, TermTabs};
+use crate::config::{TERM_COLUMNS, TERM_OPACITY, TERM_PADDING, TERM_ROWS, TERM_TEXT, TermColors, TermCursor, TermTabs};
 
 fn at<T: PartialEq>(list: &[T], wanted: T) -> usize {
     list.iter().position(|each| *each == wanted).unwrap_or(0)
@@ -86,6 +86,25 @@ impl Model {
                 thumbs: None,
             },
             Group {
+                header: Some(crate::lang::t("Window")),
+                rows: vec![
+                    Row::new(
+                        Id::TermColumns,
+                        crate::lang::t("Columns"),
+                        slider(TERM_COLUMNS.0, TERM_COLUMNS.1, t.columns, ""),
+                    )
+                    .detail(crate::lang::t("How many characters wide a new window opens")),
+                    Row::new(
+                        Id::TermRows,
+                        crate::lang::t("Rows"),
+                        slider(TERM_ROWS.0, TERM_ROWS.1, t.rows, ""),
+                    )
+                    .detail(crate::lang::t("How many lines tall a new window opens")),
+                ],
+                footer: Some(crate::lang::t("Open windows keep their size. Drag a window's edge to change it.").into()),
+                thumbs: None,
+            },
+            Group {
                 header: Some(crate::lang::t("Tabs")),
                 rows: vec![
                     Row::new(
@@ -152,6 +171,12 @@ impl Model {
         if now.padding != was.padding {
             put(doc, "terminal", "padding", int(now.padding));
         }
+        if now.columns != was.columns {
+            put(doc, "terminal", "columns", int(now.columns));
+        }
+        if now.rows != was.rows {
+            put(doc, "terminal", "rows", int(now.rows));
+        }
     }
 }
 
@@ -199,7 +224,7 @@ mod tests {
     fn terminal_page_writes_what_it_shows() {
         let config = Config::parse("").unwrap();
         let before = Model::read(&config, &[], |_| None);
-        assert_eq!(before.groups(Section::Terminal).len(), 2);
+        assert_eq!(before.groups(Section::Terminal).len(), 3);
         let mut after = before.clone();
         after.set(Id::TermColors, Value::Choice(2));
         after.set(Id::TermCursor, Value::Choice(1));
@@ -208,6 +233,8 @@ mod tests {
         after.set(Id::TermText, Value::Number(99.0));
         after.set(Id::TermOpacity, Value::Number(85.0));
         after.set(Id::TermPadding, Value::Number(4.0));
+        after.set(Id::TermColumns, Value::Number(132.4));
+        after.set(Id::TermRows, Value::Number(1.0));
         assert_eq!(after.press(Id::TermFont, 0), Some(crate::settings::Ask::Choose(crate::sheet::For::TermFont)));
         after.choose(crate::sheet::For::TermFont, "Source Code Pro".into());
         let back = Config::parse(&after.write(&before, "").unwrap()).unwrap().terminal;
@@ -218,6 +245,7 @@ mod tests {
         assert_eq!(back.text_size, 32);
         assert_eq!(back.opacity, 85);
         assert_eq!(back.padding, 4);
+        assert_eq!((back.columns, back.rows), (132, 5));
         assert_eq!(back.font.as_deref(), Some("Source Code Pro"));
         assert_eq!(after.press(Id::TermDark, 0), Some(crate::settings::Ask::Choose(crate::sheet::For::TermDark)));
         after.choose(crate::sheet::For::TermDark, "Solarized Dark".into());

@@ -321,6 +321,8 @@ impl TermTabs {
 pub const TERM_TEXT: (u32, u32) = (8, 32);
 pub const TERM_PADDING: (u32, u32) = (0, 32);
 pub const TERM_OPACITY: (u32, u32) = (20, 100);
+pub const TERM_COLUMNS: (u32, u32) = (20, 400);
+pub const TERM_ROWS: (u32, u32) = (5, 200);
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -345,6 +347,18 @@ pub struct TerminalConfig {
     pub tabs: TermTabs,
     #[serde(default)]
     pub always_show_tabs: bool,
+    #[serde(default = "term_columns")]
+    pub columns: u32,
+    #[serde(default = "term_rows")]
+    pub rows: u32,
+}
+
+fn term_columns() -> u32 {
+    100
+}
+
+fn term_rows() -> u32 {
+    30
 }
 
 fn term_text() -> u32 {
@@ -380,6 +394,8 @@ impl Default for TerminalConfig {
             padding: term_padding(),
             tabs: TermTabs::Top,
             always_show_tabs: false,
+            columns: term_columns(),
+            rows: term_rows(),
         }
     }
 }

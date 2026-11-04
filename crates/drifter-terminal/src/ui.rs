@@ -57,6 +57,19 @@ pub fn card_rect(edge: Edge, size: (u32, u32), tabs: bool) -> Rect {
     )
 }
 
+pub fn window_for(edge: Edge, tabs: bool, text: (f64, f64), most: (u32, u32)) -> (u32, u32) {
+    let (mut width, mut height) = text;
+    if tabs {
+        match edge.vertical() {
+            true => width += STRIP * 4.0,
+            false => height += STRIP,
+        }
+    }
+    let width = (width.ceil() as u32).clamp(320, most.0.max(320));
+    let height = (height.ceil() as u32).clamp(200, most.1.max(200));
+    (width, height)
+}
+
 pub fn tab_rects(edge: Edge, count: usize, size: (u32, u32)) -> Vec<Rect> {
     if count == 0 {
         return Vec::new();

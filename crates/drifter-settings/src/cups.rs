@@ -25,6 +25,7 @@ pub const BOOLEAN: u8 = 0x22;
 pub const ENUM: u8 = 0x23;
 pub const TEXT_WITH_LANGUAGE: u8 = 0x35;
 pub const NAME_WITH_LANGUAGE: u8 = 0x36;
+#[cfg(test)]
 pub const TEXT: u8 = 0x41;
 pub const NAME: u8 = 0x42;
 pub const KEYWORD: u8 = 0x44;

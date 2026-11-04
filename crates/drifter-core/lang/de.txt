@@ -5190,3 +5190,15 @@ Games and video
 
 On while a full-screen game or video says what it is. Smoother on FreeSync and G-Sync monitors
 = An, solange ein Spiel oder Video im Vollbild sagt, was es ist. Flüssiger auf FreeSync- und G-Sync-Monitoren
+
+Rows
+= Zeilen
+
+How many characters wide a new window opens
+= Wie viele Zeichen breit ein neues Fenster öffnet
+
+How many lines tall a new window opens
+= Wie viele Zeilen hoch ein neues Fenster öffnet
+
+Open windows keep their size. Drag a window's edge to change it.
+= Offene Fenster behalten ihre Größe. Zieh am Rand eines Fensters, um sie zu ändern.

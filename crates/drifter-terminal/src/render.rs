@@ -45,6 +45,13 @@ impl Grid {
         Spot { row: snap_top + row, col }
     }
 
+    pub fn text_size(&self, cols: u32, rows: u32) -> (f64, f64) {
+        (
+            f64::from(cols) * f64::from(self.face.cell_w) + self.pad * 2.0,
+            f64::from(rows) * f64::from(self.face.cell_h) + self.pad * 2.0,
+        )
+    }
+
     pub fn fit(&self, area_w: f64, area_h: f64) -> (u16, u16) {
         let inner_w = (area_w - self.pad * 2.0).max(f64::from(self.face.cell_w));
         let inner_h = (area_h - self.pad * 2.0).max(f64::from(self.face.cell_h));

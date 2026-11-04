@@ -16,7 +16,6 @@ pub struct Face {
     bold_italic: Font,
     pub cell_w: u32,
     pub cell_h: u32,
-    pub ascent: f64,
     cache: HashMap<(String, [u8; 3], bool, bool), Image>,
 }
 
@@ -82,8 +81,7 @@ impl Face {
         let probe = regular.width_of("0000000000") / 10.0;
         let cell_w = probe.round().max(1.0) as u32;
         let cell_h = regular.line_height().round().max(1.0) as u32;
-        let ascent = regular.ascent();
-        Ok(Face { regular, bold, italic, bold_italic, cell_w, cell_h, ascent, cache: HashMap::new() })
+        Ok(Face { regular, bold, italic, bold_italic, cell_w, cell_h, cache: HashMap::new() })
     }
 
     fn pick(&self, bold: bool, italic: bool) -> &Font {
