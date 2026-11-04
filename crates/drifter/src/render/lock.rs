@@ -396,16 +396,6 @@ impl State {
         let shown = lock.shown.clone();
         let fresh = lock.art.is_some() && lock.top.is_some() && lock.corner.is_some() && lock.clock.is_some();
         let shaded = lock.shade.is_some();
-        if self.greeter.as_ref().is_some_and(|greeter| greeter.sessions.len() > 1)
-            && self.lock.as_ref().is_some_and(|lock| lock.gear.as_ref().is_none_or(|(_, ink)| *ink != login.ink))
-        {
-            let image = drifter_core::tray::paint_gear(self.tray.button as u32, login.ink);
-            if let Ok(Some(art)) = upload(&mut self.renderer, Some(&image), "session button")
-                && let Some(lock) = self.lock.as_mut()
-            {
-                lock.gear = Some((art, login.ink));
-            }
-        }
         let pixel = |color: [u8; 3]| drifter_core::Image {
             width: 1,
             height: 1,
@@ -422,6 +412,16 @@ impl State {
             && let Some(lock) = self.lock.as_mut()
         {
             lock.caret = Some((art, login.ink));
+        }
+        if self.greeter.as_ref().is_some_and(|greeter| greeter.sessions.len() > 1)
+            && self.lock.as_ref().is_some_and(|lock| lock.gear.as_ref().is_none_or(|(_, ink)| *ink != login.ink))
+        {
+            let image = drifter_core::tray::paint_gear(self.tray.button as u32, login.ink);
+            if let Ok(Some(art)) = upload(&mut self.renderer, Some(&image), "session button")
+                && let Some(lock) = self.lock.as_mut()
+            {
+                lock.gear = Some((art, login.ink));
+            }
         }
         if fresh && shown == key {
             return;

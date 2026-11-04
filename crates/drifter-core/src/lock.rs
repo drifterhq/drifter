@@ -6,7 +6,7 @@ use crate::text::Font;
 
 pub const MAX_LEN: usize = 256;
 pub const TINT: f64 = 0.45;
-const DARK_FILL: f32 = 0.8;
+const DARK_FILL: f32 = 0.72;
 pub const BLINK: std::time::Duration = std::time::Duration::from_millis(530);
 const INDENT: f64 = 26.0;
 const SHADE: f64 = 28.0;
@@ -281,7 +281,9 @@ pub fn frosted_clock(font: &Font, clock: &str, dark: bool) -> Frosted {
     let cover: Vec<f32> = canvas.image.rgba.chunks(4).map(|px| f32::from(px[3]) / 255.0).collect();
     let reach = (text.height as f64 * 0.03).max(1.0) as usize;
     let inner = blurred(&cover, width, height, reach);
+    let wide = blurred(&cover, width, height, reach * 2);
     let shade = blurred(&cover, width, height, reach * 4);
+    let lift = (text.height as f64 * 0.04).round() as usize;
     let drop = (text.height as f64 * 0.035).round() as usize;
     let byte = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
     let mut body = Vec::with_capacity(width * height * 4);
@@ -290,11 +292,15 @@ pub fn frosted_clock(font: &Font, clock: &str, dark: bool) -> Frosted {
         for x in 0..width {
             let at = y * width + x;
             let rim = cover[at] * (1.0 - (inner[at] * 1.6 - 0.6).clamp(0.0, 1.0));
-            let fill = match dark {
-                true => DARK_FILL,
-                false => TINT as f32,
+            let a = match dark {
+                true => {
+                    let above = y.checked_sub(lift).map_or(0.0, |up| wide[up * width + x]);
+                    let inset = cover[at] * (1.0 - above);
+                    let edge = (rim * 0.7 + inset * 1.4).min(1.0);
+                    cover[at] * DARK_FILL + edge * (1.0 - DARK_FILL)
+                }
+                false => cover[at] * TINT as f32 + rim * (1.0 - TINT as f32) * 0.85,
             };
-            let a = cover[at] * fill + rim * (1.0 - fill) * 0.85;
             let v = byte(a);
             let tone = match dark {
                 true => 0,
