@@ -5,7 +5,7 @@ Version:        0.1.0
 Release:        1%{?dist}
 Summary:        A Wayland desktop that is a camera over one large world
 License:        MIT
-URL:            https://github.com/donuts-are-good/drifter
+URL:            https://github.com/drifterhq/drifter
 Source0:        drifter-%{version}.tar.gz
 
 BuildRequires:  cargo >= 1.98

@@ -1,6 +1,6 @@
 [Unit]
 Description=Drifter session
-Documentation=https://github.com/donuts-are-good/drifter
+Documentation=https://github.com/drifterhq/drifter
 BindsTo=graphical-session.target
 Wants=graphical-session-pre.target
 After=graphical-session-pre.target

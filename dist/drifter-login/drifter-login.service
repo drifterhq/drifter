@@ -1,6 +1,6 @@
 [Unit]
 Description=Drifter login
-Documentation=https://github.com/donuts-are-good/drifter
+Documentation=https://github.com/drifterhq/drifter
 After=systemd-user-sessions.service plymouth-quit-wait.service getty@tty1.service
 Conflicts=getty@tty1.service
 
