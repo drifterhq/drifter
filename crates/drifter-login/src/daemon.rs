@@ -19,6 +19,7 @@ const SOCKET: &str = "/run/drifter-login/greeter.sock";
 const VT_OPENQRY: libc::c_ulong = 0x5600;
 const VT_ACTIVATE: libc::c_ulong = 0x5606;
 const HANDOFF: Duration = Duration::from_secs(30);
+const LINGER: Duration = Duration::from_secs(20);
 const LONGEST: usize = 1 << 20;
 
 struct Config {
@@ -54,6 +55,7 @@ enum Event {
     GreeterGone,
     Session(u32, Worker),
     Handoff,
+    Retire,
     SessionGone(u32),
 }
 
@@ -390,8 +392,15 @@ pub fn run() -> std::process::ExitCode {
                 });
             }
             Event::Handoff => {
-                eprintln!("drifter-login: the session has the screen (terminal {:?}), closing the login screen", active_vt());
-                if let Some(pid) = greeter {
+                eprintln!("drifter-login: the session has the screen (terminal {:?})", active_vt());
+                let retiring = tx.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(LINGER);
+                    let _ = retiring.send(Event::Retire);
+                });
+            }
+            Event::Retire => {
+                if let Some(pid) = greeter.filter(|_| !sessions.is_empty()) {
                     unsafe { libc::kill(pid, libc::SIGTERM) };
                 }
             }
@@ -400,8 +409,8 @@ pub fn run() -> std::process::ExitCode {
                 sessions.remove(&vt);
                 if sessions.is_empty() {
                     want_greeter = true;
-                    if greeter.is_some() {
-                        activate(config.vt);
+                    if let Some(pid) = greeter {
+                        unsafe { libc::kill(pid, libc::SIGTERM) };
                     }
                 }
             }
