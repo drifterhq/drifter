@@ -7,6 +7,8 @@ use drifter_core::{Font, Image, Rect, Vec2};
 use crate::config::Edge;
 
 pub const STRIP: f64 = 36.0;
+pub const CARD_MARGIN: f64 = 0.0;
+pub const CARD_RADIUS: f64 = 10.0;
 const SLIDE: f64 = 0.12;
 const FADE: f64 = 0.10;
 const LIT_ALPHA: f64 = 0.08;
@@ -108,6 +110,17 @@ pub fn content_rect(edge: Edge, size: (u32, u32), tabs: bool) -> Rect {
         Edge::Left => Rect::new(Vec2::new(STRIP * 4.0, 0.0), Vec2::new((w - STRIP * 4.0).max(1.0), h)),
         Edge::Right => Rect::new(Vec2::ZERO, Vec2::new((w - STRIP * 4.0).max(1.0), h)),
     }
+}
+
+pub fn card_rect(edge: Edge, size: (u32, u32), tabs: bool) -> Rect {
+    let content = content_rect(edge, size, tabs);
+    if !tabs {
+        return content;
+    }
+    Rect::new(
+        content.origin + Vec2::splat(CARD_MARGIN),
+        Vec2::new((content.size.x - CARD_MARGIN * 2.0).max(1.0), (content.size.y - CARD_MARGIN * 2.0).max(1.0)),
+    )
 }
 
 pub fn tab_rects(edge: Edge, count: usize, size: (u32, u32)) -> Vec<Rect> {

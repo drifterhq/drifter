@@ -1,11 +1,5 @@
 use std::path::{Path, PathBuf};
 
-/// Agents in the order Drifter prefers them. The GNOME one keeps key
-/// passphrases in the keyring, which the login password unlocks. OpenSSH's
-/// own socket unit comes with openssh on Debian and Fedora, each at its own
-/// place, so the place is read from the unit. Drifter's unit is the fallback
-/// where neither is installed (Arch); it is a plain service, as upstream
-/// ssh-agent takes no socket from systemd.
 const AGENTS: [(&str, &str); 3] = [
     ("gcr-ssh-agent.socket", "gcr/ssh"),
     ("ssh-agent.socket", "openssh_agent"),
@@ -21,7 +15,6 @@ const UNIT_DIRS: [&str; 4] = [
 
 static SOCKET: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
-/// The agent socket apps get as SSH_AUTH_SOCK, once `start` picked one.
 pub fn socket() -> Option<String> {
     SOCKET.get().cloned()
 }
@@ -35,8 +28,6 @@ fn unit_file(unit: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
     dirs.iter().map(|dir| dir.join(unit)).find(|path| path.is_file())
 }
 
-/// The first ListenStream path of a socket unit, with %t made the runtime
-/// folder.
 fn listen_place(text: &str, runtime: &Path) -> Option<String> {
     let runtime = runtime.to_string_lossy();
     text.lines()
@@ -67,10 +58,6 @@ fn unit_dirs() -> Vec<PathBuf> {
     dirs
 }
 
-/// Picks the SSH agent for the session and hands its socket to every app
-/// Drifter starts. An agent the session already has (SSH_AUTH_SOCK set and
-/// live) stays. Call before portal::announce, so D-Bus and systemd started
-/// apps get the same socket.
 pub fn start() {
     if let Some(held) = std::env::var_os("SSH_AUTH_SOCK").filter(|path| is_socket(Path::new(path))) {
         let held = held.to_string_lossy().into_owned();

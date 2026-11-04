@@ -580,7 +580,6 @@ impl FoundPrinter {
         name.trim_end_matches("(driverless)").trim().to_string()
     }
 
-    /// A queue name CUPS takes: letters, digits, '-' and '_' only.
     pub fn queue(&self) -> String {
         let base = match self.model.trim().is_empty() || self.model == "Unknown" {
             true => self.info.trim(),
@@ -627,8 +626,6 @@ impl Printers {
         self.jobs.iter().enumerate().filter(|(_, job)| job.printer == name).collect()
     }
 
-    /// Found devices that are real printers, not the bare backends CUPS
-    /// lists for typing an address by hand.
     pub fn addable(found: Vec<FoundPrinter>, known: &[Printer]) -> Vec<FoundPrinter> {
         let mut kept: Vec<FoundPrinter> = Vec::new();
         for each in found {
@@ -4564,7 +4561,6 @@ mod tests {
     fn small() -> crate::text::Font {
         crate::text::Font::find(None, 11.5).expect("this machine has no usable font")
     }
-
 
     #[test]
     fn a_scale_lands_on_its_own_monitor_and_keeps_the_rest() {

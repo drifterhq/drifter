@@ -28,8 +28,6 @@ install -d "$greeter/etc/greetd"
 sed -e 's/@VT@/7/' -e 's/@USER@/_greetd/' dist/drifter-greeter/drifter.toml.in >"$greeter/etc/greetd/drifter.toml"
 dpkg-deb --root-owner-group --build "$greeter" "target/debian/drifter-greeter_${version}_all.deb"
 
-# xwayland-satellite 0.8.3, which Debian does not ship. 0.8.2 and older give X
-# focus to override-redirect menus, so Steam and Chromium menus close at once.
 satellite=$work/xwayland-satellite
 git clone --quiet --depth 1 --branch v0.8.3 https://github.com/Supreeeme/xwayland-satellite "$satellite"
 cat >>"$satellite/Cargo.toml" <<'META'

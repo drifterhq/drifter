@@ -41,13 +41,21 @@ impl Grid {
         (cols, rows)
     }
 
-    pub fn base_image(&self, size: (u32, u32)) -> Image {
+    pub fn base_image(&self, size: (u32, u32), fill: [u8; 3]) -> Image {
         let alpha = (self.opacity * 255.0).round() as u8;
         let mut rgba = Vec::with_capacity((size.0 * size.1 * 4) as usize);
         for _ in 0..(size.0 * size.1) {
-            rgba.extend_from_slice(&[self.bg[0], self.bg[1], self.bg[2], alpha]);
+            rgba.extend_from_slice(&[fill[0], fill[1], fill[2], alpha]);
         }
         Image { width: size.0, height: size.1, rgba }
+    }
+
+    pub fn bg(&self) -> [u8; 3] {
+        self.bg
+    }
+
+    pub fn opacity(&self) -> f64 {
+        self.opacity
     }
 
     pub fn paint_cells(&mut self, canvas: &mut Canvas, snap: &Snapshot, area: Rect) {

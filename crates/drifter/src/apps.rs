@@ -159,9 +159,6 @@ fn free_display() -> Option<u32> {
     })
 }
 
-/// Older xwayland-satellite gives X focus to override-redirect menus, so
-/// toolkits that close a menu when its window loses focus (Chromium, CEF,
-/// Steam) show it for a split second only. Fixed upstream in 0.8.3 (add2795).
 const SATELLITE_LEAST: (u32, u32, u32) = (0, 8, 3);
 
 fn satellite_version(text: &str) -> Option<(u32, u32, u32)> {

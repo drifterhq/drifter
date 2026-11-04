@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# Installs the xwayland-satellite that Drifter needs into ~/.local/bin, which
-# drifter-session puts first on PATH. No sudo. Distro packages lag: 0.8.2
-# gives X focus to override-redirect menus, so Steam and Chromium menus close
-# as they open. Build deps: cargo, clang, xcb-util-cursor headers.
 set -euo pipefail
 
 tag=v0.8.3

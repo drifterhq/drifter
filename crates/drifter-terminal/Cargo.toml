@@ -5,8 +5,6 @@ edition = "2024"
 license = "MIT"
 description = "A terminal made for Drifter, on libghostty-vt"
 
-# Built on its own for now (needs Zig + libghostty-vt). Joins the main
-# workspace when ghostty is vendored.
 [workspace]
 
 [dependencies]

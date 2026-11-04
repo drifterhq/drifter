@@ -192,7 +192,7 @@ impl Term {
     }
 
     fn content(&self) -> Rect {
-        ui::content_rect(self.cfg.tab_edge, self.size, self.tabs_shown())
+        ui::card_rect(self.cfg.tab_edge, self.size, self.tabs_shown())
     }
 
     fn content_fit(&self) -> (u16, u16) {
@@ -498,14 +498,19 @@ impl Term {
 
     fn draw(&mut self) {
         let snap = self.panes[self.active].vt.snapshot();
-        let content = self.content();
-        let image = self.grid.base_image(self.size);
+        let tabs = self.tabs_shown();
+        let card = self.content();
+        let frame = if tabs { self.bar } else { self.grid.bg() };
+        let image = self.grid.base_image(self.size, frame);
         let mut canvas = Canvas::on(image);
-        self.grid.paint_cells(&mut canvas, &snap, content);
+        if tabs {
+            canvas.round_rect(card, ui::CARD_RADIUS, self.grid.bg(), self.grid.opacity());
+        }
+        canvas.clip_to(Some(card));
+        self.grid.paint_cells(&mut canvas, &snap, card);
+        canvas.clip_to(None);
 
-        if self.tabs_shown() {
-            let strip = ui::strip_rect(self.cfg.tab_edge, self.size);
-            canvas.round_rect(strip, 0.0, self.bar, 1.0);
+        if tabs {
             let rects = ui::tab_rects(self.cfg.tab_edge, self.panes.len(), self.size);
             for (i, rect) in rects.iter().enumerate() {
                 let active = i == self.active;

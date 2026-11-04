@@ -333,7 +333,6 @@ fn send(path: &str, body: &[u8]) -> Result<Response, String> {
     decode(&http_body(&answer)?)
 }
 
-/// Whether the CUPS scheduler answers on its socket or port.
 pub fn running() -> bool {
     std::os::unix::net::UnixStream::connect(SOCKET).is_ok()
         || std::net::TcpStream::connect_timeout(&std::net::SocketAddr::from(([127, 0, 0, 1], PORT.1)), Duration::from_millis(500)).is_ok()
@@ -457,12 +456,9 @@ pub fn print_test_page(printer: &str) -> Result<(), String> {
     }
 }
 
-
 const HELPER: &str = "org.opensuse.CupsPkHelper.Mechanism";
 const FIND_SECONDS: i32 = 10;
 
-/// Whether cups-pk-helper can be started on the system bus. Without it the
-/// page shows printers but cannot change them.
 pub fn helper_ready() -> bool {
     let Ok(bus) = zbus::blocking::Connection::system() else {
         return false;
@@ -479,8 +475,6 @@ pub fn helper_ready() -> bool {
     names.is_ok_and(|names| names.iter().any(|name| name == HELPER))
 }
 
-/// Calls cups-pk-helper with interactive authorization allowed, so polkit
-/// asks for a password through Drifter's agent instead of refusing.
 fn helper<B, R>(method: &str, body: &B) -> Result<R, String>
 where
     B: zbus::export::serde::ser::Serialize + zbus::zvariant::DynamicType,
@@ -535,8 +529,6 @@ pub fn cancel(job: u32) -> Result<(), String> {
     said(helper("JobCancelPurge", &(id, false))?)
 }
 
-/// Asks CUPS for printers on this computer and the network. Takes about
-/// FIND_SECONDS.
 pub fn find() -> Result<Vec<FoundPrinter>, String> {
     let none: Vec<&str> = Vec::new();
     let (error, devices): (String, HashMap<String, String>) = helper("DevicesGet", &(FIND_SECONDS, 0i32, none.clone(), none))?;
@@ -565,7 +557,6 @@ pub fn devices_of(devices: &HashMap<String, String>) -> Vec<FoundPrinter> {
         .collect()
 }
 
-/// Adds a found printer as a driverless (IPP Everywhere) queue.
 pub fn add(found: &FoundPrinter, taken: &[String]) -> Result<String, String> {
     let base = found.queue();
     let name = (1..)

@@ -1,7 +1,4 @@
 #!/usr/bin/env bash
-# Builds the Drifter RPMs (drifter, -explorer, -login, -greeter, -desktop) and
-# xwayland-satellite 0.8.3 into target/rpm/RPMS. Needs rpmbuild and the build
-# packages listed in dist/rpm/*.spec (sudo dnf builddep dist/rpm/*.spec).
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")/.." && pwd)
