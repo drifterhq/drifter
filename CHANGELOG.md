@@ -37,6 +37,11 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Settings: the hover glide from menus and terminal tabs now runs on the
+  sidebar sections, rows that open a page, segment options, buttons, dialog
+  rows, theme cards and pictures. A click flashes it brighter. Reduce motion
+  makes it jump with no slide.
+
 - Terminal: the right-click menu keeps only New Tab, New Window, Close Tab,
   Copy, Paste and Settings.
 - Terminal: options now live in the `[terminal]` table of the Drifter config.
