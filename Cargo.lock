@@ -809,6 +809,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "drifter-terminal"
+version = "0.1.0"
+dependencies = [
+ "drifter-core",
+ "libc",
+ "smithay-client-toolkit",
+ "wayland-client",
+]
+
+[[package]]
 name = "drm"
 version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

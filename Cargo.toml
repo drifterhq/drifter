@@ -1,6 +1,5 @@
 [workspace]
-members = ["crates/drifter-core", "crates/drifter", "crates/drifter-settings", "crates/drifter-activity", "crates/drifter-explorer", "crates/drifter-markup", "crates/drifter-blue", "crates/drifter-net", "crates/drifter-login", "vendor/owly/crates/owly-awdl", "vendor/owly/crates/owly-airdrop", "vendor/owly/crates/owly-radio", "vendor/owly/crates/owlyd", "vendor/owly/crates/owly-cli"]
-exclude = ["crates/drifter-terminal"]
+members = ["crates/drifter-core", "crates/drifter", "crates/drifter-settings", "crates/drifter-activity", "crates/drifter-explorer", "crates/drifter-markup", "crates/drifter-blue", "crates/drifter-net", "crates/drifter-login", "crates/drifter-terminal", "vendor/owly/crates/owly-awdl", "vendor/owly/crates/owly-airdrop", "vendor/owly/crates/owly-radio", "vendor/owly/crates/owlyd", "vendor/owly/crates/owly-cli"]
 resolver = "3"
 
 [workspace.package]

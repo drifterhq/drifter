@@ -1,19 +1,27 @@
 [package]
 name = "drifter-terminal"
-version = "0.1.0"
-edition = "2024"
-license = "MIT"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 description = "A terminal made for Drifter, on libghostty-vt"
 
-[workspace]
-
 [dependencies]
-drifter-core = { path = "../drifter-core" }
+drifter-core.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2.189"
 smithay-client-toolkit = { version = "0.19", default-features = false, features = ["calloop", "xkbcommon"] }
 wayland-client = "0.31"
 
-[profile.release]
-opt-level = 3
+[package.metadata.deb]
+name = "drifter-terminal"
+maintainer = "donuts-are-good <96031819+donuts-are-good@users.noreply.github.com>"
+copyright = "donuts-are-good"
+extended-description = "A terminal made for Drifter. Ghostty's terminal core, libghostty-vt, reads the shell's output; Drifter draws it, with tabs and themes."
+section = "x11"
+priority = "optional"
+depends = "$auto"
+assets = [
+    ["target/release/drifter-terminal", "usr/bin/", "755"],
+    ["../../dist/drifter-terminal.desktop", "usr/share/applications/", "644"],
+]
