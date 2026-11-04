@@ -18,12 +18,15 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
   the dark theme by night. A theme sets the text, background, cursor and all
   16 terminal colors. With Colors on Dark or Light, the theme row not in use
   is faded and cannot be clicked.
-- 43 built-in themes: Drifter, Detroit Future, Solarized, Selenized, Tango, rxvt, XTerm,
-  Catppuccin (Latte, Frappé, Macchiato, Mocha), Nord, Gruvbox, Tokyo Night
-  (Night, Storm, Day), One, GitHub, Dracula and Alucard, Rosé Pine (Main,
-  Moon, Dawn), Everforest, Kanagawa (Wave, Lotus), Ayu (Dark, Mirage,
-  Light) and Tomorrow. Own themes load from
+- 48 built-in themes: Drifter, Detroit Future, Solarized, Selenized, Tango,
+  rxvt, XTerm, Catppuccin (Latte, Frappé, Macchiato, Mocha), Nord, Gruvbox
+  (and Hard), Tokyo Night (Night, Storm, Moon, Day), One, GitHub (and Dark
+  Dimmed), Dracula and Alucard, Rosé Pine (Main, Moon, Dawn), Everforest,
+  Kanagawa (Wave, Dragon, Lotus), Ayu (Dark, Mirage, Light) and Tomorrow.
+  Their colors come from iTerm2-Color-Schemes (MIT). Own themes load from
   `~/.config/drifter/terminal-themes/*.toml`.
+- Terminal: a change of theme or of Colors fades over 1 second. Reduce motion
+  makes it instant. The cursor takes the theme's cursor color.
 - Settings > Terminal > Font picks any installed monospace font. JetBrains
   Mono stays built in and heads the list.
 - Terminal: Settings at the bottom of the right-click menu opens
@@ -32,7 +35,8 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
   window.
 - Terminal: a double click on empty tab bar space opens a new tab.
 - Settings > Terminal: Dark theme and Light theme open a grid of swatches.
-  Each card shows the theme background with its red, yellow, green and blue.
+  Each card shows the theme background with its text color, blue, magenta
+  and green.
   Drifter Dark or Drifter Light comes first, then A to Z.
 
 ### Changed
