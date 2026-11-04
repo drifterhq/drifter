@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Terminal
+GenericName=Terminal
+Comment=A terminal for Drifter
+Exec=drifter-terminal
+Icon=utilities-terminal
+Categories=System;TerminalEmulator;Utility;
+Keywords=terminal;shell;command line;console;prompt;
+StartupWMClass=drifter-terminal

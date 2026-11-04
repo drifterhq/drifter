@@ -193,8 +193,27 @@ pub fn explorer_app() -> Option<App> {
     })
 }
 
+pub const TERMINAL_APP: &str = "drifter-terminal";
+
+pub fn terminal_app() -> Option<App> {
+    let program = std::env::current_exe().ok()?.with_file_name(TERMINAL_APP);
+    program.is_file().then(|| App {
+        id: TERMINAL_APP.to_string(),
+        name: crate::lang::t("Terminal").to_string(),
+        icon: Some("utilities-terminal".to_string()),
+        exec: Some(format!("\"{}\"", program.display())),
+        words: "terminal shell command line console prompt".to_string(),
+        categories: vec!["System".to_string(), "TerminalEmulator".to_string()],
+        terminal: false,
+    })
+}
+
 pub fn own_apps() -> Vec<App> {
-    crate::activity::own_app().into_iter().chain(explorer_app()).collect()
+    crate::activity::own_app()
+        .into_iter()
+        .chain(explorer_app())
+        .chain(terminal_app())
+        .collect()
 }
 
 pub fn with_own(mut apps: Vec<App>, own: Vec<App>) -> Vec<App> {
@@ -452,6 +471,7 @@ pub fn serving_in(role: Role, roots: &[PathBuf]) -> Vec<App> {
 pub fn serving(role: Role) -> Vec<App> {
     let own = match role {
         Role::Files => explorer_app().into_iter().collect(),
+        Role::Terminal => terminal_app().into_iter().collect(),
         _ => Vec::new(),
     };
     ours_first(serving_in(role, &roots()), own)
@@ -503,6 +523,11 @@ pub fn offers(role: Role, have: &[App]) -> Vec<Offer> {
 }
 
 pub fn system_default(role: Role) -> Option<String> {
+    if role == Role::Terminal
+        && let Some(app) = terminal_app()
+    {
+        return Some(app.id);
+    }
     system_default_in(role, &mime_lists(), &roots())
 }
 
