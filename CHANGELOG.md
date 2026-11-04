@@ -10,6 +10,18 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Terminal tabs: drag a tab out of the window to give it its own window. The
+  shell keeps running. Shift+click picks a run of tabs and Ctrl+click picks
+  one more; drag the picked tabs out to move them together, or drop them in
+  the tab bar to reorder. Right-click a tab, or double-click it, to rename
+  it. Tab and window titles follow the running program.
+- Terminal: drag to select text; double-click picks a word and triple-click
+  a line. Copy and Paste work from the right-click menu, Ctrl+Shift+C and
+  Ctrl+Shift+V, and the middle button pastes. The wheel scrolls back through
+  old output, and Shift+Page Up and Page Down scroll by a page. Full-screen
+  programs get the wheel as arrow keys or mouse reports.
+- Terminal: New Window opens in the same program, so tabs can move between
+  its windows.
 - Settings > Terminal: colors (Auto, Dark, Light), text size, cursor shape,
   background opacity, space around the text, tab bar edge, and always show
   the tab bar. Open terminals take each change at once.

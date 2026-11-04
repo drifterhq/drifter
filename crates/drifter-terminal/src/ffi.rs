@@ -9,10 +9,21 @@ pub type GhosttyRenderStateRowCells = *mut c_void;
 
 pub const GHOSTTY_SUCCESS: i32 = 0;
 
+pub const OPT_USERDATA: i32 = 0;
+pub const OPT_WRITE_PTY: i32 = 1;
 pub const OPT_COLOR_FOREGROUND: i32 = 11;
 pub const OPT_COLOR_BACKGROUND: i32 = 12;
 pub const OPT_COLOR_CURSOR: i32 = 13;
 pub const OPT_COLOR_PALETTE: i32 = 14;
+
+pub const TERM_ACTIVE_SCREEN: i32 = 6;
+pub const TERM_SCROLLBAR: i32 = 9;
+pub const TERM_MOUSE_TRACKING: i32 = 11;
+pub const TERM_TITLE: i32 = 12;
+pub const TERM_MODE: i32 = 37;
+
+pub const SCROLL_BOTTOM: i32 = 1;
+pub const SCROLL_DELTA: i32 = 2;
 
 pub const DATA_COLS: i32 = 1;
 pub const DATA_ROWS: i32 = 2;
@@ -37,6 +48,43 @@ pub struct GhosttyColorRgb {
     pub g: u8,
     pub b: u8,
 }
+
+#[repr(C)]
+pub struct GhosttyString {
+    pub ptr: *const u8,
+    pub len: usize,
+}
+
+#[repr(C)]
+#[derive(Default)]
+pub struct GhosttyTerminalScrollbar {
+    pub total: u64,
+    pub offset: u64,
+    pub len: u64,
+}
+
+#[repr(C)]
+pub struct GhosttyTerminalModeConfig {
+    pub mode: u16,
+    pub value: bool,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub union GhosttyTerminalScrollViewportValue {
+    pub delta: isize,
+    pub row: usize,
+    pub pad: [u64; 2],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct GhosttyTerminalScrollViewport {
+    pub tag: i32,
+    pub value: GhosttyTerminalScrollViewportValue,
+}
+
+pub type GhosttyTerminalWritePtyFn = unsafe extern "C" fn(GhosttyTerminal, *mut c_void, *const u8, usize);
 
 #[repr(C)]
 pub struct GhosttyBuffer {
@@ -106,6 +154,8 @@ unsafe extern "C" {
     pub fn ghostty_terminal_resize(terminal: GhosttyTerminal, cols: u16, rows: u16, cell_width_px: u32, cell_height_px: u32) -> i32;
     pub fn ghostty_terminal_set(terminal: GhosttyTerminal, option: i32, value: *const c_void) -> i32;
     pub fn ghostty_terminal_vt_write(terminal: GhosttyTerminal, data: *const u8, len: usize);
+    pub fn ghostty_terminal_get(terminal: GhosttyTerminal, data: i32, out: *mut c_void) -> i32;
+    pub fn ghostty_terminal_scroll_viewport(terminal: GhosttyTerminal, behavior: GhosttyTerminalScrollViewport);
 
     pub fn ghostty_render_state_new(allocator: *const c_void, out: *mut GhosttyRenderState) -> i32;
     pub fn ghostty_render_state_free(state: GhosttyRenderState);

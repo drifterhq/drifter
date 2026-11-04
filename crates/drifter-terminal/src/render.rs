@@ -3,6 +3,7 @@ use drifter_core::{Image, Rect, Vec2};
 
 use crate::config::{Config, Cursor};
 use crate::font::Face;
+use crate::select::{Spot, holds};
 use crate::vt::Snapshot;
 
 pub struct Grid {
@@ -11,6 +12,7 @@ pub struct Grid {
     fg: [u8; 3],
     bg: [u8; 3],
     cursor: [u8; 3],
+    select: [u8; 3],
     opacity: f64,
     cursor_shape: Cursor,
 }
@@ -24,6 +26,7 @@ impl Grid {
             fg: cfg.fg,
             bg: cfg.bg,
             cursor: cfg.cursor,
+            select: cfg.theme.selection,
             opacity: cfg.opacity,
             cursor_shape: cfg.cursor_shape,
         })
@@ -31,6 +34,15 @@ impl Grid {
 
     pub fn cell(&self) -> (u32, u32) {
         (self.face.cell_w, self.face.cell_h)
+    }
+
+    pub fn spot(&self, area: Rect, snap_top: u64, cols: u16, rows: u16, at: Vec2) -> Spot {
+        let cw = f64::from(self.face.cell_w);
+        let ch = f64::from(self.face.cell_h);
+        let inside = at - area.origin - Vec2::new(self.pad, self.pad);
+        let col = (inside.x / cw).floor().clamp(0.0, f64::from(cols.max(1) - 1)) as u16;
+        let row = (inside.y / ch).floor().clamp(0.0, f64::from(rows.max(1) - 1)) as u64;
+        Spot { row: snap_top + row, col }
     }
 
     pub fn fit(&self, area_w: f64, area_h: f64) -> (u16, u16) {
@@ -58,7 +70,7 @@ impl Grid {
         self.opacity
     }
 
-    pub fn paint_cells(&mut self, canvas: &mut Canvas, snap: &Snapshot, area: Rect) {
+    pub fn paint_cells(&mut self, canvas: &mut Canvas, snap: &Snapshot, area: Rect, picked: Option<(Spot, Spot)>) {
         let cw = f64::from(self.face.cell_w);
         let ch = f64::from(self.face.cell_h);
         let origin = area.origin + Vec2::new(self.pad, self.pad);
@@ -73,6 +85,8 @@ impl Grid {
                 } else {
                     (orig_fg, cell.bg)
                 };
+                let chosen = picked.is_some_and(|bounds| holds(bounds, snap.top + y as u64, x as u16));
+                let bg_fill = if chosen { Some(self.select) } else { bg_fill };
                 if let Some(bgc) = bg_fill
                     && bgc != self.bg
                 {

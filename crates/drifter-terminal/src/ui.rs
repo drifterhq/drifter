@@ -18,7 +18,9 @@ pub enum Action {
     Copy,
     Paste,
     Settings,
-    SelectTab(usize),
+    Rename(i32),
+    MoveOut(i32),
+    CloseOne(i32),
 }
 
 pub fn strip_rect(edge: Edge, size: (u32, u32)) -> Rect {
@@ -80,6 +82,16 @@ pub fn tab_rects(edge: Edge, count: usize, size: (u32, u32)) -> Vec<Rect> {
     rects
 }
 
+pub fn tab_centers(edge: Edge, count: usize, size: (u32, u32)) -> Vec<f64> {
+    tab_rects(edge, count, size)
+        .into_iter()
+        .map(|rect| match edge.vertical() {
+            true => rect.center().y,
+            false => rect.center().x,
+        })
+        .collect()
+}
+
 pub fn tab_at(edge: Edge, count: usize, size: (u32, u32), point: Vec2) -> Option<usize> {
     tab_rects(edge, count, size).into_iter().position(|rect| rect.contains(point))
 }
@@ -93,17 +105,49 @@ pub struct Menu {
     pub art: Image,
 }
 
-pub fn context_menu(look: Look, at: Vec2, screen: Vec2, font: &Font) -> Menu {
-    let rows: Vec<(Item, Option<Action>)> = vec![
-        (Item::line(1, "New Tab"), Some(Action::NewTab)),
-        (Item::line(2, "New Window"), Some(Action::NewWindow)),
-        (Item::line(3, "Close Tab"), Some(Action::CloseTab)),
-        (Item::rule(90), None),
-        (Item::line(4, "Copy"), Some(Action::Copy)),
-        (Item::line(5, "Paste"), Some(Action::Paste)),
-        (Item::rule(91), None),
-        (Item::line(6, "Settings"), Some(Action::Settings)),
-    ];
+pub fn context_menu(look: Look, at: Vec2, screen: Vec2, font: &Font, copy: bool) -> Menu {
+    let copy_row = match copy {
+        true => (Item::line(4, "Copy"), Some(Action::Copy)),
+        false => (Item::line(4, "Copy").off(), None),
+    };
+    build(
+        look,
+        at,
+        screen,
+        font,
+        vec![
+            (Item::line(1, "New Tab"), Some(Action::NewTab)),
+            (Item::line(2, "New Window"), Some(Action::NewWindow)),
+            (Item::line(3, "Close Tab"), Some(Action::CloseTab)),
+            (Item::rule(90), None),
+            copy_row,
+            (Item::line(5, "Paste"), Some(Action::Paste)),
+            (Item::rule(91), None),
+            (Item::line(6, "Settings"), Some(Action::Settings)),
+        ],
+    )
+}
+
+pub fn tab_menu(look: Look, at: Vec2, screen: Vec2, font: &Font, fd: i32, many: bool) -> Menu {
+    let out = match many {
+        true => (Item::line(12, "Move to New Window"), Some(Action::MoveOut(fd))),
+        false => (Item::line(12, "Move to New Window").off(), None),
+    };
+    build(
+        look,
+        at,
+        screen,
+        font,
+        vec![
+            (Item::line(11, "Rename Tab"), Some(Action::Rename(fd))),
+            out,
+            (Item::rule(92), None),
+            (Item::line(13, "Close Tab"), Some(Action::CloseOne(fd))),
+        ],
+    )
+}
+
+fn build(look: Look, at: Vec2, screen: Vec2, font: &Font, rows: Vec<(Item, Option<Action>)>) -> Menu {
     let items: Vec<Item> = rows.iter().map(|(item, _)| item.clone()).collect();
     let actions: Vec<Option<Action>> = rows.iter().map(|(_, a)| *a).collect();
     let size = look.size(&items, Some(font), Some(font));

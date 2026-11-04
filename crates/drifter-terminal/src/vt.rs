@@ -22,6 +22,7 @@ pub struct Snapshot {
     pub bg: [u8; 3],
     pub cursor: Option<(u16, u16)>,
     pub cursor_block: bool,
+    pub top: u64,
 }
 
 pub struct Vt {
@@ -37,13 +38,24 @@ fn rgb(c: ffi::GhosttyColorRgb) -> [u8; 3] {
     [c.r, c.g, c.b]
 }
 
+unsafe extern "C" fn reply(_: ffi::GhosttyTerminal, user: *mut c_void, data: *const u8, len: usize) {
+    if data.is_null() || len == 0 {
+        return;
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(data, len) };
+    crate::pty::write_all(user as usize as std::os::fd::RawFd, bytes);
+}
+
 impl Vt {
-    pub fn new(cols: u16, rows: u16) -> Result<Vt, String> {
+    pub fn new(cols: u16, rows: u16, fd: std::os::fd::RawFd) -> Result<Vt, String> {
         unsafe {
             let mut term: ffi::GhosttyTerminal = ptr::null_mut();
             if ffi::ghostty_terminal_new(ptr::null(), &mut term, cols.max(1), rows.max(1)) != ffi::GHOSTTY_SUCCESS {
                 return Err("ghostty_terminal_new failed".into());
             }
+            ffi::ghostty_terminal_set(term, ffi::OPT_USERDATA, fd as usize as *const c_void);
+            let answer: ffi::GhosttyTerminalWritePtyFn = reply;
+            ffi::ghostty_terminal_set(term, ffi::OPT_WRITE_PTY, answer as *const c_void);
             let mut state: ffi::GhosttyRenderState = ptr::null_mut();
             let mut iter: ffi::GhosttyRenderStateRowIterator = ptr::null_mut();
             let mut cells: ffi::GhosttyRenderStateRowCells = ptr::null_mut();
@@ -79,6 +91,63 @@ impl Vt {
 
     pub fn feed(&mut self, bytes: &[u8]) {
         unsafe { ffi::ghostty_terminal_vt_write(self.term, bytes.as_ptr(), bytes.len()) };
+    }
+
+    pub fn title(&self) -> String {
+        let mut text = ffi::GhosttyString { ptr: ptr::null(), len: 0 };
+        unsafe {
+            if ffi::ghostty_terminal_get(self.term, ffi::TERM_TITLE, &mut text as *mut _ as *mut c_void) != ffi::GHOSTTY_SUCCESS
+                || text.ptr.is_null()
+            {
+                return String::new();
+            }
+            String::from_utf8_lossy(std::slice::from_raw_parts(text.ptr, text.len)).trim().to_string()
+        }
+    }
+
+    pub fn scrollbar(&self) -> ffi::GhosttyTerminalScrollbar {
+        let mut bar = ffi::GhosttyTerminalScrollbar::default();
+        unsafe { ffi::ghostty_terminal_get(self.term, ffi::TERM_SCROLLBAR, &mut bar as *mut _ as *mut c_void) };
+        bar
+    }
+
+    pub fn scrolled_back(&self) -> bool {
+        let bar = self.scrollbar();
+        bar.offset + bar.len < bar.total
+    }
+
+    pub fn scroll(&mut self, lines: isize) {
+        let behavior = ffi::GhosttyTerminalScrollViewport {
+            tag: ffi::SCROLL_DELTA,
+            value: ffi::GhosttyTerminalScrollViewportValue { delta: lines },
+        };
+        unsafe { ffi::ghostty_terminal_scroll_viewport(self.term, behavior) };
+    }
+
+    pub fn scroll_bottom(&mut self) {
+        let behavior = ffi::GhosttyTerminalScrollViewport {
+            tag: ffi::SCROLL_BOTTOM,
+            value: ffi::GhosttyTerminalScrollViewportValue { pad: [0; 2] },
+        };
+        unsafe { ffi::ghostty_terminal_scroll_viewport(self.term, behavior) };
+    }
+
+    pub fn alternate(&self) -> bool {
+        let mut screen: i32 = 0;
+        unsafe { ffi::ghostty_terminal_get(self.term, ffi::TERM_ACTIVE_SCREEN, &mut screen as *mut _ as *mut c_void) };
+        screen == 1
+    }
+
+    pub fn mouse_tracking(&self) -> bool {
+        let mut on = false;
+        unsafe { ffi::ghostty_terminal_get(self.term, ffi::TERM_MOUSE_TRACKING, &mut on as *mut _ as *mut c_void) };
+        on
+    }
+
+    pub fn mode(&self, number: u16) -> bool {
+        let mut config = ffi::GhosttyTerminalModeConfig { mode: number & 0x7fff, value: false };
+        unsafe { ffi::ghostty_terminal_get(self.term, ffi::TERM_MODE, &mut config as *mut _ as *mut c_void) };
+        config.value
     }
 
     pub fn resize(&mut self, cols: u16, rows: u16, cell_w: u32, cell_h: u32) {
@@ -128,7 +197,8 @@ impl Vt {
             };
             let cursor_block = cur.visual_style == 0 || cur.visual_style == 1;
 
-            Snapshot { cols: self.cols, rows: self.rows, grid, fg, bg, cursor, cursor_block }
+            let top = self.scrollbar().offset;
+            Snapshot { cols: self.cols, rows: self.rows, grid, fg, bg, cursor, cursor_block, top }
         }
     }
 

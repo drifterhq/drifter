@@ -16,6 +16,10 @@ mod font;
 mod pty;
 #[cfg(target_os = "linux")]
 mod render;
+#[cfg(any(target_os = "linux", test))]
+mod select;
+#[cfg(any(target_os = "linux", test))]
+mod tabs;
 #[cfg(target_os = "linux")]
 mod ui;
 #[cfg(target_os = "linux")]
