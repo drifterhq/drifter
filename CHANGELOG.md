@@ -13,6 +13,18 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 - Settings > Terminal: colors (Auto, Dark, Light), text size, cursor shape,
   background opacity, space around the text, tab bar edge, and always show
   the tab bar. Open terminals take each change at once.
+- Terminal color themes. Settings > Terminal picks a dark theme and a light
+  theme. Colors picks which one shows; Auto uses the light theme by day and
+  the dark theme by night. A theme sets the text, background, cursor and all
+  16 terminal colors.
+- 41 built-in themes: Drifter, Solarized, Selenized, Tango, rxvt, XTerm,
+  Catppuccin (Latte, Frappé, Macchiato, Mocha), Nord, Gruvbox, Tokyo Night
+  (Night, Storm, Day), One, GitHub, Dracula and Alucard, Rosé Pine (Main,
+  Moon, Dawn), Everforest, Kanagawa (Wave, Lotus), Ayu (Dark, Mirage,
+  Light) and Tomorrow. Own themes load from
+  `~/.config/drifter/terminal-themes/*.toml`.
+- Settings > Terminal > Font picks any installed monospace font. JetBrains
+  Mono stays built in and heads the list.
 - Terminal: Settings at the bottom of the right-click menu opens
   Settings > Terminal.
 - Terminal: Control +, Control - and Control 0 change the text size of one
