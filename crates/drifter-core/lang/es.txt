@@ -5012,3 +5012,106 @@ Stopped before the end.
 
 Log in to
 = Iniciar sesión en
+
+Printers
+= Impresoras
+
+Held
+= Retenido
+
+Waiting
+= En espera
+
+CUPS is not running
+= CUPS no está en marcha
+
+Install the cups package and turn on its service, then open this page again.
+= Instale el paquete cups, active su servicio y vuelva a abrir esta página.
+
+Looking…
+= Buscando…
+
+Install the cups-pk-helper package to add or change printers.
+= Instale el paquete cups-pk-helper para añadir o cambiar impresoras.
+
+Changes may ask for your password.
+= Los cambios pueden pedir su contraseña.
+
+Default
+= Predeterminada
+
+1 job
+= 1 trabajo
+
+{} jobs
+= {} trabajos
+
+My printers
+= Mis impresoras
+
+No printers yet
+= Aún no hay impresoras
+
+Add a printer
+= Añadir una impresora
+
+Find Printers
+= Buscar impresoras
+
+Looks on this computer and the network
+= Busca en este ordenador y en la red
+
+No new printers found. Turn the printer on and join it to this network.
+= No se encontraron impresoras nuevas. Encienda la impresora y conéctela a esta red.
+
+Model
+= Modelo
+
+Default printer
+= Impresora predeterminada
+
+Yes
+= Sí
+
+
+Make Default
+= Predeterminar
+
+Jobs wait until you resume
+= Los trabajos esperan hasta que reanude
+
+Pause printing
+= Pausar la impresión
+
+Holds new jobs until you resume
+= Retiene los trabajos nuevos hasta que reanude
+
+Test page
+= Página de prueba
+
+Print
+= Imprimir
+
+Job {}
+= Trabajo {}
+
+Remove this printer
+= Quitar esta impresora
+
+Apps can no longer print to it
+= Las apps ya no podrán imprimir en ella
+
+Printer options
+= Opciones de la impresora
+
+Not changed. This needs an administrator password.
+= Sin cambios. Hace falta una contraseña de administrador.
+
+Apps print here first
+= Las apps imprimen aquí primero
+
+USB printer
+= Impresora USB
+
+Network printer
+= Impresora de red

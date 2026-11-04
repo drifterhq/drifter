@@ -5009,3 +5009,106 @@ Stopped before the end.
 
 Log in to
 = Anmelden bei
+
+Printers
+= Drucker
+
+Held
+= Angehalten
+
+Waiting
+= Wartet
+
+CUPS is not running
+= CUPS läuft nicht
+
+Install the cups package and turn on its service, then open this page again.
+= Installieren Sie das Paket cups, schalten Sie den Dienst ein und öffnen Sie diese Seite dann erneut.
+
+Looking…
+= Wird gesucht…
+
+Install the cups-pk-helper package to add or change printers.
+= Installieren Sie das Paket cups-pk-helper, um Drucker hinzuzufügen oder zu ändern.
+
+Changes may ask for your password.
+= Für Änderungen kann Ihr Passwort nötig sein.
+
+Default
+= Standard
+
+1 job
+= 1 Auftrag
+
+{} jobs
+= {} Aufträge
+
+My printers
+= Meine Drucker
+
+No printers yet
+= Noch keine Drucker
+
+Add a printer
+= Drucker hinzufügen
+
+Find Printers
+= Drucker suchen
+
+Looks on this computer and the network
+= Sucht an diesem Computer und im Netzwerk
+
+No new printers found. Turn the printer on and join it to this network.
+= Keine neuen Drucker gefunden. Schalten Sie den Drucker ein und verbinden Sie ihn mit diesem Netzwerk.
+
+Model
+= Modell
+
+Default printer
+= Standarddrucker
+
+Yes
+= Ja
+
+
+Make Default
+= Als Standard
+
+Jobs wait until you resume
+= Aufträge warten, bis Sie fortsetzen
+
+Pause printing
+= Drucken anhalten
+
+Holds new jobs until you resume
+= Hält neue Aufträge an, bis Sie fortsetzen
+
+Test page
+= Testseite
+
+Print
+= Drucken
+
+Job {}
+= Auftrag {}
+
+Remove this printer
+= Diesen Drucker entfernen
+
+Apps can no longer print to it
+= Apps können nicht mehr darauf drucken
+
+Printer options
+= Druckeroptionen
+
+Not changed. This needs an administrator password.
+= Nicht geändert. Dafür ist ein Administratorpasswort nötig.
+
+Apps print here first
+= Apps drucken zuerst hier
+
+USB printer
+= USB-Drucker
+
+Network printer
+= Netzwerkdrucker

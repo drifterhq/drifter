@@ -51,6 +51,7 @@ pub enum Section {
     Shortcuts,
     Access,
     Power,
+    Printers,
     Lock,
     Users,
     Time,
@@ -61,7 +62,7 @@ pub enum Section {
 }
 
 impl Section {
-    pub const ALL: [Section; 25] = [
+    pub const ALL: [Section; 26] = [
         Section::Desktop,
         Section::Wallpaper,
         Section::Appearance,
@@ -75,6 +76,7 @@ impl Section {
         Section::Displays,
         Section::Sound,
         Section::Power,
+        Section::Printers,
         Section::Keyboard,
         Section::Mouse,
         Section::Touchpad,
@@ -99,7 +101,7 @@ impl Section {
             | Section::TopBar
             | Section::Notifications => crate::lang::t("Desktop"),
             Section::Network | Section::Bluetooth | Section::AirDrop => crate::lang::t("Network"),
-            Section::Displays | Section::Sound | Section::Power => crate::lang::t("Hardware"),
+            Section::Displays | Section::Sound | Section::Power | Section::Printers => crate::lang::t("Hardware"),
             Section::Keyboard | Section::Mouse | Section::Touchpad | Section::Shortcuts => crate::lang::t("Input"),
             Section::Users | Section::Lock | Section::Access => crate::lang::t("Users & Security"),
             Section::Time | Section::Login | Section::Apps | Section::Updates | Section::About => crate::lang::t("System"),
@@ -131,6 +133,7 @@ impl Section {
             Section::Time => crate::lang::t("Date & Time"),
             Section::Login => crate::lang::t("Login Items"),
             Section::Apps => crate::lang::t("Default Apps"),
+            Section::Printers => crate::lang::t("Printers"),
             Section::Updates => crate::lang::t("Software Updates"),
             Section::About => crate::lang::t("About"),
         }
@@ -161,6 +164,7 @@ impl Section {
             Section::Time => "clock zone ntp date language español deutsch français translation",
             Section::Login => "startup autostart apps",
             Section::Apps => "browser terminal file manager",
+            Section::Printers => "printer printers print printing cups queue jobs ipp test page paper",
             Section::Updates => "software update updates upgrade packages packagekit security patch install dnf apt",
             Section::About => "system version computer reset import export",
         }
@@ -207,6 +211,7 @@ impl Section {
             Section::Time => [60, 130, 220],
             Section::Login => [220, 80, 90],
             Section::Apps => [214, 160, 40],
+            Section::Printers => [92, 112, 140],
             Section::Updates => [52, 132, 236],
             Section::About => [128, 134, 150],
         }
@@ -226,6 +231,18 @@ pub enum Ask {
     RenamePlace(usize),
     EditDock(usize),
     Update(UpdateAsk),
+    Print(PrintAsk),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrintAsk {
+    Default(usize),
+    Enable(usize, bool),
+    Test(usize),
+    Remove(usize),
+    Cancel(u32),
+    Look,
+    Add(usize),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -386,6 +403,7 @@ pub struct Model {
     pub user_note: Option<String>,
     pub faces: Vec<PathBuf>,
     pub updates: Updates,
+    pub printers: Printers,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -485,6 +503,144 @@ impl Updates {
             (Work::Idle, Some(1)) => crate::lang::t("1 update").into(),
             (Work::Idle, Some(count)) => crate::lang::tf("{} updates", &[&count]),
         }
+    }
+}
+
+pub const PRINTER_IDLE: u32 = 3;
+pub const PRINTER_BUSY: u32 = 4;
+pub const PRINTER_STOPPED: u32 = 5;
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Printer {
+    pub name: String,
+    pub info: String,
+    pub location: String,
+    pub model: String,
+    pub state: u32,
+    pub message: String,
+    pub accepting: bool,
+    pub uri: String,
+    pub device: String,
+}
+
+impl Printer {
+    pub fn shown(&self) -> String {
+        match self.info.trim().is_empty() {
+            true => self.name.replace('_', " "),
+            false => self.info.trim().to_string(),
+        }
+    }
+
+    pub fn paused(&self) -> bool {
+        self.state == PRINTER_STOPPED || !self.accepting
+    }
+
+    pub fn status(&self) -> &'static str {
+        match self.state {
+            _ if self.paused() => crate::lang::t("Paused"),
+            PRINTER_BUSY => crate::lang::t("Printing"),
+            _ => crate::lang::t("Ready"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PrintJob {
+    pub id: u32,
+    pub name: String,
+    pub printer: String,
+    pub state: u32,
+    pub user: String,
+}
+
+impl PrintJob {
+    pub fn status(&self) -> &'static str {
+        match self.state {
+            4 => crate::lang::t("Held"),
+            5 => crate::lang::t("Printing"),
+            6 => crate::lang::t("Stopped"),
+            _ => crate::lang::t("Waiting"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct FoundPrinter {
+    pub uri: String,
+    pub info: String,
+    pub model: String,
+}
+
+impl FoundPrinter {
+    pub fn shown(&self) -> String {
+        let name = match self.info.trim().is_empty() {
+            true => self.model.trim(),
+            false => self.info.trim(),
+        };
+        name.trim_end_matches("(driverless)").trim().to_string()
+    }
+
+    /// A queue name CUPS takes: letters, digits, '-' and '_' only.
+    pub fn queue(&self) -> String {
+        let base = match self.model.trim().is_empty() || self.model == "Unknown" {
+            true => self.info.trim(),
+            false => self.model.trim(),
+        };
+        let name: String = base
+            .chars()
+            .map(|letter| match letter.is_ascii_alphanumeric() || letter == '-' {
+                true => letter,
+                false => '_',
+            })
+            .collect();
+        let name = name.trim_matches('_').to_string();
+        match name.is_empty() {
+            true => "Printer".to_string(),
+            false => name.chars().take(127).collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Printers {
+    pub read: bool,
+    pub missing: bool,
+    pub helper: bool,
+    pub list: Vec<Printer>,
+    pub default: Option<String>,
+    pub jobs: Vec<PrintJob>,
+    pub open: Option<String>,
+    pub confirm_remove: bool,
+    pub looking: bool,
+    pub found: Option<Vec<FoundPrinter>>,
+    pub busy: bool,
+    pub note: Option<String>,
+}
+
+impl Printers {
+    pub fn opened(&self) -> Option<(usize, &Printer)> {
+        let name = self.open.as_deref()?;
+        self.list.iter().enumerate().find(|(_, printer)| printer.name == name)
+    }
+
+    pub fn jobs_of(&self, name: &str) -> Vec<(usize, &PrintJob)> {
+        self.jobs.iter().enumerate().filter(|(_, job)| job.printer == name).collect()
+    }
+
+    /// Found devices that are real printers, not the bare backends CUPS
+    /// lists for typing an address by hand.
+    pub fn addable(found: Vec<FoundPrinter>, known: &[Printer]) -> Vec<FoundPrinter> {
+        let mut kept: Vec<FoundPrinter> = Vec::new();
+        for each in found {
+            if !each.uri.contains("://") || known.iter().any(|printer| printer.device == each.uri) {
+                continue;
+            }
+            if kept.iter().any(|seen| seen.info == each.info && seen.model == each.model) {
+                continue;
+            }
+            kept.push(each);
+        }
+        kept
     }
 }
 
@@ -673,6 +829,7 @@ impl Model {
             user_note: None,
             faces: crate::users::stock(&config.faces_dir()),
             updates: Updates::default(),
+            printers: Printers::default(),
             keys: config.keys.clone(),
             variants: crate::keyboard::variants(&config.keyboard.layout),
             recent: Vec::new(),
@@ -1471,6 +1628,7 @@ impl Model {
             Section::Time => self.time_groups(),
             Section::About => self.about_groups(),
             Section::Updates => self.update_groups(),
+            Section::Printers => self.printer_groups(),
             Section::Users => self.user_groups(),
             Section::Touchpad => self.touchpad_groups(),
             Section::Displays => {
@@ -2083,6 +2241,9 @@ impl Model {
     pub fn press(&mut self, id: Id, index: usize) -> Option<Ask> {
         if id != Id::ResetAll {
             self.confirm_reset = false;
+        }
+        if id != Id::PrinterRemove {
+            self.printers.confirm_remove = false;
         }
         match (id, index) {
             (Id::Order(slot), 0) if slot > 0 && slot < 3 => self.order.swap(slot, slot - 1),
@@ -2961,6 +3122,15 @@ pub enum Id {
     UpdateCheck,
     UpdateInstall,
     Update(usize),
+    PrintStatus,
+    Printer(usize),
+    PrinterDefault,
+    PrinterPause,
+    PrinterTest,
+    PrinterRemove,
+    PrintJob(usize),
+    PrinterLook,
+    PrinterFound(usize),
 }
 
 const SHOWS: [&str; 6] = [
@@ -4277,6 +4447,14 @@ fn paint_glyph(canvas: &mut Canvas, section: Section, icon: Rect) {
             canvas.round_rect(r(10.2, 6.0, 1.6, 5.8), 0.8, section.tint(), 1.0);
             canvas.round_rect(r(10.2, 10.2, 4.8, 1.6), 0.8, section.tint(), 1.0);
         }
+        Section::Printers => {
+            canvas.round_rect(r(7.0, 3.5, 8.0, 5.0), 1.0, white, 0.6);
+            canvas.round_rect(r(3.5, 7.5, 15.0, 7.5), 2.0, white, 1.0);
+            canvas.round_rect(r(7.0, 12.0, 8.0, 6.5), 1.0, white, 1.0);
+            canvas.round_rect(r(8.5, 13.5, 5.0, 1.2), 0.6, section.tint(), 1.0);
+            canvas.round_rect(r(8.5, 15.8, 3.5, 1.2), 0.6, section.tint(), 1.0);
+            canvas.circle(o + Vec2::new(15.5, 10.0), 0.9, section.tint(), 1.0);
+        }
         Section::Updates => {
             canvas.circle(o + Vec2::new(11.0, 11.0), 7.5, white, 1.0);
             canvas.round_rect(r(10.0, 5.5, 2.0, 7.0), 1.0, section.tint(), 1.0);
@@ -4973,6 +5151,79 @@ mod tests {
         assert_eq!(groups.iter().flat_map(|g| &g.rows).count(), 1, "no switch for a card we do not run, only Fix It");
         assert!(groups[0].footer.as_deref().is_some_and(|words| words.contains("Another tool")));
 
+    }
+
+    #[test]
+    fn the_printers_page_lists_printers_and_asks_for_changes() {
+        let mut model = model(&Config::default());
+        let rows = |model: &Model| -> Vec<Row> { model.groups(Section::Printers).into_iter().flat_map(|g| g.rows).collect() };
+        assert_eq!(rows(&model)[0].control, Control::Note("Looking…".into()));
+        model.printers.missing = true;
+        assert_eq!(rows(&model)[0].control, Control::Note("CUPS is not running".into()));
+        model.printers = Printers {
+            read: true,
+            helper: true,
+            list: vec![
+                Printer {
+                    name: "Lab_Inkjet".into(),
+                    state: PRINTER_STOPPED,
+                    accepting: true,
+                    ..Printer::default()
+                },
+                Printer {
+                    name: "Office_Laser".into(),
+                    info: "Office Laser".into(),
+                    location: "Front desk".into(),
+                    state: PRINTER_IDLE,
+                    accepting: true,
+                    ..Printer::default()
+                },
+            ],
+            default: Some("Office_Laser".into()),
+            jobs: vec![PrintJob {
+                id: 12,
+                name: "Letter".into(),
+                printer: "Office_Laser".into(),
+                state: 3,
+                user: "ada".into(),
+            }],
+            ..Printers::default()
+        };
+        let shown = rows(&model);
+        assert_eq!(shown[0].label, "Lab Inkjet");
+        assert_eq!(shown[0].detail.as_deref(), Some("Paused"));
+        assert_eq!(shown[1].detail.as_deref(), Some("Default, Ready, 1 job, Front desk"));
+        assert_eq!(model.press(Id::Printer(1), 0), None);
+        assert_eq!(model.printers.open.as_deref(), Some("Office_Laser"));
+        let shown = rows(&model);
+        assert!(shown.iter().any(|row| row.id == Id::PrintJob(0) && row.label == "Letter"));
+        assert!(shown.iter().any(|row| row.id == Id::PrinterDefault && row.control == Control::Note("Yes".into())));
+        assert_eq!(model.press(Id::PrinterPause, 0), Some(Ask::Print(PrintAsk::Enable(1, false))));
+        assert_eq!(model.press(Id::PrinterTest, 0), Some(Ask::Print(PrintAsk::Test(1))));
+        assert_eq!(model.press(Id::PrintJob(0), 0), Some(Ask::Print(PrintAsk::Cancel(12))));
+        assert_eq!(model.press(Id::PrinterRemove, 0), None, "the first click only asks to confirm");
+        assert!(model.printers.confirm_remove);
+        assert_eq!(model.press(Id::PrinterRemove, 0), Some(Ask::Print(PrintAsk::Remove(1))));
+        assert_eq!(model.press(Id::Printer(0), 0), None);
+        assert_eq!(model.press(Id::PrinterPause, 0), Some(Ask::Print(PrintAsk::Enable(0, true))));
+        assert_eq!(model.press(Id::PrinterDefault, 0), Some(Ask::Print(PrintAsk::Default(0))));
+        model.printers.helper = false;
+        assert!(rows(&model).iter().filter(|row| row.id == Id::PrinterRemove || row.id == Id::PrinterLook).all(|row| !row.enabled));
+        model.printers.helper = true;
+        assert_eq!(model.press(Id::PrinterLook, 0), Some(Ask::Print(PrintAsk::Look)));
+        let found = Printers::addable(
+            vec![
+                FoundPrinter { uri: "socket".into(), info: "AppSocket/HP JetDirect".into(), model: "Unknown".into() },
+                FoundPrinter { uri: "ipps://Lab._ipps._tcp.local/".into(), info: "Lab (driverless)".into(), model: "Drifter Lab".into() },
+                FoundPrinter { uri: "ipp://Lab._ipp._tcp.local/".into(), info: "Lab (driverless)".into(), model: "Drifter Lab".into() },
+            ],
+            &model.printers.list,
+        );
+        assert_eq!(found.len(), 1, "bare backends and the same printer twice are left out");
+        assert_eq!(found[0].queue(), "Drifter_Lab");
+        model.printers.found = Some(found);
+        assert_eq!(model.press(Id::PrinterFound(0), 0), Some(Ask::Print(PrintAsk::Add(0))));
+        assert_eq!(model.press(Id::PrinterFound(1), 0), None);
     }
 
     #[test]

@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use super::{
-    Control, Group, Id, Mark, Model, NetAsk, PROFILES, Row, UPDATES_SHOWN, UpdateAsk, Value, Work,
-    drop_key, put,
+    Control, Group, Id, Mark, Model, NetAsk, PROFILES, PrintAsk, Printer, Row, UPDATES_SHOWN, UpdateAsk, Value,
+    Work, drop_key, put,
 };
 use crate::config::{
     ShotFormat,
@@ -1501,6 +1501,154 @@ impl Model {
         groups
     }
 
+    pub(super) fn printer_groups(&self) -> Vec<Group> {
+        let kit = &self.printers;
+        let group = |header: Option<&'static str>, rows: Vec<Row>, footer: Option<String>| Group {
+            header,
+            rows,
+            footer,
+            thumbs: None,
+        };
+        if kit.missing {
+            return vec![group(
+                None,
+                vec![Row::new(Id::PrintStatus, crate::lang::t("Printing"), Control::Note(crate::lang::t("CUPS is not running").into()))],
+                Some(kit.note.clone().unwrap_or_else(|| {
+                    crate::lang::t("Install the cups package and turn on its service, then open this page again.").into()
+                })),
+            )];
+        }
+        if !kit.read {
+            return vec![group(
+                None,
+                vec![Row::new(Id::PrintStatus, crate::lang::t("Printers"), Control::Note(crate::lang::t("Looking…").into()))],
+                None,
+            )];
+        }
+        let can = kit.helper && !kit.busy;
+        let footer = match (&kit.note, kit.helper) {
+            (Some(note), _) => note.clone(),
+            (None, false) => crate::lang::t("Install the cups-pk-helper package to add or change printers.").into(),
+            (None, true) => crate::lang::t("Changes may ask for your password.").into(),
+        };
+        let mine: Vec<Row> = kit
+            .list
+            .iter()
+            .enumerate()
+            .map(|(at, printer)| {
+                let mut words = vec![printer.status().to_string()];
+                if kit.default.as_deref() == Some(printer.name.as_str()) {
+                    words.insert(0, crate::lang::t("Default").to_string());
+                }
+                let waiting = kit.jobs_of(&printer.name).len();
+                match waiting {
+                    0 => {}
+                    1 => words.push(crate::lang::t("1 job").to_string()),
+                    count => words.push(crate::lang::tf("{} jobs", &[&count])),
+                }
+                if !printer.location.trim().is_empty() {
+                    words.push(printer.location.trim().to_string());
+                }
+                Row::new(Id::Printer(at), &printer.shown(), Control::Buttons(vec![Mark::Text(crate::lang::t("Options"))]))
+                    .detail(&words.join(", "))
+                    .opens()
+            })
+            .collect();
+        let none = mine.is_empty();
+        let mut groups = vec![group(
+            Some(crate::lang::t("My printers")),
+            match none {
+                true => vec![Row::new(Id::PrintStatus, crate::lang::t("No printers yet"), Control::Note(String::new()))],
+                false => mine,
+            },
+            Some(footer),
+        )];
+        if let Some((_, printer)) = kit.opened() {
+            groups.push(self.printer_options(printer, can));
+        }
+        let mut add = vec![match kit.looking {
+            true => Row::new(Id::PrinterLook, crate::lang::t("Add a printer"), Control::Note(crate::lang::t("Looking…").into())),
+            false => Row::new(Id::PrinterLook, crate::lang::t("Add a printer"), Control::Buttons(vec![Mark::Text(crate::lang::t("Find Printers"))]))
+                .detail(crate::lang::t("Looks on this computer and the network"))
+                .enabled(can),
+        }];
+        let found = kit.found.as_deref().unwrap_or_default();
+        add.extend(found.iter().enumerate().map(|(at, each)| {
+            let place = match each.uri.split("://").next().unwrap_or("") {
+                "usb" => crate::lang::t("USB printer"),
+                _ => crate::lang::t("Network printer"),
+            };
+            Row::new(Id::PrinterFound(at), &each.shown(), Control::Buttons(vec![Mark::Text(crate::lang::t("Add"))]))
+                .detail(place)
+                .enabled(can)
+        }));
+        let add_footer = match (&kit.found, kit.looking) {
+            (Some(found), false) if found.is_empty() => Some(crate::lang::t("No new printers found. Turn the printer on and join it to this network.").to_string()),
+            _ => None,
+        };
+        groups.push(group(None, add, add_footer));
+        groups
+    }
+
+    fn printer_options(&self, printer: &Printer, can: bool) -> Group {
+        let kit = &self.printers;
+        let mut status = Row::new(Id::PrintStatus, &printer.shown(), Control::Note(printer.status().into()));
+        if !printer.message.trim().is_empty() && !printer.message.trim().eq_ignore_ascii_case(printer.status()) {
+            status = status.detail(printer.message.trim());
+        }
+        let mut rows = vec![status];
+        if !printer.model.trim().is_empty() {
+            rows.push(Row::new(Id::PrintStatus, crate::lang::t("Model"), Control::Note(printer.model.trim().into())));
+        }
+        rows.push(match kit.default.as_deref() == Some(printer.name.as_str()) {
+            true => Row::new(Id::PrinterDefault, crate::lang::t("Default printer"), Control::Note(crate::lang::t("Yes").into()))
+                .detail(crate::lang::t("Apps print here first")),
+            false => Row::new(Id::PrinterDefault, crate::lang::t("Default printer"), Control::Buttons(vec![Mark::Text(crate::lang::t("Make Default"))]))
+                .detail(crate::lang::t("Apps print here first"))
+                .enabled(can),
+        });
+        rows.push(match printer.paused() {
+            true => Row::new(Id::PrinterPause, crate::lang::t("Paused"), Control::Buttons(vec![Mark::Text(crate::lang::t("Resume"))]))
+                .detail(crate::lang::t("Jobs wait until you resume"))
+                .enabled(can),
+            false => Row::new(Id::PrinterPause, crate::lang::t("Pause printing"), Control::Buttons(vec![Mark::Text(crate::lang::t("Pause"))]))
+                .detail(crate::lang::t("Holds new jobs until you resume"))
+                .enabled(can),
+        });
+        rows.push(
+            Row::new(Id::PrinterTest, crate::lang::t("Test page"), Control::Buttons(vec![Mark::Text(crate::lang::t("Print"))]))
+                .enabled(!kit.busy && !printer.paused()),
+        );
+        rows.extend(kit.jobs_of(&printer.name).into_iter().map(|(at, job)| {
+            let name = match job.name.trim().is_empty() {
+                true => crate::lang::tf("Job {}", &[&job.id]),
+                false => job.name.trim().to_string(),
+            };
+            let detail = match job.user.trim().is_empty() {
+                true => job.status().to_string(),
+                false => format!("{}, {}", job.status(), job.user.trim()),
+            };
+            Row::new(Id::PrintJob(at), &name, Control::Buttons(vec![Mark::Text(crate::lang::t("Cancel"))]))
+                .detail(&detail)
+                .enabled(can)
+        }));
+        let confirm = match kit.confirm_remove {
+            true => crate::lang::t("Click to confirm"),
+            false => crate::lang::t("Remove"),
+        };
+        rows.push(
+            Row::new(Id::PrinterRemove, crate::lang::t("Remove this printer"), Control::Buttons(vec![Mark::Text(confirm)]))
+                .detail(crate::lang::t("Apps can no longer print to it"))
+                .enabled(can),
+        );
+        Group {
+            header: Some(crate::lang::t("Printer options")),
+            rows,
+            footer: None,
+            thumbs: None,
+        }
+    }
+
     pub(super) fn about_groups(&self) -> Vec<Group> {
         let reset = match self.confirm_reset {
             true => crate::lang::t("Click to confirm"),
@@ -1828,6 +1976,29 @@ impl Model {
                 return Some(Ask::Reset);
             }
             (Id::ResetAll, _) => self.confirm_reset = true,
+            (Id::Printer(at), _) => {
+                let name = self.printers.list.get(at)?.name.clone();
+                self.printers.open = match self.printers.open.as_deref() == Some(name.as_str()) {
+                    true => None,
+                    false => Some(name),
+                };
+            }
+            (Id::PrinterDefault, _) => return Some(Ask::Print(PrintAsk::Default(self.printers.opened()?.0))),
+            (Id::PrinterPause, _) => {
+                let (at, printer) = self.printers.opened()?;
+                return Some(Ask::Print(PrintAsk::Enable(at, printer.paused())));
+            }
+            (Id::PrinterTest, _) => return Some(Ask::Print(PrintAsk::Test(self.printers.opened()?.0))),
+            (Id::PrinterRemove, _) if self.printers.confirm_remove => {
+                self.printers.confirm_remove = false;
+                return Some(Ask::Print(PrintAsk::Remove(self.printers.opened()?.0)));
+            }
+            (Id::PrinterRemove, _) => self.printers.confirm_remove = self.printers.opened().is_some(),
+            (Id::PrintJob(at), _) => return Some(Ask::Print(PrintAsk::Cancel(self.printers.jobs.get(at)?.id))),
+            (Id::PrinterLook, _) if !self.printers.looking => return Some(Ask::Print(PrintAsk::Look)),
+            (Id::PrinterFound(at), _) if self.printers.found.as_ref().is_some_and(|found| at < found.len()) => {
+                return Some(Ask::Print(PrintAsk::Add(at)));
+            }
             (Id::UpdateCheck, _) if self.updates.work == Work::Idle => {
                 return Some(Ask::Update(UpdateAsk::Check));
             }

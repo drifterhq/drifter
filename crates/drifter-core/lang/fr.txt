@@ -5009,3 +5009,106 @@ Stopped before the end.
 
 Log in to
 = Se connecter à
+
+Printers
+= Imprimantes
+
+Held
+= Retenu
+
+Waiting
+= En attente
+
+CUPS is not running
+= CUPS ne fonctionne pas
+
+Install the cups package and turn on its service, then open this page again.
+= Installez le paquet cups, activez son service, puis rouvrez cette page.
+
+Looking…
+= Recherche…
+
+Install the cups-pk-helper package to add or change printers.
+= Installez le paquet cups-pk-helper pour ajouter ou modifier des imprimantes.
+
+Changes may ask for your password.
+= Les modifications peuvent demander votre mot de passe.
+
+Default
+= Par défaut
+
+1 job
+= 1 tâche
+
+{} jobs
+= {} tâches
+
+My printers
+= Mes imprimantes
+
+No printers yet
+= Aucune imprimante pour l’instant
+
+Add a printer
+= Ajouter une imprimante
+
+Find Printers
+= Chercher
+
+Looks on this computer and the network
+= Cherche sur cet ordinateur et sur le réseau
+
+No new printers found. Turn the printer on and join it to this network.
+= Aucune nouvelle imprimante trouvée. Allumez l’imprimante et connectez-la à ce réseau.
+
+Model
+= Modèle
+
+Default printer
+= Imprimante par défaut
+
+Yes
+= Oui
+
+
+Make Default
+= Par défaut
+
+Jobs wait until you resume
+= Les tâches attendent la reprise
+
+Pause printing
+= Suspendre l’impression
+
+Holds new jobs until you resume
+= Retient les nouvelles tâches jusqu’à la reprise
+
+Test page
+= Page de test
+
+Print
+= Imprimer
+
+Job {}
+= Tâche {}
+
+Remove this printer
+= Supprimer cette imprimante
+
+Apps can no longer print to it
+= Les apps ne pourront plus y imprimer
+
+Printer options
+= Options de l’imprimante
+
+Not changed. This needs an administrator password.
+= Rien n’a changé. Il faut un mot de passe d’administrateur.
+
+Apps print here first
+= Les apps impriment ici d’abord
+
+USB printer
+= Imprimante USB
+
+Network printer
+= Imprimante réseau

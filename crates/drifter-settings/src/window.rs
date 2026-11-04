@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use drifter_core::desktop::App;
 use drifter_core::settings::{Art, Ask, Fonts, Hit, Id, Look, Model, Move, Press, Section, Spot, Value};
-use drifter_core::settings::{UpdateAsk, UserAsk, Work};
+use drifter_core::settings::{FoundPrinter, PrintAsk, UpdateAsk, UserAsk, Work};
 use drifter_core::sheet::{Choice, Field, For, Pick, Sheet};
 use drifter_core::shortcut::{self, Combo, Mods};
 use drifter_core::stats::{self, Mount};
@@ -55,6 +55,12 @@ enum Fresh {
     Time(String, Option<bool>),
     Net(Option<drifter_core::net::Wifi>),
     Users(drifter_core::users::Users),
+}
+
+enum PrintNews {
+    Seen(Result<crate::cups::Seen, String>, bool, bool),
+    Found(Result<Vec<FoundPrinter>, String>),
+    Done(Result<(), String>),
 }
 
 enum BlueNews {
@@ -127,6 +133,8 @@ pub struct Settings {
     mods: Modifiers,
     chores: LoopSender<Option<String>>,
     kit: LoopSender<crate::packagekit::Kit>,
+    print: LoopSender<PrintNews>,
+    print_reading: bool,
     net_done: LoopSender<(bool, Result<(), String>)>,
     blue_bus: Option<drifter_blue::Bus>,
     blue_back: LoopSender<BlueNews>,
@@ -324,6 +332,15 @@ pub fn run() -> Result<(), String> {
             }
         })
         .map_err(|e| format!("cannot watch PackageKit: {e}"))?;
+    let (print, print_back) = loop_channel::<PrintNews>();
+    events
+        .handle()
+        .insert_source(print_back, |event, _, settings: &mut Settings| {
+            if let ChannelEvent::Msg(news) = event {
+                settings.print_news(news);
+            }
+        })
+        .map_err(|e| format!("cannot watch the printers: {e}"))?;
     let (chores, chores_done) = loop_channel::<Option<String>>();
     events
         .handle()
@@ -363,6 +380,8 @@ pub fn run() -> Result<(), String> {
         mods: Modifiers::default(),
         chores,
         kit,
+        print,
+        print_reading: false,
         net_done,
         blue_bus: None,
         blue_back,
@@ -1531,6 +1550,7 @@ impl Settings {
                 Some(Ask::Net(ask)) => self.net_ask(ask),
                 Some(Ask::User(ask)) => self.user_ask(ask),
                 Some(Ask::Update(ask)) => self.update_ask(ask),
+                Some(Ask::Print(ask)) => self.print_ask(ask),
                 Some(Ask::EditDock(at)) => self.edit_dock(at),
                 Some(Ask::RenamePlace(at)) => {
                     let name = self.model.places.get(at).map(|place| place.name.clone()).unwrap_or_default();
@@ -1554,6 +1574,10 @@ impl Settings {
             Some(Hit::Open(Id::Net(at))) => self.wifi_details(at),
             Some(Hit::Open(Id::Gadget(at))) => self.blue_ask(drifter_core::settings::NetAsk::Options(at)),
             Some(Hit::Open(Id::BlueName)) => self.blue_ask(drifter_core::settings::NetAsk::Rename),
+            Some(Hit::Open(Id::Printer(at))) => {
+                let _ = self.model.press(Id::Printer(at), 0);
+                self.saved.printers = self.model.printers.clone();
+            }
             Some(Hit::Open(_)) => return,
             Some(Hit::Monitor(at)) => {
                 self.model.pick_monitor(at);
@@ -1620,6 +1644,12 @@ impl Settings {
                 }
             }
             Section::Power | Section::Sound if !self.fetching => self.fetch(self.section),
+            Section::Printers => {
+                self.net_ticks += 1;
+                if self.net_ticks % 3 == 0 {
+                    self.print_read();
+                }
+            }
             Section::Displays => {
                 let level = read_brightness();
                 let near = match (level, self.model.brightness) {
@@ -1762,7 +1792,169 @@ impl Settings {
             Section::Updates if self.model.updates.found.is_none() && self.model.updates.work == Work::Idle => {
                 self.update_ask(UpdateAsk::Check);
             }
+            Section::Printers => {
+                let kit = &mut self.model.printers;
+                kit.note = None;
+                kit.confirm_remove = false;
+                if !kit.looking {
+                    kit.found = None;
+                }
+                self.saved.printers = self.model.printers.clone();
+                self.print_read();
+            }
             _ => {}
+        }
+    }
+
+    fn print_read(&mut self) {
+        if self.print_reading || self.model.printers.busy {
+            return;
+        }
+        let tell = self.print.clone();
+        let spawned = std::thread::Builder::new()
+            .name("settings-printers".to_string())
+            .spawn(move || {
+                let running = crate::cups::running();
+                let seen = match running {
+                    true => crate::cups::read(),
+                    false => Ok(crate::cups::Seen::default()),
+                };
+                let _ = tell.send(PrintNews::Seen(seen, running, crate::cups::helper_ready()));
+            });
+        match spawned {
+            Ok(_) => self.print_reading = true,
+            Err(error) => log!("drifter-settings: cannot read the printers: {error}"),
+        }
+    }
+
+    fn print_ask(&mut self, ask: PrintAsk) {
+        let kit = &self.model.printers;
+        if kit.busy || (kit.looking && ask == PrintAsk::Look) {
+            return;
+        }
+        let name = |at: usize| kit.list.get(at).map(|printer| printer.name.clone());
+        let tell = self.print.clone();
+        let job: Box<dyn FnOnce() + Send> = match ask {
+            PrintAsk::Look => Box::new(move || {
+                let _ = tell.send(PrintNews::Found(crate::cups::find()));
+            }),
+            PrintAsk::Add(at) => {
+                let Some(found) = kit.found.as_ref().and_then(|found| found.get(at)).cloned() else {
+                    return;
+                };
+                let taken: Vec<String> = kit.list.iter().map(|printer| printer.name.clone()).collect();
+                Box::new(move || {
+                    let _ = tell.send(PrintNews::Done(crate::cups::add(&found, &taken).map(|_| ())));
+                })
+            }
+            PrintAsk::Default(at) => {
+                let Some(name) = name(at) else { return };
+                Box::new(move || {
+                    let _ = tell.send(PrintNews::Done(crate::cups::set_default(&name)));
+                })
+            }
+            PrintAsk::Enable(at, on) => {
+                let Some(name) = name(at) else { return };
+                Box::new(move || {
+                    let _ = tell.send(PrintNews::Done(crate::cups::set_enabled(&name, on)));
+                })
+            }
+            PrintAsk::Test(at) => {
+                let Some(name) = name(at) else { return };
+                Box::new(move || {
+                    let _ = tell.send(PrintNews::Done(crate::cups::print_test_page(&name)));
+                })
+            }
+            PrintAsk::Remove(at) => {
+                let Some(name) = name(at) else { return };
+                Box::new(move || {
+                    let _ = tell.send(PrintNews::Done(crate::cups::remove(&name)));
+                })
+            }
+            PrintAsk::Cancel(job) => Box::new(move || {
+                let _ = tell.send(PrintNews::Done(crate::cups::cancel(job)));
+            }),
+        };
+        let spawned = std::thread::Builder::new()
+            .name("settings-printer-change".to_string())
+            .spawn(job);
+        if let Err(error) = spawned {
+            log!("drifter-settings: cannot change the printers: {error}");
+            return;
+        }
+        let kit = &mut self.model.printers;
+        kit.note = None;
+        match ask {
+            PrintAsk::Look => {
+                kit.looking = true;
+                kit.found = None;
+            }
+            PrintAsk::Remove(_) => {
+                kit.busy = true;
+                kit.open = None;
+            }
+            PrintAsk::Add(at) => {
+                kit.busy = true;
+                if let Some(found) = kit.found.as_mut()
+                    && at < found.len()
+                {
+                    found.remove(at);
+                }
+            }
+            _ => kit.busy = true,
+        }
+        self.saved.printers = self.model.printers.clone();
+        self.stale = true;
+    }
+
+    fn print_news(&mut self, news: PrintNews) {
+        let kit = &mut self.model.printers;
+        let before = kit.clone();
+        let mut again = false;
+        match news {
+            PrintNews::Seen(seen, running, helper) => {
+                self.print_reading = false;
+                kit.read = true;
+                kit.missing = !running;
+                kit.helper = helper;
+                match seen {
+                    Ok(seen) => {
+                        kit.list = seen.printers;
+                        kit.default = seen.default;
+                        kit.jobs = seen.jobs;
+                        if kit.opened().is_none() {
+                            kit.open = None;
+                            kit.confirm_remove = false;
+                        }
+                    }
+                    Err(error) => kit.note = Some(error),
+                }
+            }
+            PrintNews::Found(found) => {
+                kit.looking = false;
+                match found {
+                    Ok(found) => kit.found = Some(drifter_core::settings::Printers::addable(found, &kit.list)),
+                    Err(error) => {
+                        kit.found = None;
+                        kit.note = Some(error);
+                    }
+                }
+            }
+            PrintNews::Done(done) => {
+                kit.busy = false;
+                if let Err(error) = done {
+                    kit.note = Some(error);
+                }
+                again = true;
+            }
+        }
+        let changed = *kit != before;
+        self.saved.printers = self.model.printers.clone();
+        if again {
+            self.print_read();
+        }
+        if changed && self.section == Section::Printers && self.sheet.is_none() {
+            self.stale = true;
         }
     }
 
