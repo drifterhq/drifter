@@ -55,6 +55,25 @@ impl State {
         self.paint_launchpad();
     }
 
+    pub(super) fn relist_launchpad(&mut self, apps: &[Found]) {
+        let look = drifter_core::launchpad::Look::themed(&self.palette);
+        let Some(pad) = self.launchpad.as_mut() else {
+            return;
+        };
+        let mut all = apps.to_vec();
+        all.push(welcome_found());
+        all.sort_by_key(|found| found.title.to_lowercase());
+        pad.shown = if pad.query.is_empty() {
+            all.clone()
+        } else {
+            drifter_core::search::rank_all(&pad.query, &all)
+        };
+        pad.all = all;
+        let pages = look.pages(pad.rect.size, pad.shown.len());
+        pad.page = pad.page.min(pages.saturating_sub(1));
+        self.paint_launchpad();
+    }
+
     fn pad_icon(&mut self, found: &Found, side: u32) -> Option<drifter_core::Image> {
         let name = found.icon.clone()?;
         self.icon_now(&name, side)

@@ -58,6 +58,29 @@ impl State {
         });
     }
 
+    pub(super) fn reindex_search(&mut self, apps: Vec<Found>, files: Vec<Found>) {
+        if self.search.is_none() {
+            return;
+        }
+        let mut all: Vec<Found> = drifter_core::search::settings()
+            .into_iter()
+            .chain(self.radio.now.as_ref().map(drifter_core::search::devices).unwrap_or_default())
+            .chain(self.wifi.now.as_ref().map(drifter_core::search::networks).unwrap_or_default())
+            .collect();
+        all.extend(apps);
+        all.push(super::launchpad::welcome_found());
+        all.extend(files);
+        let Some(open) = self.search.as_mut() else {
+            return;
+        };
+        open.all = all;
+        if !open.query.is_empty() {
+            open.results = drifter_core::search::rank(&open.query, &open.all);
+            open.selected = open.selected.min(open.results.len().saturating_sub(1));
+        }
+        self.paint_search();
+    }
+
     pub(super) fn search_look(&self) -> drifter_core::search::Look {
         let plain = drifter_core::search::Look::themed(&self.palette, self.look.accent);
         drifter_core::search::Look {

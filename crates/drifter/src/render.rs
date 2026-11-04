@@ -6,6 +6,7 @@ use crate::paint::{Painter, Scanout, Tex};
 mod activity;
 mod airdrop;
 mod appname;
+mod appwatch;
 mod art;
 mod bars;
 mod bluetooth;
@@ -1761,7 +1762,25 @@ impl State {
     fn refresh_apps(&self) {
         self.background("apps", || {
             let apps = std::sync::Arc::new(drifter_core::desktop::installed());
-            move |state: &mut State| state.installed = Some((apps, Instant::now()))
+            move |state: &mut State| {
+                state.installed = Some((apps, Instant::now()));
+                state.kick_now();
+            }
+        });
+    }
+
+    fn apps_changed(&mut self) {
+        self.background("apps-watch", || {
+            let apps = std::sync::Arc::new(drifter_core::desktop::installed());
+            let found = drifter_core::search::apps(&apps);
+            let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
+            let files = drifter_core::search::files(&home);
+            move |state: &mut State| {
+                state.installed = Some((apps, Instant::now()));
+                state.relist_launchpad(&found);
+                state.reindex_search(found, files);
+                state.kick_now();
+            }
         });
     }
 

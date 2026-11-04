@@ -942,6 +942,16 @@ pub fn open(
         })
         .map_err(|e| format!("cannot watch background work: {e}"))?;
 
+    if let Some(apps) = super::appwatch::watch() {
+        handle
+            .insert_source(apps, |_, fd, state: &mut State| {
+                super::appwatch::drain(super::appwatch::raw(fd));
+                state.apps_changed();
+                Ok(smithay::reexports::calloop::PostAction::Continue)
+            })
+            .map_err(|e| format!("cannot watch the applications folders: {e}"))?;
+    }
+
     handle
         .insert_source(paper_rx, |event, _, state: &mut State| {
             if let ChannelEvent::Msg((path, pyramid, tint)) = event {
