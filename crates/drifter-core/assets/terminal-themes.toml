@@ -481,3 +481,27 @@ palette = [
     "#000000", "#c82829", "#718c00", "#eab700", "#4271ae", "#8959a8", "#3e999f", "#d6d6d6",
     "#8e908c", "#c82829", "#718c00", "#eab700", "#4271ae", "#8959a8", "#3e999f", "#ffffff",
 ]
+
+[[theme]]
+name = "Detroit Future"
+light = false
+background = "#000000"
+foreground = "#5d31ed"
+cursor = "#ffee52"
+selection = "#2a0f52"
+palette = [
+    "#03041a", "#ff0040", "#23f4ae", "#ffee52", "#719ef7", "#aa00aa", "#14cbd9", "#dccbf6",
+    "#421882", "#ff5500", "#70ffaa", "#ffff55", "#8871f7", "#ff55ff", "#00ffff", "#ffffff",
+]
+
+[[theme]]
+name = "Detroit Future Light"
+light = true
+background = "#f4f0fc"
+foreground = "#2a0f52"
+cursor = "#5d31ed"
+selection = "#dccbf6"
+palette = [
+    "#2a0f52", "#d0003a", "#0a8f63", "#9a7d00", "#3d5fc4", "#8a008a", "#0b8a94", "#c9bfe0",
+    "#6b5a8f", "#c44100", "#138a52", "#8a7a00", "#5d31ed", "#b0189f", "#00808a", "#f4f0fc",
+]

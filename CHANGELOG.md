@@ -17,7 +17,7 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
   theme. Colors picks which one shows; Auto uses the light theme by day and
   the dark theme by night. A theme sets the text, background, cursor and all
   16 terminal colors.
-- 41 built-in themes: Drifter, Solarized, Selenized, Tango, rxvt, XTerm,
+- 43 built-in themes: Drifter, Detroit Future, Solarized, Selenized, Tango, rxvt, XTerm,
   Catppuccin (Latte, Frappé, Macchiato, Mocha), Nord, Gruvbox, Tokyo Night
   (Night, Storm, Day), One, GitHub, Dracula and Alucard, Rosé Pine (Main,
   Moon, Dawn), Everforest, Kanagawa (Wave, Lotus), Ayu (Dark, Mirage,

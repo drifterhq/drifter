@@ -142,7 +142,7 @@ mod tests {
         assert_eq!(themes.len(), count);
         assert!(themes.iter().filter(|theme| theme.light).count() >= 15);
         assert!(themes.iter().filter(|theme| !theme.light).count() >= 15);
-        for name in [DARK, LIGHT, "Solarized Dark", "Solarized Light", "Catppuccin Latte", "Nord", "Tango Dark", "rxvt Light"] {
+        for name in [DARK, LIGHT, "Solarized Dark", "Solarized Light", "Catppuccin Latte", "Nord", "Tango Dark", "rxvt Light", "Detroit Future", "Detroit Future Light"] {
             assert!(themes.iter().any(|theme| theme.name == name), "{name}");
         }
     }
