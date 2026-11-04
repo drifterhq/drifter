@@ -5112,3 +5112,51 @@ USB printer
 
 Network printer
 = Imprimante réseau
+
+Look
+= Apparence
+
+Colors
+= Couleurs
+
+Auto follows your Light or Dark look
+= Auto suit votre apparence claire ou sombre
+
+Control + and Control - change it for one window
+= Contrôle + et Contrôle - la changent pour une fenêtre
+
+Cursor
+= Curseur
+
+Block
+= Bloc
+
+Bar
+= Barre
+
+Underline
+= Souligné
+
+Background opacity
+= Opacité du fond
+
+Space around the text
+= Espace autour du texte
+
+Tab bar
+= Barre d'onglets
+
+Left
+= Gauche
+
+Right
+= Droite
+
+Always show the tab bar
+= Toujours afficher la barre d'onglets
+
+Also when only one tab is open
+= Même avec un seul onglet ouvert
+
+Control T opens a tab, Control W closes it, Control Tab goes to the next one.
+= Contrôle T ouvre un onglet, Contrôle W le ferme, Contrôle Tab passe au suivant.

@@ -265,6 +265,25 @@ screen_off = 10
 # A missing key uses the one the system names as default.
 # files = "pcmanfm"
 
+[terminal]
+# Drifter Terminal. Settings > Terminal changes these too.
+# A font file to use in place of JetBrains Mono.
+# font = "/usr/share/fonts/TTF/Hack-Regular.ttf"
+# Text height in pixels, 8 to 32.
+text_size = 15
+# "auto" follows your Light or Dark look; "dark" or "light" stay put.
+colors = "auto"
+# "block", "bar" or "underline".
+cursor = "block"
+# How solid the background is, in percent, 20 to 100.
+opacity = 100
+# Space around the text, in pixels, 0 to 32.
+padding = 8
+# Where the tabs sit: "top", "bottom", "left" or "right".
+tabs = "top"
+# Show the tabs even when only one is open.
+always_show_tabs = false
+
 [welcome]
 # The welcome card that shows when Drifter starts. Programs > Welcome
 # opens it again at any time. false keeps it closed at startup.

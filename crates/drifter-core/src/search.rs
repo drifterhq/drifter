@@ -153,7 +153,9 @@ fn score(found: &Found, query: &str) -> Option<u32> {
         Kind::Setting => 20,
         Kind::File => 0,
     };
-    let base = if title == query {
+    let named = found.kind == Kind::App
+        && found.extra.to_lowercase().split_whitespace().any(|word| word == query);
+    let base = if title == query || named {
         400
     } else if title.starts_with(query) {
         300

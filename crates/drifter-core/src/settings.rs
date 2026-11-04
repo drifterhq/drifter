@@ -26,6 +26,7 @@ pub const BRIGHTNESS_LEAST: f64 = 5.0;
 mod keys;
 mod pages;
 mod people;
+mod terminal;
 
 pub use keys::{Move, Press, Spot};
 
@@ -57,12 +58,13 @@ pub enum Section {
     Time,
     Login,
     Apps,
+    Terminal,
     Updates,
     About,
 }
 
 impl Section {
-    pub const ALL: [Section; 26] = [
+    pub const ALL: [Section; 27] = [
         Section::Desktop,
         Section::Wallpaper,
         Section::Appearance,
@@ -84,6 +86,7 @@ impl Section {
         Section::Users,
         Section::Lock,
         Section::Access,
+        Section::Terminal,
         Section::Time,
         Section::Login,
         Section::Apps,
@@ -104,6 +107,7 @@ impl Section {
             Section::Displays | Section::Sound | Section::Power | Section::Printers => crate::lang::t("Hardware"),
             Section::Keyboard | Section::Mouse | Section::Touchpad | Section::Shortcuts => crate::lang::t("Input"),
             Section::Users | Section::Lock | Section::Access => crate::lang::t("Users & Security"),
+            Section::Terminal => crate::lang::t("Apps"),
             Section::Time | Section::Login | Section::Apps | Section::Updates | Section::About => crate::lang::t("System"),
         }
     }
@@ -133,6 +137,7 @@ impl Section {
             Section::Time => crate::lang::t("Date & Time"),
             Section::Login => crate::lang::t("Login Items"),
             Section::Apps => crate::lang::t("Default Apps"),
+            Section::Terminal => crate::lang::t("Terminal"),
             Section::Printers => crate::lang::t("Printers"),
             Section::Updates => crate::lang::t("Software Updates"),
             Section::About => crate::lang::t("About"),
@@ -164,6 +169,7 @@ impl Section {
             Section::Time => "clock zone ntp date language español deutsch français translation",
             Section::Login => "startup autostart apps",
             Section::Apps => "browser terminal file manager",
+            Section::Terminal => "terminal shell console command line font text size colors dark light cursor opacity padding tabs",
             Section::Printers => "printer printers print printing cups queue jobs ipp test page paper",
             Section::Updates => "software update updates upgrade packages packagekit security patch install dnf apt",
             Section::About => "system version computer reset import export",
@@ -182,7 +188,7 @@ impl Section {
                 .chars()
                 .filter(|c| c.is_alphanumeric())
                 .collect();
-            name.to_lowercase() == wanted
+            name.to_lowercase() == wanted || format!("{section:?}").to_lowercase() == wanted
         })
     }
 
@@ -211,6 +217,7 @@ impl Section {
             Section::Time => [60, 130, 220],
             Section::Login => [220, 80, 90],
             Section::Apps => [214, 160, 40],
+            Section::Terminal => [54, 58, 72],
             Section::Printers => [92, 112, 140],
             Section::Updates => [52, 132, 236],
             Section::About => [128, 134, 150],
@@ -404,6 +411,7 @@ pub struct Model {
     pub faces: Vec<PathBuf>,
     pub updates: Updates,
     pub printers: Printers,
+    pub terminal: crate::config::TerminalConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -827,6 +835,7 @@ impl Model {
             faces: crate::users::stock(&config.faces_dir()),
             updates: Updates::default(),
             printers: Printers::default(),
+            terminal: config.terminal.clone(),
             keys: config.keys.clone(),
             variants: crate::keyboard::variants(&config.keyboard.layout),
             recent: Vec::new(),
@@ -1662,6 +1671,7 @@ impl Model {
                 footer: Some(crate::lang::t("Only when Drifter starts from a text console. A login screen like GDM asks for the password itself.").into()),
                 thumbs: None,
             }],
+            Section::Terminal => self.terminal_groups(),
             Section::Apps => vec![Group {
                 header: None,
                 rows: Role::ALL
@@ -2133,6 +2143,28 @@ impl Model {
                 }
             }
             (Id::Title, Value::Switch(on)) => self.title = on,
+            (Id::TermColors, Value::Choice(n)) => {
+                self.terminal.colors = crate::config::TermColors::ALL[n.min(2)]
+            }
+            (Id::TermCursor, Value::Choice(n)) => {
+                self.terminal.cursor = crate::config::TermCursor::ALL[n.min(2)]
+            }
+            (Id::TermTabs, Value::Choice(n)) => {
+                self.terminal.tabs = crate::config::TermTabs::ALL[n.min(3)]
+            }
+            (Id::TermTabsAlways, Value::Switch(on)) => self.terminal.always_show_tabs = on,
+            (Id::TermText, Value::Number(n)) => {
+                let (least, most) = crate::config::TERM_TEXT;
+                self.terminal.text_size = n.round().clamp(f64::from(least), f64::from(most)) as u32
+            }
+            (Id::TermOpacity, Value::Number(n)) => {
+                let (least, most) = crate::config::TERM_OPACITY;
+                self.terminal.opacity = n.round().clamp(f64::from(least), f64::from(most)) as u32
+            }
+            (Id::TermPadding, Value::Number(n)) => {
+                let (least, most) = crate::config::TERM_PADDING;
+                self.terminal.padding = n.round().clamp(f64::from(least), f64::from(most)) as u32
+            }
             (Id::DockShow(at), Value::Switch(on)) if at < 6 => self.shows[at] = on,
             (Id::WallpaperMode, Value::Choice(n)) => {
                 self.wallpaper_mode = match n {
@@ -2608,6 +2640,7 @@ impl Model {
                 );
             }
         }
+        self.write_terminal(before, &mut doc);
         self.write_more(before, &mut doc);
         Ok(doc.to_string())
     }
@@ -2786,6 +2819,7 @@ pub fn write_scale(text: &str, name: &str, scale: f64) -> Result<String, String>
 const ASK_FRESH: std::time::Duration = std::time::Duration::from_secs(15);
 const ASK_DOCK: &str = "dock-item";
 const ASK_WIFI: &str = "wifi";
+const ASK_PAGE: &str = "page";
 
 fn ask_path() -> PathBuf {
     Config::state_dir().join("settings-ask")
@@ -2804,6 +2838,15 @@ pub enum SettingsAsk {
     Dock(usize),
     WifiHidden,
     WifiJoin(String),
+    Page(Option<Section>),
+}
+
+pub fn ask_page(word: &str) -> Result<(), String> {
+    let path = ask_path();
+    if let Some(folder) = path.parent() {
+        std::fs::create_dir_all(folder).map_err(|error| error.to_string())?;
+    }
+    std::fs::write(&path, format!("{ASK_PAGE} {}\n", word.trim())).map_err(|error| error.to_string())
 }
 
 pub fn ask_wifi(join: Option<&str>) -> Result<(), String> {
@@ -2832,6 +2875,9 @@ pub fn take_settings_ask() -> Option<SettingsAsk> {
     }
     if let Some(at) = read_dock_ask(&text) {
         return Some(SettingsAsk::Dock(at));
+    }
+    if let Some(word) = text.trim().strip_prefix(ASK_PAGE) {
+        return Some(SettingsAsk::Page(Section::from_word(word.trim())));
     }
     let rest = text.trim_end_matches('\n').strip_prefix(ASK_WIFI)?.trim_start();
     match rest.split_once(' ') {
@@ -3128,6 +3174,13 @@ pub enum Id {
     PrintJob(usize),
     PrinterLook,
     PrinterFound(usize),
+    TermColors,
+    TermText,
+    TermCursor,
+    TermOpacity,
+    TermPadding,
+    TermTabs,
+    TermTabsAlways,
 }
 
 const SHOWS: [&str; 6] = [
@@ -4531,6 +4584,13 @@ fn paint_glyph(canvas: &mut Canvas, section: Section, icon: Rect) {
             canvas.circle(o + Vec2::new(11.0, 9.0), 2.5, section.tint(), 1.0);
             canvas.round_rect(r(5.0, 10.0, 12.0, 8.0), 1.5, white, 1.0);
         }
+        Section::Terminal => {
+            canvas.round_rect(r(3.0, 4.0, 16.0, 14.0), 2.5, white, 1.0);
+            canvas.round_rect(r(4.5, 5.5, 13.0, 11.0), 1.5, section.tint(), 1.0);
+            canvas.line(o + Vec2::new(7.0, 8.0), o + Vec2::new(10.0, 11.0), 1.6, white, 1.0);
+            canvas.line(o + Vec2::new(10.0, 11.0), o + Vec2::new(7.0, 14.0), 1.6, white, 1.0);
+            canvas.round_rect(r(11.0, 13.2, 4.5, 1.6), 0.8, white, 1.0);
+        }
         Section::Apps => {
             for (x, y) in [(6.5, 6.5), (15.5, 6.5), (6.5, 15.5), (15.5, 15.5)] {
                 canvas.circle(o + Vec2::new(x, y), 3.0, white, 1.0);
@@ -5724,14 +5784,14 @@ mod tests {
     const SIZE: Vec2 = Vec2::new(860.0, 620.0);
 
     #[test]
-    fn the_sidebar_has_six_groups_with_a_heading_each() {
+    fn the_sidebar_has_seven_groups_with_a_heading_each() {
         let groups: Vec<&str> = Section::ALL
             .iter()
             .enumerate()
             .filter(|(at, section)| *at == 0 || Section::ALL[at - 1].group() != section.group())
             .map(|(_, section)| section.group())
             .collect();
-        assert_eq!(groups, ["Desktop", "Network", "Hardware", "Input", "Users & Security", "System"]);
+        assert_eq!(groups, ["Desktop", "Network", "Hardware", "Input", "Users & Security", "Apps", "System"]);
         let look = Look::default();
         let wifi = Section::ALL.iter().position(|s| *s == Section::Network).unwrap();
         let above = look.item_rect(wifi - 1);

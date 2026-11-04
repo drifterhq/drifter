@@ -5112,3 +5112,51 @@ USB printer
 
 Network printer
 = Netzwerkdrucker
+
+Look
+= Aussehen
+
+Colors
+= Farben
+
+Auto follows your Light or Dark look
+= Auto folgt deinem hellen oder dunklen Aussehen
+
+Control + and Control - change it for one window
+= Strg + und Strg - ändern sie für ein Fenster
+
+Cursor
+= Cursor
+
+Block
+= Block
+
+Bar
+= Strich
+
+Underline
+= Unterstrich
+
+Background opacity
+= Deckkraft des Hintergrunds
+
+Space around the text
+= Abstand um den Text
+
+Tab bar
+= Tableiste
+
+Left
+= Links
+
+Right
+= Rechts
+
+Always show the tab bar
+= Tableiste immer zeigen
+
+Also when only one tab is open
+= Auch wenn nur ein Tab offen ist
+
+Control T opens a tab, Control W closes it, Control Tab goes to the next one.
+= Strg T öffnet einen Tab, Strg W schließt ihn, Strg Tab geht zum nächsten.

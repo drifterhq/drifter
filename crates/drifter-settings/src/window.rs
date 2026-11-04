@@ -11,6 +11,7 @@ use drifter_core::shortcut::{self, Combo, Mods};
 use drifter_core::stats::{self, Mount};
 use drifter_core::system::{self, Sound};
 use drifter_core::{Config, Font, Image, Launch, Vec2};
+use smithay_client_toolkit::activation::{ActivationHandler, ActivationState, RequestData};
 use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState};
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
 use smithay_client_toolkit::reexports::calloop::EventLoop;
@@ -193,6 +194,7 @@ pub struct Settings {
     loads: Sender<PathBuf>,
     connection: Connection,
     subcompositor: Option<SubcompositorState>,
+    activation: Option<ActivationState>,
     logo: Option<crate::logo::Logo>,
     logo_failed: bool,
 }
@@ -204,7 +206,34 @@ struct Moving {
     grab: Vec2,
 }
 
+fn already_open() -> bool {
+    let me = std::process::id().to_string();
+    let display = std::env::var_os("WAYLAND_DISPLAY").unwrap_or_default();
+    let mut wanted = b"WAYLAND_DISPLAY=".to_vec();
+    wanted.extend_from_slice(display.as_encoded_bytes());
+    let Ok(procs) = std::fs::read_dir("/proc") else {
+        return false;
+    };
+    procs.flatten().any(|entry| {
+        let name = entry.file_name();
+        if name.to_string_lossy() == me || !name.to_string_lossy().bytes().all(|b| b.is_ascii_digit()) {
+            return false;
+        }
+        let ours = std::fs::read_link(entry.path().join("exe"))
+            .ok()
+            .and_then(|exe| exe.file_name().map(|file| file.to_string_lossy().starts_with(APP)))
+            .unwrap_or(false);
+        ours && std::fs::read(entry.path().join("environ"))
+            .map(|env| env.split(|b| *b == 0).any(|pair| pair == wanted.as_slice()))
+            .unwrap_or(false)
+    })
+}
+
 pub fn run() -> Result<(), String> {
+    if already_open() {
+        let word = std::env::args().nth(1).unwrap_or_default();
+        return drifter_core::settings::ask_page(&word);
+    }
     let path = Config::config_path();
     Config::first_run(&path).map_err(|error| format!("cannot make {}: {error}", path.display()))?;
     let config = Config::load_from(&path).map_err(|error| error.to_string())?;
@@ -240,6 +269,7 @@ pub fn run() -> Result<(), String> {
     let shell = XdgShell::bind(&globals, &qh).map_err(|e| format!("no xdg shell: {e}"))?;
     let shm = Shm::bind(&globals, &qh).map_err(|e| format!("no wl_shm: {e}"))?;
     let subcompositor = SubcompositorState::bind(compositor.wl_compositor().clone(), &globals, &qh).ok();
+    let activation = ActivationState::bind(&globals, &qh).ok();
     let held_connection = connection.clone();
 
     let surface = compositor.create_surface(&qh);
@@ -442,6 +472,7 @@ pub fn run() -> Result<(), String> {
         loads,
         connection: held_connection,
         subcompositor,
+        activation,
         logo: None,
         logo_failed: false,
     };
@@ -2196,6 +2227,13 @@ impl Settings {
                 self.go_to(Section::Dock);
                 self.edit_dock(at);
             }
+            SettingsAsk::Page(section) => {
+                self.sheet = None;
+                if let Some(section) = section {
+                    self.go_to(section);
+                }
+                self.come_forward();
+            }
             SettingsAsk::WifiHidden => {
                 self.sheet = None;
                 self.go_to(Section::Network);
@@ -2212,6 +2250,19 @@ impl Settings {
             }
         }
         self.stale = true;
+    }
+
+    fn come_forward(&self) {
+        if let Some(activation) = &self.activation {
+            activation.request_token(
+                &self.qh,
+                RequestData {
+                    app_id: Some(APP.to_string()),
+                    seat_and_serial: None,
+                    surface: Some(self.window.wl_surface().clone()),
+                },
+            );
+        }
     }
 
     fn user_job(&mut self, purpose: For, job: crate::users::Job) {
@@ -3846,6 +3897,17 @@ delegate_keyboard!(Settings);
 delegate_xdg_shell!(Settings);
 delegate_xdg_window!(Settings);
 delegate_registry!(Settings);
+smithay_client_toolkit::delegate_activation!(Settings);
+
+impl ActivationHandler for Settings {
+    type RequestData = RequestData;
+
+    fn new_token(&mut self, token: String, _: &RequestData) {
+        if let Some(activation) = &self.activation {
+            activation.activate::<Settings>(self.window.wl_surface(), token);
+        }
+    }
+}
 
 fn splice(
     out: &mut drifter_core::Image,

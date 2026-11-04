@@ -1,5 +1,5 @@
 use std::os::fd::{AsFd, BorrowedFd, RawFd};
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime};
 
 use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState};
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
@@ -35,6 +35,9 @@ use crate::pty;
 
 const START: (u32, u32) = (960, 600);
 const APP_ID: &str = "drifter-terminal";
+const SETTINGS_APP: &str = "drifter-settings";
+const LOOK_AGAIN: Duration = Duration::from_secs(1);
+const RELOAD: Duration = Duration::from_secs(60);
 
 struct Fd(RawFd);
 impl AsFd for Fd {
@@ -69,6 +72,10 @@ struct Term {
     resized: bool,
     needs_draw: bool,
     cfg: Config,
+    zoom: f64,
+    seen: Option<SystemTime>,
+    looked: Instant,
+    loaded: Instant,
     grid: Grid,
     panes: Vec<Pane>,
     active: usize,
@@ -88,6 +95,24 @@ fn mix(a: [u8; 3], b: [u8; 3], t: f64) -> [u8; 3] {
     [0, 1, 2].map(|i| (f64::from(a[i]) + (f64::from(b[i]) - f64::from(a[i])) * t).round() as u8)
 }
 
+fn style(cfg: &Config) -> (Look, [u8; 3], [u8; 3]) {
+    let mut look = Look::themed(&cfg.palette);
+    look.accent = cfg.accent;
+    let lift = if cfg.palette == drifter_core::theme::LIGHT { [0, 0, 0] } else { [255, 255, 255] };
+    let bar = mix(cfg.bg, lift, 0.06);
+    let dim = mix(cfg.fg, cfg.bg, 0.35);
+    (look, bar, dim)
+}
+
+fn start(program: std::path::PathBuf, args: &[&str]) {
+    match std::process::Command::new(&program).args(args).spawn() {
+        Ok(mut child) => {
+            std::thread::spawn(move || child.wait());
+        }
+        Err(error) => log!("drifter-terminal: cannot start {}: {error}", program.display()),
+    }
+}
+
 fn pty_source(handle: &LoopHandle<'static, Term>, fd: RawFd) -> Result<RegistrationToken, String> {
     let source = Generic::new(Fd(fd), Interest::READ, Mode::Level);
     handle
@@ -99,14 +124,13 @@ fn pty_source(handle: &LoopHandle<'static, Term>, fd: RawFd) -> Result<Registrat
 }
 
 pub fn run() -> Result<(), String> {
+    let seen = Config::stamp();
     let cfg = Config::load();
     let grid = Grid::new(&cfg)?;
     let ui_font = crate::font::ui(13.0)?;
-    let menu_look = Look::themed(&drifter_core::theme::DARK);
+    let (menu_look, bar, dim) = style(&cfg);
     let accent = menu_look.accent;
     let on_accent = menu_look.on_accent;
-    let bar = mix(cfg.bg, [255, 255, 255], 0.06);
-    let dim = mix(cfg.fg, cfg.bg, 0.35);
 
     let connection = Connection::connect_to_env().map_err(|e| format!("no wayland: {e}"))?;
     let (globals, queue) = registry_queue_init(&connection).map_err(|e| format!("no wayland registry: {e}"))?;
@@ -154,6 +178,10 @@ pub fn run() -> Result<(), String> {
         resized: false,
         needs_draw: true,
         cfg,
+        zoom: 0.0,
+        seen,
+        looked: Instant::now(),
+        loaded: Instant::now(),
         grid,
         panes: vec![first],
         active: 0,
@@ -173,6 +201,7 @@ pub fn run() -> Result<(), String> {
         let busy = term.lit.as_ref().is_some_and(Lit::busy);
         let wait = if busy { Duration::from_millis(16) } else { Duration::from_millis(200) };
         events.dispatch(Some(wait), &mut term).map_err(|e| format!("event loop: {e}"))?;
+        term.follow_config();
         if term.configured {
             if std::mem::take(&mut term.resized) {
                 term.resize_panes();
@@ -201,10 +230,18 @@ impl Term {
     }
 
     fn resize_panes(&mut self) {
+        self.fit_panes(false);
+    }
+
+    fn resize_panes_all(&mut self) {
+        self.fit_panes(true);
+    }
+
+    fn fit_panes(&mut self, cells_changed: bool) {
         let (cols, rows) = self.content_fit();
         let (cw, ch) = self.grid.cell();
         for p in &mut self.panes {
-            if (cols, rows) != (p.vt.cols, p.vt.rows) {
+            if cells_changed || (cols, rows) != (p.vt.cols, p.vt.rows) {
                 pty::resize(p.fd, cols, rows);
                 p.vt.resize(cols, rows, cw, ch);
             }
@@ -237,8 +274,55 @@ impl Term {
 
     fn new_window(&self) {
         if let Ok(exe) = std::env::current_exe() {
-            let _ = std::process::Command::new(exe).spawn();
+            start(exe, &[]);
         }
+    }
+
+    fn open_settings(&self) {
+        let beside = std::env::current_exe().ok().map(|exe| exe.with_file_name(SETTINGS_APP));
+        let program = beside.filter(|path| path.is_file()).unwrap_or_else(|| SETTINGS_APP.into());
+        start(program, &["terminal"]);
+    }
+
+    fn follow_config(&mut self) {
+        if self.looked.elapsed() < LOOK_AGAIN {
+            return;
+        }
+        self.looked = Instant::now();
+        let stamp = Config::stamp();
+        if stamp == self.seen && self.loaded.elapsed() < RELOAD {
+            return;
+        }
+        self.seen = stamp;
+        self.loaded = Instant::now();
+        let fresh = Config::load();
+        if fresh != self.cfg {
+            self.take_config(fresh);
+        }
+    }
+
+    fn take_config(&mut self, fresh: Config) {
+        let regrid = fresh.font_path != self.cfg.font_path
+            || fresh.font_px != self.cfg.font_px
+            || fresh.pad != self.cfg.pad;
+        self.cfg = fresh;
+        let (look, bar, dim) = style(&self.cfg);
+        self.accent = look.accent;
+        self.on_accent = look.on_accent;
+        self.menu_look = look;
+        self.bar = bar;
+        self.dim = dim;
+        self.menu = None;
+        let mut sized = self.cfg.clone();
+        sized.font_px = (sized.font_px + self.zoom).clamp(6.0, 48.0);
+        if let Ok(grid) = Grid::new(&sized) {
+            self.grid = grid;
+        }
+        if regrid {
+            self.resize_panes_all();
+        }
+        self.resized = true;
+        self.needs_draw = true;
     }
 
     fn close_tab(&mut self) {
@@ -349,6 +433,18 @@ impl Term {
                     self.switch(!shift);
                     return;
                 }
+                Keysym::equal | Keysym::plus | Keysym::KP_Add => {
+                    self.resize_font(Some(1.0));
+                    return;
+                }
+                Keysym::minus | Keysym::underscore | Keysym::KP_Subtract => {
+                    self.resize_font(Some(-1.0));
+                    return;
+                }
+                Keysym::_0 | Keysym::KP_0 => {
+                    self.resize_font(None);
+                    return;
+                }
                 _ => {}
             }
         }
@@ -409,7 +505,6 @@ impl Term {
             self.pointer_pos,
             Vec2::new(f64::from(self.size.0), f64::from(self.size.1)),
             &self.ui_font,
-            self.cfg.tab_edge,
         );
         self.menu = Some(menu);
         self.needs_draw = true;
@@ -422,12 +517,7 @@ impl Term {
             Action::CloseTab => self.close_tab(),
             Action::Copy => {}
             Action::Paste => {}
-            Action::Tabs(edge) => {
-                self.cfg.tab_edge = edge;
-                self.resize_panes();
-            }
-            Action::FontUp => self.resize_font(1.0),
-            Action::FontDown => self.resize_font(-1.0),
+            Action::Settings => self.open_settings(),
             Action::SelectTab(i) => {
                 if i < self.panes.len() {
                     self.active = i;
@@ -437,11 +527,16 @@ impl Term {
         self.needs_draw = true;
     }
 
-    fn resize_font(&mut self, by: f64) {
-        self.cfg.font_px = (self.cfg.font_px + by).clamp(8.0, 40.0);
-        if let Ok(grid) = Grid::new(&self.cfg) {
+    fn resize_font(&mut self, by: Option<f64>) {
+        self.zoom = match by {
+            Some(by) => (self.zoom + by).clamp(6.0 - self.cfg.font_px, 48.0 - self.cfg.font_px),
+            None => 0.0,
+        };
+        let mut sized = self.cfg.clone();
+        sized.font_px += self.zoom;
+        if let Ok(grid) = Grid::new(&sized) {
             self.grid = grid;
-            self.resize_panes();
+            self.resize_panes_all();
         }
     }
 
@@ -525,14 +620,14 @@ impl Term {
                 canvas.stamp(&glyph, Vec2::new(rect.origin.x + 8.0, ty), 1.0);
             }
             if let Some(lit) = &self.lit {
-                lit.draw(&mut canvas);
+                lit.draw(&mut canvas, self.cfg.palette.shade);
             }
         }
 
         if let Some(menu) = &self.menu {
             canvas.stamp(&menu.art, menu.rect.origin, 1.0);
             if let Some(lit) = &self.lit {
-                lit.draw(&mut canvas);
+                lit.draw(&mut canvas, self.cfg.palette.shade);
             }
         }
 

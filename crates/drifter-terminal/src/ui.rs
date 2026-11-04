@@ -25,9 +25,7 @@ pub enum Action {
     CloseTab,
     Copy,
     Paste,
-    Tabs(Edge),
-    FontUp,
-    FontDown,
+    Settings,
     SelectTab(usize),
 }
 
@@ -74,12 +72,12 @@ impl Lit {
         between(self.from, self.to, smooth(t))
     }
 
-    pub fn draw(&self, canvas: &mut drifter_core::paint::Canvas) {
+    pub fn draw(&self, canvas: &mut drifter_core::paint::Canvas, ink: [u8; 3]) {
         let a = self.shown();
         if a <= 0.001 {
             return;
         }
-        canvas.round_rect(self.current(), LIT_RADIUS, [255, 255, 255], a * LIT_ALPHA);
+        canvas.round_rect(self.current(), LIT_RADIUS, ink, a * LIT_ALPHA);
     }
 
     pub fn busy(&self) -> bool {
@@ -161,7 +159,7 @@ pub struct Menu {
     pub art: Image,
 }
 
-pub fn context_menu(look: Look, at: Vec2, screen: Vec2, font: &Font, edge: Edge) -> Menu {
+pub fn context_menu(look: Look, at: Vec2, screen: Vec2, font: &Font) -> Menu {
     let rows: Vec<(Item, Option<Action>)> = vec![
         (Item::line(1, "New Tab"), Some(Action::NewTab)),
         (Item::line(2, "New Window"), Some(Action::NewWindow)),
@@ -170,13 +168,7 @@ pub fn context_menu(look: Look, at: Vec2, screen: Vec2, font: &Font, edge: Edge)
         (Item::line(4, "Copy"), Some(Action::Copy)),
         (Item::line(5, "Paste"), Some(Action::Paste)),
         (Item::rule(91), None),
-        (Item::line(6, "Bigger Text"), Some(Action::FontUp)),
-        (Item::line(7, "Smaller Text"), Some(Action::FontDown)),
-        (Item::rule(92), None),
-        (Item::line(10, &tick("Tabs on Top", edge == Edge::Top)), Some(Action::Tabs(Edge::Top))),
-        (Item::line(11, &tick("Tabs on Bottom", edge == Edge::Bottom)), Some(Action::Tabs(Edge::Bottom))),
-        (Item::line(12, &tick("Tabs on Left", edge == Edge::Left)), Some(Action::Tabs(Edge::Left))),
-        (Item::line(13, &tick("Tabs on Right", edge == Edge::Right)), Some(Action::Tabs(Edge::Right))),
+        (Item::line(6, "Settings"), Some(Action::Settings)),
     ];
     let items: Vec<Item> = rows.iter().map(|(item, _)| item.clone()).collect();
     let actions: Vec<Option<Action>> = rows.iter().map(|(_, a)| *a).collect();
@@ -184,8 +176,4 @@ pub fn context_menu(look: Look, at: Vec2, screen: Vec2, font: &Font, edge: Edge)
     let rect = look.rect(at, size, screen);
     let art = look.paint(&items, size, None, Some(font), Some(font));
     Menu { items, actions, look, rect, size, art }
-}
-
-fn tick(label: &str, on: bool) -> String {
-    if on { format!("\u{2713} {label}") } else { format!("   {label}") }
 }

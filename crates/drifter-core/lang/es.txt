@@ -5115,3 +5115,51 @@ USB printer
 
 Network printer
 = Impresora de red
+
+Look
+= Aspecto
+
+Colors
+= Colores
+
+Auto follows your Light or Dark look
+= Auto sigue tu aspecto Claro u Oscuro
+
+Control + and Control - change it for one window
+= Control + y Control - lo cambian para una ventana
+
+Cursor
+= Cursor
+
+Block
+= Bloque
+
+Bar
+= Barra
+
+Underline
+= Subrayado
+
+Background opacity
+= Opacidad del fondo
+
+Space around the text
+= Espacio alrededor del texto
+
+Tab bar
+= Barra de pestañas
+
+Left
+= Izquierda
+
+Right
+= Derecha
+
+Always show the tab bar
+= Mostrar siempre la barra de pestañas
+
+Also when only one tab is open
+= También con una sola pestaña abierta
+
+Control T opens a tab, Control W closes it, Control Tab goes to the next one.
+= Control T abre una pestaña, Control W la cierra, Control Tab va a la siguiente.

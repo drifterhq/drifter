@@ -253,6 +253,123 @@ pub struct WindowConfig {
     pub title: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TermColors {
+    #[default]
+    Auto,
+    Dark,
+    Light,
+}
+
+impl TermColors {
+    pub const ALL: [TermColors; 3] = [TermColors::Auto, TermColors::Dark, TermColors::Light];
+
+    pub fn word(self) -> &'static str {
+        match self {
+            TermColors::Auto => "auto",
+            TermColors::Dark => "dark",
+            TermColors::Light => "light",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TermCursor {
+    #[default]
+    Block,
+    Bar,
+    Underline,
+}
+
+impl TermCursor {
+    pub const ALL: [TermCursor; 3] = [TermCursor::Block, TermCursor::Bar, TermCursor::Underline];
+
+    pub fn word(self) -> &'static str {
+        match self {
+            TermCursor::Block => "block",
+            TermCursor::Bar => "bar",
+            TermCursor::Underline => "underline",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TermTabs {
+    #[default]
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
+
+impl TermTabs {
+    pub const ALL: [TermTabs; 4] = [TermTabs::Top, TermTabs::Bottom, TermTabs::Left, TermTabs::Right];
+
+    pub fn word(self) -> &'static str {
+        match self {
+            TermTabs::Top => "top",
+            TermTabs::Bottom => "bottom",
+            TermTabs::Left => "left",
+            TermTabs::Right => "right",
+        }
+    }
+}
+
+pub const TERM_TEXT: (u32, u32) = (8, 32);
+pub const TERM_PADDING: (u32, u32) = (0, 32);
+pub const TERM_OPACITY: (u32, u32) = (20, 100);
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TerminalConfig {
+    #[serde(default)]
+    pub font: Option<String>,
+    #[serde(default = "term_text")]
+    pub text_size: u32,
+    #[serde(default)]
+    pub colors: TermColors,
+    #[serde(default)]
+    pub cursor: TermCursor,
+    #[serde(default = "term_opacity")]
+    pub opacity: u32,
+    #[serde(default = "term_padding")]
+    pub padding: u32,
+    #[serde(default)]
+    pub tabs: TermTabs,
+    #[serde(default)]
+    pub always_show_tabs: bool,
+}
+
+fn term_text() -> u32 {
+    15
+}
+
+fn term_opacity() -> u32 {
+    100
+}
+
+fn term_padding() -> u32 {
+    8
+}
+
+impl Default for TerminalConfig {
+    fn default() -> Self {
+        TerminalConfig {
+            font: None,
+            text_size: term_text(),
+            colors: TermColors::Auto,
+            cursor: TermCursor::Block,
+            opacity: term_opacity(),
+            padding: term_padding(),
+            tabs: TermTabs::Top,
+            always_show_tabs: false,
+        }
+    }
+}
+
 fn default_order() -> Vec<ButtonName> {
     vec![
         ButtonName::Close,
@@ -1386,6 +1503,8 @@ pub struct Config {
     pub airdrop: AirDropConfig,
     #[serde(default)]
     pub welcome: Welcome,
+    #[serde(default)]
+    pub terminal: TerminalConfig,
     #[serde(skip)]
     base: PathBuf,
 }

@@ -1,7 +1,7 @@
 use drifter_core::paint::Canvas;
 use drifter_core::{Image, Rect, Vec2};
 
-use crate::config::Config;
+use crate::config::{Config, Cursor};
 use crate::font::Face;
 use crate::vt::Snapshot;
 
@@ -12,7 +12,7 @@ pub struct Grid {
     bg: [u8; 3],
     cursor: [u8; 3],
     opacity: f64,
-    cursor_block: bool,
+    cursor_shape: Cursor,
 }
 
 impl Grid {
@@ -25,7 +25,7 @@ impl Grid {
             bg: cfg.bg,
             cursor: cfg.cursor,
             opacity: cfg.opacity,
-            cursor_block: cfg.cursor_block,
+            cursor_shape: cfg.cursor_shape,
         })
     }
 
@@ -94,10 +94,15 @@ impl Grid {
                 Vec2::new(origin.x + f64::from(cx) * cw, origin.y + f64::from(cy) * ch),
                 Vec2::new(cw, ch),
             );
-            if self.cursor_block {
-                canvas.round_rect(rect, 1.0, self.cursor, 0.55);
-            } else {
-                canvas.round_rect(Rect::new(rect.origin, Vec2::new(2.0, ch)), 0.0, self.cursor, 0.9);
+            match self.cursor_shape {
+                Cursor::Block => canvas.round_rect(rect, 1.0, self.cursor, 0.55),
+                Cursor::Bar => canvas.round_rect(Rect::new(rect.origin, Vec2::new(2.0, ch)), 0.0, self.cursor, 0.9),
+                Cursor::Underline => canvas.round_rect(
+                    Rect::new(Vec2::new(rect.origin.x, rect.origin.y + ch - 2.0), Vec2::new(cw, 2.0)),
+                    0.0,
+                    self.cursor,
+                    0.9,
+                ),
             }
         }
     }
