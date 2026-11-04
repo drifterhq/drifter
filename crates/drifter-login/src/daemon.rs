@@ -53,7 +53,7 @@ enum Event {
     Greeter(i32),
     GreeterGone,
     Session(u32, Worker),
-    Handoff(u32),
+    Handoff,
     SessionGone(u32),
 }
 
@@ -371,10 +371,10 @@ pub fn run() -> std::process::ExitCode {
                     if active_vt() != Some(vt) {
                         activate(vt);
                     }
-                    let _ = handing.send(Event::Handoff(vt));
+                    let _ = handing.send(Event::Handoff);
                 });
             }
-            Event::Handoff(_) => {
+            Event::Handoff => {
                 if let Some(pid) = greeter {
                     unsafe { libc::kill(pid, libc::SIGTERM) };
                 }
