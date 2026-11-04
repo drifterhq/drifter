@@ -331,6 +331,10 @@ pub struct TerminalConfig {
     pub text_size: u32,
     #[serde(default)]
     pub colors: TermColors,
+    #[serde(default = "term_dark")]
+    pub dark_theme: String,
+    #[serde(default = "term_light")]
+    pub light_theme: String,
     #[serde(default)]
     pub cursor: TermCursor,
     #[serde(default = "term_opacity")]
@@ -347,6 +351,14 @@ fn term_text() -> u32 {
     15
 }
 
+fn term_dark() -> String {
+    crate::termtheme::DARK.to_string()
+}
+
+fn term_light() -> String {
+    crate::termtheme::LIGHT.to_string()
+}
+
 fn term_opacity() -> u32 {
     100
 }
@@ -361,6 +373,8 @@ impl Default for TerminalConfig {
             font: None,
             text_size: term_text(),
             colors: TermColors::Auto,
+            dark_theme: term_dark(),
+            light_theme: term_light(),
             cursor: TermCursor::Block,
             opacity: term_opacity(),
             padding: term_padding(),

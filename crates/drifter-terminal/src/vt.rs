@@ -54,6 +54,22 @@ impl Vt {
         }
     }
 
+    pub fn paint_with(&mut self, theme: &drifter_core::termtheme::Theme) {
+        let color = |c: [u8; 3]| ffi::GhosttyColorRgb { r: c[0], g: c[1], b: c[2] };
+        let fg = color(theme.foreground);
+        let bg = color(theme.background);
+        let palette = drifter_core::termtheme::full_palette(theme).map(color);
+        unsafe {
+            ffi::ghostty_terminal_set(self.term, ffi::OPT_COLOR_FOREGROUND, &fg as *const _ as *const c_void);
+            ffi::ghostty_terminal_set(self.term, ffi::OPT_COLOR_BACKGROUND, &bg as *const _ as *const c_void);
+            match theme.cursor.map(color) {
+                Some(cursor) => ffi::ghostty_terminal_set(self.term, ffi::OPT_COLOR_CURSOR, &cursor as *const _ as *const c_void),
+                None => ffi::ghostty_terminal_set(self.term, ffi::OPT_COLOR_CURSOR, ptr::null()),
+            };
+            ffi::ghostty_terminal_set(self.term, ffi::OPT_COLOR_PALETTE, palette.as_ptr() as *const c_void);
+        }
+    }
+
     pub fn feed(&mut self, bytes: &[u8]) {
         unsafe { ffi::ghostty_terminal_vt_write(self.term, bytes.as_ptr(), bytes.len()) };
     }

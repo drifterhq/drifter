@@ -2757,6 +2757,8 @@ impl Settings {
             For::IconTheme => drifter_core::icon::icon_themes(&drifter_core::icon::roots()),
             For::CursorTheme => drifter_core::icon::cursor_themes(&drifter_core::icon::roots()),
             For::TermFont => drifter_core::settings::mono_fonts(),
+            For::TermDark => drifter_core::settings::term_themes(false),
+            For::TermLight => drifter_core::settings::term_themes(true),
             For::Output => system::choices(&self.model.sound.outputs),
             For::Input => system::choices(&self.model.sound.inputs),
             For::Zone => zones(),

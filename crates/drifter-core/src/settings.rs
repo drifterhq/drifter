@@ -31,7 +31,7 @@ mod terminal;
 pub use keys::{Move, Press, Spot};
 
 pub use people::{BIG_FACE, ROW_FACE, UserAsk};
-pub use terminal::mono_fonts;
+pub use terminal::{mono_fonts, term_themes};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Section {
@@ -2282,6 +2282,8 @@ impl Model {
             (Id::Layout, _) => return Some(Ask::Choose(For::Layout)),
             (Id::TermFont, 0) => return Some(Ask::Choose(For::TermFont)),
             (Id::TermFont, _) => self.terminal.font = None,
+            (Id::TermDark, _) => return Some(Ask::Choose(For::TermDark)),
+            (Id::TermLight, _) => return Some(Ask::Choose(For::TermLight)),
             (Id::Picture, _) => return Some(Ask::Files(For::Picture)),
             (Id::Login(at), 0) if at < self.login.len() => {
                 self.login.remove(at);
@@ -3178,6 +3180,8 @@ pub enum Id {
     PrinterLook,
     PrinterFound(usize),
     TermColors,
+    TermDark,
+    TermLight,
     TermFont,
     TermText,
     TermCursor,

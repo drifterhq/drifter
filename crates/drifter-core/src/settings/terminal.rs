@@ -33,6 +33,18 @@ impl Model {
                     )
                     .detail(crate::lang::t("Auto follows your Light or Dark look")),
                     Row::new(
+                        Id::TermDark,
+                        crate::lang::t("Dark theme"),
+                        Control::Buttons(vec![Mark::Text(crate::lang::t("Choose"))]),
+                    )
+                    .detail(&t.dark_theme),
+                    Row::new(
+                        Id::TermLight,
+                        crate::lang::t("Light theme"),
+                        Control::Buttons(vec![Mark::Text(crate::lang::t("Choose"))]),
+                    )
+                    .detail(&t.light_theme),
+                    Row::new(
                         Id::TermFont,
                         crate::lang::t("Font"),
                         Control::Buttons(match t.font.is_some() {
@@ -66,7 +78,9 @@ impl Model {
                         slider(TERM_PADDING.0, TERM_PADDING.1, t.padding, " px"),
                     ),
                 ],
-                footer: None,
+                footer: Some(
+                    crate::lang::t("A theme sets the text, background and the 16 terminal colors. Add your own themes as files in ~/.config/drifter/terminal-themes.").into(),
+                ),
                 thumbs: None,
             },
             Group {
@@ -112,6 +126,12 @@ impl Model {
                 None => drop_key(doc, "terminal", "font"),
             }
         }
+        if now.dark_theme != was.dark_theme {
+            put(doc, "terminal", "dark_theme", toml_edit::Value::from(now.dark_theme.as_str()));
+        }
+        if now.light_theme != was.light_theme {
+            put(doc, "terminal", "light_theme", toml_edit::Value::from(now.light_theme.as_str()));
+        }
         if now.cursor != was.cursor {
             put(doc, "terminal", "cursor", toml_edit::Value::from(now.cursor.word()));
         }
@@ -131,6 +151,14 @@ impl Model {
             put(doc, "terminal", "padding", int(now.padding));
         }
     }
+}
+
+pub fn term_themes(light: bool) -> Vec<Choice> {
+    crate::termtheme::all()
+        .into_iter()
+        .filter(|theme| theme.light == light)
+        .map(|theme| Choice::new(&theme.name, &theme.name))
+        .collect()
 }
 
 pub const BUILT_IN: &str = "JetBrains Mono";
@@ -182,6 +210,11 @@ mod tests {
         assert_eq!(back.opacity, 85);
         assert_eq!(back.padding, 4);
         assert_eq!(back.font.as_deref(), Some("Source Code Pro"));
+        assert_eq!(after.press(Id::TermDark, 0), Some(crate::settings::Ask::Choose(crate::sheet::For::TermDark)));
+        after.choose(crate::sheet::For::TermDark, "Solarized Dark".into());
+        after.choose(crate::sheet::For::TermLight, "Solarized Light".into());
+        let both = Config::parse(&after.write(&before, "").unwrap()).unwrap().terminal;
+        assert_eq!((both.dark_theme.as_str(), both.light_theme.as_str()), ("Solarized Dark", "Solarized Light"));
         let mut plain = after.clone();
         plain.choose(crate::sheet::For::TermFont, super::BUILT_IN.into());
         assert_eq!(plain.terminal.font, None);

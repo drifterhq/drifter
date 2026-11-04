@@ -5166,3 +5166,18 @@ JetBrains Mono, built in
 
 Font
 = Police
+
+Dark theme
+= Thème sombre
+
+Light theme
+= Thème clair
+
+Choose a dark theme
+= Choisissez un thème sombre
+
+Choose a light theme
+= Choisissez un thème clair
+
+A theme sets the text, background and the 16 terminal colors. Add your own themes as files in ~/.config/drifter/terminal-themes.
+= Un thème fixe le texte, le fond et les 16 couleurs du terminal. Ajoutez vos thèmes comme fichiers dans ~/.config/drifter/terminal-themes.

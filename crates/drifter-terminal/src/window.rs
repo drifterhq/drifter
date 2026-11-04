@@ -156,7 +156,8 @@ pub fn run() -> Result<(), String> {
     let content = ui::content_rect(cfg.tab_edge, START, false);
     let (cols, rows) = grid.fit(content.size.x, content.size.y);
     let p = pty::spawn(cols, rows)?;
-    let vt = Vt::new(cols, rows)?;
+    let mut vt = Vt::new(cols, rows)?;
+    vt.paint_with(&cfg.theme);
     let token = pty_source(&handle, p.fd)?;
     let first = Pane { vt, fd: p.fd, child: p.child, token, title: "Terminal".into() };
 
@@ -252,7 +253,8 @@ impl Term {
     fn make_pane(&self) -> Result<Pane, String> {
         let (cols, rows) = self.content_fit();
         let p = pty::spawn(cols, rows)?;
-        let vt = Vt::new(cols, rows)?;
+        let mut vt = Vt::new(cols, rows)?;
+        vt.paint_with(&self.cfg.theme);
         let token = pty_source(&self.handle, p.fd)?;
         Ok(Pane { vt, fd: p.fd, child: p.child, token, title: "Terminal".into() })
     }
@@ -305,6 +307,11 @@ impl Term {
         let regrid = fresh.font != self.cfg.font
             || fresh.font_px != self.cfg.font_px
             || fresh.pad != self.cfg.pad;
+        if fresh.theme != self.cfg.theme {
+            for pane in &mut self.panes {
+                pane.vt.paint_with(&fresh.theme);
+            }
+        }
         self.cfg = fresh;
         let (look, bar, dim) = style(&self.cfg);
         self.accent = look.accent;

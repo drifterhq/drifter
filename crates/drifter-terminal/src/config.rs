@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 
 use drifter_core::config::{Style, TermColors, TermCursor, TermTabs};
+use drifter_core::termtheme::Theme;
 use drifter_core::theme::Palette;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -39,10 +40,9 @@ pub struct Config {
     pub cursor_shape: Cursor,
     pub accent: [u8; 3],
     pub palette: Palette,
+    pub theme: Theme,
 }
 
-const DARK_INK: ([u8; 3], [u8; 3]) = ([0xd4, 0xd4, 0xd4], [0x10, 0x12, 0x16]);
-const LIGHT_INK: ([u8; 3], [u8; 3]) = ([0x1f, 0x23, 0x28], [0xfa, 0xfa, 0xfb]);
 const ACCENT: [u8; 3] = [0x0a, 0x7a, 0xff];
 
 impl Config {
@@ -65,9 +65,9 @@ impl Config {
             TermColors::Light => Style::Light,
             TermColors::Auto => drifter_core::theme::now(whole.appearance.style),
         };
-        let (fg, bg) = match style {
-            Style::Light => LIGHT_INK,
-            _ => DARK_INK,
+        let theme = match style {
+            Style::Light => drifter_core::termtheme::find(&t.light_theme, true),
+            _ => drifter_core::termtheme::find(&t.dark_theme, false),
         };
         let accent = whole.appearance.accent.map(|accent| accent.color()).unwrap_or(ACCENT);
         Config {
@@ -82,9 +82,9 @@ impl Config {
             },
             tab_always: t.always_show_tabs,
             opacity: f64::from(t.opacity) / 100.0,
-            fg,
-            bg,
-            cursor: accent,
+            fg: theme.foreground,
+            bg: theme.background,
+            cursor: theme.cursor.unwrap_or(accent),
             cursor_shape: match t.cursor {
                 TermCursor::Block => Cursor::Block,
                 TermCursor::Bar => Cursor::Bar,
@@ -92,6 +92,7 @@ impl Config {
             },
             accent,
             palette: drifter_core::theme::of(style),
+            theme,
         }
     }
 }

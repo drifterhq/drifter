@@ -48,6 +48,8 @@ pub enum For {
     PlaceName(usize),
     DockItem(usize),
     TermFont,
+    TermDark,
+    TermLight,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -752,6 +754,8 @@ impl Sheet {
             For::Picture => crate::lang::t("Choose a wallpaper"),
             For::Pointer => crate::lang::t("Choose a pointer picture"),
             For::Font | For::TermFont => crate::lang::t("Choose a font"),
+            For::TermDark => crate::lang::t("Choose a dark theme"),
+            For::TermLight => crate::lang::t("Choose a light theme"),
             For::WindowArt => crate::lang::t("Choose the window art folder"),
             For::DockArt => crate::lang::t("Choose the dock art folder"),
             For::IconTheme => crate::lang::t("Choose an icon theme"),

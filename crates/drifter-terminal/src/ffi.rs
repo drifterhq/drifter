@@ -9,6 +9,11 @@ pub type GhosttyRenderStateRowCells = *mut c_void;
 
 pub const GHOSTTY_SUCCESS: i32 = 0;
 
+pub const OPT_COLOR_FOREGROUND: i32 = 11;
+pub const OPT_COLOR_BACKGROUND: i32 = 12;
+pub const OPT_COLOR_CURSOR: i32 = 13;
+pub const OPT_COLOR_PALETTE: i32 = 14;
+
 pub const DATA_COLS: i32 = 1;
 pub const DATA_ROWS: i32 = 2;
 pub const DATA_DIRTY: i32 = 3;
@@ -99,6 +104,7 @@ unsafe extern "C" {
     pub fn ghostty_terminal_new(allocator: *const c_void, out: *mut GhosttyTerminal, cols: u16, rows: u16) -> i32;
     pub fn ghostty_terminal_free(terminal: GhosttyTerminal);
     pub fn ghostty_terminal_resize(terminal: GhosttyTerminal, cols: u16, rows: u16, cell_width_px: u32, cell_height_px: u32) -> i32;
+    pub fn ghostty_terminal_set(terminal: GhosttyTerminal, option: i32, value: *const c_void) -> i32;
     pub fn ghostty_terminal_vt_write(terminal: GhosttyTerminal, data: *const u8, len: usize);
 
     pub fn ghostty_render_state_new(allocator: *const c_void, out: *mut GhosttyRenderState) -> i32;

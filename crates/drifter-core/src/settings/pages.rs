@@ -2016,6 +2016,8 @@ impl Model {
             For::Variant => self.keyboard.variant = code,
             For::IconTheme => self.appearance.icons = Some(code),
             For::TermFont => self.terminal.font = (code != super::terminal::BUILT_IN).then_some(code),
+            For::TermDark => self.terminal.dark_theme = code,
+            For::TermLight => self.terminal.light_theme = code,
             For::CursorTheme => self.appearance.cursor_theme = Some(code),
             For::Zone => self.zone = code,
             For::SpatialApp => self.ignore_spatial(code),

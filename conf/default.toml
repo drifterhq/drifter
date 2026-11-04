@@ -273,6 +273,10 @@ screen_off = 10
 text_size = 15
 # "auto" follows your Light or Dark look; "dark" or "light" stay put.
 colors = "auto"
+# The theme for dark and the theme for light. Settings > Terminal lists
+# them all. Your own go in ~/.config/drifter/terminal-themes/*.toml.
+dark_theme = "Drifter Dark"
+light_theme = "Drifter Light"
 # "block", "bar" or "underline".
 cursor = "block"
 # How solid the background is, in percent, 20 to 100.
