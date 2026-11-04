@@ -25,11 +25,11 @@ name = "Solarized Dark"
 light = false
 background = "#002b36"
 foreground = "#839496"
-cursor = "#93a1a1"
+cursor = "#839496"
 selection = "#073642"
 palette = [
     "#073642", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#eee8d5",
-    "#002b36", "#cb4b16", "#586e75", "#657b83", "#839496", "#6c71c4", "#93a1a1", "#fdf6e3",
+    "#335e69", "#cb4b16", "#586e75", "#657b83", "#839496", "#6c71c4", "#93a1a1", "#fdf6e3",
 ]
 
 [[theme]]
@@ -37,10 +37,10 @@ name = "Solarized Light"
 light = true
 background = "#fdf6e3"
 foreground = "#657b83"
-cursor = "#586e75"
+cursor = "#657b83"
 selection = "#eee8d5"
 palette = [
-    "#073642", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#eee8d5",
+    "#073642", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#bbb5a2",
     "#002b36", "#cb4b16", "#586e75", "#657b83", "#839496", "#6c71c4", "#93a1a1", "#fdf6e3",
 ]
 
@@ -52,8 +52,8 @@ foreground = "#adbcbc"
 cursor = "#adbcbc"
 selection = "#184956"
 palette = [
-    "#184956", "#fa5750", "#75b938", "#dbb32d", "#4695f7", "#f275be", "#41c7b9", "#72898f",
-    "#2d5b69", "#ff665c", "#84c747", "#ebc13d", "#58a3ff", "#ff84cd", "#53d6c7", "#cad8d9",
+    "#184956", "#fa5750", "#75b938", "#dbb32d", "#4695f7", "#f275be", "#41c7b9", "#adbcbc",
+    "#72898f", "#ff665c", "#84c747", "#ebc13d", "#58a3ff", "#ff84cd", "#53d6c7", "#cad8d9",
 ]
 
 [[theme]]
@@ -61,33 +61,35 @@ name = "Selenized Light"
 light = true
 background = "#fbf3db"
 foreground = "#53676d"
-cursor = "#3a4d53"
+cursor = "#53676d"
 selection = "#ece3cc"
 palette = [
-    "#ece3cc", "#d2212d", "#489100", "#ad8900", "#0072d4", "#ca4898", "#009c8f", "#909995",
-    "#d5cdb6", "#cc1729", "#428b00", "#a78300", "#006dce", "#c44392", "#00978a", "#3a4d53",
+    "#ece3cc", "#d2212d", "#489100", "#ad8900", "#0072d4", "#ca4898", "#009c8f", "#53676d",
+    "#909995", "#cc1729", "#428b00", "#a78300", "#006dce", "#c44392", "#00978a", "#3a4d53",
 ]
 
 [[theme]]
 name = "Tango Dark"
 light = false
-background = "#2e3436"
-foreground = "#d3d7cf"
-selection = "#555753"
+background = "#000000"
+foreground = "#ffffff"
+cursor = "#ffffff"
+selection = "#b5d5ff"
 palette = [
-    "#2e3436", "#cc0000", "#4e9a06", "#c4a000", "#3465a4", "#75507b", "#06989a", "#d3d7cf",
+    "#000000", "#cc0000", "#4e9a06", "#c4a000", "#3465a4", "#75507b", "#06989a", "#d3d7cf",
     "#555753", "#ef2929", "#8ae234", "#fce94f", "#729fcf", "#ad7fa8", "#34e2e2", "#eeeeec",
 ]
 
 [[theme]]
 name = "Tango Light"
 light = true
-background = "#eeeeec"
-foreground = "#2e3436"
-selection = "#d3d7cf"
+background = "#ffffff"
+foreground = "#000000"
+cursor = "#000000"
+selection = "#b5d5ff"
 palette = [
-    "#2e3436", "#cc0000", "#4e9a06", "#c4a000", "#3465a4", "#75507b", "#06989a", "#d3d7cf",
-    "#555753", "#ef2929", "#8ae234", "#fce94f", "#729fcf", "#ad7fa8", "#34e2e2", "#eeeeec",
+    "#000000", "#cc0000", "#4e9a06", "#c4a000", "#3465a4", "#75507b", "#06989a", "#b9bdb5",
+    "#555753", "#ef2929", "#7dd527", "#d6c329", "#729fcf", "#ad7fa8", "#27d5d5", "#eeeeec",
 ]
 
 [[theme]]
@@ -140,10 +142,10 @@ light = false
 background = "#1e1e2e"
 foreground = "#cdd6f4"
 cursor = "#f5e0dc"
-selection = "#585b70"
+selection = "#f5e0dc"
 palette = [
     "#45475a", "#f38ba8", "#a6e3a1", "#f9e2af", "#89b4fa", "#f5c2e7", "#94e2d5", "#bac2de",
-    "#585b70", "#f38ba8", "#a6e3a1", "#f9e2af", "#89b4fa", "#f5c2e7", "#94e2d5", "#a6adc8",
+    "#585b70", "#f7aec2", "#c2ecbf", "#fcd682", "#aeccfc", "#f398da", "#b1eae1", "#a6adc8",
 ]
 
 [[theme]]
@@ -152,10 +154,10 @@ light = false
 background = "#24273a"
 foreground = "#cad3f5"
 cursor = "#f4dbd6"
-selection = "#5b6078"
+selection = "#f4dbd6"
 palette = [
     "#494d64", "#ed8796", "#a6da95", "#eed49f", "#8aadf4", "#f5bde6", "#8bd5ca", "#b8c0e0",
-    "#5b6078", "#ed8796", "#a6da95", "#eed49f", "#8aadf4", "#f5bde6", "#8bd5ca", "#a5adcb",
+    "#5b6078", "#f2a7b2", "#bde3b0", "#f4e3c1", "#adc5f7", "#f493da", "#a5ded6", "#a5adcb",
 ]
 
 [[theme]]
@@ -164,10 +166,10 @@ light = false
 background = "#303446"
 foreground = "#c6d0f5"
 cursor = "#f2d5cf"
-selection = "#626880"
+selection = "#f2d5cf"
 palette = [
     "#51576d", "#e78284", "#a6d189", "#e5c890", "#8caaee", "#f4b8e4", "#81c8be", "#b5bfe2",
-    "#626880", "#e78284", "#a6d189", "#e5c890", "#8caaee", "#f4b8e4", "#81c8be", "#a5adce",
+    "#626880", "#eda0a2", "#b9dba2", "#ecd7ae", "#adc2f3", "#f38ed8", "#98d2ca", "#a5adce",
 ]
 
 [[theme]]
@@ -176,10 +178,10 @@ light = true
 background = "#eff1f5"
 foreground = "#4c4f69"
 cursor = "#dc8a78"
-selection = "#acb0be"
+selection = "#dc8a78"
 palette = [
-    "#5c5f77", "#d20f39", "#40a02b", "#df8e1d", "#1e66f5", "#ea76cb", "#179299", "#acb0be",
-    "#6c6f85", "#d20f39", "#40a02b", "#df8e1d", "#1e66f5", "#ea76cb", "#179299", "#bcc0cc",
+    "#bcc0cc", "#d20f39", "#40a02b", "#df8e1d", "#1e66f5", "#ea76cb", "#179299", "#5c5f77",
+    "#acb0be", "#e7103f", "#46b02f", "#e49931", "#3878f6", "#ef95d7", "#19a1a8", "#6c6f85",
 ]
 
 [[theme]]
@@ -187,23 +189,23 @@ name = "Nord"
 light = false
 background = "#2e3440"
 foreground = "#d8dee9"
-cursor = "#d8dee9"
-selection = "#434c5e"
+cursor = "#eceff4"
+selection = "#eceff4"
 palette = [
     "#3b4252", "#bf616a", "#a3be8c", "#ebcb8b", "#81a1c1", "#b48ead", "#88c0d0", "#e5e9f0",
-    "#4c566a", "#bf616a", "#a3be8c", "#ebcb8b", "#81a1c1", "#b48ead", "#8fbcbb", "#eceff4",
+    "#596377", "#bf616a", "#a3be8c", "#ebcb8b", "#81a1c1", "#b48ead", "#8fbcbb", "#eceff4",
 ]
 
 [[theme]]
 name = "Nord Light"
 light = true
-background = "#eceff4"
-foreground = "#2e3440"
-cursor = "#5e81ac"
+background = "#e5e9f0"
+foreground = "#414858"
+cursor = "#7bb3c3"
 selection = "#d8dee9"
 palette = [
-    "#3b4252", "#bf616a", "#5f8c3f", "#b0882a", "#5e81ac", "#9a6c99", "#3f8f9f", "#d8dee9",
-    "#4c566a", "#c5727a", "#6f9b4f", "#c19a3a", "#81a1c1", "#b48ead", "#4f9fae", "#e5e9f0",
+    "#3b4252", "#bf616a", "#96b17f", "#c5a565", "#81a1c1", "#b48ead", "#7bb3c3", "#a5abb6",
+    "#4c566a", "#bf616a", "#96b17f", "#c5a565", "#81a1c1", "#b48ead", "#82afae", "#eceff4",
 ]
 
 [[theme]]
@@ -212,7 +214,7 @@ light = false
 background = "#282828"
 foreground = "#ebdbb2"
 cursor = "#ebdbb2"
-selection = "#504945"
+selection = "#665c54"
 palette = [
     "#282828", "#cc241d", "#98971a", "#d79921", "#458588", "#b16286", "#689d6a", "#a89984",
     "#928374", "#fb4934", "#b8bb26", "#fabd2f", "#83a598", "#d3869b", "#8ec07c", "#ebdbb2",
@@ -224,7 +226,7 @@ light = true
 background = "#fbf1c7"
 foreground = "#3c3836"
 cursor = "#3c3836"
-selection = "#d5c4a1"
+selection = "#3c3836"
 palette = [
     "#fbf1c7", "#cc241d", "#98971a", "#d79921", "#458588", "#b16286", "#689d6a", "#7c6f64",
     "#928374", "#9d0006", "#79740e", "#b57614", "#076678", "#8f3f71", "#427b58", "#3c3836",
@@ -248,10 +250,10 @@ light = false
 background = "#24283b"
 foreground = "#c0caf5"
 cursor = "#c0caf5"
-selection = "#2e3c64"
+selection = "#364a82"
 palette = [
     "#1d202f", "#f7768e", "#9ece6a", "#e0af68", "#7aa2f7", "#bb9af7", "#7dcfff", "#a9b1d6",
-    "#414868", "#f7768e", "#9ece6a", "#e0af68", "#7aa2f7", "#bb9af7", "#7dcfff", "#c0caf5",
+    "#4e5575", "#f7768e", "#9ece6a", "#e0af68", "#7aa2f7", "#bb9af7", "#7dcfff", "#c0caf5",
 ]
 
 [[theme]]
@@ -260,7 +262,7 @@ light = true
 background = "#e1e2e7"
 foreground = "#3760bf"
 cursor = "#3760bf"
-selection = "#b7c1e3"
+selection = "#99a7df"
 palette = [
     "#e9e9ed", "#f52a65", "#587539", "#8c6c3e", "#2e7de9", "#9854f1", "#007197", "#6172b0",
     "#a1a6c5", "#f52a65", "#587539", "#8c6c3e", "#2e7de9", "#9854f1", "#007197", "#3760bf",
@@ -269,25 +271,25 @@ palette = [
 [[theme]]
 name = "One Dark"
 light = false
-background = "#282c34"
+background = "#21252b"
 foreground = "#abb2bf"
-cursor = "#528bff"
-selection = "#3e4451"
+cursor = "#abb2bf"
+selection = "#323844"
 palette = [
-    "#282c34", "#e06c75", "#98c379", "#e5c07b", "#61afef", "#c678dd", "#56b6c2", "#abb2bf",
-    "#5c6370", "#e06c75", "#98c379", "#e5c07b", "#61afef", "#c678dd", "#56b6c2", "#ffffff",
+    "#21252b", "#e06c75", "#98c379", "#e5c07b", "#61afef", "#c678dd", "#56b6c2", "#abb2bf",
+    "#767676", "#e06c75", "#98c379", "#e5c07b", "#61afef", "#c678dd", "#56b6c2", "#abb2bf",
 ]
 
 [[theme]]
 name = "One Light"
 light = true
-background = "#fafafa"
-foreground = "#383a42"
-cursor = "#526fff"
-selection = "#e5e5e6"
+background = "#f9f9f9"
+foreground = "#2a2c33"
+cursor = "#bbbbbb"
+selection = "#d0dffc"
 palette = [
-    "#383a42", "#e45649", "#50a14f", "#c18401", "#4078f2", "#a626a4", "#0184bc", "#a0a1a7",
-    "#4f525e", "#e45649", "#50a14f", "#c18401", "#4078f2", "#a626a4", "#0184bc", "#ffffff",
+    "#000000", "#de3e35", "#3f953a", "#d2b67c", "#2f5af3", "#950095", "#3f953a", "#bbbbbb",
+    "#000000", "#de3e35", "#3f953a", "#d2b67c", "#2f5af3", "#a00095", "#3f953a", "#ffffff",
 ]
 
 [[theme]]
@@ -296,7 +298,7 @@ light = false
 background = "#0d1117"
 foreground = "#e6edf3"
 cursor = "#2f81f7"
-selection = "#264f78"
+selection = "#e6edf3"
 palette = [
     "#484f58", "#ff7b72", "#3fb950", "#d29922", "#58a6ff", "#bc8cff", "#39c5cf", "#b1bac4",
     "#6e7681", "#ffa198", "#56d364", "#e3b341", "#79c0ff", "#d2a8ff", "#56d4dd", "#ffffff",
@@ -308,7 +310,7 @@ light = true
 background = "#ffffff"
 foreground = "#1f2328"
 cursor = "#0969da"
-selection = "#add6ff"
+selection = "#1f2328"
 palette = [
     "#24292f", "#cf222e", "#116329", "#4d2d00", "#0969da", "#8250df", "#1b7c83", "#6e7781",
     "#57606a", "#a40e26", "#1a7f37", "#633c01", "#218bff", "#a475f9", "#3192aa", "#8c959f",
@@ -343,7 +345,7 @@ name = "Rosé Pine"
 light = false
 background = "#191724"
 foreground = "#e0def4"
-cursor = "#524f67"
+cursor = "#e0def4"
 selection = "#403d52"
 palette = [
     "#26233a", "#eb6f92", "#31748f", "#f6c177", "#9ccfd8", "#c4a7e7", "#ebbcba", "#e0def4",
@@ -355,7 +357,7 @@ name = "Rosé Pine Moon"
 light = false
 background = "#232136"
 foreground = "#e0def4"
-cursor = "#56526e"
+cursor = "#e0def4"
 selection = "#44415a"
 palette = [
     "#393552", "#eb6f92", "#3e8fb0", "#f6c177", "#9ccfd8", "#c4a7e7", "#ea9a97", "#e0def4",
@@ -367,7 +369,7 @@ name = "Rosé Pine Dawn"
 light = true
 background = "#faf4ed"
 foreground = "#575279"
-cursor = "#9893a5"
+cursor = "#575279"
 selection = "#dfdad9"
 palette = [
     "#f2e9e1", "#b4637a", "#286983", "#ea9d34", "#56949f", "#907aa9", "#d7827e", "#575279",
@@ -377,25 +379,25 @@ palette = [
 [[theme]]
 name = "Everforest Dark"
 light = false
-background = "#2d353b"
+background = "#232a2e"
 foreground = "#d3c6aa"
-cursor = "#d3c6aa"
-selection = "#475258"
+cursor = "#e69875"
+selection = "#543a48"
 palette = [
-    "#475258", "#e67e80", "#a7c080", "#dbbc7f", "#7fbbb3", "#d699b6", "#83c092", "#d3c6aa",
-    "#859289", "#e67e80", "#a7c080", "#dbbc7f", "#7fbbb3", "#d699b6", "#83c092", "#d3c6aa",
+    "#7a8478", "#e67e80", "#a7c080", "#dbbc7f", "#7fbbb3", "#d699b6", "#83c092", "#f2efdf",
+    "#a6b0a0", "#f85552", "#8da101", "#dfa000", "#3a94c5", "#df69ba", "#35a77c", "#fffbef",
 ]
 
 [[theme]]
 name = "Everforest Light"
 light = true
-background = "#fdf6e3"
+background = "#efebd4"
 foreground = "#5c6a72"
-cursor = "#5c6a72"
-selection = "#e6e2cc"
+cursor = "#f57d26"
+selection = "#eaedc8"
 palette = [
-    "#5c6a72", "#f85552", "#8da101", "#dfa000", "#3a94c5", "#df69ba", "#35a77c", "#dfddc8",
-    "#829181", "#f85552", "#8da101", "#dfa000", "#3a94c5", "#df69ba", "#35a77c", "#f4f0d9",
+    "#7a8478", "#e67e80", "#9ab373", "#c1a266", "#7fbbb3", "#d699b6", "#83c092", "#b2af9f",
+    "#a6b0a0", "#f85552", "#8da101", "#dfa000", "#3a94c5", "#df69ba", "#35a77c", "#fffbef",
 ]
 
 [[theme]]
@@ -403,8 +405,8 @@ name = "Kanagawa Wave"
 light = false
 background = "#1f1f28"
 foreground = "#dcd7ba"
-cursor = "#c8c093"
-selection = "#2d4f67"
+cursor = "#dcd7ba"
+selection = "#dcd7ba"
 palette = [
     "#090618", "#c34043", "#76946a", "#c0a36e", "#7e9cd8", "#957fb8", "#6a9589", "#c8c093",
     "#727169", "#e82424", "#98bb6c", "#e6c384", "#7fb4ca", "#938aa9", "#7aa89f", "#dcd7ba",
@@ -416,7 +418,7 @@ light = true
 background = "#f2ecbc"
 foreground = "#545464"
 cursor = "#43436c"
-selection = "#c9cbd1"
+selection = "#545464"
 palette = [
     "#1f1f28", "#c84053", "#6f894e", "#77713f", "#4d699b", "#b35b79", "#597b75", "#545464",
     "#8a8980", "#d7474b", "#6e915f", "#836f4a", "#6693bf", "#624c83", "#5e857a", "#43436c",
@@ -428,9 +430,9 @@ light = false
 background = "#0b0e14"
 foreground = "#bfbdb6"
 cursor = "#e6b450"
-selection = "#273747"
+selection = "#409fff"
 palette = [
-    "#1e232b", "#ea6c73", "#7fd962", "#f9af4f", "#53bdfa", "#cda1fa", "#90e1c6", "#c7c7c7",
+    "#11151c", "#ea6c73", "#7fd962", "#f9af4f", "#53bdfa", "#cda1fa", "#90e1c6", "#c7c7c7",
     "#686868", "#f07178", "#aad94c", "#ffb454", "#59c2ff", "#d2a6ff", "#95e6cb", "#ffffff",
 ]
 
@@ -440,7 +442,7 @@ light = false
 background = "#1f2430"
 foreground = "#cccac2"
 cursor = "#ffcc66"
-selection = "#33415e"
+selection = "#409fff"
 palette = [
     "#171b24", "#ed8274", "#87d96c", "#facc6e", "#6dcbfa", "#dabafa", "#90e1c6", "#c7c7c7",
     "#686868", "#f28779", "#d5ff80", "#ffd173", "#73d0ff", "#dfbfff", "#95e6cb", "#ffffff",
@@ -449,10 +451,10 @@ palette = [
 [[theme]]
 name = "Ayu Light"
 light = true
-background = "#fcfcfc"
+background = "#f8f9fa"
 foreground = "#5c6166"
 cursor = "#ffaa33"
-selection = "#d1e4f4"
+selection = "#035bd6"
 palette = [
     "#000000", "#ea6c6d", "#6cbf43", "#eca944", "#3199e1", "#9e75c7", "#46ba94", "#bababa",
     "#686868", "#f07171", "#86b300", "#f2ae49", "#399ee6", "#a37acc", "#4cbf99", "#d1d1d1",
@@ -466,8 +468,8 @@ foreground = "#c5c8c6"
 cursor = "#c5c8c6"
 selection = "#373b41"
 palette = [
-    "#1d1f21", "#cc6666", "#b5bd68", "#f0c674", "#81a2be", "#b294bb", "#8abeb7", "#c5c8c6",
-    "#969896", "#cc6666", "#b5bd68", "#f0c674", "#81a2be", "#b294bb", "#8abeb7", "#ffffff",
+    "#000000", "#cc6666", "#b5bd68", "#f0c674", "#81a2be", "#b294bb", "#8abeb7", "#ffffff",
+    "#4c4c4c", "#cc6666", "#b5bd68", "#f0c674", "#81a2be", "#b294bb", "#8abeb7", "#ffffff",
 ]
 
 [[theme]]
@@ -478,8 +480,8 @@ foreground = "#4d4d4c"
 cursor = "#4d4d4c"
 selection = "#d6d6d6"
 palette = [
-    "#000000", "#c82829", "#718c00", "#eab700", "#4271ae", "#8959a8", "#3e999f", "#d6d6d6",
-    "#8e908c", "#c82829", "#718c00", "#eab700", "#4271ae", "#8959a8", "#3e999f", "#ffffff",
+    "#000000", "#c82829", "#718c00", "#eab700", "#4271ae", "#8959a8", "#3e999f", "#bfbfbf",
+    "#000000", "#c82829", "#718c00", "#eab700", "#4271ae", "#8959a8", "#3e999f", "#ffffff",
 ]
 
 [[theme]]
@@ -504,4 +506,64 @@ selection = "#dccbf6"
 palette = [
     "#2a0f52", "#d0003a", "#0a8f63", "#9a7d00", "#3d5fc4", "#8a008a", "#0b8a94", "#c9bfe0",
     "#6b5a8f", "#c44100", "#138a52", "#8a7a00", "#5d31ed", "#b0189f", "#00808a", "#f4f0fc",
+]
+
+[[theme]]
+name = "Gruvbox Dark Hard"
+light = false
+background = "#1d2021"
+foreground = "#ebdbb2"
+cursor = "#ebdbb2"
+selection = "#665c54"
+palette = [
+    "#1d2021", "#cc241d", "#98971a", "#d79921", "#458588", "#b16286", "#689d6a", "#a89984",
+    "#928374", "#fb4934", "#b8bb26", "#fabd2f", "#83a598", "#d3869b", "#8ec07c", "#ebdbb2",
+]
+
+[[theme]]
+name = "Gruvbox Light Hard"
+light = true
+background = "#f9f5d7"
+foreground = "#3c3836"
+cursor = "#3c3836"
+selection = "#3c3836"
+palette = [
+    "#f9f5d7", "#cc241d", "#98971a", "#d79921", "#458588", "#b16286", "#689d6a", "#7c6f64",
+    "#928374", "#9d0006", "#79740e", "#b57614", "#076678", "#8f3f71", "#427b58", "#3c3836",
+]
+
+[[theme]]
+name = "Tokyo Night Moon"
+light = false
+background = "#222436"
+foreground = "#c8d3f5"
+cursor = "#c8d3f5"
+selection = "#2d3f76"
+palette = [
+    "#1b1d2b", "#ff757f", "#c3e88d", "#ffc777", "#82aaff", "#c099ff", "#86e1fc", "#828bb8",
+    "#444a73", "#ff757f", "#c3e88d", "#ffc777", "#82aaff", "#c099ff", "#86e1fc", "#c8d3f5",
+]
+
+[[theme]]
+name = "GitHub Dark Dimmed"
+light = false
+background = "#22272e"
+foreground = "#adbac7"
+cursor = "#539bf5"
+selection = "#adbac7"
+palette = [
+    "#545d68", "#f47067", "#57ab5a", "#c69026", "#539bf5", "#b083f0", "#39c5cf", "#909dab",
+    "#636e7b", "#ff938a", "#6bc46d", "#daaa3f", "#6cb6ff", "#dcbdfb", "#56d4dd", "#cdd9e5",
+]
+
+[[theme]]
+name = "Kanagawa Dragon"
+light = false
+background = "#181616"
+foreground = "#c5c9c5"
+cursor = "#c8c093"
+selection = "#c5c9c5"
+palette = [
+    "#0d0c0c", "#c4746e", "#8a9a7b", "#c4b28a", "#8ba4b0", "#a292a3", "#8ea4a2", "#c8c093",
+    "#a6a69c", "#e46876", "#87a987", "#e6c384", "#7fb4ca", "#938aa9", "#7aa89f", "#c5c9c5",
 ]

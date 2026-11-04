@@ -162,7 +162,7 @@ pub fn term_themes(light: bool) -> Vec<crate::sheet::ThemeCard> {
     themes
         .into_iter()
         .map(|theme| crate::sheet::ThemeCard {
-            dots: [1, 3, 2, 4].map(|at| theme.palette[at]),
+            dots: [theme.foreground, theme.palette[4], theme.palette[5], theme.palette[2]],
             name: theme.name,
             back: theme.background,
             ink: theme.foreground,

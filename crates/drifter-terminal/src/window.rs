@@ -37,6 +37,7 @@ use crate::pty;
 const START: (u32, u32) = (960, 600);
 const APP_ID: &str = "drifter-terminal";
 const SETTINGS_APP: &str = "drifter-settings";
+const RECOLOR: Duration = Duration::from_millis(1000);
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 const LOOK_AGAIN: Duration = Duration::from_secs(1);
 const RELOAD: Duration = Duration::from_secs(60);
@@ -92,6 +93,8 @@ struct Term {
     lit: Option<Glide>,
     menu: Option<Menu>,
     blank_click: Option<Instant>,
+    shown: Option<Image>,
+    fade: Option<(Image, Instant)>,
 }
 
 fn mix(a: [u8; 3], b: [u8; 3], t: f64) -> [u8; 3] {
@@ -200,10 +203,12 @@ pub fn run() -> Result<(), String> {
         lit: None,
         menu: None,
         blank_click: None,
+        shown: None,
+        fade: None,
     };
 
     while !term.exit {
-        let busy = term.lit.as_ref().is_some_and(Glide::busy);
+        let busy = term.lit.as_ref().is_some_and(Glide::busy) || term.fade.is_some();
         let wait = if busy { Duration::from_millis(16) } else { Duration::from_millis(200) };
         events.dispatch(Some(wait), &mut term).map_err(|e| format!("event loop: {e}"))?;
         term.follow_config();
@@ -211,7 +216,7 @@ pub fn run() -> Result<(), String> {
             if std::mem::take(&mut term.resized) {
                 term.resize_panes();
             }
-            let busy = term.lit.as_ref().is_some_and(Glide::busy);
+            let busy = term.lit.as_ref().is_some_and(Glide::busy) || term.fade.is_some();
             if std::mem::take(&mut term.needs_draw) || busy {
                 term.draw();
             }
@@ -311,6 +316,10 @@ impl Term {
         let regrid = fresh.font != self.cfg.font
             || fresh.font_px != self.cfg.font_px
             || fresh.pad != self.cfg.pad;
+        let recolor = fresh.theme != self.cfg.theme || fresh.palette != self.cfg.palette || fresh.cursor != self.cfg.cursor;
+        if recolor && !fresh.still {
+            self.fade = self.shown.take().map(|image| (image, Instant::now()));
+        }
         if fresh.theme != self.cfg.theme {
             for pane in &mut self.panes {
                 pane.vt.paint_with(&fresh.theme);
@@ -651,8 +660,17 @@ impl Term {
             }
         }
 
+        if let Some((old, since)) = &self.fade {
+            let t = since.elapsed().as_secs_f64() / RECOLOR.as_secs_f64();
+            if t < 1.0 && old.width == canvas.image.width && old.height == canvas.image.height {
+                canvas.stamp(old, Vec2::ZERO, 1.0 - drifter_core::motion::smooth(t));
+            } else {
+                self.fade = None;
+            }
+        }
         let image = canvas.image;
         self.show(&image);
+        self.shown = Some(image);
     }
 
     fn show(&mut self, image: &Image) {

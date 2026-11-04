@@ -41,6 +41,7 @@ pub struct Config {
     pub accent: [u8; 3],
     pub palette: Palette,
     pub theme: Theme,
+    pub still: bool,
 }
 
 const ACCENT: [u8; 3] = [0x0a, 0x7a, 0xff];
@@ -84,7 +85,7 @@ impl Config {
             opacity: f64::from(t.opacity) / 100.0,
             fg: theme.foreground,
             bg: theme.background,
-            cursor: theme.cursor.unwrap_or(accent),
+            cursor: theme.cursor.unwrap_or(theme.foreground),
             cursor_shape: match t.cursor {
                 TermCursor::Block => Cursor::Block,
                 TermCursor::Bar => Cursor::Bar,
@@ -93,6 +94,7 @@ impl Config {
             accent,
             palette: drifter_core::theme::of(style),
             theme,
+            still: whole.access.reduce_motion || whole.motion.animation == drifter_core::Animation::Off,
         }
     }
 }
