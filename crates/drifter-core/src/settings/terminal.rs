@@ -133,6 +133,8 @@ impl Model {
     }
 }
 
+pub const BUILT_IN: &str = "JetBrains Mono";
+
 pub fn mono_fonts() -> Vec<Choice> {
     let Ok(out) = std::process::Command::new("fc-list").args([":spacing=mono", "family", "color"]).output() else {
         return Vec::new();
@@ -143,9 +145,12 @@ pub fn mono_fonts() -> Vec<Choice> {
         .filter_map(|line| line.split(':').next()?.split(',').next().map(|name| name.trim().replace('\\', "")))
         .filter(|name| !name.is_empty())
         .collect();
+    names.retain(|name| name != BUILT_IN);
     names.sort_by_key(|name| name.to_lowercase());
     names.dedup();
-    names.into_iter().map(|name| Choice::new(&name, &name)).collect()
+    let mut out = vec![Choice::new(BUILT_IN, crate::lang::t("JetBrains Mono, built in"))];
+    out.extend(names.into_iter().map(|name| Choice::new(&name, &name)));
+    out
 }
 
 #[cfg(test)]
@@ -177,5 +182,8 @@ mod tests {
         assert_eq!(back.opacity, 85);
         assert_eq!(back.padding, 4);
         assert_eq!(back.font.as_deref(), Some("Source Code Pro"));
+        let mut plain = after.clone();
+        plain.choose(crate::sheet::For::TermFont, super::BUILT_IN.into());
+        assert_eq!(plain.terminal.font, None);
     }
 }
