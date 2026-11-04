@@ -29,7 +29,8 @@ use drifter_core::{Font, Image, Rect, Vec2};
 
 use crate::config::Config;
 use crate::render::Grid;
-use crate::ui::{self, Action, Lit, Menu};
+use crate::ui::{self, Action, Menu};
+use drifter_core::glide::Glide;
 use crate::vt::Vt;
 use crate::pty;
 
@@ -88,7 +89,7 @@ struct Term {
     bar: [u8; 3],
     dim: [u8; 3],
     pointer_pos: Vec2,
-    lit: Option<Lit>,
+    lit: Option<Glide>,
     menu: Option<Menu>,
     blank_click: Option<Instant>,
 }
@@ -202,7 +203,7 @@ pub fn run() -> Result<(), String> {
     };
 
     while !term.exit {
-        let busy = term.lit.as_ref().is_some_and(Lit::busy);
+        let busy = term.lit.as_ref().is_some_and(Glide::busy);
         let wait = if busy { Duration::from_millis(16) } else { Duration::from_millis(200) };
         events.dispatch(Some(wait), &mut term).map_err(|e| format!("event loop: {e}"))?;
         term.follow_config();
@@ -210,7 +211,7 @@ pub fn run() -> Result<(), String> {
             if std::mem::take(&mut term.resized) {
                 term.resize_panes();
             }
-            let busy = term.lit.as_ref().is_some_and(Lit::busy);
+            let busy = term.lit.as_ref().is_some_and(Glide::busy);
             if std::mem::take(&mut term.needs_draw) || busy {
                 term.draw();
             }
@@ -461,7 +462,7 @@ impl Term {
 
         if self.menu.is_some() && event.keysym == Keysym::Escape {
             self.menu = None;
-            Lit::aim(&mut self.lit, None);
+            Glide::aim(&mut self.lit, None, 1.0);
             self.needs_draw = true;
             return;
         }
@@ -552,7 +553,7 @@ impl Term {
 
     fn pointer_move(&mut self) {
         let target = self.hover_rect();
-        Lit::aim(&mut self.lit, target);
+        Glide::aim(&mut self.lit, target, 1.0);
         self.needs_draw = true;
     }
 
@@ -575,6 +576,9 @@ impl Term {
     }
 
     fn click(&mut self, button: u32) {
+        if button == BTN_LEFT {
+            Glide::press(&mut self.lit);
+        }
         if let Some(menu) = self.menu.take() {
             if menu.rect.contains(self.pointer_pos) && button == BTN_LEFT {
                 let inside = self.pointer_pos - menu.rect.origin;
@@ -584,7 +588,7 @@ impl Term {
                     self.apply(action);
                 }
             }
-            Lit::aim(&mut self.lit, None);
+            Glide::aim(&mut self.lit, None, 1.0);
             self.needs_draw = true;
             return;
         }
@@ -774,7 +778,7 @@ impl PointerHandler for Term {
             match event.kind {
                 PointerEventKind::Motion { .. } | PointerEventKind::Enter { .. } => self.pointer_move(),
                 PointerEventKind::Leave { .. } => {
-                    Lit::aim(&mut self.lit, None);
+                    Glide::aim(&mut self.lit, None, 1.0);
                     self.needs_draw = true;
                 }
                 PointerEventKind::Press { button, .. } => self.click(button),

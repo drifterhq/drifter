@@ -5871,6 +5871,27 @@ mod tests {
     }
 
     #[test]
+    fn the_hover_glide_finds_sidebar_items_segments_and_buttons() {
+        let look = Look::default();
+        let model = model(&Config::default());
+        let at = |want: Section| Section::ALL.iter().position(|s| *s == want).unwrap();
+        let top = look.item_rect_in(&Section::ALL, at(Section::TopBar));
+        assert_eq!(look.lit_target(SIZE, Section::Desktop, &model, 0.0, top.center(), &small()), Some(top));
+        let here = look.item_rect_in(&Section::ALL, at(Section::Desktop));
+        assert_eq!(look.lit_target(SIZE, Section::Desktop, &model, 0.0, here.center(), &small()), None);
+        let groups = model.groups(Section::Terminal);
+        let placed = look.place(SIZE, Section::Terminal, &groups, 0.0, &small());
+        let colors = placed[0].rows[0];
+        let dark = look.segment_rect(colors, 3, 1);
+        assert_eq!(look.lit_target(SIZE, Section::Terminal, &model, 0.0, dark.center(), &small()), Some(dark));
+        let auto = look.segment_rect(colors, 3, 0);
+        assert_eq!(look.lit_target(SIZE, Section::Terminal, &model, 0.0, auto.center(), &small()), None);
+        let theme = placed[0].rows[1];
+        let choose = look.mark_rects(theme, &[Mark::Text(crate::lang::t("Choose"))])[0];
+        assert_eq!(look.lit_target(SIZE, Section::Terminal, &model, 0.0, choose.center(), &small()), Some(choose));
+    }
+
+    #[test]
     fn the_sidebar_scrolls_to_its_last_section_in_the_smallest_window() {
         let mut look = Look::default();
         let least = look.least();

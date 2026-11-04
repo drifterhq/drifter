@@ -1903,6 +1903,23 @@ mod tests {
     }
 
     #[test]
+    fn the_hover_glide_lands_on_rows_cards_and_buttons() {
+        let sheet = Sheet::picker(For::Dock, apps());
+        let list = frame(SIZE, &sheet).list;
+        let lit = sheet.lit_target(SIZE, list.origin + Vec2::new(30.0, ROW * 1.5)).unwrap();
+        assert!(lit.contains(list.origin + Vec2::new(30.0, ROW * 1.5)) && lit.size.y < ROW);
+        let cancel = frame(SIZE, &sheet).cancel;
+        assert_eq!(sheet.lit_target(SIZE, cancel.center()), Some(cancel));
+        let card = |name: &str| ThemeCard { name: name.into(), back: [0; 3], ink: [255; 3], dots: [[9; 3]; 4] };
+        let themes = Sheet::themes(For::TermDark, vec![card("A"), card("B")], "A");
+        let list = frame(SIZE, &themes).list;
+        let cells = theme_cells(list.size.x, 2);
+        assert_eq!(themes.lit_target(SIZE, list.origin + cells[0].center()), None);
+        assert!(themes.lit_target(SIZE, list.origin + cells[1].center()).is_some());
+        assert_eq!(themes.hit(SIZE, list.origin + cells[1].center()), Some(Pick::Choice("B".into())));
+    }
+
+    #[test]
     fn a_click_on_a_row_picks_that_app() {
         let sheet = Sheet::picker(For::Login, apps());
         let list = frame(SIZE, &sheet).list;

@@ -1,7 +1,4 @@
-use std::time::Instant;
-
 use drifter_core::menu::{Item, Look};
-use drifter_core::motion::{between, smooth};
 use drifter_core::{Font, Image, Rect, Vec2};
 
 use crate::config::Edge;
@@ -9,11 +6,6 @@ use crate::config::Edge;
 pub const STRIP: f64 = 36.0;
 pub const CARD_MARGIN: f64 = 0.0;
 pub const CARD_RADIUS: f64 = 10.0;
-const SLIDE: f64 = 0.12;
-const FADE: f64 = 0.10;
-const LIT_ALPHA: f64 = 0.08;
-const LIT_RADIUS: f64 = 8.0;
-const TAB_RADIUS: f64 = 7.0;
 const TAB_GAP: f64 = 4.0;
 const TAB_MIN: f64 = 96.0;
 const TAB_MAX: f64 = 220.0;
@@ -27,64 +19,6 @@ pub enum Action {
     Paste,
     Settings,
     SelectTab(usize),
-}
-
-pub struct Lit {
-    from: Rect,
-    to: Rect,
-    since: Instant,
-    alpha: (f64, f64, Instant),
-}
-
-impl Lit {
-    pub fn aim(slot: &mut Option<Lit>, target: Option<Rect>) {
-        let now = Instant::now();
-        match (target, slot.as_mut()) {
-            (Some(rect), Some(lit)) => {
-                if lit.to != rect {
-                    lit.from = lit.current();
-                    lit.to = rect;
-                    lit.since = now;
-                }
-                if lit.alpha.1 < 1.0 {
-                    lit.alpha = (lit.shown(), 1.0, now);
-                }
-            }
-            (Some(rect), None) => {
-                *slot = Some(Lit { from: rect, to: rect, since: now, alpha: (0.0, 1.0, now) });
-            }
-            (None, Some(lit)) => {
-                if lit.alpha.1 > 0.0 {
-                    lit.alpha = (lit.shown(), 0.0, now);
-                }
-            }
-            (None, None) => {}
-        }
-    }
-
-    fn shown(&self) -> f64 {
-        let t = (self.alpha.2.elapsed().as_secs_f64() / FADE).min(1.0);
-        self.alpha.0 + (self.alpha.1 - self.alpha.0) * smooth(t)
-    }
-
-    fn current(&self) -> Rect {
-        let t = (self.since.elapsed().as_secs_f64() / SLIDE).min(1.0);
-        between(self.from, self.to, smooth(t))
-    }
-
-    pub fn draw(&self, canvas: &mut drifter_core::paint::Canvas, ink: [u8; 3]) {
-        let a = self.shown();
-        if a <= 0.001 {
-            return;
-        }
-        canvas.round_rect(self.current(), LIT_RADIUS, ink, a * LIT_ALPHA);
-    }
-
-    pub fn busy(&self) -> bool {
-        self.since.elapsed().as_secs_f64() < SLIDE
-            || self.alpha.2.elapsed().as_secs_f64() < FADE
-            || self.shown() > 0.001 && self.alpha.1 > 0.0
-    }
 }
 
 pub fn strip_rect(edge: Edge, size: (u32, u32)) -> Rect {
