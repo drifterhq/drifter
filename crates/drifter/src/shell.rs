@@ -71,6 +71,7 @@ pub struct Window {
     pub listed: Option<smithay::wayland::foreign_toplevel_list::ForeignToplevelHandle>,
     pub modal: bool,
     pub lit: f64,
+    pub stamp: u64,
 }
 
 #[derive(Default)]
@@ -99,6 +100,7 @@ impl CompositorHandler for State {
 
     fn new_surface(&mut self, surface: &WlSurface) {
         self.wait_for_buffers(surface);
+        self.track_surface(surface);
     }
 
     fn commit(&mut self, surface: &WlSurface) {
@@ -121,6 +123,7 @@ impl CompositorHandler for State {
         while let Some(parent) = get_parent(&root) {
             root = parent;
         }
+        self.stamp_window(&root);
         self.settle_window(&root);
         self.kick_now();
     }
@@ -261,6 +264,7 @@ impl XdgShellHandler for State {
             listed: None,
             modal: false,
             lit: 0.0,
+            stamp: 0,
         });
     }
 

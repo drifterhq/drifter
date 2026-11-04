@@ -10,6 +10,26 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Clipboard tools: data-control (wlr and ext) lets clipboard managers such as
+  cliphist, clipman and `wl-paste --watch` read and set the clipboard and the
+  primary selection. Sandboxed apps cannot use it.
+- Screen capture: ext-image-copy-capture shares a whole screen, one window,
+  or the pointer alone, into shared-memory or GPU buffers. New screen-share
+  portals use it. The lock screen is never captured.
+- Screen power: output-power-management lets tools such as wlopm turn one
+  screen off and on. Moving the mouse does not wake a screen a tool turned
+  off.
+- Gamma tables: gamma-control lets tools such as gammastep and wlsunset set
+  a screen's colors. Drifter's night light and color profile step aside while
+  a tool holds the screen and come back when it lets go.
+- Frame pacing: fifo and commit-timing let Vulkan and Mesa games pace frames
+  to the screen.
+- VR headsets: drm-lease lends a headset to VR apps such as Monado and
+  SteamVR. Drifter no longer shows a headset as a desktop monitor.
+- Fades: alpha-modifier lets video players fade their own surfaces.
+- Settings > Displays > Adaptive sync has a third choice, Games and video. It
+  turns adaptive sync on only while a full-screen app says it is a game or a
+  video (content-type).
 - Terminal tabs: drag a tab out of the window to give it its own window. The
   shell keeps running. Shift+click picks a run of tabs and Ctrl+click picks
   one more; drag the picked tabs out to move them together, or drop them in

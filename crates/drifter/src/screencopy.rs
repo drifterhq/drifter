@@ -196,12 +196,12 @@ pub fn write_rows(out: &mut [u8], stride: usize, region: Rect, full_w: usize, rg
 }
 
 pub fn by_hand(modifier: DrmModifier) -> bool {
-    matches!(modifier, DrmModifier::Linear | DrmModifier::Invalid)
+    modifier == DrmModifier::Linear
 }
 
 pub fn write_dmabuf(dmabuf: &Dmabuf, screen: Vec2, rgba: &[u8]) -> Result<(), String> {
     let format = dmabuf.format();
-    if !by_hand(format.modifier) {
+    if !matches!(format.modifier, DrmModifier::Linear | DrmModifier::Invalid) {
         return Err(format!(
             "a screen copy buffer is tiled ({:?}) and pixman cannot draw into it",
             format.modifier

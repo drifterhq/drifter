@@ -11,6 +11,7 @@ impl State {
     }
 
     pub(super) fn watch_night(&mut self) {
+        self.apply_gammas();
         let Some(drm) = self.drm.as_ref().filter(|_| self.active) else {
             return;
         };
@@ -26,6 +27,9 @@ impl State {
         };
         let white = drifter_core::night::white_point(wanted);
         for index in 0..self.heads.len() {
+            if self.wayland.extras.gammas.owns(&self.heads[index].output) {
+                continue;
+            }
             let name = self.heads[index].name.clone();
             let own = self.monitors.iter().find(|each| each.name == name);
             let chosen = own.and_then(|each| each.profile.clone()).filter(|path| !path.trim().is_empty());
@@ -139,6 +143,9 @@ impl State {
             if let Err(error) = head.compositor.clear() {
                 log!("drifter: cannot turn {} off: {error}", head.name);
             }
+            if !head.asleep {
+                self.wayland.extras.powers.tell(&head.output, false);
+            }
         }
     }
 
@@ -148,12 +155,135 @@ impl State {
         }
         self.dark = false;
         for head in &mut self.heads {
+            if head.asleep {
+                continue;
+            }
             head.awaiting = false;
             if let Err(error) = head.compositor.reset_state() {
                 log!("drifter: cannot turn {} on: {error}", head.name);
             }
+            self.wayland.extras.powers.tell(&head.output, true);
         }
         self.kick_now();
+    }
+
+    pub fn gamma_size(&self, output: &smithay::output::Output) -> Option<usize> {
+        use smithay::reexports::drm::control::Device as _;
+        let drm = self.drm.as_ref()?;
+        let head = self.heads.iter().find(|head| &head.output == output)?;
+        if head.compositor.is_offscreen() || self.monitors.iter().any(|each| each.name == head.name && each.hdr) {
+            return None;
+        }
+        let size = drm.get_crtc(head.crtc).ok()?.gamma_length() as usize;
+        (size > 1).then_some(size)
+    }
+
+    pub fn apply_gammas(&mut self) {
+        use smithay::reexports::drm::control::Device as _;
+        if !self.active {
+            return;
+        }
+        let Some(drm) = self.drm.as_ref() else {
+            return;
+        };
+        let mut broken = Vec::new();
+        for (index, gamma) in self.wayland.extras.gammas.held.iter_mut().enumerate() {
+            let head = self.heads.iter().find(|head| head.output == gamma.output);
+            let hdr = head.is_some_and(|head| self.monitors.iter().any(|each| each.name == head.name && each.hdr));
+            let Some(head) = head.filter(|_| !hdr) else {
+                broken.push(index);
+                continue;
+            };
+            if gamma.applied {
+                continue;
+            }
+            let Some(table) = gamma.table.as_ref() else {
+                continue;
+            };
+            let found = stages(drm, head.crtc);
+            if let Some((degamma, _)) = found.degamma {
+                let _ = set_blob(drm, head.crtc, degamma, None);
+            }
+            if let Some(ctm) = found.ctm {
+                let _ = set_blob(drm, head.crtc, ctm, None);
+            }
+            let (red, rest) = table.split_at(gamma.size);
+            let (green, blue) = rest.split_at(gamma.size);
+            match drm.set_gamma(head.crtc, red, green, blue) {
+                Ok(()) => gamma.applied = true,
+                Err(error) => {
+                    log!("drifter: a gamma tool's colors on {} were refused: {error}", head.name);
+                    broken.push(index);
+                }
+            }
+        }
+        if broken.is_empty() {
+            return;
+        }
+        let mut dropped = Vec::new();
+        for index in broken.into_iter().rev() {
+            dropped.push(self.wayland.extras.gammas.held.remove(index));
+        }
+        for gamma in &dropped {
+            gamma.control.failed();
+            if let Some(head) = self.heads.iter_mut().find(|head| head.output == gamma.output) {
+                head.warmth = None;
+            }
+        }
+        self.watch_night();
+    }
+
+    pub fn restore_colors(&mut self, output: &smithay::output::Output) {
+        if let Some(head) = self.heads.iter_mut().find(|head| &head.output == output) {
+            head.warmth = None;
+        }
+        self.watch_night();
+    }
+
+    pub fn output_lit(&self, output: &smithay::output::Output) -> Option<bool> {
+        self.heads
+            .iter()
+            .find(|head| &head.output == output)
+            .map(|head| !self.dark && !head.asleep)
+    }
+
+    pub fn set_output_power(&mut self, output: &smithay::output::Output, on: bool) -> bool {
+        let Some(at) = self.heads.iter().position(|head| &head.output == output) else {
+            return false;
+        };
+        if self.heads[at].asleep == !on {
+            if on && self.dark {
+                self.last_input = Instant::now();
+                self.wake();
+            }
+            return true;
+        }
+        let head = &mut self.heads[at];
+        head.asleep = !on;
+        head.awaiting = false;
+        let changed = match on {
+            true => head.compositor.reset_state(),
+            false => head.compositor.clear(),
+        };
+        if let Err(error) = changed {
+            log!("drifter: cannot turn {} {}: {error}", head.name, if on { "on" } else { "off" });
+        }
+        match (on, self.dark) {
+            (true, true) => {
+                self.last_input = Instant::now();
+                self.wake();
+            }
+            (true, false) => {
+                self.wayland.extras.powers.tell(output, true);
+                self.kick_now();
+            }
+            (false, dark) => {
+                if !dark {
+                    self.wayland.extras.powers.tell(output, false);
+                }
+            }
+        }
+        true
     }
 }
 

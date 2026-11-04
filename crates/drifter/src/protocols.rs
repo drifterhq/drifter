@@ -59,6 +59,12 @@ use smithay::wayland::shell::xdg::ToplevelSurface;
 use smithay::wayland::shell::xdg::dialog::{XdgDialogHandler, XdgDialogState};
 use smithay::wayland::single_pixel_buffer::SinglePixelBufferState;
 use smithay::wayland::xdg_foreign::{XdgForeignHandler, XdgForeignState};
+use smithay::wayland::alpha_modifier::AlphaModifierState;
+use smithay::wayland::commit_timing::CommitTimingManagerState;
+use smithay::wayland::content_type::ContentTypeState;
+use smithay::wayland::fifo::FifoManagerState;
+use smithay::wayland::selection::ext_data_control::DataControlState as ExtDataControlState;
+use smithay::wayland::selection::wlr_data_control::DataControlState as WlrDataControlState;
 use smithay::reexports::wayland_server::Client;
 use smithay::wayland::xdg_activation::{
     XdgActivationHandler, XdgActivationState, XdgActivationToken, XdgActivationTokenData,
@@ -71,7 +77,8 @@ use smithay::{
     delegate_idle_notify, delegate_keyboard_shortcuts_inhibit, delegate_session_lock,
     delegate_virtual_keyboard_manager, delegate_drm_syncobj, delegate_presentation,
     delegate_security_context, delegate_single_pixel_buffer, delegate_xdg_dialog,
-    delegate_xdg_foreign,
+    delegate_xdg_foreign, delegate_alpha_modifier, delegate_commit_timing, delegate_content_type,
+    delegate_data_control, delegate_ext_data_control, delegate_fifo,
 };
 
 use crate::render::State;
@@ -112,6 +119,20 @@ pub struct Extras {
     _security: SecurityContextState,
     _single_pixel: SinglePixelBufferState,
     _tearing: smithay::reexports::wayland_server::backend::GlobalId,
+    wlr_data_control: WlrDataControlState,
+    ext_data_control: ExtDataControlState,
+    _alpha: AlphaModifierState,
+    _content_type: ContentTypeState,
+    _fifo: FifoManagerState,
+    _commit_timing: CommitTimingManagerState,
+    pub drm_lease: Option<smithay::wayland::drm_lease::DrmLeaseState>,
+    pub leases: Vec<smithay::wayland::drm_lease::DrmLease>,
+    pub powers: crate::output_power::Powers,
+    _powers_global: smithay::reexports::wayland_server::backend::GlobalId,
+    pub gammas: crate::gamma::Gammas,
+    _gamma_global: smithay::reexports::wayland_server::backend::GlobalId,
+    pub copies: crate::image_copy::Copies,
+    _copy_globals: crate::image_copy::Globals,
 }
 
 pub fn trusted(client: &Client) -> bool {
@@ -124,7 +145,22 @@ pub fn start(
     handle: &DisplayHandle,
     events: smithay::reexports::calloop::LoopHandle<'static, State>,
 ) -> Extras {
+    let primary = PrimarySelectionState::new::<State>(handle);
     Extras {
+        wlr_data_control: WlrDataControlState::new::<State, _>(handle, Some(&primary), trusted),
+        ext_data_control: ExtDataControlState::new::<State, _>(handle, Some(&primary), trusted),
+        _alpha: AlphaModifierState::new::<State>(handle),
+        _content_type: ContentTypeState::new::<State>(handle),
+        _fifo: FifoManagerState::new::<State>(handle),
+        _commit_timing: CommitTimingManagerState::new::<State>(handle),
+        drm_lease: None,
+        leases: Vec::new(),
+        powers: crate::output_power::Powers::default(),
+        _powers_global: crate::output_power::global(handle),
+        gammas: crate::gamma::Gammas::default(),
+        _gamma_global: crate::gamma::global(handle),
+        copies: crate::image_copy::Copies::default(),
+        _copy_globals: crate::image_copy::globals(handle),
         idle: IdleNotifierState::new(handle, events),
         toplevels: ForeignToplevelListState::new_with_filter::<State>(handle, trusted),
         shortcuts: KeyboardShortcutsInhibitState::new::<State>(handle),
@@ -132,7 +168,7 @@ pub fn start(
         _virtual_keyboard: VirtualKeyboardManagerState::new::<State, _>(handle, trusted),
         dmabuf: DmabufState::new(),
         dmabuf_global: None,
-        primary: PrimarySelectionState::new::<State>(handle),
+        primary,
         activation: XdgActivationState::new::<State>(handle),
         layers: WlrLayerShellState::new_with_filter::<State, _>(handle, trusted),
         inhibitors: Vec::new(),
@@ -452,6 +488,24 @@ delegate_xdg_foreign!(State);
 delegate_xdg_dialog!(State);
 delegate_security_context!(State);
 delegate_single_pixel_buffer!(State);
+delegate_data_control!(State);
+delegate_ext_data_control!(State);
+delegate_alpha_modifier!(State);
+delegate_content_type!(State);
+delegate_fifo!(State);
+delegate_commit_timing!(State);
+
+impl smithay::wayland::selection::wlr_data_control::DataControlHandler for State {
+    fn data_control_state(&self) -> &WlrDataControlState {
+        &self.wayland.extras.wlr_data_control
+    }
+}
+
+impl smithay::wayland::selection::ext_data_control::DataControlHandler for State {
+    fn data_control_state(&self) -> &ExtDataControlState {
+        &self.wayland.extras.ext_data_control
+    }
+}
 
 impl DrmSyncobjHandler for State {
     fn drm_syncobj_state(&mut self) -> Option<&mut DrmSyncobjState> {

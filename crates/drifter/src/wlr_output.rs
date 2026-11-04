@@ -479,6 +479,7 @@ pub fn plan(
         }
         if let Some(vrr) = want.vrr {
             entry.vrr = vrr;
+            entry.vrr_games &= vrr;
         }
         if let Some(scale) = want.scale {
             entry.scale = scale;

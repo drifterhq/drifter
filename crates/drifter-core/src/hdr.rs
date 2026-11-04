@@ -57,6 +57,29 @@ pub fn edid(name: &str) -> Option<Vec<u8>> {
     })
 }
 
+pub fn named(edid: &[u8]) -> Option<String> {
+    if edid.len() < 128 {
+        return None;
+    }
+    [54usize, 72, 90, 108].iter().find_map(|at| {
+        let block = &edid[*at..*at + 18];
+        if block[0] != 0 || block[1] != 0 || block[3] != 0xfc {
+            return None;
+        }
+        let text: String = block[5..]
+            .iter()
+            .take_while(|byte| **byte != 0x0a)
+            .map(|byte| char::from(*byte))
+            .collect();
+        let text = text.trim().to_string();
+        (!text.is_empty() && text.is_ascii()).then_some(text)
+    })
+}
+
+pub fn model(name: &str) -> Option<String> {
+    named(&edid(name)?)
+}
+
 pub fn screen(name: &str) -> Option<Screen> {
     read(&edid(name)?)
 }
@@ -109,6 +132,17 @@ pub fn infoframe(screen: Screen, sdr: u32) -> [u8; 32] {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_monitor_name_comes_from_its_edid() {
+        let mut edid = vec![0u8; 128];
+        edid[72..77].copy_from_slice(&[0, 0, 0, 0xfc, 0]);
+        edid[77..90].copy_from_slice(b"Index HMD\n   ");
+        assert_eq!(named(&edid).as_deref(), Some("Index HMD"));
+        assert_eq!(named(&edid[..100]), None);
+        edid[75] = 0xfe;
+        assert_eq!(named(&edid), None);
+    }
+
     use super::*;
 
     fn with_block(data_blocks: &[u8]) -> Vec<u8> {

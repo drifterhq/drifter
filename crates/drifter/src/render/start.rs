@@ -61,10 +61,11 @@ pub(super) fn wire(
                     drm.pause();
                 }
                 state.drop_held_input();
+                state.pause_leases();
             }
             SessionEvent::ActivateSession => {
                 state.active = true;
-                state.dark = false;
+                let was_dark = std::mem::replace(&mut state.dark, false);
                 state.last_input = Instant::now();
                 if state
                     .libinput
@@ -78,6 +79,7 @@ pub(super) fn wire(
                 if let Some(Err(error)) = state.drm.as_mut().map(|drm| drm.activate(blank)) {
                     log!("drifter: cannot take the screen back: {error}");
                 }
+                state.wayland.extras.gammas.unapply();
                 for head in &mut state.heads {
                     head.awaiting = false;
                     head.warmth = None;
@@ -85,8 +87,21 @@ pub(super) fn wire(
                         log!("drifter: cannot reset {}: {error}", head.name);
                     }
                     head.compositor.reset_buffers();
+                    if head.asleep
+                        && let Err(error) = head.compositor.clear()
+                    {
+                        log!("drifter: cannot keep {} off: {error}", head.name);
+                    }
                 }
                 state.scan_heads();
+                if was_dark {
+                    for head in &state.heads {
+                        if !head.asleep {
+                            state.wayland.extras.powers.tell(&head.output, true);
+                        }
+                    }
+                }
+                state.resume_leases();
                 state.last = Instant::now();
                 state.kick();
             }
@@ -433,6 +448,16 @@ pub fn open(
         next_window: 0,
         eaten: Vec::new(),
         frame_timer: false,
+        paced: Vec::new(),
+        commit_timer: None,
+        unseen_timer: false,
+        timers_queued: false,
+        unblock: Vec::new(),
+        unblock_queued: false,
+        latch_timer: false,
+        commit_stamp: 0,
+        lent_out: Vec::new(),
+        cursor_stamp: 0,
         cursor_status: smithay::input::pointer::CursorImageStatus::default_named(),
         client_cursor: smithay::input::pointer::CursorImageStatus::default_named(),
         named_cursors: std::collections::HashMap::new(),
@@ -722,6 +747,9 @@ pub fn open(
     crate::mark("apps read");
     state.set_shortcuts(&config.keys, config.input.modifier);
     state.set_places(&config.place, config.input.modifier);
+    if live {
+        state.start_leases();
+    }
     match live {
         true => state.scan_heads(),
         false => state.add_offscreen_head(virtual_size)?,

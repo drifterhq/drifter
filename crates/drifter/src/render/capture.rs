@@ -40,6 +40,15 @@ impl State {
             rotate: 0,
             flip: false,
             vrr: false,
+            vrr_wanted: (false, false),
+            vrr_refused: false,
+            vrr_idle: None,
+            vrr_modeset: None,
+            copy_stamp: 0,
+            asleep: false,
+            vblank: None,
+            on: Vec::new(),
+            latched: Vec::new(),
             mirror: None,
             place: Vec2::ZERO,
             camera: Camera::at_work_zoom(self.world / 2.0),
@@ -76,8 +85,51 @@ impl State {
         output: &smithay::reexports::wayland_server::protocol::wl_output::WlOutput,
     ) -> Option<(String, Vec2, f64)> {
         let output = smithay::output::Output::from_resource(output)?;
-        let head = self.heads.iter().find(|head| head.output == output)?;
+        let head = &self.heads[self.capture_head(&output)?];
         Some((head.name.clone(), head.screen, head.scale))
+    }
+
+    pub(super) fn capture_head(&self, output: &smithay::output::Output) -> Option<usize> {
+        let at = self.heads.iter().position(|head| &head.output == output)?;
+        Some(self.mirror_source(&self.heads[at]).unwrap_or(at))
+    }
+
+    pub(super) fn capture_scale(&self) -> f64 {
+        self.heads
+            .iter()
+            .filter(|head| !head.asleep)
+            .map(|head| head.scale)
+            .fold(None, |most: Option<f64>, scale| Some(most.map_or(scale, |most| most.max(scale))))
+            .unwrap_or(1.0)
+    }
+
+    pub(super) fn copy_unseen_head(&mut self, index: usize) {
+        if !self.heads[index].asleep || self.mirror_source(&self.heads[index]).is_some() {
+            return;
+        }
+        let name = self.heads[index].name.clone();
+        let changed = self.heads[index].copy_stamp != self.commit_stamp;
+        let wlr = self.copies.iter().any(|copy| copy.head == name && (!copy.damage || changed));
+        let ext = self.wayland.extras.copies.captures.iter().any(|capture| {
+            capture.waiting.is_some()
+                && (!capture.shown || capture.dirty || changed)
+                && matches!(&capture.source, Some(crate::image_copy::Source::Output(output)) if self.capture_head(output) == Some(index))
+        });
+        if !wlr && !ext {
+            return;
+        }
+        self.heads[index].copy_stamp = self.commit_stamp;
+        self.with_head(index, |state| {
+            let scale = state.heads[state.at].scale;
+            let mut pieces = state.elements();
+            state.style_fade_elements(&mut pieces);
+            let shown: Vec<Shown> = pieces
+                .into_iter()
+                .map(|piece| RescaleRenderElement::from_element(piece, (0, 0).into(), scale))
+                .collect();
+            state.serve_copies(&shown, changed);
+            state.serve_screen_copies(&shown, changed);
+        });
     }
 
     pub fn queue_copy(&mut self, mut copy: crate::screencopy::Copy) {
@@ -219,14 +271,20 @@ impl State {
             Err(error) => error,
         };
         let bytes = self.capture(elements, cursor)?;
-        if crate::screencopy::by_hand(dmabuf.format().modifier) {
+        let modifier = dmabuf.format().modifier;
+        if crate::screencopy::by_hand(modifier) {
             return crate::screencopy::write_dmabuf(dmabuf, self.physical(), &bytes);
         }
-        self.copy_with_gpu(dmabuf, &bytes)
-            .map_err(|error| drifter_core::lang::tf("{}; the GPU copy failed too: {}", &[&(refused), &(error)]))
+        match self.copy_with_gpu(dmabuf, &bytes) {
+            Ok(()) => Ok(()),
+            Err(_) if modifier == smithay::backend::allocator::Modifier::Invalid => {
+                crate::screencopy::write_dmabuf(dmabuf, self.physical(), &bytes)
+            }
+            Err(error) => Err(drifter_core::lang::tf("{}; the GPU copy failed too: {}", &[&(refused), &(error)])),
+        }
     }
 
-    fn copy_with_gpu(
+    pub(super) fn copy_with_gpu(
         &mut self,
         dmabuf: &mut smithay::backend::allocator::dmabuf::Dmabuf,
         bytes: &[u8],
@@ -259,6 +317,9 @@ impl State {
         let whole = Rectangle::<i32, Physical>::from_size(Size::from((width, height)));
         let mut frame = gles
             .render(&mut target, whole.size, Transform::Normal)
+            .map_err(|e| format!("cannot start the copy: {e}"))?;
+        frame
+            .clear(Color32F::new(0.0, 0.0, 0.0, 0.0), &[whole])
             .map_err(|e| format!("cannot start the copy: {e}"))?;
         Frame::render_texture_from_to(
                 &mut frame,
@@ -438,24 +499,32 @@ impl State {
     }
 
     fn capture_window(&mut self, id: u64) -> Result<drifter_core::Image, String> {
-        use smithay::backend::renderer::damage::OutputDamageTracker;
-        use smithay::backend::renderer::{Bind, ExportMem};
-        use smithay::utils::{Buffer as BufferCoord, Physical, Rectangle, Size};
+        let shadow = self.shots.shadow;
+        let scale = self.heads.get(self.at).map_or(1.0, |head| head.scale);
+        let image = self.paint_window(id, shadow, false, scale)?;
+        Ok(drifter_core::grab::trim_clear(&image))
+    }
 
-        let index = self.place_of(id).ok_or_else(|| "the window closed".to_string())?;
+    pub(super) fn window_frame(&self, index: usize) -> Rect {
         let window = &self.windows[index];
-        let frame = match window.decorated && window.full.is_none() {
+        match window.decorated && window.full.is_none() {
             true => self.chrome.layout(window.content).frame,
             false => window.content,
-        };
-        let mut item = self.showing_of(window);
+        }
+    }
+
+    pub(super) fn paint_window(&mut self, id: u64, shadow_wanted: bool, cursor: bool, scale: f64) -> Result<drifter_core::Image, String> {
+        let index = self.place_of(id).ok_or_else(|| "the window closed".to_string())?;
+        let frame = self.window_frame(index);
+        let mut item = self.showing_of(&self.windows[index]);
         item.1 = item.0;
         item.2 = 1.0;
         item.4.0 = 1.0;
-        let shadow = self.shots.shadow && !item.4.1;
+        let shadow = shadow_wanted && !item.4.1;
         let margin = if shadow { 96.0 } else { 0.0 };
         let size = (frame.size + Vec2::splat(margin * 2.0)).round();
-        let scale = self.heads.get(self.at).map_or(1.0, |head| head.scale);
+        let seen = self.on_screen(frame);
+        let over = cursor && seen.size.x > 0.0 && seen.size.y > 0.0 && seen.contains(self.pointer);
         let saved = (self.camera, self.screen);
         self.camera = Camera {
             center: frame.origin - Vec2::splat(margin) + size / 2.0,
@@ -463,14 +532,29 @@ impl State {
         };
         self.screen = size;
         let mut skins = Vec::new();
+        if over {
+            let held = self.pointer;
+            let inside = held - seen.origin;
+            self.pointer = Vec2::new(inside.x * frame.size.x / seen.size.x, inside.y * frame.size.y / seen.size.y) + Vec2::splat(margin);
+            skins.extend(self.pointer_elements());
+            self.pointer = held;
+        }
         self.show_window(item, shadow, &mut skins);
         (self.camera, self.screen) = saved;
+        self.render_skins(skins, size, scale)
+    }
+
+    pub(super) fn render_skins(&mut self, skins: Vec<Skin>, size: Vec2, scale: f64) -> Result<drifter_core::Image, String> {
+        use smithay::backend::renderer::damage::OutputDamageTracker;
+        use smithay::backend::renderer::{Bind, ExportMem};
+        use smithay::utils::{Buffer as BufferCoord, Physical, Rectangle, Size};
+
         let shown: Vec<Shown> = skins
             .into_iter()
             .map(|piece| RescaleRenderElement::from_element(piece, (0, 0).into(), scale))
             .collect();
-        let pixels = (size * scale).round();
-        let (width, height) = (pixels.x as i32, pixels.y as i32);
+        let (width, height) = picture_pixels(size, scale);
+        let (width, height) = (width as i32, height as i32);
         let physical = Size::<i32, Physical>::from((width, height));
         let buffer_size = Size::<i32, BufferCoord>::from((width, height));
         let mut texture = self
@@ -488,18 +572,17 @@ impl State {
         let mapping = self
             .renderer
             .copy_framebuffer(&target, Rectangle::from_size(buffer_size), DrmFourcc::Abgr8888)
-            .map_err(|e| format!("cannot read the window back: {e}"))?;
+            .map_err(|e| format!("cannot read the picture back: {e}"))?;
         let rgba = self
             .renderer
             .map_texture(&mapping)
-            .map_err(|e| format!("cannot read the window back: {e}"))?
+            .map_err(|e| format!("cannot read the picture back: {e}"))?
             .to_vec();
-        let image = drifter_core::Image {
+        Ok(drifter_core::Image {
             width: width as u32,
             height: height as u32,
             rgba,
-        };
-        Ok(drifter_core::grab::trim_clear(&image))
+        })
     }
 
     fn fresh_shot_path(&self, folder: &std::path::Path, name: &str) -> PathBuf {
@@ -557,4 +640,9 @@ impl State {
             })
             .is_ok();
     }
+}
+
+pub(super) fn picture_pixels(size: Vec2, scale: f64) -> (u32, u32) {
+    let whole = (size * scale).round();
+    ((whole.x.max(1.0)) as u32, (whole.y.max(1.0)) as u32)
 }

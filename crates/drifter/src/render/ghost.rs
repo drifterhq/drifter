@@ -3,7 +3,7 @@ use drifter_core::motion::{Motion, Phase};
 use smithay::backend::renderer::utils::RendererSurfaceStateUserData;
 
 pub(super) struct Ghost {
-    client: Option<(TextureBuffer<Tex>, Vec2)>,
+    client: Option<(TextureBuffer<Tex>, Vec2, f32)>,
     content: Rect,
     inset: Vec2,
     dressed: bool,
@@ -26,7 +26,14 @@ impl State {
                 let data = data.lock().ok()?;
                 let size = data.surface_size()?;
                 let texture = data.texture::<Tex>(context.clone())?.clone();
-                Some((texture, Vec2::new(f64::from(size.w), f64::from(size.h))))
+                drop(data);
+                let alpha = states
+                    .cached_state
+                    .get::<smithay::wayland::alpha_modifier::AlphaModifierSurfaceCachedState>()
+                    .current()
+                    .multiplier_f32()
+                    .unwrap_or(1.0);
+                Some((texture, Vec2::new(f64::from(size.w), f64::from(size.h)), alpha))
             });
             if let Some(kept) = kept {
                 self.kept.insert(window.id, kept);
@@ -45,8 +52,8 @@ impl State {
             Some(motion) if motion.phase == Phase::Closing => motion,
             _ => Motion::new(Phase::Closing, window.content),
         };
-        let client = self.kept.remove(&window.id).map(|(texture, size)| {
-            (TextureBuffer::from_texture(&self.renderer, texture, 1, Transform::Normal, None), size)
+        let client = self.kept.remove(&window.id).map(|(texture, size, alpha)| {
+            (TextureBuffer::from_texture(&self.renderer, texture, 1, Transform::Normal, None), size, alpha)
         });
         self.ghosts.push(Ghost {
             client,
@@ -80,13 +87,13 @@ impl State {
             if ghost.dressed {
                 self.dress(shown, (0.0, ghost.maximized), &ghost.title, fade, elements);
             }
-            if let Some((art, size)) = ghost.client.as_ref() {
+            if let Some((art, size, alpha)) = ghost.client.as_ref() {
                 let stretch = match ghost.content.size.x > 0.0 {
                     true => shown.size.x / ghost.content.size.x,
                     false => 1.0,
                 };
                 let at = Rect::new(shown.origin - ghost.inset * stretch, *size * stretch);
-                elements.push(Skin::Texture(element(art, self.on_screen(at), fade)));
+                elements.push(Skin::Texture(element(art, self.on_screen(at), fade * alpha)));
             }
             if !ghost.maximized {
                 self.cast_shadow(shown, ghost.dressed, ghost.corners, 0.0, fade, elements);

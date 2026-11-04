@@ -71,6 +71,12 @@ mod stats;
 #[cfg(target_os = "linux")]
 mod tearing;
 #[cfg(target_os = "linux")]
+mod gamma;
+#[cfg(target_os = "linux")]
+mod image_copy;
+#[cfg(target_os = "linux")]
+mod output_power;
+#[cfg(target_os = "linux")]
 mod tray;
 #[cfg(target_os = "linux")]
 mod wlr_output;

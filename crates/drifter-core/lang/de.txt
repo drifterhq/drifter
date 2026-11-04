@@ -5181,3 +5181,12 @@ Choose a light theme
 
 A theme sets the text, background and the 16 terminal colors. Add your own themes as files in ~/.config/drifter/terminal-themes.
 = Ein Thema legt Text, Hintergrund und die 16 Terminalfarben fest. Eigene Themen kommen als Dateien nach ~/.config/drifter/terminal-themes.
+
+Always
+= Immer
+
+Games and video
+= Spiele und Video
+
+On while a full-screen game or video says what it is. Smoother on FreeSync and G-Sync monitors
+= An, solange ein Spiel oder Video im Vollbild sagt, was es ist. Flüssiger auf FreeSync- und G-Sync-Monitoren

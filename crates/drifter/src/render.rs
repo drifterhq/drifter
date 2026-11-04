@@ -16,6 +16,7 @@ mod centers;
 mod charges;
 mod ctllist;
 mod clients;
+mod copies;
 mod deskmenu;
 mod dock;
 mod docklogo;
@@ -25,6 +26,7 @@ mod genie;
 mod ghost;
 mod heads;
 mod launchpad;
+mod lease;
 mod lit;
 mod shoot;
 mod spatial;
@@ -33,6 +35,7 @@ mod speech;
 mod input;
 mod lock;
 mod overlays;
+mod pacing;
 mod power;
 mod reopen;
 mod reveal;
@@ -189,6 +192,15 @@ struct Head {
     rotate: u32,
     flip: bool,
     vrr: bool,
+    vrr_wanted: (bool, bool),
+    vrr_refused: bool,
+    vrr_idle: Option<Instant>,
+    vrr_modeset: Option<bool>,
+    copy_stamp: u64,
+    asleep: bool,
+    vblank: Option<Duration>,
+    on: Vec<smithay::reexports::wayland_server::backend::ObjectId>,
+    latched: Vec<smithay::reexports::wayland_server::protocol::wl_surface::WlSurface>,
     mirror: Option<String>,
     place: Vec2,
     camera: Camera,
@@ -509,6 +521,16 @@ pub struct State {
     next_window: u64,
     eaten: Vec<u32>,
     frame_timer: bool,
+    paced: Vec<smithay::reexports::wayland_server::Weak<smithay::reexports::wayland_server::protocol::wl_surface::WlSurface>>,
+    commit_timer: Option<smithay::reexports::calloop::RegistrationToken>,
+    unseen_timer: bool,
+    timers_queued: bool,
+    unblock: Vec<smithay::reexports::wayland_server::Client>,
+    unblock_queued: bool,
+    latch_timer: bool,
+    commit_stamp: u64,
+    lent_out: Vec<connector::Handle>,
+    cursor_stamp: u64,
     cursor_status: smithay::input::pointer::CursorImageStatus,
     client_cursor: smithay::input::pointer::CursorImageStatus,
     named_cursors: std::collections::HashMap<&'static str, Option<ThemeCursor>>,
@@ -715,7 +737,7 @@ pub struct State {
     minimize_effect: drifter_core::Minimize,
     paper_reacts: bool,
     gl_name: String,
-    kept: std::collections::HashMap<u64, (Tex, Vec2)>,
+    kept: std::collections::HashMap<u64, (Tex, Vec2, f32)>,
     zone_glide: Option<(Rect, Instant)>,
     titles: std::collections::HashMap<String, (TextureBuffer<Tex>, Vec2)>,
     hover_since: Option<(Vec2, Instant)>,
@@ -1223,6 +1245,7 @@ impl State {
     }
 
     pub fn set_cursor(&mut self, status: smithay::input::pointer::CursorImageStatus) {
+        self.bump_cursor();
         self.client_cursor = status.clone();
         if self.grip_under().is_none() && self.thumb_cursor().is_none() {
             self.cursor_status = status;
@@ -1230,7 +1253,12 @@ impl State {
     }
 
     fn draw(&mut self) -> Result<bool, String> {
-        if !self.active || self.dark || self.stepped {
+        if !self.active || self.dark {
+            self.release_unseen();
+            self.confirm_client_lock();
+            return Ok(false);
+        }
+        if self.stepped {
             return Ok(false);
         }
 
@@ -1254,24 +1282,44 @@ impl State {
         self.check_client_lock();
         self.settle_style_fade();
 
+        self.check_copies();
+        self.steer_all_vrr();
         let greeting = self.greeted;
         let mut drew = false;
         for index in 0..self.heads.len() {
-            if self.heads[index].awaiting || self.mirror_source(&self.heads[index]).is_some() {
+            if self.heads[index].asleep {
+                self.heads[index].on.clear();
+                let latched = std::mem::take(&mut self.heads[index].latched);
+                self.release_shown(latched);
+                self.copy_unseen_head(index);
+                continue;
+            }
+            if self.mirror_source(&self.heads[index]).is_some() {
+                self.heads[index].on.clear();
+                let latched = std::mem::take(&mut self.heads[index].latched);
+                self.release_shown(latched);
+                continue;
+            }
+            if self.heads[index].awaiting {
                 continue;
             }
             match self.with_head(index, |state| state.draw_head(now)) {
                 Ok(shown) => drew |= shown,
                 Err(error) if self.heads.len() == 1 || self.heads[index].frames == 0 => {
+                    self.heads[index].on.clear();
                     if self.heads.iter().all(|head| head.frames == 0) {
                         return Err(error);
                     }
                     log!("drifter: {error}");
                 }
-                Err(error) => log!("drifter: {error}"),
+                Err(error) => {
+                    self.heads[index].on.clear();
+                    log!("drifter: {error}");
+                }
             }
         }
 
+        self.serve_other_copies();
         self.restyle(now);
         self.place_sound();
         self.send_resize();
@@ -1314,6 +1362,8 @@ impl State {
         self.settle_fade();
 
         let scale = self.heads[at].scale;
+        let on = self.roots_on_head();
+        self.heads[at].on = on.iter().map(smithay::reexports::wayland_server::Resource::id).collect();
         let mut pieces = self.elements();
         self.paint_reveal();
         self.style_fade_elements(&mut pieces);
@@ -1346,6 +1396,7 @@ impl State {
 
         self.draw_mirrors(at, clear);
         self.serve_copies(&shown, !empty);
+        self.serve_screen_copies(&shown, !empty);
         self.shoot_old_style(&shown);
         self.sync_wlr_toplevels();
         if self.shot_round.as_ref().is_some_and(|round| round.left.contains(&self.heads[at].name)) {
@@ -1353,9 +1404,12 @@ impl State {
         }
 
         if empty {
+            self.hold_until_vblank(at, on);
             return Ok(false);
         }
 
+        let earlier = std::mem::replace(&mut self.heads[at].latched, on);
+        self.release_shown(earlier);
         let head = &mut self.heads[at];
         head.compositor.queue_frame().map_err(|e| {
             format!(
@@ -1396,6 +1450,7 @@ impl State {
     }
 
     fn tell_clients(&mut self) {
+        self.release_unseen_now();
         let now = self.clock_ms();
         for root in self.client_roots() {
             crate::shell::send_frame(&root, now);
@@ -1435,7 +1490,18 @@ impl State {
     }
 
     fn kick(&mut self) {
-        if self.heads.iter().any(|head| !head.awaiting)
+        if !self.lit_heads() {
+            self.release_unseen();
+            self.confirm_client_lock();
+            if self.active {
+                self.check_copies();
+                for index in 0..self.heads.len() {
+                    self.copy_unseen_head(index);
+                }
+                self.serve_other_copies();
+            }
+        }
+        if self.heads.iter().any(|head| !head.awaiting && !head.asleep)
             && let Err(error) = self.draw()
         {
             self.stop(error);
@@ -1510,7 +1576,7 @@ impl State {
         }
         self.settle_tip();
         self.watch_corner();
-        if self.heads.iter().any(|head| !head.awaiting)
+        if self.heads.iter().any(|head| !head.awaiting && !head.asleep)
             && let Err(error) = self.draw()
         {
             self.stop(error);

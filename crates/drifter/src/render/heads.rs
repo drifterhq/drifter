@@ -23,7 +23,7 @@ impl State {
         let source = head.mirror.as_deref()?;
         self.heads
             .iter()
-            .position(|each| each.name == source && each.mirror.is_none())
+            .position(|each| each.name == source && each.mirror.is_none() && !each.asleep)
     }
 
     pub(super) fn stash(&mut self) {
@@ -212,6 +212,7 @@ impl State {
             })
             .ok_or_else(|| "selected mode vanished from the connector".to_string())?;
 
+        let used: Vec<crtc::Handle> = self.lease_crtcs();
         let drm = self
             .drm
             .as_mut()
@@ -219,7 +220,6 @@ impl State {
         let resources = drm
             .resource_handles()
             .map_err(|e| format!("cannot read drm resources: {e}"))?;
-        let used: Vec<crtc::Handle> = self.heads.iter().map(|head| head.crtc).collect();
         let crtc = pick_crtc(drm, &resources, info, &used)
             .ok_or_else(|| format!("connector {name} has no free crtc"))?;
         let fd = drm.device_fd().clone();
@@ -298,6 +298,7 @@ impl State {
             wanted.scale,
             wanted.rotate
         );
+        let vrr_now = compositor.vrr_on();
         self.heads.push(Head {
             name,
             connector: handle,
@@ -310,7 +311,16 @@ impl State {
             scale: wanted.scale,
             rotate: wanted.rotate,
             flip: own.flip,
-            vrr: false,
+            vrr: vrr_now,
+            vrr_wanted: (false, false),
+            vrr_refused: false,
+            vrr_idle: None,
+            vrr_modeset: None,
+            copy_stamp: 0,
+            asleep: false,
+            vblank: None,
+            on: Vec::new(),
+            latched: Vec::new(),
             mirror: own.mirrors().map(str::to_string),
             place: Vec2::ZERO,
             camera: Camera::at_work_zoom(self.world / 2.0),
@@ -349,6 +359,9 @@ impl State {
                 info.state() == connector::State::Connected && !info.modes().is_empty()
             })
             .collect();
+        let (headsets, connected): (Vec<_>, Vec<_>) = connected
+            .into_iter()
+            .partition(|(handle, _)| super::lease::non_desktop(drm, *handle));
         let named = |info: &connector::Info| {
             format!("{}-{}", info.interface().as_str(), info.interface_id())
         };
@@ -376,6 +389,7 @@ impl State {
             .into_iter()
             .filter(|(_, info)| !any_on || wanted_on(&named(info)))
             .collect();
+        self.offer_leases(&headsets);
 
         self.stash();
         let hand = self.heads.get(self.hand).map(|head| head.name.clone());
@@ -391,6 +405,8 @@ impl State {
                 }
                 let head = self.heads.remove(index);
                 out!("screen      {} unplugged", head.name);
+                self.wayland.extras.powers.gone(&head.output);
+                self.wayland.extras.gammas.gone(&head.output);
                 let layers: Vec<_> = smithay::desktop::layer_map_for_output(&head.output)
                     .layers()
                     .cloned()
@@ -530,17 +546,13 @@ impl State {
         for (index, (want, rect)) in wanted.iter().zip(&rects).enumerate() {
             let flip = owns[index].flip;
             let transform = turn(want.rotate, flip);
-            let vrr = owns[index].vrr;
+            let vrr = (owns[index].vrr, owns[index].vrr_games);
             let head = &mut self.heads[index];
             let resized = head.screen != rect.size;
-            if head.vrr != vrr {
-                match head.compositor.use_vrr(head.connector, vrr) {
-                    Ok(()) => head.vrr = vrr,
-                    Err(error) => {
-                        log!("drifter: {} cannot use adaptive sync: {error}", head.name);
-                        head.vrr = false;
-                    }
-                }
+            if head.vrr_wanted != vrr {
+                head.vrr_wanted = vrr;
+                head.vrr_refused = false;
+                head.vrr_modeset = None;
             }
             if head.rotate != want.rotate || head.flip != flip {
                 head.compositor
@@ -660,7 +672,7 @@ impl State {
                 position: (head.place.x as i32, head.place.y as i32),
                 rotate: head.rotate,
                 flip: head.flip,
-                vrr: head.vrr,
+                vrr: head.vrr_wanted.0 && !head.vrr_refused,
                 scale: head.scale,
             }
         };

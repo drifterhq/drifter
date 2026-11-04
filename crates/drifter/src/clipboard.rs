@@ -25,6 +25,7 @@ pub struct Copied {
 
 pub struct Keeper {
     generation: u64,
+    taken: Option<(Clip, Instant)>,
     handle: LoopHandle<'static, State>,
     tx: Sender<Copied>,
 }
@@ -35,6 +36,7 @@ impl Keeper {
         (
             Keeper {
                 generation: 0,
+                taken: None,
                 handle,
                 tx,
             },
@@ -86,12 +88,46 @@ impl Keeper {
         }
     }
 
-    pub fn arrived(&self, copied: Copied, dh: &DisplayHandle, seat: &Seat<State>) {
+    pub fn arrived(&mut self, copied: Copied, dh: &DisplayHandle, seat: &Seat<State>) {
         if copied.generation != self.generation || copied.data.is_empty() {
             return;
         }
+        if takes_back(self.taken.as_ref(), &copied.data, Instant::now()) {
+            return;
+        }
         let mimes = copied.data.iter().map(|(mime, _)| mime.clone()).collect();
-        set_data_device_selection(dh, seat, mimes, Arc::new(copied.data));
+        let clip = Arc::new(copied.data);
+        self.taken = Some((clip.clone(), Instant::now()));
+        set_data_device_selection(dh, seat, mimes, clip);
+    }
+}
+
+const PING_PONG: Duration = Duration::from_secs(2);
+
+fn payloads(data: &[(String, Vec<u8>)]) -> std::collections::BTreeSet<&[u8]> {
+    data.iter().map(|(_, bytes)| bytes.as_slice()).collect()
+}
+
+fn takes_back(taken: Option<&(Clip, Instant)>, data: &[(String, Vec<u8>)], now: Instant) -> bool {
+    taken.is_some_and(|(clip, when)| now.duration_since(*when) < PING_PONG && payloads(clip) == payloads(data))
+}
+
+#[cfg(test)]
+mod keeper_tests {
+    use super::*;
+
+    #[test]
+    fn a_tool_that_reclaims_the_same_copy_is_left_alone() {
+        let data = vec![("text/plain".to_string(), b"hi".to_vec())];
+        let now = Instant::now();
+        let taken = (Arc::new(data.clone()), now);
+        assert!(takes_back(Some(&taken), &data, now + Duration::from_millis(100)));
+        assert!(!takes_back(Some(&taken), &data, now + Duration::from_secs(3)));
+        let renamed = vec![("UTF8_STRING".to_string(), b"hi".to_vec())];
+        assert!(takes_back(Some(&taken), &renamed, now));
+        let other = vec![("text/plain".to_string(), b"yo".to_vec())];
+        assert!(!takes_back(Some(&taken), &other, now));
+        assert!(!takes_back(None, &data, now));
     }
 }
 

@@ -28,6 +28,8 @@ pub struct MonitorConfig {
     #[serde(default)]
     pub vrr: bool,
     #[serde(default)]
+    pub vrr_games: bool,
+    #[serde(default)]
     pub mirror: Option<String>,
     #[serde(default)]
     pub profile: Option<String>,
@@ -57,6 +59,7 @@ impl MonitorConfig {
             enabled: true,
             flip: false,
             vrr: false,
+            vrr_games: false,
             mirror: None,
             profile: None,
             hdr: false,
@@ -361,6 +364,7 @@ mod tests {
             enabled: true,
             flip: false,
             vrr: false,
+            vrr_games: false,
             mirror: None,
             profile: None,
             hdr: false,

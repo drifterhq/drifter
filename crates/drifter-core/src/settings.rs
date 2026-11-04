@@ -279,6 +279,7 @@ pub struct Monitor {
     pub current: Option<crate::mode::Mode>,
     pub flip: bool,
     pub vrr: bool,
+    pub vrr_games: bool,
     pub mirror: Option<String>,
     pub profile: Option<String>,
     pub hdr: bool,
@@ -903,6 +904,7 @@ impl Model {
                     enabled: own.is_none_or(|each| each.enabled),
                     flip: own.is_some_and(|each| each.flip),
                     vrr: own.is_some_and(|each| each.vrr),
+                    vrr_games: own.is_some_and(|each| each.vrr_games),
                     mirror: own.and_then(|each| each.mirror.clone()),
                     profile: own.and_then(|each| each.profile.clone()),
                     hdr: own.is_some_and(|each| each.hdr),
@@ -1017,6 +1019,7 @@ impl Model {
                 enabled: monitor.enabled,
                 flip: monitor.flip,
                 vrr: monitor.vrr,
+                vrr_games: monitor.vrr_games,
                 mirror: monitor.mirror.clone(),
                 profile: monitor.profile.clone(),
                 hdr: monitor.hdr,
@@ -1154,8 +1157,22 @@ impl Model {
             }
         }
         rows.push(
-            Row::new(Id::Vrr, crate::lang::t("Adaptive sync"), Control::Switch(monitor.vrr))
-                .detail(crate::lang::t("Smoother games and video on FreeSync and G-Sync monitors")),
+            Row::new(
+                Id::Vrr,
+                crate::lang::t("Adaptive sync"),
+                Control::Segments {
+                    options: vec![crate::lang::t("Off"), crate::lang::t("Always"), crate::lang::t("Games and video")],
+                    chosen: match (monitor.vrr, monitor.vrr_games) {
+                        (false, _) => 0,
+                        (true, false) => 1,
+                        (true, true) => 2,
+                    },
+                },
+            )
+            .detail(match (monitor.vrr, monitor.vrr_games) {
+                (true, true) => crate::lang::t("On while a full-screen game or video says what it is. Smoother on FreeSync and G-Sync monitors"),
+                _ => crate::lang::t("Smoother games and video on FreeSync and G-Sync monitors"),
+            }),
         );
         if self.monitors.len() > 1 {
             let shown = match monitor.mirrors() {
@@ -2213,9 +2230,10 @@ impl Model {
                     monitor.flip = on;
                 }
             }
-            (Id::Vrr, Value::Switch(on)) => {
+            (Id::Vrr, Value::Choice(n)) => {
                 if let Some(monitor) = self.monitors.get_mut(self.picked) {
-                    monitor.vrr = on;
+                    monitor.vrr = n >= 1;
+                    monitor.vrr_games = n >= 2;
                 }
             }
             (Id::Hdr, Value::Switch(on)) => {
@@ -2767,6 +2785,9 @@ fn put_monitors(doc: &mut toml_edit::DocumentMut, monitors: &[MonitorConfig]) {
         }
         if monitor.vrr {
             table.insert("vrr", toml_edit::value(true));
+        }
+        if monitor.vrr && monitor.vrr_games {
+            table.insert("vrr_games", toml_edit::value(true));
         }
         if let Some(source) = monitor.mirrors() {
             table.insert("mirror", toml_edit::value(source));

@@ -116,6 +116,9 @@ impl State {
     }
 
     pub(super) fn presented(&mut self, at: usize, seen: Option<(Duration, u64)>) {
+        self.heads[at].vblank = Some(seen.map_or_else(super::pacing::monotonic_now, |(time, _)| time));
+        let latched = std::mem::take(&mut self.heads[at].latched);
+        self.release_shown(latched);
         let head = &mut self.heads[at];
         let Some(mut feedback) = head.feedback.take() else {
             return;
@@ -135,6 +138,70 @@ impl State {
                 Kind::Vsync | Kind::HwClock | Kind::HwCompletion,
             ),
             None => feedback.presented(clock.now(), refresh, 0, Kind::empty()),
+        }
+    }
+
+    pub(super) fn plays_full_screen(&self) -> bool {
+        use smithay::reexports::wayland_protocols::wp::content_type::v1::server::wp_content_type_v1::Type;
+        use smithay::wayland::content_type::ContentTypeSurfaceCachedState;
+        let Some(index) = self.held_by_fullscreen() else {
+            return false;
+        };
+        let seen = self.on_screen(self.window_frame(index));
+        let view = drifter_core::Rect::new(Vec2::ZERO, self.screen);
+        let here = seen.origin.x < view.max().x && seen.max().x > 0.0 && seen.origin.y < view.max().y && seen.max().y > 0.0;
+        here && with_states(self.windows[index].toplevel.wl_surface(), |states| {
+            let kind = *states.cached_state.get::<ContentTypeSurfaceCachedState>().current().content_type();
+            matches!(kind, Type::Game | Type::Video)
+        })
+    }
+
+    pub(super) fn steer_all_vrr(&mut self) {
+        const HOLD: Duration = Duration::from_secs(2);
+        for index in 0..self.heads.len() {
+            let (on, games) = self.heads[index].vrr_wanted;
+            let sticky = games && on && {
+                let head = &mut self.heads[index];
+                if head.vrr_modeset.is_none() {
+                    head.vrr_modeset = Some(head.compositor.vrr_needs_modeset(head.connector));
+                }
+                head.vrr_modeset == Some(true)
+            };
+            let plays = match on && games && !sticky {
+                true => {
+                    let view = self.mirror_source(&self.heads[index]).unwrap_or(index);
+                    self.with_head(view, |state| state.plays_full_screen())
+                }
+                false => false,
+            };
+            let now = Instant::now();
+            let head = &mut self.heads[index];
+            let mut wanted = on && (!games || sticky || plays);
+            if !wanted && head.vrr && on {
+                if head.vrr_idle.is_none() {
+                    head.vrr_idle = Some(now);
+                    let _ = self.handle.insert_source(Timer::from_duration(HOLD + Duration::from_millis(50)), |_, _, state: &mut State| {
+                        state.kick_now();
+                        TimeoutAction::Drop
+                    });
+                }
+                let since = head.vrr_idle.unwrap_or(now);
+                wanted = now.duration_since(since) < HOLD;
+            } else {
+                head.vrr_idle = None;
+            }
+            if head.vrr == wanted || (wanted && head.vrr_refused) {
+                continue;
+            }
+            match head.compositor.use_vrr(head.connector, wanted) {
+                Ok(()) => head.vrr = wanted,
+                Err(error) => {
+                    log!("drifter: {} cannot use adaptive sync: {error}", head.name);
+                    head.vrr_refused = true;
+                    head.vrr = false;
+                    self.sync_wlr_outputs(false);
+                }
+            }
         }
     }
 
@@ -202,7 +269,7 @@ impl State {
 
         let mirrors: Vec<usize> = (0..self.heads.len())
             .filter(|index| *index != at && self.mirror_source(&self.heads[*index]) == Some(at))
-            .filter(|index| !self.heads[*index].awaiting)
+            .filter(|index| !self.heads[*index].awaiting && !self.heads[*index].asleep)
             .collect();
         if mirrors.is_empty() {
             return;

@@ -423,6 +423,21 @@ impl State {
         ))
     }
 
+    pub fn stamp_window(&mut self, root: &smithay::reexports::wayland_server::protocol::wl_surface::WlSurface) {
+        self.commit_stamp = self.commit_stamp.wrapping_add(1);
+        let owner = self.windows.iter().position(|window| {
+            window.toplevel.wl_surface() == root
+                || smithay::desktop::PopupManager::popups_for_surface(window.toplevel.wl_surface())
+                    .any(|(popup, _)| popup.wl_surface() == root)
+        });
+        if let Some(window) = owner.map(|at| &mut self.windows[at]) {
+            window.stamp = window.stamp.wrapping_add(1);
+        }
+        if matches!(&self.cursor_status, smithay::input::pointer::CursorImageStatus::Surface(surface) if surface == root) {
+            self.bump_cursor();
+        }
+    }
+
     pub fn locked(&self) -> bool {
         self.lock.is_some()
     }

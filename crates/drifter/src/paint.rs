@@ -107,6 +107,14 @@ impl Scanout {
         })
     }
 
+    pub fn vrr_on(&self) -> bool {
+        each!(self, compositor => compositor.vrr_enabled(), _screen => false)
+    }
+
+    pub fn vrr_needs_modeset(&self, connector: smithay::reexports::drm::control::connector::Handle) -> bool {
+        each!(self, compositor => matches!(compositor.vrr_supported(connector), Ok(smithay::backend::drm::VrrSupport::RequiresModeset)), _screen => false)
+    }
+
     pub fn use_vrr(&mut self, connector: smithay::reexports::drm::control::connector::Handle, on: bool) -> Result<(), String> {
         each!(self, compositor => {
             if on {
