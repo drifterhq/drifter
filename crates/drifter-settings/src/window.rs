@@ -3724,8 +3724,9 @@ impl CompositorHandler for Settings {
     }
 
     fn frame(&mut self, _: &Connection, _: &QueueHandle<Self>, surface: &wl_surface::WlSurface, _: u32) {
-        if self.logo.as_ref().is_some_and(|logo| &logo.surface == surface) {
-            if self.logo.as_ref().is_some_and(|logo| logo.moving()) {
+        if let Some(logo) = self.logo.as_mut().filter(|logo| &logo.surface == surface) {
+            logo.arrived();
+            if logo.moving() {
                 self.draw_logo();
             }
             return;

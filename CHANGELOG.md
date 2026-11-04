@@ -64,6 +64,12 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 - Search: an app whose keywords hold the search word ranks above a Settings
   page with that name.
 
+### Fixed
+
+- Settings no longer closes when you scroll on the About page. The live logo
+  now asks for one redraw at a time. Before, each scroll added more redraws
+  until the desktop dropped the window.
+
 ## [0.1.0] - 2026-11-04
 
 The first release.

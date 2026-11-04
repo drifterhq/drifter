@@ -24,6 +24,7 @@ pub struct Logo {
     program: glow::Program,
     clock: (f64, Instant),
     pace: f64,
+    waiting: bool,
 }
 
 impl Logo {
@@ -80,6 +81,7 @@ impl Logo {
             program,
             clock: (20.0, Instant::now()),
             pace: 0.0,
+            waiting: false,
         })
     }
 
@@ -115,6 +117,10 @@ impl Logo {
         self.pace = pace;
     }
 
+    pub fn arrived(&mut self) {
+        self.waiting = false;
+    }
+
     pub fn moving(&self) -> bool {
         self.pace > 0.0
     }
@@ -127,6 +133,9 @@ impl Logo {
             return Ok(());
         };
         let (target, pixels) = (*target, *pixels);
+        if self.waiting && self.moving() {
+            return Ok(());
+        }
         self.egl
             .make_current(self.display, Some(target), Some(target), Some(self.context))
             .map_err(|e| format!("egl: {e}"))?;
@@ -155,6 +164,7 @@ impl Logo {
         }
         if self.moving() {
             self.surface.frame(qh, self.surface.clone());
+            self.waiting = true;
         }
         self.surface.damage_buffer(0, 0, pixels, pixels);
         self.egl.swap_buffers(self.display, target).map_err(|e| format!("egl: {e}"))?;
