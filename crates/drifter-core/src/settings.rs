@@ -3458,6 +3458,24 @@ impl Look {
         Rect::new(Vec2::new(12.0, 44.0), Vec2::new(self.sidebar - 24.0, 28.0))
     }
 
+    pub fn reveal(&mut self, shown: &[Section], section: Section, height: f64) {
+        let Some(index) = shown.iter().position(|each| *each == section) else {
+            return;
+        };
+        let item = self.item_rect_in(shown, index);
+        let head = match index == 0 || shown[index - 1].group() != section.group() {
+            true => SIDE_HEAD,
+            false => 0.0,
+        };
+        let (top, bottom) = (SIDE_TOP + head, height - 12.0);
+        if item.origin.y - head >= SIDE_TOP && item.max().y <= bottom {
+            return;
+        }
+        let middle = (top + bottom) / 2.0 - self.item / 2.0;
+        let wanted = self.side_scroll + item.origin.y - middle;
+        self.side_scroll = wanted.clamp(0.0, self.side_most(height));
+    }
+
     pub fn side_most(&self, height: f64) -> f64 {
         let count = Section::ALL.len();
         let whole = SIDE_TOP + heads_through(&Section::ALL, count) as f64 * SIDE_HEAD + count as f64 * (self.item + 2.0) + 10.0;
@@ -5889,6 +5907,22 @@ mod tests {
         let theme = placed[0].rows[1];
         let choose = look.mark_rects(theme, &[Mark::Text(crate::lang::t("Choose"))])[0];
         assert_eq!(look.lit_target(SIZE, Section::Terminal, &model, 0.0, choose.center(), &small()), Some(choose));
+    }
+
+    #[test]
+    fn the_sidebar_scrolls_to_show_the_open_page() {
+        let mut look = Look::default();
+        let height = look.least().y;
+        let at = Section::ALL.iter().position(|s| *s == Section::Terminal).unwrap();
+        assert!(look.item_rect_in(&Section::ALL, at).max().y > height);
+        look.reveal(&Section::ALL, Section::Terminal, height);
+        let item = look.item_rect_in(&Section::ALL, at);
+        assert!(item.origin.y >= SIDE_TOP && item.max().y <= height);
+        let kept = look.side_scroll;
+        look.reveal(&Section::ALL, Section::Terminal, height);
+        assert_eq!(look.side_scroll, kept);
+        look.reveal(&Section::ALL, Section::Desktop, height);
+        assert_eq!(look.side_scroll, 0.0);
     }
 
     #[test]

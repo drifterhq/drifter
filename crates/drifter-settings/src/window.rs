@@ -2305,6 +2305,12 @@ impl Settings {
         self.stale = true;
     }
 
+    fn reveal_section(&mut self) {
+        let shown = self.model.shown();
+        let height = self.view().y;
+        self.look.reveal(&shown, self.section, height);
+    }
+
     fn come_forward(&self) {
         if let Some(activation) = &self.activation {
             activation.request_token(
@@ -3350,6 +3356,7 @@ impl Settings {
         self.section = section;
         self.model.focus = None;
         self.scroll = 0.0;
+        self.reveal_section();
         self.refresh(section);
         self.want_thumbs();
     }
@@ -3784,8 +3791,12 @@ impl WindowHandler for Settings {
         let least = self.look.least();
         let width = configure.new_size.0.map(|v| v.get()).unwrap_or(self.size.0);
         let height = configure.new_size.1.map(|v| v.get()).unwrap_or(self.size.1);
+        let first = self.shown.is_none() && self.last.is_none();
         self.size = (width.max(least.x as u32), height.max(least.y as u32));
         self.clamp_scroll();
+        if first {
+            self.reveal_section();
+        }
         let most = self.look.side_most(f64::from(self.size.1));
         self.look.side_scroll = self.look.side_scroll.min(most);
         self.resized = true;
