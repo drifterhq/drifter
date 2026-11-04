@@ -155,21 +155,16 @@ fn launch(
     let tty = format!("/dev/tty{vt}");
     pam.tty(&tty)?;
     let mut env: BTreeMap<String, String> = BTreeMap::new();
-    let mut set = |pair: &str| {
-        if let Some((key, value)) = pair.split_once('=') {
-            env.insert(key.to_string(), value.to_string());
-        }
-    };
     for pair in [
         "XDG_SESSION_TYPE=wayland".to_string(),
         format!("XDG_SESSION_CLASS={class}"),
         "XDG_SEAT=seat0".to_string(),
         format!("XDG_VTNR={vt}"),
     ] {
-        set(&pair);
+        put(&mut env, &pair);
     }
     for pair in &asked {
-        set(pair);
+        put(&mut env, pair);
     }
     for key in ["XDG_SESSION_TYPE", "XDG_SESSION_CLASS", "XDG_SEAT", "XDG_VTNR", "XDG_SESSION_DESKTOP"] {
         if let Some(value) = env.get(key) {
@@ -178,7 +173,7 @@ fn launch(
     }
     pam.open()?;
     for pair in pam.environment() {
-        set(&pair);
+        put(&mut env, &pair);
     }
     for pair in [
         format!("HOME={}", who.home),
@@ -187,7 +182,7 @@ fn launch(
         format!("SHELL={}", who.shell),
         format!("PATH={PATH}"),
     ] {
-        set(&pair);
+        put(&mut env, &pair);
     }
     let mut argv = vec![who.shell.clone(), "-l".to_string(), "-c".to_string(), "exec \"$@\"".to_string(), "drifter-login".to_string()];
     argv.extend(cmd);
@@ -201,6 +196,12 @@ fn launch(
         }
     }
     Ok(())
+}
+
+fn put(env: &mut BTreeMap<String, String>, pair: &str) {
+    if let Some((key, value)) = pair.split_once('=') {
+        env.insert(key.to_string(), value.to_string());
+    }
 }
 
 fn spawn(who: &Account, argv: &[String], env: &BTreeMap<String, String>) -> Result<libc::pid_t, String> {
