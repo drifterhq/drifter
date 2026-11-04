@@ -74,7 +74,8 @@ pub(super) fn wire(
                     log!("drifter: cannot take the input devices back");
                 }
                 state.drop_held_input();
-                if let Some(Err(error)) = state.drm.as_mut().map(|drm| drm.activate(true)) {
+                let blank = !std::mem::take(&mut state.handoff);
+                if let Some(Err(error)) = state.drm.as_mut().map(|drm| drm.activate(blank)) {
                     log!("drifter: cannot take the screen back: {error}");
                 }
                 for head in &mut state.heads {
@@ -710,6 +711,7 @@ pub fn open(
         greeter: (live && !full).then(crate::greeter::Greeter::start),
         greeted: false,
         stepped: false,
+        handoff: greeted(),
         fly_in: None,
         fly_frost: None,
     };

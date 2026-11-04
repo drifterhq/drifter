@@ -532,7 +532,7 @@ impl State {
                     lock.art = Some(art);
                     lock.shown = key;
                 }
-                state.greeted_unlock();
+                state.kick();
             },
         );
     }
@@ -785,7 +785,7 @@ impl State {
                 if let Some(lock) = state.lock.as_mut() {
                     lock.clock = Some((art, size));
                 }
-                state.greeted_unlock();
+                state.kick();
             },
         );
     }
@@ -882,17 +882,7 @@ impl State {
         true
     }
 
-    fn greeted_unlock(&mut self) {
-        if !self.greeted {
-            return;
-        }
-        let ready = self.lock.as_ref().is_some_and(|lock| lock.art.is_some() && lock.clock.is_some());
-        if ready {
-            self.greeted_unlock_now();
-        }
-    }
-
-    fn greeted_unlock_now(&mut self) {
+    pub(super) fn greeted_unlock_now(&mut self) {
         self.greeted = false;
         self.fly_frost = self
             .frosting()

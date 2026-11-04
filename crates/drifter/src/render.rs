@@ -640,6 +640,7 @@ pub struct State {
     greeter: Option<crate::greeter::Greeter>,
     greeted: bool,
     stepped: bool,
+    handoff: bool,
     fly_in: Option<Instant>,
     fly_frost: Option<TextureBuffer<Tex>>,
     unlocking: Option<(Lock, Instant)>,
@@ -1252,6 +1253,7 @@ impl State {
         self.check_client_lock();
         self.settle_style_fade();
 
+        let greeting = self.greeted;
         let mut drew = false;
         for index in 0..self.heads.len() {
             if self.heads[index].awaiting || self.mirror_source(&self.heads[index]).is_some() {
@@ -1276,6 +1278,9 @@ impl State {
             self.speak();
             self.confirm_client_lock();
             self.tell_clients();
+            if greeting {
+                self.greeted_unlock_now();
+            }
         } else {
             self.frames_later();
         }
