@@ -43,7 +43,7 @@ trap 'exit 143' TERM HUP
 
 recent=()
 while true; do
-    "$bin" 2> >(tee -a "$err" >&2)
+    "$bin" >>"$err" 2>&1
     code=$?
     if [ "$code" -eq 0 ]; then
         exit 0
