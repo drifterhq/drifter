@@ -709,6 +709,7 @@ pub fn open(
         failure: None,
         greeter: (live && !full).then(crate::greeter::Greeter::start),
         greeted: false,
+        stepped: false,
         fly_in: None,
         fly_frost: None,
     };

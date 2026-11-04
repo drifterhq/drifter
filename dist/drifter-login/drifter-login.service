@@ -1,0 +1,16 @@
+[Unit]
+Description=Drifter login
+Documentation=https://github.com/donuts-are-good/drifter
+After=systemd-user-sessions.service plymouth-quit-wait.service getty@tty1.service
+Conflicts=getty@tty1.service
+
+[Service]
+Type=simple
+ExecStart=@BIN@
+Restart=always
+RestartSec=1
+IgnoreSIGPIPE=no
+KeyringMode=shared
+
+[Install]
+Alias=display-manager.service

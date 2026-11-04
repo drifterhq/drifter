@@ -71,26 +71,34 @@ command -v bluetoothd >/dev/null 2>&1 || [ -x /usr/lib/bluetooth/bluetoothd ] ||
 command -v pactl >/dev/null 2>&1 \
     || echo "install pactl so Bluetooth headphones can pick their sound: pulseaudio-utils (Debian, Fedora) or libpulse (Arch)"
 
-if command -v greetd >/dev/null 2>&1 && [ -x "$here/target/release/drifter" ]; then
-    sudo install -Dm755 "$here/target/release/drifter" /usr/local/libexec/drifter/drifter
+if [ -x "$here/target/release/drifter" ] && [ -x "$here/target/release/drifter-login" ]; then
+    lib=/usr/local/libexec/drifter
+    sudo install -Dm755 "$here/target/release/drifter" "$lib/drifter"
+    sudo install -Dm755 "$here/target/release/drifter-login" "$lib/drifter-login"
     sudo install -Dm644 "$here/conf/default.toml" /usr/share/drifter/conf/default.toml
     sudo install -Dm644 "$here/img/cursor.png" /usr/share/drifter/img/cursor.png
     for dir in shaders fonts img/dock img/window img/users; do
         sudo install -d "/usr/share/drifter/$dir"
         sudo cp -r "$here/$dir/." "/usr/share/drifter/$dir/"
     done
-    greeter=_greetd
-    getent passwd greetd >/dev/null && greeter=greetd
-    vt=$(sed -n 's/^ *vt *= *\([0-9]*\).*/\1/p' /etc/greetd/config.toml 2>/dev/null | head -1)
-    sed -e "s/@VT@/${vt:-1}/" -e "s/@USER@/$greeter/" \
-        -e 's|^command = "drifter"|command = "/usr/local/libexec/drifter/drifter"|' \
-        "$here/dist/drifter-greeter/drifter.toml.in" | sudo tee /etc/greetd/drifter.toml >/dev/null
-    sudo install -Dm644 "$here/dist/drifter-greeter/greetd.conf" /etc/systemd/system/greetd.service.d/drifter-greeter.conf
-    command -v restorecon >/dev/null 2>&1 && sudo restorecon -R /usr/local/libexec/drifter /usr/share/drifter /etc/greetd || true
+    login=$here/dist/drifter-login
+    sudo install -Dm644 "$login/sysusers.conf" /etc/sysusers.d/drifter-login.conf
+    sudo systemd-sysusers /etc/sysusers.d/drifter-login.conf
+    sudo install -d -o drifter-greeter -g drifter-greeter -m 0750 /var/lib/drifter-greeter
+    sudo install -Dm644 "$login/pam-greeter" /etc/pam.d/drifter-greeter
+    if [ -f /etc/pam.d/common-auth ]; then
+        sudo install -Dm644 "$login/pam-login-debian" /etc/pam.d/drifter-login
+    else
+        sudo install -Dm644 "$login/pam-login-fedora" /etc/pam.d/drifter-login
+    fi
+    sudo install -d /etc/drifter
+    sed "s|@GREETER@|$lib/drifter|" "$login/login.conf" | sudo tee /etc/drifter/login.conf >/dev/null
+    sed "s|@BIN@|$lib/drifter-login|" "$login/drifter-login.service" | sudo tee /etc/systemd/system/drifter-login.service >/dev/null
+    command -v restorecon >/dev/null 2>&1 && sudo restorecon -R "$lib" /usr/share/drifter /etc/drifter /var/lib/drifter-greeter || true
     sudo systemctl daemon-reload
-    echo "set up the Drifter login screen for greetd; run this again after each build to update it"
-    systemctl is-enabled --quiet greetd 2>/dev/null \
-        || echo "to use it: sudo systemctl disable gdm sddm lightdm 2>/dev/null; sudo systemctl enable greetd; then reboot"
+    echo "set up the Drifter login screen (drifter-login); run this again after each build to update it"
+    systemctl is-enabled --quiet drifter-login 2>/dev/null \
+        || echo "to use it: sudo systemctl disable gdm greetd sddm lightdm 2>/dev/null; sudo systemctl enable drifter-login; then reboot"
 fi
 
 if [ -x "$here/target/release/owlyd" ]; then

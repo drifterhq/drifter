@@ -15,7 +15,10 @@ pub struct Seat {
 pub fn open() -> Result<Seat, String> {
     let (session, notifier) = LibSeatSession::new().map_err(|e| e.to_string())?;
     let name = session.seat();
-    let active = session.is_active();
+    let mut active = session.is_active();
+    if !active && std::env::var_os("DRIFTER_GREETED").is_some() {
+        active = crate::logind::activate();
+    }
 
     let udev = UdevBackend::new(&name).map_err(|e| e.to_string())?;
     let mut devices: Vec<PathBuf> = udev

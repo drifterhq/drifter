@@ -14,7 +14,6 @@ const OURS: &str = "drifter";
 const LONGEST_REPLY: usize = 1 << 20;
 pub const FIRST_SESSION_ID: i32 = 300;
 const CLOSE_FB: libc::c_ulong = 0xC008_64D0;
-const HOLD_SCREEN: libc::time_t = 20;
 
 #[repr(C)]
 struct CloseFb {
@@ -22,22 +21,17 @@ struct CloseFb {
     pad: u32,
 }
 
-pub fn step_aside(fd: std::os::fd::RawFd, shown: &[u32]) -> ! {
+pub fn keep_frame(fd: std::os::fd::RawFd, shown: &[u32]) {
     for fb in shown {
         let mut ask = CloseFb { fb: *fb, pad: 0 };
         if unsafe { libc::ioctl(fd, CLOSE_FB, &mut ask) } != 0 {
             log!("drifter: the login screen cannot leave frame {fb} up: {}", std::io::Error::last_os_error());
         }
     }
-    if unsafe { libc::fork() } == 0 {
-        unsafe {
-            libc::setsid();
-            let rest = libc::timespec { tv_sec: HOLD_SCREEN, tv_nsec: 0 };
-            libc::nanosleep(&rest, std::ptr::null_mut());
-            libc::_exit(0);
-        }
-    }
-    std::process::exit(0)
+}
+
+pub fn waits_for_handoff() -> bool {
+    std::env::var_os("DRIFTER_LOGIN").is_some()
 }
 
 pub fn active() -> bool {

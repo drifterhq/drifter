@@ -9,6 +9,7 @@ const PATH: &str = "/org/freedesktop/login1";
 const MANAGER: &str = "org.freedesktop.login1.Manager";
 const SESSION: &str = "org.freedesktop.login1.Session";
 const LOCK_TIME: Duration = Duration::from_millis(400);
+const ACTIVATE_WAIT: Duration = Duration::from_secs(3);
 
 pub enum Event {
     Lock,
@@ -41,6 +42,29 @@ pub fn start() -> Result<Channel<Event>, String> {
         })
         .map_err(|e| format!("cannot start the logind thread: {e}"))?;
     Ok(rx)
+}
+
+pub fn activate() -> bool {
+    let shown = Connection::system().map_err(|e| e.to_string()).and_then(|bus| {
+        let path = session_path(&bus)?;
+        let session = Proxy::new(&bus, SERVICE, path, SESSION).map_err(|e| e.to_string())?;
+        session.call::<_, _, ()>("Activate", &()).map_err(|e| e.to_string())?;
+        let since = std::time::Instant::now();
+        while since.elapsed() < ACTIVATE_WAIT {
+            if session.get_property::<bool>("Active").unwrap_or(false) {
+                return Ok(true);
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        Ok(false)
+    });
+    match shown {
+        Ok(active) => active,
+        Err(error) => {
+            log!("drifter: cannot bring this session to the screen: {error}");
+            false
+        }
+    }
 }
 
 pub fn from_console() -> bool {

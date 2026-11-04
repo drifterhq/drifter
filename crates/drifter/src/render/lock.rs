@@ -855,17 +855,20 @@ impl State {
 
     fn step_aside(&mut self) {
         use std::os::fd::{AsFd, AsRawFd};
-        let Some(drm) = self.drm.as_ref() else {
-            self.signal.stop();
+        if let Some(drm) = self.drm.as_ref() {
+            let shown: Vec<u32> = self
+                .heads
+                .iter()
+                .filter_map(|head| drm.get_crtc(head.crtc).ok()?.framebuffer())
+                .map(Into::into)
+                .collect();
+            crate::greeter::keep_frame(drm.as_fd().as_raw_fd(), &shown);
+        }
+        if crate::greeter::waits_for_handoff() {
+            self.stepped = true;
             return;
-        };
-        let shown: Vec<u32> = self
-            .heads
-            .iter()
-            .filter_map(|head| drm.get_crtc(head.crtc).ok()?.framebuffer())
-            .map(Into::into)
-            .collect();
-        crate::greeter::step_aside(drm.as_fd().as_raw_fd(), &shown);
+        }
+        std::process::exit(0);
     }
 
     pub(super) fn greeted_waiting(&mut self) -> bool {

@@ -639,6 +639,7 @@ pub struct State {
     lock: Option<Lock>,
     greeter: Option<crate::greeter::Greeter>,
     greeted: bool,
+    stepped: bool,
     fly_in: Option<Instant>,
     fly_frost: Option<TextureBuffer<Tex>>,
     unlocking: Option<(Lock, Instant)>,
@@ -1227,7 +1228,7 @@ impl State {
     }
 
     fn draw(&mut self) -> Result<bool, String> {
-        if !self.active || self.dark {
+        if !self.active || self.dark || self.stepped {
             return Ok(false);
         }
 
