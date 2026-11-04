@@ -27,11 +27,11 @@ use drifter_core::menu::Look;
 use drifter_core::paint::Canvas;
 use drifter_core::{Font, Image, Rect, Vec2};
 
-use crate::config::{Config, Edge};
+use crate::config::Config;
 use crate::render::Grid;
 use crate::ui::{self, Action, Lit, Menu};
 use crate::vt::Vt;
-use crate::{log, pty};
+use crate::pty;
 
 const START: (u32, u32) = (960, 600);
 const APP_ID: &str = "drifter-terminal";
@@ -102,8 +102,7 @@ pub fn run() -> Result<(), String> {
     let cfg = Config::load();
     let grid = Grid::new(&cfg)?;
     let ui_font = Font::find(None, 13.0)?;
-    let palette = drifter_core::theme::of(drifter_core::theme::Style::Dark);
-    let menu_look = Look::themed(&palette);
+    let menu_look = Look::themed(&drifter_core::theme::DARK);
     let accent = menu_look.accent;
     let on_accent = menu_look.on_accent;
     let bar = mix(cfg.bg, [255, 255, 255], 0.06);
