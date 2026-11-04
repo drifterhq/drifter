@@ -27,7 +27,7 @@ pub enum Cursor {
 
 #[derive(Clone, PartialEq)]
 pub struct Config {
-    pub font_path: Option<PathBuf>,
+    pub font: Option<String>,
     pub font_px: f64,
     pub pad: f64,
     pub tab_edge: Edge,
@@ -71,7 +71,7 @@ impl Config {
         };
         let accent = whole.appearance.accent.map(|accent| accent.color()).unwrap_or(ACCENT);
         Config {
-            font_path: t.font.as_ref().map(PathBuf::from),
+            font: t.font.clone(),
             font_px: f64::from(t.text_size),
             pad: f64::from(t.padding),
             tab_edge: match t.tabs {

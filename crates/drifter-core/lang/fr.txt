@@ -5160,3 +5160,9 @@ Also when only one tab is open
 
 Control T opens a tab, Control W closes it, Control Tab goes to the next one.
 = Contrôle T ouvre un onglet, Contrôle W le ferme, Contrôle Tab passe au suivant.
+
+JetBrains Mono, built in
+= JetBrains Mono, intégrée
+
+Font
+= Police

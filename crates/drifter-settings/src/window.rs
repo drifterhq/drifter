@@ -2756,6 +2756,7 @@ impl Settings {
             For::Variant => self.model.variants.clone(),
             For::IconTheme => drifter_core::icon::icon_themes(&drifter_core::icon::roots()),
             For::CursorTheme => drifter_core::icon::cursor_themes(&drifter_core::icon::roots()),
+            For::TermFont => drifter_core::settings::mono_fonts(),
             For::Output => system::choices(&self.model.sound.outputs),
             For::Input => system::choices(&self.model.sound.inputs),
             For::Zone => zones(),

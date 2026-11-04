@@ -1,4 +1,5 @@
-use super::{Control, Group, Id, Model, Row, put};
+use super::{Control, Group, Id, Mark, Model, Row, drop_key, put};
+use crate::sheet::Choice;
 use crate::config::{TERM_OPACITY, TERM_PADDING, TERM_TEXT, TermColors, TermCursor, TermTabs};
 
 fn at<T: PartialEq>(list: &[T], wanted: T) -> usize {
@@ -31,6 +32,15 @@ impl Model {
                         },
                     )
                     .detail(crate::lang::t("Auto follows your Light or Dark look")),
+                    Row::new(
+                        Id::TermFont,
+                        crate::lang::t("Font"),
+                        Control::Buttons(match t.font.is_some() {
+                            true => vec![Mark::Text(crate::lang::t("Choose")), Mark::Text(crate::lang::t("Reset"))],
+                            false => vec![Mark::Text(crate::lang::t("Choose"))],
+                        }),
+                    )
+                    .detail(t.font.as_deref().unwrap_or(crate::lang::t("JetBrains Mono, built in"))),
                     Row::new(
                         Id::TermText,
                         crate::lang::t("Text size"),
@@ -96,6 +106,12 @@ impl Model {
         if now.colors != was.colors {
             put(doc, "terminal", "colors", toml_edit::Value::from(now.colors.word()));
         }
+        if now.font != was.font {
+            match &now.font {
+                Some(font) => put(doc, "terminal", "font", toml_edit::Value::from(font.as_str())),
+                None => drop_key(doc, "terminal", "font"),
+            }
+        }
         if now.cursor != was.cursor {
             put(doc, "terminal", "cursor", toml_edit::Value::from(now.cursor.word()));
         }
@@ -117,6 +133,21 @@ impl Model {
     }
 }
 
+pub fn mono_fonts() -> Vec<Choice> {
+    let Ok(out) = std::process::Command::new("fc-list").args([":spacing=mono", "family", "color"]).output() else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter(|line| !line.contains(":color=True"))
+        .filter_map(|line| line.split(':').next()?.split(',').next().map(|name| name.trim().replace('\\', "")))
+        .filter(|name| !name.is_empty())
+        .collect();
+    names.sort_by_key(|name| name.to_lowercase());
+    names.dedup();
+    names.into_iter().map(|name| Choice::new(&name, &name)).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use crate::config::{Config, TermColors, TermCursor, TermTabs};
@@ -135,6 +166,8 @@ mod tests {
         after.set(Id::TermText, Value::Number(99.0));
         after.set(Id::TermOpacity, Value::Number(85.0));
         after.set(Id::TermPadding, Value::Number(4.0));
+        assert_eq!(after.press(Id::TermFont, 0), Some(crate::settings::Ask::Choose(crate::sheet::For::TermFont)));
+        after.choose(crate::sheet::For::TermFont, "Source Code Pro".into());
         let back = Config::parse(&after.write(&before, "").unwrap()).unwrap().terminal;
         assert_eq!(back.colors, TermColors::Light);
         assert_eq!(back.cursor, TermCursor::Bar);
@@ -143,5 +176,6 @@ mod tests {
         assert_eq!(back.text_size, 32);
         assert_eq!(back.opacity, 85);
         assert_eq!(back.padding, 4);
+        assert_eq!(back.font.as_deref(), Some("Source Code Pro"));
     }
 }

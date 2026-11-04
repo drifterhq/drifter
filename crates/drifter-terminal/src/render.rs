@@ -17,7 +17,7 @@ pub struct Grid {
 
 impl Grid {
     pub fn new(cfg: &Config) -> Result<Grid, String> {
-        let face = Face::new(cfg.font_px, cfg.font_path.as_deref())?;
+        let face = Face::new(cfg.font_px, cfg.font.as_deref())?;
         Ok(Grid {
             face,
             pad: cfg.pad,

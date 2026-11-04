@@ -2015,6 +2015,7 @@ impl Model {
             For::Layout => self.choose_layout(code),
             For::Variant => self.keyboard.variant = code,
             For::IconTheme => self.appearance.icons = Some(code),
+            For::TermFont => self.terminal.font = Some(code),
             For::CursorTheme => self.appearance.cursor_theme = Some(code),
             For::Zone => self.zone = code,
             For::SpatialApp => self.ignore_spatial(code),

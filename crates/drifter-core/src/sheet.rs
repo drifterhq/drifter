@@ -47,6 +47,7 @@ pub enum For {
     MakeAdmin(usize),
     PlaceName(usize),
     DockItem(usize),
+    TermFont,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -750,7 +751,7 @@ impl Sheet {
             For::Variant => crate::lang::t("Choose a variant"),
             For::Picture => crate::lang::t("Choose a wallpaper"),
             For::Pointer => crate::lang::t("Choose a pointer picture"),
-            For::Font => crate::lang::t("Choose a font"),
+            For::Font | For::TermFont => crate::lang::t("Choose a font"),
             For::WindowArt => crate::lang::t("Choose the window art folder"),
             For::DockArt => crate::lang::t("Choose the dock art folder"),
             For::IconTheme => crate::lang::t("Choose an icon theme"),

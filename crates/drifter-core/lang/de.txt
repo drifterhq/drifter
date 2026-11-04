@@ -5160,3 +5160,9 @@ Also when only one tab is open
 
 Control T opens a tab, Control W closes it, Control Tab goes to the next one.
 = Strg T öffnet einen Tab, Strg W schließt ihn, Strg Tab geht zum nächsten.
+
+JetBrains Mono, built in
+= JetBrains Mono, eingebaut
+
+Font
+= Schrift

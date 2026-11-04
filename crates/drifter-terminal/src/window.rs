@@ -302,7 +302,7 @@ impl Term {
     }
 
     fn take_config(&mut self, fresh: Config) {
-        let regrid = fresh.font_path != self.cfg.font_path
+        let regrid = fresh.font != self.cfg.font
             || fresh.font_px != self.cfg.font_px
             || fresh.pad != self.cfg.pad;
         self.cfg = fresh;

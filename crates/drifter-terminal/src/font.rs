@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use drifter_core::{Font, Image};
 
@@ -22,7 +24,37 @@ pub fn ui(px: f64) -> Result<Font, String> {
     Font::find(None, px).or_else(|_| Font::from_bytes(REGULAR.to_vec(), px))
 }
 
-fn one(bytes: &[u8], path: Option<&std::path::Path>, px: f64) -> Result<Font, String> {
+const STYLES: [&str; 4] = ["Regular", "Bold", "Italic", "Bold Italic"];
+
+static FOUND: Mutex<Option<(String, [Option<PathBuf>; 4])>> = Mutex::new(None);
+
+fn fc_match(family: &str, style: &str) -> Option<PathBuf> {
+    let pattern = format!("{family}:style={style}");
+    let out = std::process::Command::new("fc-match").args(["-f", "%{family}\n%{file}", &pattern]).output().ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let (families, file) = text.split_once('\n')?;
+    let wanted = family.to_lowercase();
+    let same = families.split(',').any(|each| each.trim().to_lowercase() == wanted);
+    let usable = file.ends_with(".ttf") || file.ends_with(".otf") || file.ends_with(".ttc");
+    (same && usable).then(|| PathBuf::from(file))
+}
+
+fn files(family: &str) -> [Option<PathBuf>; 4] {
+    if family.starts_with('/') {
+        return [Some(PathBuf::from(family)), None, None, None];
+    }
+    let mut found = FOUND.lock().unwrap_or_else(|poison| poison.into_inner());
+    if let Some((name, files)) = found.as_ref()
+        && name == family
+    {
+        return files.clone();
+    }
+    let files = STYLES.map(|style| fc_match(family, style));
+    *found = Some((family.to_string(), files.clone()));
+    files
+}
+
+fn one(bytes: &[u8], path: Option<&Path>, px: f64) -> Result<Font, String> {
     match path {
         Some(path) => Font::load(path, px).or_else(|_| Font::from_bytes(bytes.to_vec(), px)),
         None => Font::from_bytes(bytes.to_vec(), px),
@@ -30,11 +62,23 @@ fn one(bytes: &[u8], path: Option<&std::path::Path>, px: f64) -> Result<Font, St
 }
 
 impl Face {
-    pub fn new(px: f64, custom: Option<&std::path::Path>) -> Result<Face, String> {
-        let regular = one(REGULAR, custom, px)?;
-        let bold = one(BOLD, None, px)?;
-        let italic = one(ITALIC, None, px)?;
-        let bold_italic = one(BOLD_ITALIC, None, px)?;
+    pub fn new(px: f64, family: Option<&str>) -> Result<Face, String> {
+        let [r, b, i, bi] = family.map(files).unwrap_or_default();
+        if let Some(name) = family
+            && r.is_none()
+        {
+            log!("drifter-terminal: font {name} is not installed, using JetBrains Mono");
+        }
+        let custom = r.is_some();
+        let pick = |own: &Option<PathBuf>, built: &'static [u8]| match (own, custom) {
+            (Some(path), _) => one(built, Some(path), px),
+            (None, true) => one(built, r.as_deref(), px),
+            (None, false) => one(built, None, px),
+        };
+        let regular = pick(&r, REGULAR)?;
+        let bold = pick(&b, BOLD)?;
+        let italic = pick(&i, ITALIC)?;
+        let bold_italic = pick(&bi, BOLD_ITALIC)?;
         let probe = regular.width_of("0000000000") / 10.0;
         let cell_w = probe.round().max(1.0) as u32;
         let cell_h = regular.line_height().round().max(1.0) as u32;
