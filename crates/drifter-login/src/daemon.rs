@@ -243,6 +243,19 @@ fn pump(worker: &mut Option<(Worker, u32)>) -> Value {
     }
 }
 
+fn started(worker: &mut Worker) -> Result<Value, String> {
+    loop {
+        let reply = worker.read()?;
+        let Some(ask) = reply.get("ask") else {
+            return Ok(reply);
+        };
+        match ask.get("style").and_then(Value::as_str) {
+            Some("secret" | "visible") => worker.send(json!({ "answer": Value::Null }))?,
+            _ => worker.send(json!({ "answer": "" }))?,
+        }
+    }
+}
+
 fn serve(mut stream: UnixStream, config_vt: u32, tx: &Sender<Event>) {
     let mut making: Option<(Worker, u32)> = None;
     while let Ok(mut request) = read_message(&mut stream) {
@@ -287,7 +300,7 @@ fn serve(mut stream: UnixStream, config_vt: u32, tx: &Sender<Event>) {
                 Some((mut worker, vt)) => {
                     let cmd = request.get("cmd").cloned().unwrap_or(json!([]));
                     let env = request.get("env").cloned().unwrap_or(json!([]));
-                    match worker.send(json!({ "start": { "cmd": cmd, "env": env } })).and_then(|()| worker.read()) {
+                    match worker.send(json!({ "start": { "cmd": cmd, "env": env } })).and_then(|()| started(&mut worker)) {
                         Ok(reply) if reply.get("started").is_some() => {
                             let _ = tx.send(Event::Session(vt, worker));
                             json!({ "type": "success" })
