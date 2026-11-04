@@ -35,8 +35,7 @@ fn main() {
         .arg(&prefix)
         .arg("--cache-dir")
         .arg(out.join("zig-cache"))
-        .arg("--global-cache-dir")
-        .arg(out.join("zig-global"))
+        .env("ZIG_GLOBAL_CACHE_DIR", out.join("zig-global"))
         .status()
         .unwrap_or_else(|error| panic!("could not run {}: {error}", zig.display()));
     if !status.success() {
