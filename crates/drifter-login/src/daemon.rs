@@ -369,10 +369,12 @@ pub fn run() -> std::process::ExitCode {
         match event {
             Event::Greeter(pid) => greeter = Some(pid),
             Event::GreeterGone => {
+                eprintln!("drifter-login: the login screen stopped");
                 greeter = None;
                 want_greeter = sessions.is_empty();
             }
             Event::Session(vt, worker) => {
+                eprintln!("drifter-login: a session started on terminal {vt}");
                 sessions.insert(vt);
                 worker.wait_gone(tx.clone(), Event::SessionGone(vt));
                 let handing = tx.clone();
@@ -388,11 +390,13 @@ pub fn run() -> std::process::ExitCode {
                 });
             }
             Event::Handoff => {
+                eprintln!("drifter-login: the session has the screen (terminal {:?}), closing the login screen", active_vt());
                 if let Some(pid) = greeter {
                     unsafe { libc::kill(pid, libc::SIGTERM) };
                 }
             }
             Event::SessionGone(vt) => {
+                eprintln!("drifter-login: the session on terminal {vt} ended");
                 sessions.remove(&vt);
                 if sessions.is_empty() {
                     want_greeter = true;
