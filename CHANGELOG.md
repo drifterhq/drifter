@@ -41,6 +41,12 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The hover glide now also runs in the desktop right-click menu, the
+  screenshot bar, the Welcome window, Explorer (menu bar, toolbar, view
+  switcher, path, sidebar, files, icons, columns, strip and tabs), Activity
+  Monitor (sidebar, process rows, column heads, buttons, Hour segments) and
+  Markup (tools, weights, Crop, Undo, Redo, Copy, Trash). Their old static
+  hover fills are gone.
 - Settings: the hover glide from menus and terminal tabs now runs on the
   sidebar sections, rows that open a page, segment options, buttons, dialog
   rows, theme cards and pictures. A click flashes it brighter. Reduce motion

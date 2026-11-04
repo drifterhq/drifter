@@ -242,7 +242,7 @@ impl Look {
         canvas.line(Vec2::new(area.origin.x + radius, y), Vec2::new(area.max().x - radius, y), 1.0, [0, 0, 0], 0.25);
     }
 
-    fn group(&self, canvas: &mut Canvas, areas: &[Rect], on: Option<usize>, hot: Option<usize>) {
+    fn group(&self, canvas: &mut Canvas, areas: &[Rect], on: Option<usize>, _: Option<usize>) {
         let (Some(first), Some(last)) = (areas.first(), areas.last()) else {
             return;
         };
@@ -252,12 +252,31 @@ impl Look {
                 canvas.line(Vec2::new(area.origin.x, area.origin.y + 7.0), Vec2::new(area.origin.x, area.max().y - 7.0), 1.0, self.rule, 1.0);
             }
             let face = rect(area.origin.x + 1.0, area.origin.y + 1.0, area.size.x - 2.0, area.size.y - 2.0);
-            match (on == Some(at), hot == Some(at)) {
-                (true, _) => self.pressed(canvas, face, 6.0),
-                (false, true) => canvas.round_rect(face, 6.0, self.hover, 0.6),
-                _ => {}
+            if on == Some(at) {
+                self.pressed(canvas, face, 6.0);
             }
         }
+    }
+
+    pub fn lit_target(&self, size: Vec2, fonts: &Fonts, bar: &Bar) -> Option<Rect> {
+        let hit = bar.hover?;
+        let wanted = match hit {
+            Hit::Tool(tool) => tool != bar.tool,
+            Hit::Weight(weight) => weight != bar.weight,
+            Hit::Undo => bar.undo,
+            Hit::Redo => bar.redo,
+            Hit::Copy | Hit::Trash => true,
+            _ => false,
+        };
+        if !wanted {
+            return None;
+        }
+        let area = self.buttons(size, fonts).into_iter().find(|(each, _)| *each == hit)?.1;
+        Some(match hit {
+            Hit::Tool(Tool::Crop) => area,
+            Hit::Tool(_) | Hit::Weight(_) => rect(area.origin.x + 1.0, area.origin.y + 1.0, area.size.x - 2.0, area.size.y - 2.0),
+            _ => area,
+        })
     }
 
     pub fn paint_bar(&self, canvas: &mut Canvas, size: Vec2, fonts: &Fonts, bar: &Bar) {
@@ -269,7 +288,7 @@ impl Look {
         let crop = find(Hit::Tool(Tool::Crop));
         match bar.tool == Tool::Crop {
             true => self.pressed(canvas, crop, 7.0),
-            false => self.raised(canvas, crop, 7.0, bar.hover == Some(Hit::Tool(Tool::Crop))),
+            false => self.raised(canvas, crop, 7.0, false),
         }
         self.tool_glyph(canvas, Tool::Crop, crop.center(), if bar.tool == Tool::Crop { self.on_accent } else { self.ink }, fonts);
         let tools = &Tool::ALL[1..];
@@ -318,15 +337,15 @@ impl Look {
         }
         for (hit, able, way) in [(Hit::Undo, bar.undo, -1.0), (Hit::Redo, bar.redo, 1.0)] {
             let area = find(hit);
-            self.raised(canvas, area, 7.0, able && bar.hover == Some(hit));
+            self.raised(canvas, area, 7.0, false);
             let ink = if able { self.ink } else { mix(self.bar, self.dim, 0.5) };
             self.turn_glyph(canvas, area.center(), way, ink);
         }
         let copy = find(Hit::Copy);
-        self.raised(canvas, copy, 7.0, bar.hover == Some(Hit::Copy));
+        self.raised(canvas, copy, 7.0, false);
         self.copy_glyph(canvas, copy.center(), self.ink);
         let trash = find(Hit::Trash);
-        self.raised(canvas, trash, 7.0, bar.hover == Some(Hit::Trash));
+        self.raised(canvas, trash, 7.0, false);
         self.trash_glyph(canvas, trash.center(), self.ink);
         let done = find(Hit::Done);
         self.glossy(canvas, done, 7.0, bar.hover == Some(Hit::Done));

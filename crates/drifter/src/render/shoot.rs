@@ -123,7 +123,7 @@ impl State {
         }
     }
 
-    fn bar_look(&self) -> grab::Bar {
+    pub(super) fn bar_look(&self) -> grab::Bar {
         let plain = grab::Bar::themed(&self.palette, self.look.accent);
         grab::Bar {
             back_alpha: self.veil(plain.back_alpha),
@@ -141,7 +141,7 @@ impl State {
         };
         let look = self.bar_look();
         let rect = look.rect(self.screen);
-        let (tool, hover) = (shooter.tool, shooter.hover);
+        let (tool, hover) = (shooter.tool, None);
         let frosting = self.frosting();
         self.paint_in_lane(
             "screenshot bar",
@@ -1035,6 +1035,7 @@ impl State {
             elements.push(Skin::Texture(element(art, Rect::new(at, *size), 1.0)));
         }
         if let Some((art, rect)) = shooter.bar.as_ref() {
+            self.lit_elements(super::fade::Pane::Shot, Vec2::ZERO, 1.0, 0.0, 1.0, elements);
             elements.push(Skin::Texture(element(art, *rect, 1.0)));
             self.modal_shadow(*rect, self.bar_look().radius, elements);
         }

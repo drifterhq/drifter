@@ -359,6 +359,17 @@ impl Cascade {
         None
     }
 
+    pub fn lit_target(&self, look: &Look, font: &Font, screen: Vec2, pointer: Vec2) -> Option<Rect> {
+        let (level, index) = self.hit(look, font, screen, pointer)?;
+        let index = index?;
+        let items = self.items(level);
+        let entry = items.get(index).filter(|entry| entry.pickable())?;
+        let panel = *self.panels(look, font, screen).get(level)?;
+        let top = look.item_top(items, index) - self.scroll[level];
+        let row = Rect::new(panel.origin + Vec2::new(0.0, top), Vec2::new(panel.size.x, look.row(entry)));
+        Some(crate::rows::lit_rect(row))
+    }
+
     pub fn point(&mut self, level: usize, index: Option<usize>) -> bool {
         if level >= self.hover.len() || self.hover[level] == index {
             return false;
@@ -511,6 +522,24 @@ mod tests {
         let items = menu();
         let size = Vec2::new(220.0, 200.0);
         crate::paint::same_at_two("cascade", || look.paint(&items, size, Some(1), 0.0, &font));
+    }
+
+    #[test]
+    fn the_glide_lands_on_the_row_under_the_pointer_in_the_deepest_panel() {
+        let font = font();
+        let look = Look::themed(&crate::theme::DARK, [10, 122, 255]);
+        let screen = Vec2::new(1600.0, 1000.0);
+        let mut menu = Cascade::new(menu(), Vec2::new(100.0, 100.0));
+        let panels = menu.panels(&look, &font, screen);
+        let first = panels[0].origin + Vec2::new(30.0, look.item_top(menu.items(0), 0) + 4.0);
+        let lit = menu.lit_target(&look, &font, screen, first).expect("the first row lights");
+        assert!(lit.contains(first));
+        menu.open(0, 0);
+        let panels = menu.panels(&look, &font, screen);
+        let inner = panels[1].origin + Vec2::new(30.0, look.item_top(menu.items(1), 1) + 4.0);
+        let lit = menu.lit_target(&look, &font, screen, inner).expect("the submenu row lights");
+        assert!(lit.contains(inner) && panels[1].contains(lit.center()));
+        assert_eq!(menu.lit_target(&look, &font, screen, Vec2::new(5.0, 5.0)), None);
     }
 
     fn menu() -> Vec<Entry> {

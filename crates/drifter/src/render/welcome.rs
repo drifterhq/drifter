@@ -56,6 +56,7 @@ pub(super) struct Welcome {
     dot: Option<TextureBuffer<Tex>>,
     flight: Option<Flight>,
     sheen: Option<TextureBuffer<Tex>>,
+    glide: Option<drifter_core::glide::Glide>,
 }
 
 struct Flight {
@@ -191,6 +192,7 @@ impl State {
             dot,
             flight: None,
             sheen: None,
+            glide: None,
         });
         let logo = wallpaper::squircle_logo_program(&mut self.renderer).map(|program| Logo { program, sheet: None });
         let desk = wallpaper::desk_program(&mut self.renderer).map(|program| Logo { program, sheet: None });
@@ -617,9 +619,11 @@ impl State {
                 }
             }
         }
-        if let (Some(sheen), Some(spot)) = (open.sheen.as_ref().filter(|_| open.closing.is_none()), look.hover_rect(&open.view)) {
+        if let (Some(glide), Some(patch)) = (open.glide.as_ref().filter(|_| open.closing.is_none()), self.round.as_ref()) {
+            let spot = glide.rect();
             let target = Rect::new(here.origin + spot.origin, spot.size);
-            elements.push(Skin::Texture(element(sheen, target, (fade * look.sheen_alpha()) as f32)));
+            let shade = glide.shade() / drifter_core::glide::ALPHA * look.sheen_alpha();
+            self.round_fill(patch, 12.0, target, (fade * shade) as f32, elements);
         }
         if let Some(flight) = open.flight.as_ref().filter(|_| open.closing.is_none()) {
             let p = (now.duration_since(flight.start).as_secs_f64() / FLIGHT).min(1.0);
@@ -715,6 +719,7 @@ impl State {
             || (open.view.card == Card::Look && open.hovered.is_some())
             || (open.view.card == Card::Apps && !open.busy.is_empty())
             || open.flight.is_some()
+            || open.glide.as_ref().is_some_and(drifter_core::glide::Glide::busy)
     }
 
     pub(super) fn settle_welcome(&mut self) {
@@ -771,14 +776,17 @@ impl State {
             open.hovered = paper.map(|at| (at, Instant::now()));
         }
         if open.view.hover != hit {
-            let quiet = |hit: Option<Hit>| matches!(hit, None | Some(Hit::Tile(_) | Hit::Choice(_) | Hit::Other));
-            let sheen_only = open.view.card == Card::Apps && quiet(open.view.hover) && quiet(hit);
+            let quiet = drifter_core::welcome::Look::glides;
+            let glide_only = quiet(open.view.hover) && quiet(hit);
             open.view.hover = hit;
-            match sheen_only {
-                true => {
-                    self.welcome_sheen();
-                    self.kick_now();
-                }
+            let pace = match self.window_still {
+                true => 0.0,
+                false => self.window_pace,
+            };
+            let target = look.glide_rect(&open.view, &open.fonts);
+            drifter_core::glide::Glide::aim(&mut open.glide, target, pace);
+            match glide_only {
+                true => self.kick_now(),
                 false => self.paint_welcome(),
             }
         }

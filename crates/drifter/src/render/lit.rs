@@ -21,6 +21,19 @@ pub(super) struct Lit {
 impl State {
     fn row_under(&self) -> Option<(Pane, Rect)> {
         let pointer = self.pointer;
+        if let Some((tool, (_, bar))) = self.shooter.as_ref().and_then(|shooter| Some((shooter.tool, shooter.bar.as_ref()?)))
+            && bar.contains(pointer)
+        {
+            let look = self.bar_look();
+            let (spot, _) = look.slots().into_iter().find(|(spot, slot)| {
+                spot.contains(pointer - bar.origin) && !matches!(*slot, drifter_core::grab::Slot::Tool(each) if tool.lit(each))
+            })?;
+            return Some((Pane::Shot, Rect::new(bar.origin + spot.origin, spot.size)));
+        }
+        if let (Some(open), Some(font)) = (self.desk_menu.as_ref().filter(|open| !open.arts.is_empty()), self.note_head.as_deref()) {
+            let rect = open.menu.lit_target(&self.cascade_look(), font, self.screen, pointer)?;
+            return Some((Pane::DeskMenu, rect));
+        }
         if let Some(open) = self.popover.as_ref().filter(|open| open.art.is_some() && open.rect.contains(pointer)) {
             let look = self.menu_look();
             let at = look.item_at(&open.items, open.rect.size, pointer - open.rect.origin)?;
@@ -142,6 +155,8 @@ impl State {
             Pane::Search => self.search.is_some(),
             Pane::Control => self.control.is_some(),
             Pane::Menu => self.popover.is_some() || boost.is_some(),
+            Pane::DeskMenu => self.desk_menu.is_some(),
+            Pane::Shot => self.shooter.as_ref().is_some_and(|shooter| shooter.bar.is_some()),
             Pane::Glance => self.glance_panel.is_some(),
             Pane::Card(id) => self.cards.iter().any(|card| card.note.id == id),
             _ => false,

@@ -82,6 +82,10 @@ struct Activity {
     appearance: drifter_core::config::Appearance,
     smooth: bool,
     glide: Option<drifter_core::tween::Glide>,
+    lit: Option<drifter_core::glide::Glide>,
+    base: Option<(Image, Option<drifter_core::Rect>)>,
+    glow_due: bool,
+    still: bool,
     view_fade: Option<(Image, Instant)>,
     fading_only: bool,
 }
@@ -208,16 +212,22 @@ pub fn run() -> Result<(), String> {
         appearance: config.appearance.clone(),
         smooth: config.smooth_scroll(),
         glide: None,
+        lit: None,
+        base: None,
+        glow_due: false,
+        still: config.access.reduce_motion || config.motion.animation == drifter_core::Animation::Off,
         view_fade: None,
         fading_only: false,
     };
     while !app.exit {
         events
-            .dispatch((app.stale || app.glide.is_some() || app.view_fade.is_some()).then_some(SETTLE), &mut app)
+            .dispatch((app.stale || app.glow_due || app.glide.is_some() || app.view_fade.is_some()).then_some(SETTLE), &mut app)
             .map_err(|e| format!("event loop: {e}"))?;
         app.step_motion();
         if std::mem::take(&mut app.resized) || (app.stale && app.frame_free()) {
             app.draw();
+        } else if app.glow_due && app.frame_free() {
+            app.reshow();
         }
     }
     Ok(())
@@ -335,6 +345,7 @@ impl Activity {
                 self.look = themed(&config.appearance);
                 self.appearance = config.appearance.clone();
                 self.smooth = config.smooth_scroll();
+                self.still = config.access.reduce_motion || config.motion.animation == drifter_core::Animation::Off;
                 self.stale = true;
             }
         }
@@ -490,7 +501,56 @@ impl Activity {
         self.last = Some(image);
     }
 
+    fn aim_lit(&mut self) {
+        let size = self.view();
+        let target = match self.scrubbing || self.holding.is_some() {
+            true => None,
+            false => {
+                let fonts = Fonts { body: &self.fonts.0, small: &self.fonts.1, title: &self.fonts.2 };
+                self.look.lit_target(size, &self.model, &fonts, self.at)
+            }
+        };
+        let pace = if self.still { 0.0 } else { 1.0 };
+        let before = self.lit.as_ref().map(|lit| (lit.rect(), lit.shade()));
+        drifter_core::glide::Glide::aim(&mut self.lit, target, pace);
+        if self.lit.as_ref().map(|lit| (lit.rect(), lit.shade())) != before || self.lit_busy() {
+            self.glow_due = true;
+        }
+    }
+
+    fn lit_busy(&self) -> bool {
+        self.lit.as_ref().is_some_and(drifter_core::glide::Glide::busy)
+    }
+
+    fn reshow(&mut self) {
+        self.glow_due = false;
+        if let Some((base, _)) = self.base.take() {
+            self.show(&base, None);
+        }
+    }
+
     fn show(&mut self, image: &Image, part: Option<drifter_core::Rect>) {
+        self.glow_due = false;
+        self.base = Some((image.clone(), part));
+        let lit = self.lit.as_ref().filter(|lit| lit.shade() > 0.0005);
+        let part = match lit {
+            Some(_) => None,
+            None => part,
+        };
+        let glowing;
+        let image = match lit {
+            Some(lit) => {
+                drifter_core::paint::set_density(scale());
+                let mut canvas = drifter_core::paint::Canvas::on(image.clone());
+                lit.draw(&mut canvas, self.look.ink);
+                glowing = canvas.image;
+                &glowing
+            }
+            None => image,
+        };
+        if self.lit_busy() {
+            self.glow_due = true;
+        }
         let (width, height) = (image.width, image.height);
         let stride = width as i32 * 4;
         let (buffer, canvas) = match self.pool.create_buffer(width as i32, height as i32, stride, wl_shm::Format::Argb8888) {
@@ -959,16 +1019,26 @@ impl PointerHandler for Activity {
             }
             self.at = Vec2::new(event.position.0, event.position.1);
             match event.kind {
-                PointerEventKind::Motion { .. } => self.motion(),
-                PointerEventKind::Press { button, .. } if button == BTN_LEFT => self.press(),
+                PointerEventKind::Motion { .. } => {
+                    self.motion();
+                    self.aim_lit();
+                }
+                PointerEventKind::Press { button, .. } if button == BTN_LEFT => {
+                    drifter_core::glide::Glide::press(&mut self.lit);
+                    self.press();
+                    self.aim_lit();
+                }
                 PointerEventKind::Release { button, .. } if button == BTN_LEFT => self.let_go(),
                 PointerEventKind::Axis { vertical, source, .. } => {
-                    self.wheel(vertical.absolute, vertical.discrete != 0 || source == Some(wl_pointer::AxisSource::Wheel))
+                    self.wheel(vertical.absolute, vertical.discrete != 0 || source == Some(wl_pointer::AxisSource::Wheel));
+                    self.aim_lit();
                 }
                 PointerEventKind::Leave { .. } => {
                     self.let_go();
                     self.over_list = false;
                     self.model.hover = None;
+                    drifter_core::glide::Glide::aim(&mut self.lit, None, 1.0);
+                    self.glow_due = true;
                 }
                 _ => {}
             }

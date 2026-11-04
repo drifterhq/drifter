@@ -458,6 +458,28 @@ impl Look {
         }
     }
 
+    pub fn glide_rect(&self, view: &View, fonts: &Fonts) -> Option<Rect> {
+        let hit = view.hover?;
+        match hit {
+            Hit::Tile(_) | Hit::Choice(_) | Hit::Other => self.hover_rect(view),
+            Hit::Style(_) | Hit::Motion(_) | Hit::Text(_) | Hit::Device(_) | Hit::Camera(_) => self
+                .spots(view, fonts)
+                .into_iter()
+                .rev()
+                .find(|(each, _)| *each == hit)
+                .map(|(_, rect)| Rect::new(rect.origin + Vec2::splat(2.5), rect.size - Vec2::splat(5.0))),
+            Hit::Lesson(at) if self.lessons(view).get(at).is_some_and(|(lesson, _)| *lesson != view.focus) => Some(self.lesson_rect(at)),
+            _ => None,
+        }
+    }
+
+    pub fn glides(hit: Option<Hit>) -> bool {
+        matches!(
+            hit,
+            None | Some(Hit::Tile(_) | Hit::Choice(_) | Hit::Other | Hit::Style(_) | Hit::Motion(_) | Hit::Text(_) | Hit::Device(_) | Hit::Camera(_) | Hit::Lesson(_))
+        )
+    }
+
     pub fn paint_sheen(&self) -> Image {
         let size = Vec2::new(SLOT, 108.0);
         let mut canvas = Canvas::new(size.x as u32, size.y as u32);
@@ -680,7 +702,7 @@ impl Look {
         canvas.stamp(&words, (rect.center() - size / 2.0).round(), 1.0);
     }
 
-    fn segments(&self, canvas: &mut Canvas, fonts: &Fonts, whole: Rect, labels: &[&str], chosen: usize, hover: Option<usize>) {
+    fn segments(&self, canvas: &mut Canvas, fonts: &Fonts, whole: Rect, labels: &[&str], chosen: usize, _: Option<usize>) {
         canvas.round_rect(whole, 9.0, self.well, 1.0);
         canvas.ring(whole, 9.0, 1.0, self.rule, 0.6);
         let count = labels.len();
@@ -694,8 +716,6 @@ impl Look {
                     false => self.hover,
                 };
                 canvas.round_rect(inner, 7.0, face, 1.0);
-            } else if hover == Some(at) {
-                canvas.round_rect(inner, 7.0, self.raised, 0.6);
             }
             let ink = match at == chosen {
                 true => self.ink,
@@ -967,8 +987,6 @@ impl Look {
             let focus = view.focus == lesson;
             if focus {
                 canvas.round_rect(rect, 14.0, self.raised, if self.light { 0.6 } else { 0.55 });
-            } else if view.hovered(Hit::Lesson(at)) {
-                canvas.round_rect(rect, 14.0, self.raised, 0.3);
             }
             let badge = Vec2::new(rect.origin.x + 26.0, rect.origin.y + 26.0);
             match view.done[at] {

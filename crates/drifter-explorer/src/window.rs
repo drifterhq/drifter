@@ -127,6 +127,11 @@ struct Explorer {
     watched_at: Instant,
     appearance: drifter_core::config::Appearance,
     smooth: bool,
+    still: bool,
+    lit: Option<drifter_core::glide::Glide>,
+    shown_base: Option<Image>,
+    glow_due: bool,
+    lit_clip: Option<drifter_core::Rect>,
     tip_plan: u64,
     tip_seen: Option<Instant>,
     rail_seen: Vec<(Rail, Instant, f64)>,
@@ -365,6 +370,11 @@ pub fn run() -> Result<(), String> {
         watched_at: Instant::now(),
         appearance: config.appearance.clone(),
         smooth: config.smooth_scroll(),
+        still: config.access.reduce_motion || config.motion.animation == drifter_core::Animation::Off,
+        lit: None,
+        shown_base: None,
+        glow_due: false,
+        lit_clip: None,
         tip_plan: 0,
         tip_seen: None,
         rail_seen: Vec::new(),
@@ -381,6 +391,8 @@ pub fn run() -> Result<(), String> {
         }
         if app.configured && (std::mem::take(&mut app.resized) || (app.busy() && app.frame_free())) {
             app.draw();
+        } else if app.configured && app.glow_due && app.frame_free() {
+            app.reshow();
         }
     }
     app.model.save();
@@ -515,6 +527,7 @@ impl Explorer {
                 self.look = themed(&config.appearance);
                 self.appearance = config.appearance.clone();
                 self.smooth = config.smooth_scroll();
+                self.still = config.access.reduce_motion || config.motion.animation == drifter_core::Animation::Off;
                 self.art.icons.clear();
                 self.art.missing.retain(|want| matches!(want, Want::Thumb(..)));
                 self.stale = true;
@@ -781,7 +794,7 @@ impl Explorer {
     }
 
     fn wait(&self) -> Option<Duration> {
-        if self.busy() {
+        if self.busy() || self.glow_due {
             return Some(SETTLE);
         }
         let now = Instant::now();
@@ -944,7 +957,56 @@ impl Explorer {
         area
     }
 
+    fn aim_lit(&mut self) {
+        let lines = self.model.lines();
+        let fonts = Fonts { body: &self.fonts.0, small: &self.fonts.1, title: &self.fonts.2 };
+        let found = self.look.lit_target(self.view(), &self.model, &lines, &fonts);
+        let pace = if self.still { 0.0 } else { 1.0 };
+        let before = self.lit.as_ref().map(|lit| (lit.rect(), lit.shade()));
+        drifter_core::glide::Glide::aim(&mut self.lit, found.map(|(rect, _)| rect), pace);
+        if let Some((_, clip)) = found {
+            self.lit_clip = Some(clip);
+        }
+        if self.lit.as_ref().map(|lit| (lit.rect(), lit.shade())) != before || self.lit_busy() {
+            self.glow_due = true;
+        }
+    }
+
+    fn lit_busy(&self) -> bool {
+        self.lit.as_ref().is_some_and(drifter_core::glide::Glide::busy)
+    }
+
+    fn reshow(&mut self) {
+        self.glow_due = false;
+        if let Some(base) = self.shown_base.take() {
+            self.show(&base, None);
+        }
+    }
+
     fn show(&mut self, image: &Image, part: Option<drifter_core::Rect>) {
+        self.glow_due = false;
+        self.shown_base = Some(image.clone());
+        let lit = self.lit.as_ref().filter(|lit| lit.shade() > 0.0005);
+        let part = match lit {
+            Some(_) => None,
+            None => part,
+        };
+        let glowing;
+        let image = match lit {
+            Some(lit) => {
+                drifter_core::paint::set_density(scale());
+                let mut canvas = drifter_core::paint::Canvas::on(image.clone());
+                canvas.clip_to(self.lit_clip);
+                lit.draw(&mut canvas, self.look.ink);
+                canvas.clip_to(None);
+                glowing = canvas.image;
+                &glowing
+            }
+            None => image,
+        };
+        if self.lit_busy() {
+            self.glow_due = true;
+        }
         let (width, height) = (image.width, image.height);
         let stride = width as i32 * 4;
         let (buffer, canvas) = match self.pool.create_buffer(width as i32, height as i32, stride, wl_shm::Format::Argb8888) {
@@ -1206,12 +1268,17 @@ impl PointerHandler for Explorer {
                             self.plan_tip();
                         }
                     }
+                    self.aim_lit();
                 }
                 PointerEventKind::Press { button, serial, .. } if matches!(button, BTN_LEFT | BTN_RIGHT | BTN_MIDDLE) => {
                     self.serial = serial;
                     self.press_serial = serial;
                     self.clicked = true;
-                    self.press(button)
+                    if button == BTN_LEFT {
+                        drifter_core::glide::Glide::press(&mut self.lit);
+                    }
+                    self.press(button);
+                    self.aim_lit();
                 }
                 PointerEventKind::Release { button, .. } if button == BTN_LEFT => {
                     let copy = self.mods.ctrl;
@@ -1275,6 +1342,7 @@ impl PointerHandler for Explorer {
                         }
                     }
                     self.tip_plan += 1;
+                    self.aim_lit();
                 }
                 _ => {}
             }

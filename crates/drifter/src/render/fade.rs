@@ -29,6 +29,7 @@ pub(super) enum Pane {
     Pair,
     Pill,
     Share,
+    Shot,
 }
 
 impl Pane {
@@ -159,6 +160,7 @@ impl State {
             Pane::Pair => self.pairing_layers(),
             Pane::Pill => self.pill_layers(),
             Pane::Share => self.share_layers(),
+            Pane::Shot => None,
             Pane::Notes => self.notes_panel.as_ref().and_then(|(art, rect, _)| one(art, *rect, Shadow::Menu(self.notes_look().radius))),
             Pane::Charges => self.charges.as_ref().and_then(|panel| one(panel.art.as_ref()?, panel.rect, Shadow::Menu(drifter_core::glance::RADIUS))),
             Pane::Glance => self.glance_panel.as_ref().and_then(|panel| one(panel.art.as_ref()?, panel.rect, Shadow::Menu(drifter_core::glance::RADIUS))),

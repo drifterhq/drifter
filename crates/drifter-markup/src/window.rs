@@ -130,6 +130,9 @@ struct Editor {
     tip_seen: Option<Instant>,
     asking: bool,
     answer_hover: Option<Answer>,
+    lit: Option<drifter_core::glide::Glide>,
+    shown_base: Option<Image>,
+    glow_due: bool,
     toast: Option<(String, Instant)>,
     blink: bool,
     appearance: drifter_core::config::Appearance,
@@ -238,6 +241,9 @@ pub fn run(path: PathBuf) -> Result<(), String> {
         tip_seen: None,
         asking: false,
         answer_hover: None,
+        lit: None,
+        shown_base: None,
+        glow_due: false,
         toast: None,
         blink: true,
         appearance: config.appearance.clone(),
@@ -245,9 +251,11 @@ pub fn run(path: PathBuf) -> Result<(), String> {
         watched_at: Instant::now(),
     };
     while !app.exit {
-        events.dispatch(app.stale.then_some(SETTLE), &mut app).map_err(|e| format!("event loop: {e}"))?;
+        events.dispatch((app.stale || app.glow_due).then_some(SETTLE), &mut app).map_err(|e| format!("event loop: {e}"))?;
         if app.configured && (std::mem::take(&mut app.resized) || (app.stale && app.frame_free())) {
             app.draw();
+        } else if app.configured && app.glow_due && app.frame_free() {
+            app.reshow();
         }
     }
     Ok(())
@@ -422,7 +430,52 @@ impl Editor {
         Some((map.to(top), map.to(top + Vec2::new(0.0, line * 0.8))))
     }
 
+    fn aim_lit(&mut self) {
+        let bar = Bar {
+            tool: self.markup.tool,
+            ink: self.markup.ink,
+            weight: self.markup.weight,
+            text: self.markup.text_mode(),
+            undo: self.markup.can_undo(),
+            redo: self.markup.can_redo(),
+            hover: self.hover.filter(|_| !self.asking && !self.pressing),
+        };
+        let target = self.look.lit_target(self.view(), &self.fonts(), &bar);
+        let before = self.lit.as_ref().map(|lit| (lit.rect(), lit.shade()));
+        drifter_core::glide::Glide::aim(&mut self.lit, target, 1.0);
+        if self.lit.as_ref().map(|lit| (lit.rect(), lit.shade())) != before || self.lit_busy() {
+            self.glow_due = true;
+        }
+    }
+
+    fn lit_busy(&self) -> bool {
+        self.lit.as_ref().is_some_and(drifter_core::glide::Glide::busy)
+    }
+
+    fn reshow(&mut self) {
+        self.glow_due = false;
+        if let Some(base) = self.shown_base.take() {
+            self.show(&base);
+        }
+    }
+
     fn show(&mut self, image: &Image) {
+        self.glow_due = false;
+        self.shown_base = Some(image.clone());
+        let glowing;
+        let image = match self.lit.as_ref().filter(|lit| lit.shade() > 0.0005) {
+            Some(lit) => {
+                drifter_core::paint::set_density(scale());
+                let mut canvas = drifter_core::paint::Canvas::on(image.clone());
+                lit.draw(&mut canvas, self.look.ink);
+                glowing = canvas.image;
+                &glowing
+            }
+            None => image,
+        };
+        if self.lit_busy() {
+            self.glow_due = true;
+        }
         let (width, height) = (image.width, image.height);
         let stride = width as i32 * 4;
         let (buffer, canvas) = match self.pool.create_buffer(width as i32, height as i32, stride, wl_shm::Format::Argb8888) {
@@ -941,10 +994,15 @@ impl PointerHandler for Editor {
                     self.cursor_now = None;
                     self.motion();
                 }
-                PointerEventKind::Motion { .. } => self.motion(),
+                PointerEventKind::Motion { .. } => {
+                    self.motion();
+                    self.aim_lit();
+                }
                 PointerEventKind::Press { button, serial, .. } if button == BTN_LEFT => {
                     self.serial = serial;
+                    drifter_core::glide::Glide::press(&mut self.lit);
                     self.press();
+                    self.aim_lit();
                 }
                 PointerEventKind::Release { button, .. } if button == BTN_LEFT => self.let_go(),
                 PointerEventKind::Leave { .. } => {
@@ -953,6 +1011,7 @@ impl PointerHandler for Editor {
                         self.stale = true;
                     }
                     self.tip_plan += 1;
+                    self.aim_lit();
                 }
                 _ => {}
             }

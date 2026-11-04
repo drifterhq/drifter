@@ -398,6 +398,56 @@ impl Look {
         Rect::new(card.origin + Vec2::new(18.0, 22.0), Vec2::new(card.size.x - read - 18.0 - 50.0, card.size.y - 22.0 - 76.0))
     }
 
+    pub fn lit_target(&self, size: Vec2, model: &Model, fonts: &Fonts, at: Vec2) -> Option<Rect> {
+        for (index, view) in View::ALL.iter().enumerate() {
+            let rect = self.item_rect(index);
+            if rect.contains(at) {
+                return (*view != model.view).then_some(rect);
+            }
+        }
+        if let Some((_, Some(reopen))) = self.toast_rect(size, model, fonts)
+            && reopen.contains(at)
+        {
+            return Some(reopen);
+        }
+        if model.view == View::Hour {
+            return self
+                .segment_rects(size)
+                .into_iter()
+                .find(|(measure, rect)| rect.contains(at) && *measure != model.measure)
+                .map(|(_, rect)| rect);
+        }
+        if self.inspector_rect(size).contains(at) {
+            if !model.chosen()?.can_stop() {
+                return None;
+            }
+            let (pause, quit, force) = self.action_rects(size);
+            return [pause, quit, force].into_iter().find(|rect| rect.contains(at));
+        }
+        let table = self.table_rect(size, model.view);
+        if !table.contains(at) {
+            return None;
+        }
+        if at.y < table.origin.y + HEAD_H {
+            return self.columns(table).into_iter().find_map(|(_, x, width, right)| {
+                let (from, to) = match right {
+                    true => (x - 70.0, x),
+                    false => (x, x + width),
+                };
+                (at.x >= from && at.x <= to)
+                    .then(|| Rect::new(Vec2::new(from - 6.0, table.origin.y + 3.0), Vec2::new(to - from + 12.0, HEAD_H - 6.0)))
+            });
+        }
+        let body = self.body_rect(size, model.view);
+        let y = at.y - body.origin.y + model.scroll;
+        let (top, tall, line) = self.rows(model).into_iter().find(|(top, tall, _)| y >= *top && y < top + tall)?;
+        if matches!(&line, Line::Group(key) if model.selected.as_ref() == Some(key)) {
+            return None;
+        }
+        let row = Rect::new(Vec2::new(table.origin.x, body.origin.y + top - model.scroll), Vec2::new(table.size.x, tall));
+        Some(crate::rows::lit_rect(row))
+    }
+
     pub fn hit(&self, size: Vec2, model: &Model, fonts: &Fonts, at: Vec2) -> Option<Hit> {
         if self.search_rect().contains(at) {
             return Some(Hit::Search);
@@ -1453,6 +1503,24 @@ mod tests {
         let rows = look.rows(&model);
         assert_eq!(rows.len(), 2 + 6);
         assert!(matches!(rows[2].2, Line::Member(ref key, 0) if key == "1"));
+    }
+
+    #[test]
+    fn the_glide_finds_other_views_and_rows_but_not_the_chosen_ones() {
+        let model = model();
+        let look = Look::themed(&crate::theme::DARK, [64, 128, 238]);
+        let font = crate::text::Font::load(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fonts/WorkSans.ttf"), 13.0).unwrap();
+        let fonts = Fonts { body: &font, small: &font, title: &font };
+        let size = Vec2::new(1000.0, 700.0);
+        let here = View::ALL.iter().position(|view| *view == model.view).unwrap();
+        let there = (here + 1) % View::ALL.len();
+        assert_eq!(look.lit_target(size, &model, &fonts, look.item_rect(here).center()), None);
+        assert_eq!(look.lit_target(size, &model, &fonts, look.item_rect(there).center()), Some(look.item_rect(there)));
+        let body = look.body_rect(size, model.view);
+        let (top, tall, _) = look.rows(&model)[0];
+        let point = Vec2::new(body.center().x, body.origin.y + top + tall / 2.0);
+        let lit = look.lit_target(size, &model, &fonts, point).expect("a row lights");
+        assert!(lit.contains(point));
     }
 
     #[test]

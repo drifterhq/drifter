@@ -241,12 +241,12 @@ impl State {
                         let key: LevelKey = (
                             level,
                             items.len(),
-                            menu.hover[level],
+                            menu.path.get(level).copied(),
                             menu.scroll[level].to_bits(),
                             [rect.origin.x, rect.origin.y, rect.size.x, rect.size.y].map(|v| v.round() as i64),
                         );
                         let image = (had.get(level) != Some(&key)).then(|| {
-                            let mut image = look.paint(items, rect.size, menu.hover[level], menu.scroll[level], &font);
+                            let mut image = look.paint(items, rect.size, menu.path.get(level).copied(), menu.scroll[level], &font);
                             worker::frost(&frosting, &mut image, rect.origin, look.back_alpha);
                             image
                         });
@@ -300,6 +300,7 @@ impl State {
         let instant = self.window_pace <= 0.0;
         let fade_only = self.window_still;
         let round = self.cascade_look().radius;
+        self.lit_elements(fade::Pane::DeskMenu, Vec2::ZERO, 1.0, 0.0, 1.0, elements);
         for (level, (art, rect)) in open.arts.iter().enumerate().rev() {
             let gone = open.opened.get(level).map_or(f64::MAX, |at| at.elapsed().as_secs_f64());
             let (drop, shown) = match (level, instant) {

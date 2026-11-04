@@ -1125,11 +1125,8 @@ impl Look {
         canvas.round_rect(frame.menu, 0.0, self.bar, 1.0);
         let open = job.model.menu.as_ref().and_then(|menu| menu.bar);
         for (index, (area, name)) in self.bar_titles(fonts).into_iter().enumerate() {
-            let hot = job.model.hover == Some(Hit::Bar(index));
             if open == Some(index) {
                 self.glossy(canvas, area, 6.0);
-            } else if hot {
-                canvas.round_rect(area, 6.0, self.hover, 0.7);
             }
             let ink = if open == Some(index) { self.on_accent } else { self.ink };
             self.text_center(canvas, fonts.body, name, ink, area.center(), area.size.x);
@@ -1189,10 +1186,8 @@ impl Look {
         canvas.round_rect(rect(0.0, bar.max().y - 1.0, bar.size.x, 1.0), 0.0, self.rule, 1.0);
         let nav = self.nav_rects(bar);
         let able = [!model.back.is_empty(), !model.ahead.is_empty(), model.dir.parent().is_some()];
-        let hits = [Hit::Back, Hit::Forward, Hit::Up];
         for (at, area) in nav.iter().enumerate() {
-            let hot = able[at] && model.hover.as_ref() == Some(&hits[at]);
-            self.button(canvas, *area, hot, false);
+            self.button(canvas, *area, false, false);
             let ink = if able[at] { self.ink } else { mix(self.bar, self.dim, 0.5) };
             let c = area.center();
             match at {
@@ -1228,21 +1223,18 @@ impl Look {
         }
         for (at, (mode, area)) in views.iter().copied().enumerate() {
             let on = model.view.mode == mode;
-            let hot = model.hover == Some(Hit::Show(mode));
             if at > 0 {
                 canvas.line(Vec2::new(area.origin.x, area.origin.y + 6.0), Vec2::new(area.origin.x, area.max().y - 6.0), 1.0, self.rule, 1.0);
             }
             let face = rect(area.origin.x + 1.0, area.origin.y + 1.0, area.size.x - 2.0, area.size.y - 2.0);
-            match (on, hot) {
-                (true, _) => self.pressed(canvas, face, 6.0),
-                (false, true) => canvas.round_rect(face, 6.0, self.hover, 0.6),
-                _ => {}
+            if on {
+                self.pressed(canvas, face, 6.0);
             }
             let ink = if on { self.on_accent } else { self.ink };
             self.view_glyph(canvas, mode, area.center(), ink);
         }
         let gear = self.gear_rect(bar);
-        self.button(canvas, gear, model.hover == Some(Hit::Gear), matches!(model.sheet, Some(Sheet::Prefs(_))));
+        self.button(canvas, gear, false, matches!(model.sheet, Some(Sheet::Prefs(_))));
         let ink = if matches!(model.sheet, Some(Sheet::Prefs(_))) { self.on_accent } else { self.ink };
         let c = gear.center();
         for (row, knob) in [(-5.0, 3.0), (0.0, -3.0), (5.0, 1.0)] {
@@ -1332,9 +1324,6 @@ impl Look {
         let crumbs = self.crumbs(path, model, fonts);
         let middle = path.center().y;
         for (index, crumb) in crumbs.iter().enumerate() {
-            if model.hover == Some(Hit::Crumb(index)) && !crumb.last {
-                canvas.round_rect(crumb.area, 5.0, self.hover, 0.9);
-            }
             let ink = if crumb.last { self.ink } else { self.dim };
             let x = crumb.area.origin.x + 4.0;
             let room = crumb.area.size.x - 6.0;
@@ -1344,9 +1333,6 @@ impl Look {
                     canvas.stamp(&piece, Vec2::new(x, middle - logical(&piece).y / 2.0).round(), 1.0);
                 }
                 false => self.text(canvas, fonts.body, &crumb.words, ink, Vec2::new(x, middle), room + 2.0),
-            }
-            if model.hover == Some(Hit::CrumbArrow(index)) {
-                canvas.round_rect(crumb.arrow, 4.0, self.hover, 0.9);
             }
             if !crumb.last || model.hover == Some(Hit::CrumbArrow(index)) {
                 self.chevron(canvas, crumb.arrow.center(), self.dim);
@@ -1561,15 +1547,12 @@ impl Look {
                 continue;
             }
             let here = line.path().is_some_and(|path| path == model.dir);
-            let hot = model.hover == Some(Hit::Line(index)) || model.hover == Some(Hit::Caret(index));
             let indent = match line {
                 Line::Folder { depth, .. } => *depth as f64 * 14.0,
                 _ => 0.0,
             };
             if here {
                 self.glossy(&mut canvas, area, 7.0);
-            } else if hot {
-                canvas.round_rect(area, 7.0, self.hover, 0.7);
             }
             if model.side_at == Some(index) && ringed(model, super::model::Pane::Side) {
                 canvas.ring(inset(area, 1.0), 7.0, 2.0, if here { self.on_accent } else { self.accent }, 1.0);
@@ -1738,11 +1721,9 @@ impl Look {
         canvas.stamp(&layer.image, area.origin.round(), 0.55);
     }
 
-    fn row_back(&self, canvas: &mut Canvas, area: Rect, picked: bool, hot: bool, focused: bool, stripe: bool) {
+    fn row_back(&self, canvas: &mut Canvas, area: Rect, picked: bool, focused: bool, stripe: bool) {
         if picked {
             self.glossy(canvas, area, 6.0);
-        } else if hot {
-            canvas.round_rect(area, 6.0, self.hover, 0.6);
         } else if stripe {
             canvas.round_rect(area, 6.0, self.well, 0.55);
         }
@@ -1768,9 +1749,8 @@ impl Look {
                 continue;
             }
             let picked = model.picked.contains(&entry.path);
-            let hot = model.hover == Some(Hit::Entry(at));
             let focused = model.focus.as_ref() == Some(&entry.path);
-            self.row_back(canvas, area, picked, hot, focused && model.picked.len() > 1, at % 2 == 1);
+            self.row_back(canvas, area, picked, focused && model.picked.len() > 1, at % 2 == 1);
             if focused && ringed(model, super::model::Pane::Files) {
                 canvas.ring(inset(area, 1.0), 6.0, 2.0, if picked { self.on_accent } else { self.accent }, 1.0);
             }
@@ -1905,13 +1885,10 @@ impl Look {
                 continue;
             };
             let picked = model.picked.contains(&entry.path);
-            let hot = model.hover == Some(Hit::Entry(at));
             let art_area = rect(area.center().x - zoom / 2.0, area.origin.y + 6.0, zoom, zoom);
             let tile = rect(art_area.origin.x - 6.0, art_area.origin.y - 4.0, zoom + 12.0, zoom + 8.0);
             if picked {
                 canvas.round_rect(tile, 10.0, self.hover, 0.9);
-            } else if hot {
-                canvas.round_rect(tile, 10.0, self.hover, 0.45);
             }
             if model.focus.as_ref() == Some(&entry.path) && ringed(model, super::model::Pane::Files) {
                 canvas.ring(tile, 10.0, 2.0, self.accent, 1.0);
@@ -1973,11 +1950,9 @@ impl Look {
                     true => model.picked.contains(&entry.path),
                     false => chosen_next.as_ref() == Some(&entry.path),
                 };
-                let hot = model.hover == Some(Hit::Column(index, Some(row)));
                 match (picked, current || index + 1 == count) {
                     (true, true) => canvas.round_rect(line, 6.0, self.accent, 1.0),
                     (true, false) => canvas.round_rect(line, 6.0, self.hover, 1.0),
-                    _ if hot => canvas.round_rect(line, 6.0, self.hover, 0.5),
                     _ => {}
                 }
                 if current && model.focus.as_ref() == Some(&entry.path) && ringed(model, super::model::Pane::Files) {
@@ -2121,8 +2096,6 @@ impl Look {
             let tile = rect(cell.origin.x + 6.0, cell.origin.y, cell.size.x - 12.0, cell.size.y);
             if picked {
                 self.glossy(canvas, tile, 10.0);
-            } else if model.hover == Some(Hit::Strip(at)) {
-                canvas.round_rect(tile, 10.0, self.hover, 0.6);
             }
             if model.focus.as_ref() == Some(&entry.path) && ringed(model, super::model::Pane::Files) {
                 canvas.ring(inset(tile, 1.0), 10.0, 2.0, if picked { self.on_accent } else { self.accent }, 1.0);
@@ -2166,7 +2139,7 @@ impl Look {
                     canvas.round_rect(Rect::new(face.origin - Vec2::new(1.0, 1.0), face.size + Vec2::new(2.0, 0.0)), 8.0, self.rule, 1.0);
                     canvas.round_rect(face, 7.0, self.back, 1.0);
                 }
-                (false, true) => canvas.round_rect(rect(face.origin.x, face.origin.y, face.size.x, tab.size.y - 4.0), 7.0, self.hover, 0.7),
+                (false, true) => {}
                 (false, false) => {
                     if index + 1 < tabs.len() && !lit(index + 1) {
                         canvas.round_rect(rect(tab.max().x - 0.5, tab.origin.y + 7.0, 1.0, tab.size.y - 18.0), 0.0, self.rule, 1.0);
@@ -2195,7 +2168,7 @@ impl Look {
         if let Some(tab) = tabs.get(model.tab) {
             canvas.round_rect(rect(tab.origin.x + 1.0, local.max().y - 1.0, tab.size.x - 2.0, 1.0), 0.0, self.back, 1.0);
         }
-        self.button(&mut canvas, plus, model.hover == Some(Hit::TabNew), false);
+        self.button(&mut canvas, plus, false, false);
         let c = plus.center();
         canvas.line(c + Vec2::new(-5.0, 0.0), c + Vec2::new(5.0, 0.0), 1.8, self.dim, 1.0);
         canvas.line(c + Vec2::new(0.0, -5.0), c + Vec2::new(0.0, 5.0), 1.8, self.dim, 1.0);
@@ -2254,6 +2227,70 @@ impl Look {
             image = self.repaint(image, size, &Paint { clip: Some(clip), ..*job });
         }
         Ok(image)
+    }
+
+    pub fn lit_target(&self, size: Vec2, model: &Model, lines: &[Line], fonts: &Fonts) -> Option<(Rect, Rect)> {
+        if model.menu.is_some() || model.sheet.is_some() || model.dragging.is_some() {
+            return None;
+        }
+        let hit = model.hover.as_ref()?;
+        let frame = self.frame(size, model);
+        let whole = rect(0.0, 0.0, size.x, size.y);
+        let picked = |at: usize| model.entries.get(at).is_some_and(|entry| model.picked.contains(&entry.path));
+        let face = |area: Rect| rect(area.origin.x + 1.0, area.origin.y + 1.0, area.size.x - 2.0, area.size.y - 2.0);
+        let able = [!model.back.is_empty(), !model.ahead.is_empty(), model.dir.parent().is_some()];
+        match hit {
+            Hit::Bar(index) => Some((self.bar_titles(fonts).get(*index)?.0, frame.menu)),
+            Hit::Back if able[0] => Some((self.nav_rects(frame.bar)[0], whole)),
+            Hit::Forward if able[1] => Some((self.nav_rects(frame.bar)[1], whole)),
+            Hit::Up if able[2] => Some((self.nav_rects(frame.bar)[2], whole)),
+            Hit::Show(mode) if *mode != model.view.mode => {
+                Some((face(self.view_rects(frame.bar).into_iter().find(|(each, _)| each == mode)?.1), whole))
+            }
+            Hit::Gear if !matches!(model.sheet, Some(Sheet::Prefs(_))) => Some((self.gear_rect(frame.bar), whole)),
+            Hit::Crumb(index) => {
+                let crumb = self.crumbs(self.path_rect(frame.bar), model, fonts).into_iter().nth(*index)?;
+                (!crumb.last).then_some((crumb.area, whole))
+            }
+            Hit::CrumbArrow(index) => Some((self.crumbs(self.path_rect(frame.bar), model, fonts).get(*index)?.arrow, whole)),
+            Hit::Line(index) | Hit::Caret(index) => {
+                let side = frame.side?;
+                let line = lines.get(*index)?;
+                if line.path().is_some_and(|path| path == model.dir) {
+                    return None;
+                }
+                Some((*self.line_rects(side, lines, model.tree_scroll).get(*index)?, side))
+            }
+            Hit::Entry(at) | Hit::Strip(at) if !picked(*at) => {
+                let area = self.entry_rect(&frame, model, *at)?;
+                let shown = match model.view.mode {
+                    Mode::Icons => {
+                        let zoom = f64::from(model.prefs.zoom);
+                        rect(area.center().x - zoom / 2.0 - 6.0, area.origin.y + 2.0, zoom + 12.0, zoom + 8.0)
+                    }
+                    Mode::Gallery => rect(area.origin.x + 6.0, area.origin.y, area.size.x - 12.0, area.size.y),
+                    _ => area,
+                };
+                let clip = match model.view.mode {
+                    Mode::List => rect(frame.body.origin.x, frame.body.origin.y + HEAD_H, frame.body.size.x, frame.body.size.y - HEAD_H),
+                    _ => frame.body,
+                };
+                Some((shown, clip))
+            }
+            Hit::Column(index, Some(row)) => {
+                let area = self.column_rect(frame.body, model, *index);
+                let column = model.columns.get(*index)?;
+                let line = rect(area.origin.x + 6.0, area.origin.y + 6.0 + *row as f64 * row_h(model) - column.scroll, COLUMN_W - 12.0, row_h(model));
+                Some((line, area))
+            }
+            Hit::Tab(index) | Hit::TabClose(index) if *index != model.tab => {
+                let strip = frame.tabs?;
+                let tab = *self.strip_tabs(strip, model.tabs.len()).0.get(*index)?;
+                Some((rect(tab.origin.x + 1.0, tab.origin.y, tab.size.x - 2.0, tab.size.y - 4.0), strip))
+            }
+            Hit::TabNew => Some((self.strip_tabs(frame.tabs?, model.tabs.len()).1, whole)),
+            _ => None,
+        }
     }
 
     pub fn hover_rect(&self, size: Vec2, model: &Model, lines: &[Line], fonts: &Fonts, hit: &Hit) -> Option<Rect> {
@@ -3443,6 +3480,37 @@ mod repaint_tests {
 
     fn same(a: &Image, b: &Image) -> bool {
         a.width == b.width && a.height == b.height && a.rgba == b.rgba
+    }
+
+    #[test]
+    fn the_glide_finds_files_and_buttons_but_not_the_chosen_view() {
+        let dir = std::env::temp_dir().join(format!("drifter-glide-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("work")).unwrap();
+        for n in 0..10 {
+            std::fs::write(dir.join(format!("work/file {n}.txt")), "x").unwrap();
+        }
+        let mut model = Model::new(dir.join("explorer.toml"), Some(dir.join("work")));
+        model.settle_all(std::time::Duration::from_secs(5));
+        let (Ok(body), Ok(small), Ok(title)) = (crate::Font::find(None, 13.0), crate::Font::find(None, 11.5), crate::Font::find(None, 17.0)) else {
+            return;
+        };
+        let fonts = Fonts { body: &body, small: &small, title: &title };
+        let look = Look::themed(&crate::theme::DARK, [64, 128, 238]);
+        let size = Vec2::new(900.0, 600.0);
+        model.view.mode = Mode::List;
+        let lines = model.lines();
+        let frame = look.frame(size, &model);
+        model.hover = Some(Hit::Entry(3));
+        let (lit, _) = look.lit_target(size, &model, &lines, &fonts).expect("a file row lights");
+        assert_eq!(Some(lit), look.entry_rect(&frame, &model, 3));
+        model.hover = Some(Hit::Show(Mode::List));
+        assert!(look.lit_target(size, &model, &lines, &fonts).is_none());
+        model.hover = Some(Hit::Show(Mode::Icons));
+        assert!(look.lit_target(size, &model, &lines, &fonts).is_some());
+        model.hover = Some(Hit::Gear);
+        assert_eq!(look.lit_target(size, &model, &lines, &fonts).map(|(rect, _)| rect), Some(look.gear_rect(frame.bar)));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

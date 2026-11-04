@@ -64,7 +64,7 @@ impl Tool {
         }
     }
 
-    fn lit(self, slot: Tool) -> bool {
+    pub fn lit(self, slot: Tool) -> bool {
         let video_window = Tool::new(Take::Video, Pick::Window);
         self == slot || (self == video_window && slot == Tool::new(Take::Video, Pick::Portion))
     }
