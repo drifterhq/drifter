@@ -8,6 +8,28 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Settings > Terminal: colors (Auto, Dark, Light), text size, cursor shape,
+  background opacity, space around the text, tab bar edge, and always show
+  the tab bar. Open terminals take each change at once.
+- Terminal: Settings at the bottom of the right-click menu opens
+  Settings > Terminal.
+- Terminal: Control +, Control - and Control 0 change the text size of one
+  window.
+
+### Changed
+
+- Terminal: the right-click menu keeps only New Tab, New Window, Close Tab,
+  Copy, Paste and Settings.
+- Terminal: options now live in the `[terminal]` table of the Drifter config.
+  `~/.config/drifter/terminal.conf` is no longer read.
+- Terminal: the cursor and the active tab use your accent color.
+- Settings opens one window. A second launch shows the asked page in the
+  open window and brings it to the front.
+- Search: an app whose keywords hold the search word ranks above a Settings
+  page with that name.
+
 ## [0.1.0] - 2026-11-04
 
 The first release.
