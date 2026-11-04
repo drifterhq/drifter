@@ -393,6 +393,10 @@ fn sheet_nodes(sheet: &Sheet, nodes: &mut Vec<(NodeId, Node)>, aims: &mut HashMa
                 .collect();
             kids.push(list(nodes, aims, found));
         }
+        Sheet::Themes { cards, .. } => {
+            let found = cards.iter().map(|card| (card.name.clone(), Pick::Choice(card.name.clone()))).collect();
+            kids.push(list(nodes, aims, found));
+        }
         Sheet::Picker { apps, .. } => {
             let found = apps.iter().enumerate().map(|(at, app)| (app.name.clone(), Pick::App(at))).collect();
             kids.push(list(nodes, aims, found));

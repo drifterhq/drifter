@@ -36,6 +36,7 @@ use crate::pty;
 const START: (u32, u32) = (960, 600);
 const APP_ID: &str = "drifter-terminal";
 const SETTINGS_APP: &str = "drifter-settings";
+const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 const LOOK_AGAIN: Duration = Duration::from_secs(1);
 const RELOAD: Duration = Duration::from_secs(60);
 
@@ -89,6 +90,7 @@ struct Term {
     pointer_pos: Vec2,
     lit: Option<Lit>,
     menu: Option<Menu>,
+    blank_click: Option<Instant>,
 }
 
 fn mix(a: [u8; 3], b: [u8; 3], t: f64) -> [u8; 3] {
@@ -196,6 +198,7 @@ pub fn run() -> Result<(), String> {
         pointer_pos: Vec2::ZERO,
         lit: None,
         menu: None,
+        blank_click: None,
     };
 
     while !term.exit {
@@ -591,6 +594,12 @@ impl Term {
                 if let Some(i) = ui::tab_at(self.cfg.tab_edge, self.panes.len(), self.size, self.pointer_pos) {
                     self.active = i;
                     self.needs_draw = true;
+                    self.blank_click = None;
+                } else if ui::strip_rect(self.cfg.tab_edge, self.size).contains(self.pointer_pos) {
+                    match self.blank_click.take() {
+                        Some(first) if first.elapsed() < DOUBLE_CLICK => self.new_tab(),
+                        _ => self.blank_click = Some(Instant::now()),
+                    }
                 }
             }
             BTN_MIDDLE => {}
