@@ -1,0 +1,21 @@
+[package]
+name = "drifter-terminal"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "A terminal made for Drifter, on libghostty-vt"
+
+# Built on its own for now (needs Zig + libghostty-vt). Joins the main
+# workspace when ghostty is vendored.
+[workspace]
+
+[dependencies]
+drifter-core = { path = "../drifter-core" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2.189"
+smithay-client-toolkit = { version = "0.19", default-features = false, features = ["calloop", "xkbcommon"] }
+wayland-client = "0.31"
+
+[profile.release]
+opt-level = 3
