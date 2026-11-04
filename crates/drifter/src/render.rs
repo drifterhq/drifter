@@ -1600,17 +1600,21 @@ impl Screen {
                 .map_err(|e| format!("event loop failed: {e}"))?;
             return state.failure.take().map_or(Ok(()), Err);
         }
-        if lock_marker().is_some_and(|marker| marker.exists())
+        if start::greeted() {
+            state.greeted = true;
+            match state.lock_now() {
+                true => {
+                    if let Some(lock) = state.lock.as_mut() {
+                        lock.since -= LOCK_FADE;
+                        lock.note = Note::Checking;
+                    }
+                }
+                false => state.greeted = false,
+            }
+        } else if lock_marker().is_some_and(|marker| marker.exists())
             || (state.login_lock && crate::logind::from_console())
         {
             state.lock_now();
-        } else if start::greeted() && state.lock_now()
-        {
-            state.greeted = true;
-            if let Some(lock) = state.lock.as_mut() {
-                lock.since -= LOCK_FADE;
-                lock.note = Note::Checking;
-            }
         }
         state.draw()?;
         crate::mark("first frame");
