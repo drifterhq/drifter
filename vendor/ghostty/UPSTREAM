@@ -1,0 +1,15 @@
+Ghostty's terminal core, libghostty-vt, that drifter-terminal links.
+
+From: https://github.com/ghostty-org/ghostty
+Commit: c7f68a7f48c6a5b357689eb8c2328bc2dab5d8ed (2026-11-03)
+License: MIT, see LICENSE
+Builds with: Zig 0.17.1 (scripts/zig.sh)
+
+Taken: the whole tree at that commit, and zig-pkg/ with the Zig packages
+a `zig build -Demit-lib-vt` needs, so the build runs with no network.
+Left out: test, macos, images, po, example, flatpak, snap, nix,
+dist/macos, src/font/res. None of them are part of the lib-vt build.
+
+To update: git archive a newer commit, remove the same paths, run
+`zig build -Demit-lib-vt` once with network so zig-pkg/ fills, and
+change the commit above.
