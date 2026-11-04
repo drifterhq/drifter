@@ -709,7 +709,8 @@ pub fn open(
         failure: None,
         greeter: (live && !full).then(crate::greeter::Greeter::start),
         greeted: false,
-        fly_in: false,
+        fly_in: None,
+        fly_frost: None,
     };
 
     let mut state = state;

@@ -6,15 +6,20 @@ impl State {
         if let Some(lock) = self.lock.as_ref() {
             return Some(drifter_core::motion::smooth((lock.since.elapsed().as_secs_f64() / span).min(1.0)));
         }
-        let span = match self.fly_in {
-            true => FLY_IN.as_secs_f64(),
-            false => span,
-        };
+        if let Some(start) = self.fly_in {
+            let t = start.elapsed().as_secs_f64() / FLY_IN.as_secs_f64();
+            if t >= 1.0 || self.unlocking.is_none() {
+                self.unlocking = None;
+                self.fly_in = None;
+                self.fly_frost = None;
+                return None;
+            }
+            return Some(1.0 - drifter_core::motion::smooth((t / FLY_FADE).min(1.0)));
+        }
         let (_, since) = self.unlocking.as_ref()?;
         let gone = since.elapsed().as_secs_f64() / span;
         if gone >= 1.0 {
             self.unlocking = None;
-            self.fly_in = false;
             return None;
         }
         Some(1.0 - drifter_core::motion::smooth(gone))
@@ -27,15 +32,16 @@ impl State {
     pub(super) fn lock_elements(&mut self, shown: f64) -> Vec<Skin> {
         let look = drifter_core::lock::Look::themed(&self.palette);
         let alpha = shown as f32;
-        let drift = match self.lock_logo.pace > 0.0 && !self.fly_in {
+        let flying = self.fly_in.map(|start| (start.elapsed().as_secs_f64() / FLY_IN.as_secs_f64()).min(1.0));
+        let drift = match self.lock_logo.pace > 0.0 && flying.is_none() {
             true => (1.0 - shown) * 18.0,
             false => 0.0,
         };
         let up = Vec2::new(0.0, -drift);
         let down = Vec2::new(0.0, drift);
-        let grow = match self.fly_in && self.lock.is_none() {
-            true => 1.0 + FLY_GROW * drifter_core::motion::smooth(1.0 - shown),
-            false => 1.0,
+        let grow = match flying {
+            Some(t) if self.lock.is_none() => 1.0 + FLY_GROW * drifter_core::motion::smooth(t),
+            _ => 1.0,
         };
         let middle = self.screen / 2.0;
         let grown = move |rect: Rect| Rect::new(middle + (rect.origin - middle) * grow, rect.size * grow);
@@ -102,6 +108,10 @@ impl State {
         let every = self.live_every();
         if let Some(paper) = self.wallpaper.as_mut() {
             paper_pieces(&mut self.renderer, paper, view, alpha, (clock, Some(every)), &mut elements);
+        }
+        if let (Some(t), Some(frost)) = (flying, self.fly_frost.as_ref()) {
+            let clear = drifter_core::motion::smooth(((t - FROST_FROM) / (1.0 - FROST_FROM)).clamp(0.0, 1.0));
+            elements.push(Skin::Texture(element(frost, Rect::new(Vec2::ZERO, self.screen), (1.0 - clear) as f32)));
         }
         elements
     }
@@ -414,13 +424,14 @@ impl State {
             lock.caret = Some((art, login.ink));
         }
         if self.greeter.as_ref().is_some_and(|greeter| greeter.sessions.len() > 1)
-            && self.lock.as_ref().is_some_and(|lock| lock.gear.as_ref().is_none_or(|(_, ink)| *ink != login.ink))
+            && self.lock.as_ref().is_some_and(|lock| lock.gear.is_none())
         {
-            let image = drifter_core::tray::paint_gear(self.tray.button as u32, login.ink);
+            let corner = worker::contrast(&frosting, look, self.tray.status_rect(self.top_rest_band(), Vec2::new(160.0, 28.0)));
+            let image = drifter_core::tray::paint_gear(self.tray.button as u32, corner.ink);
             if let Ok(Some(art)) = upload(&mut self.renderer, Some(&image), "session button")
                 && let Some(lock) = self.lock.as_mut()
             {
-                lock.gear = Some((art, login.ink));
+                lock.gear = Some((art, corner.ink));
             }
         }
         if fresh && shown == key {
@@ -824,9 +835,12 @@ impl State {
     }
 }
 
-const FLY_IN: Duration = Duration::from_millis(800);
-const FLY_GROW: f64 = 0.18;
-const FLY_FROM: f64 = 0.92;
+const FLY_IN: Duration = Duration::from_millis(1000);
+const FLY_FADE: f64 = 0.6;
+const FLY_GROW: f64 = 0.22;
+const FLY_FROM: f64 = 0.9;
+const FROST_FROM: f64 = 0.3;
+const FROST_WIDTH: u32 = 320;
 
 impl State {
     fn session_button(&self) -> Option<Rect> {
@@ -845,12 +859,16 @@ impl State {
         let ready = self.lock.as_ref().is_some_and(|lock| lock.art.is_some() && lock.clock.is_some());
         if ready {
             self.greeted = false;
-            self.fly_in = true;
+            self.fly_frost = self
+                .frosting()
+                .map(|frosting| frosting.screen(self.screen, FROST_WIDTH))
+                .and_then(|image| upload_flat(&mut self.renderer, Some(&image), "login frost").ok().flatten());
             let to = self.camera;
             let from = Camera::new(to.center, to.zoom * FLY_FROM);
             self.camera = from;
             self.flight = Some((Flight::new(from, to, FLY_IN), Instant::now()));
             self.unlock();
+            self.fly_in = Some(Instant::now());
             crate::mark("login look ready, flying in");
         }
     }

@@ -77,6 +77,25 @@ impl Frosting {
     }
 }
 
+impl Frosting {
+    pub(super) fn screen(&self, screen: Vec2, width: u32) -> drifter_core::Image {
+        let height = ((f64::from(width) * screen.y / screen.x.max(1.0)).round() as u32).max(1);
+        let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+        for y in 0..height {
+            for x in 0..width {
+                let point = Vec2::new(
+                    (f64::from(x) + 0.5) * screen.x / f64::from(width),
+                    (f64::from(y) + 0.5) * screen.y / f64::from(height),
+                );
+                let seen = self.frost.behind(&self.laid, self.size, point);
+                rgba.extend(seen.map(|c| c.round().clamp(0.0, 255.0) as u8));
+                rgba.push(255);
+            }
+        }
+        drifter_core::Image { width, height, rgba }
+    }
+}
+
 pub(super) fn contrast(frosting: &Option<Frosting>, look: drifter_core::lock::Look, rect: Rect) -> drifter_core::lock::Look {
     match frosting {
         Some(frosting) => look.over(frosting.average(rect)),
