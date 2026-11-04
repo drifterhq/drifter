@@ -30,6 +30,10 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
   Settings > Terminal.
 - Terminal: Control +, Control - and Control 0 change the text size of one
   window.
+- Terminal: a double click on empty tab bar space opens a new tab.
+- Settings > Terminal: Dark theme and Light theme open a grid of swatches.
+  Each card shows the theme background with its red, yellow, green and blue.
+  Drifter Dark or Drifter Light comes first, then A to Z.
 
 ### Changed
 
