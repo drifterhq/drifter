@@ -240,6 +240,7 @@ pub fn open(
     };
     let display: Display<State> =
         Display::new().map_err(|e| format!("cannot start the wayland display: {e}"))?;
+    crate::mark("renderer ready");
     let mut wayland = crate::shell::start(&display, &config.keyboard, events.handle())?;
     {
         use smithay::backend::renderer::ImportDma;
@@ -707,10 +708,14 @@ pub fn open(
         signal: events.get_signal(),
         failure: None,
         greeter: (live && !full).then(crate::greeter::Greeter::start),
+        greeted: false,
+        fly_in: false,
     };
 
     let mut state = state;
+    crate::mark("shell state made");
     state.refresh_apps();
+    crate::mark("apps read");
     state.set_shortcuts(&config.keys, config.input.modifier);
     state.set_places(&config.place, config.input.modifier);
     match live {
@@ -725,7 +730,9 @@ pub fn open(
     for index in 1..state.heads.len() {
         state.heads[index].camera = state.beside(index);
     }
+    crate::mark("screens set");
     state.load(state.hand);
+    crate::mark("art loaded");
     state.pointer = state.screen / 2.0;
     let first = &state.heads[0];
     let found_name = state

@@ -196,6 +196,42 @@ pub fn paint_power(side: u32, color: [u8; 3]) -> Image {
     }
 }
 
+pub fn paint_gear(side: u32, color: [u8; 3]) -> Image {
+    let side = crate::paint::dense(f64::from(side.max(8)));
+    let size = f64::from(side);
+    let middle = size / 2.0;
+    let body = size * 0.30;
+    let tooth = size * 0.09;
+    let hole = size * 0.13;
+    let mut rgba = vec![0u8; (side as usize) * (side as usize) * 4];
+    for y in 0..side {
+        let dy = f64::from(y) + 0.5 - middle;
+        for x in 0..side {
+            let dx = f64::from(x) + 0.5 - middle;
+            let away = (dx * dx + dy * dy).sqrt();
+            let angle = dy.atan2(dx);
+            let wave = ((angle * 8.0).cos() * 2.2).clamp(-1.0, 1.0) * 0.5 + 0.5;
+            let edge = body + tooth * wave;
+            let outside = (edge - away + 0.5).clamp(0.0, 1.0);
+            let inside = (away - hole + 0.5).clamp(0.0, 1.0);
+            let ink = outside * inside;
+            if ink <= 0.0 {
+                continue;
+            }
+            let at = ((y as usize) * (side as usize) + x as usize) * 4;
+            for (channel, value) in color.iter().enumerate() {
+                rgba[at + channel] = (f64::from(*value) * ink).round().clamp(0.0, 255.0) as u8;
+            }
+            rgba[at + 3] = (ink * 255.0).round().clamp(0.0, 255.0) as u8;
+        }
+    }
+    Image {
+        width: side,
+        height: side,
+        rgba,
+    }
+}
+
 pub fn now(format: &str) -> Result<String, String> {
     stamp(&Local::now(), format)
 }

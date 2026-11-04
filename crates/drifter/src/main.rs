@@ -149,6 +149,7 @@ fn bootstrap(config: &Config) -> ExitCode {
             .ok()
     });
 
+    mark("seat open and wallpaper read");
     let screen = match render::open(
         Some(render::Seat {
             session: &mut seat.session,
@@ -250,7 +251,18 @@ fn greeting() -> Option<std::path::PathBuf> {
 
 pub static CONFIG_ERROR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
+static STARTED: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
+pub fn started() -> std::time::Instant {
+    *STARTED.get_or_init(std::time::Instant::now)
+}
+
+pub fn mark(what: &str) {
+    out!("timing      {what} at {} ms", started().elapsed().as_millis());
+}
+
 fn main() -> ExitCode {
+    started();
     keep_crashes();
     let path = match greeting() {
         Some(path) => path,

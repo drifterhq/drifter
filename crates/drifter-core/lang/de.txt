@@ -5006,3 +5006,6 @@ No network. Connect to the internet, then try again.
 
 Stopped before the end.
 = Vor dem Ende angehalten.
+
+Log in to
+= Anmelden bei

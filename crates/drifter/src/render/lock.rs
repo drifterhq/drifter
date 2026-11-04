@@ -6,10 +6,15 @@ impl State {
         if let Some(lock) = self.lock.as_ref() {
             return Some(drifter_core::motion::smooth((lock.since.elapsed().as_secs_f64() / span).min(1.0)));
         }
+        let span = match self.fly_in {
+            true => FLY_IN.as_secs_f64(),
+            false => span,
+        };
         let (_, since) = self.unlocking.as_ref()?;
         let gone = since.elapsed().as_secs_f64() / span;
         if gone >= 1.0 {
             self.unlocking = None;
+            self.fly_in = false;
             return None;
         }
         Some(1.0 - drifter_core::motion::smooth(gone))
@@ -22,14 +27,20 @@ impl State {
     pub(super) fn lock_elements(&mut self, shown: f64) -> Vec<Skin> {
         let look = drifter_core::lock::Look::themed(&self.palette);
         let alpha = shown as f32;
-        let drift = match self.lock_logo.pace > 0.0 {
+        let drift = match self.lock_logo.pace > 0.0 && !self.fly_in {
             true => (1.0 - shown) * 18.0,
             false => 0.0,
         };
         let up = Vec2::new(0.0, -drift);
         let down = Vec2::new(0.0, drift);
-        let moved = |rect: Rect, by: Vec2| Rect::new((rect.origin + by).round(), rect.size);
-        let logo = moved(look.logo_rect(self.screen), down);
+        let grow = match self.fly_in && self.lock.is_none() {
+            true => 1.0 + FLY_GROW * drifter_core::motion::smooth(1.0 - shown),
+            false => 1.0,
+        };
+        let middle = self.screen / 2.0;
+        let grown = move |rect: Rect| Rect::new(middle + (rect.origin - middle) * grow, rect.size * grow);
+        let moved = |rect: Rect, by: Vec2| grown(Rect::new((rect.origin + by).round(), rect.size));
+        let logo = Rect::new((look.logo_rect(self.screen).origin + down).round(), look.logo_rect(self.screen).size);
         let mut elements = Vec::new();
         let Some(lock) = self.lock.as_ref().or(self.unlocking.as_ref().map(|(lock, _)| lock)) else {
             return elements;
@@ -48,12 +59,17 @@ impl State {
             elements.push(Skin::Texture(element(art, card, alpha)));
         }
         if let Some((art, size)) = lock.corner.as_ref() {
-            let spot = self.tray.status_rect(self.top_rest_band(), *size);
+            let spot = grown(self.tray.status_rect(self.top_rest_band(), *size));
             if let Some(glow) = lock.corner_glow.as_ref() {
                 let ebb = drifter_core::lock::ebb(self.ebb_from.elapsed().as_secs_f64());
                 elements.push(Skin::Texture(element(glow, spot, ebb * alpha)));
             }
             elements.push(Skin::Texture(element(art, spot, alpha)));
+        }
+        if let Some((gear, _)) = lock.gear.as_ref()
+            && let Some(spot) = self.session_button()
+        {
+            elements.push(Skin::Texture(element(gear, grown(spot), alpha)));
         }
         let top = lock
             .top
@@ -66,7 +82,7 @@ impl State {
         let shade = lock.shade.clone();
         let veil = lock.veil.as_ref().map(|(art, _)| art.clone());
         if let Some(frame) = self.lock_logo_frame(logo) {
-            elements.push(Skin::Texture(element(&frame, logo, alpha)));
+            elements.push(Skin::Texture(element(&frame, grown(logo), alpha)));
         }
         if let Some(shade) = shade {
             let spot = moved(look.logo_shadow_rect(self.screen), down);
@@ -130,6 +146,7 @@ impl State {
             clock_lane: worker::Lane::default(),
             shade: None,
             shade_lane: worker::Lane::default(),
+            gear: None,
             shown: (String::new(), String::new(), usize::MAX, Note::Ask, [0; 3]),
             lane: worker::Lane::default(),
             top_lane: worker::Lane::default(),
@@ -379,6 +396,16 @@ impl State {
         let shown = lock.shown.clone();
         let fresh = lock.art.is_some() && lock.top.is_some() && lock.corner.is_some() && lock.clock.is_some();
         let shaded = lock.shade.is_some();
+        if self.greeter.as_ref().is_some_and(|greeter| greeter.sessions.len() > 1)
+            && self.lock.as_ref().is_some_and(|lock| lock.gear.as_ref().is_none_or(|(_, ink)| *ink != login.ink))
+        {
+            let image = drifter_core::tray::paint_gear(self.tray.button as u32, login.ink);
+            if let Ok(Some(art)) = upload(&mut self.renderer, Some(&image), "session button")
+                && let Some(lock) = self.lock.as_mut()
+            {
+                lock.gear = Some((art, login.ink));
+            }
+        }
         let pixel = |color: [u8; 3]| drifter_core::Image {
             width: 1,
             height: 1,
@@ -494,6 +521,7 @@ impl State {
                     lock.art = Some(art);
                     lock.shown = key;
                 }
+                state.greeted_unlock();
             },
         );
     }
@@ -746,6 +774,7 @@ impl State {
                 if let Some(lock) = state.lock.as_mut() {
                     lock.clock = Some((art, size));
                 }
+                state.greeted_unlock();
             },
         );
     }
@@ -772,16 +801,22 @@ impl State {
             self.next_person(forward);
             return;
         }
+        if let Some(spot) = self.session_button().filter(|spot| spot.contains(self.pointer)) {
+            let items = self.greeter.as_ref().map(|greeter| greeter.menu()).unwrap_or_default();
+            let at = Vec2::new(spot.max().x, spot.max().y + 6.0);
+            self.open_popover(items, at, Target::Desktop);
+            self.kick_now();
+            return;
+        }
         let power = self.tray.power_rect(self.top_rest_band());
         if power.contains(self.pointer) {
             use drifter_core::menu::Item;
             use drifter_core::power::Action;
-            let mut items = self.greeter.as_ref().map(|greeter| greeter.menu()).unwrap_or_default();
-            items.extend([
+            let items = vec![
                 Item::line(Action::Suspend.id(), drifter_core::lang::t("Sleep")),
                 Item::line(Action::Reboot.id(), drifter_core::lang::t("Restart…")),
                 Item::line(Action::Shutdown.id(), drifter_core::lang::t("Shut Down…")),
-            ]);
+            ];
             let at = Vec2::new(power.max().x, power.max().y + 6.0);
             self.open_popover(items, at, Target::Desktop);
             self.kick_now();
@@ -789,7 +824,37 @@ impl State {
     }
 }
 
+const FLY_IN: Duration = Duration::from_millis(800);
+const FLY_GROW: f64 = 0.18;
+const FLY_FROM: f64 = 0.92;
+
 impl State {
+    fn session_button(&self) -> Option<Rect> {
+        self.greeter.as_ref().filter(|greeter| greeter.sessions.len() > 1)?;
+        let (_, size) = self.lock.as_ref()?.corner.as_ref()?;
+        let corner = self.tray.status_rect(self.top_rest_band(), *size);
+        let side = Vec2::splat(self.tray.button);
+        let x = corner.origin.x - self.tray.button_gap - side.x;
+        Some(Rect::new(Vec2::new(x, corner.center().y - side.y / 2.0).round(), side))
+    }
+
+    fn greeted_unlock(&mut self) {
+        if !self.greeted {
+            return;
+        }
+        let ready = self.lock.as_ref().is_some_and(|lock| lock.art.is_some() && lock.clock.is_some());
+        if ready {
+            self.greeted = false;
+            self.fly_in = true;
+            let to = self.camera;
+            let from = Camera::new(to.center, to.zoom * FLY_FROM);
+            self.camera = from;
+            self.flight = Some((Flight::new(from, to, FLY_IN), Instant::now()));
+            self.unlock();
+            crate::mark("login look ready, flying in");
+        }
+    }
+
     fn next_person(&mut self, forward: bool) {
         let Some(greeter) = self.greeter.as_mut() else {
             return;

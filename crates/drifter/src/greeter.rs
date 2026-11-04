@@ -99,13 +99,12 @@ impl Greeter {
         if self.sessions.len() < 2 {
             return Vec::new();
         }
-        let mut items = vec![Item::section(drifter_core::lang::t("Session"))];
+        let mut items = vec![Item::section(drifter_core::lang::t("Log in to"))];
         for (at, session) in self.sessions.iter().enumerate() {
             let mut item = Item::line(FIRST_SESSION_ID + at as i32, &session.name);
             item.trail = drifter_core::rows::Trail::Check(at == self.session);
             items.push(item);
         }
-        items.push(Item::rule(FIRST_SESSION_ID - 1));
         items
     }
 
@@ -218,6 +217,7 @@ fn remembered() -> (Option<String>, Option<String>) {
 pub fn environment(session: &Session) -> Vec<String> {
     vec![
         "XDG_SESSION_TYPE=wayland".to_string(),
+        "DRIFTER_GREETED=1".to_string(),
         format!("XDG_SESSION_DESKTOP={}", session.id),
         format!("XDG_CURRENT_DESKTOP={}", session.desktops),
     ]
