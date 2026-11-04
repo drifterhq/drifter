@@ -65,6 +65,8 @@ mod shell;
 #[cfg(target_os = "linux")]
 mod spatial;
 #[cfg(target_os = "linux")]
+mod ssh;
+#[cfg(target_os = "linux")]
 mod stats;
 #[cfg(target_os = "linux")]
 mod tearing;

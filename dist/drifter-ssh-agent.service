@@ -1,0 +1,10 @@
+[Unit]
+Description=SSH key agent for Drifter
+Documentation=man:ssh-agent(1)
+PartOf=drifter-session.target
+
+[Service]
+ExecStartPre=-/usr/bin/rm -f %t/drifter-ssh-agent
+ExecStart=/usr/bin/ssh-agent -D -a %t/drifter-ssh-agent
+ExecStartPost=/usr/bin/systemctl --user set-environment SSH_AUTH_SOCK=%t/drifter-ssh-agent
+ExecStopPost=-/usr/bin/systemctl --user unset-environment SSH_AUTH_SOCK

@@ -21,6 +21,9 @@ pub fn announce(socket: &str) {
     if let Some(display) = crate::apps::x11_display() {
         pairs.insert("DISPLAY".into(), display);
     }
+    if let Some(agent) = crate::ssh::socket() {
+        pairs.insert("SSH_AUTH_SOCK".into(), agent);
+    }
     let spawned = std::thread::Builder::new()
         .name("drifter-portal".to_string())
         .spawn(move || {

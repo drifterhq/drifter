@@ -977,6 +977,7 @@ pub fn open(
     state.socket = socket_name.clone();
     if full {
         crate::apps::start_x11(&socket_name);
+        crate::ssh::start();
         crate::portal::announce(&socket_name);
         crate::keyring::start();
         state.follow_reader();
