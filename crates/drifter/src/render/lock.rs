@@ -30,13 +30,6 @@ impl State {
     }
 
     pub(super) fn lock_elements(&mut self, shown: f64) -> Vec<Skin> {
-        if self.greeted && self.lock.as_ref().is_some_and(|lock| lock.art.is_none() || lock.clock.is_none()) {
-            if crate::started().elapsed() > GREET_WAIT {
-                self.greeted_unlock_now();
-            } else {
-                return self.black_screen();
-            }
-        }
         let look = drifter_core::lock::Look::themed(&self.palette);
         let alpha = shown as f32;
         let flying = self.fly_in.map(|start| (start.elapsed().as_secs_f64() / FLY_IN.as_secs_f64()).min(1.0));
@@ -164,7 +157,6 @@ impl State {
             shade: None,
             shade_lane: worker::Lane::default(),
             gear: None,
-            black: None,
             shown: (String::new(), String::new(), usize::MAX, Note::Ask, [0; 3]),
             lane: worker::Lane::default(),
             top_lane: worker::Lane::default(),
@@ -723,7 +715,7 @@ impl State {
                     greeter.remember();
                 }
                 out!("greeter     logged in, so drifter steps aside for the session");
-                self.signal.stop();
+                self.step_aside();
                 return;
             }
             Verdict::Granted => {
@@ -861,22 +853,30 @@ impl State {
         Some(Rect::new(Vec2::new(x, corner.center().y - side.y / 2.0).round(), side))
     }
 
-    fn black_screen(&mut self) -> Vec<Skin> {
-        let made = self.lock.as_ref().and_then(|lock| lock.black.clone());
-        let black = match made {
-            Some(black) => Some(black),
-            None => {
-                let pixel = drifter_core::Image { width: 1, height: 1, rgba: vec![0, 0, 0, 255] };
-                let art = upload(&mut self.renderer, Some(&pixel), "login black").ok().flatten();
-                if let (Some(lock), Some(art)) = (self.lock.as_mut(), art.as_ref()) {
-                    lock.black = Some(art.clone());
-                }
-                art
-            }
+    fn step_aside(&mut self) {
+        use std::os::fd::{AsFd, AsRawFd};
+        let Some(drm) = self.drm.as_ref() else {
+            self.signal.stop();
+            return;
         };
-        black
-            .map(|black| vec![Skin::Texture(fill(&black, Rect::new(Vec2::ZERO, self.screen), 1.0))])
-            .unwrap_or_default()
+        let shown: Vec<u32> = self
+            .heads
+            .iter()
+            .filter_map(|head| drm.get_crtc(head.crtc).ok()?.framebuffer())
+            .map(Into::into)
+            .collect();
+        crate::greeter::step_aside(drm.as_fd().as_raw_fd(), &shown);
+    }
+
+    pub(super) fn greeted_waiting(&mut self) -> bool {
+        if !self.greeted || self.lock.as_ref().is_none_or(|lock| lock.art.is_some() && lock.clock.is_some()) {
+            return false;
+        }
+        if crate::started().elapsed() > GREET_WAIT {
+            self.greeted_unlock_now();
+            return false;
+        }
+        true
     }
 
     fn greeted_unlock(&mut self) {

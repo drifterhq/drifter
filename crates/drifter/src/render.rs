@@ -428,7 +428,6 @@ struct Lock {
     shade: Option<TextureBuffer<Tex>>,
     shade_lane: worker::Lane,
     gear: Option<(TextureBuffer<Tex>, [u8; 3])>,
-    black: Option<TextureBuffer<Tex>>,
     shown: (String, String, usize, Note, [u8; 3]),
     lane: worker::Lane,
     top_lane: worker::Lane,
@@ -1246,6 +1245,9 @@ impl State {
         self.settle_welcome();
         self.wind_titles();
         self.paint_lock();
+        if self.greeted_waiting() {
+            return Ok(false);
+        }
         self.check_client_lock();
         self.settle_style_fade();
 
@@ -1596,13 +1598,12 @@ impl Screen {
             || (state.login_lock && crate::logind::from_console())
         {
             state.lock_now();
-        } else if std::env::var_os("DRIFTER_GREETED").is_some()
-            && std::env::var_os("DRIFTER_RECOVERED").is_none()
-            && state.lock_now()
+        } else if start::greeted() && state.lock_now()
         {
             state.greeted = true;
             if let Some(lock) = state.lock.as_mut() {
                 lock.since -= LOCK_FADE;
+                lock.note = Note::Checking;
             }
         }
         state.draw()?;

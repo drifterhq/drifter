@@ -166,7 +166,7 @@ pub fn open(
             .inspect_err(|e| log!("drifter: no gbm device: {e}"))
             .ok();
         let (device, notifier) =
-            DrmDevice::new(drm_fd, true).map_err(|e| format!("cannot open drm device: {e}"))?;
+            DrmDevice::new(drm_fd, !greeted()).map_err(|e| format!("cannot open drm device: {e}"))?;
         drm = Some(device);
         drm_events = Some(notifier);
 
@@ -1117,4 +1117,8 @@ pub(super) fn describe(renderer: &mut GlesRenderer) -> String {
             }
         })
         .unwrap_or_else(|_| "unknown".to_string())
+}
+
+pub(super) fn greeted() -> bool {
+    std::env::var_os("DRIFTER_GREETED").is_some() && std::env::var_os("DRIFTER_RECOVERED").is_none()
 }
