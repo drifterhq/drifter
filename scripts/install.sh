@@ -7,6 +7,7 @@ if [ "$(id -u)" -eq 0 ]; then
 fi
 
 here=$(cd "$(dirname "$0")/.." && pwd)
+"$here/scripts/zig.sh"
 
 if [ -f /etc/pam.d/common-auth ]; then
     stack='#%PAM-1.0
@@ -52,10 +53,13 @@ sed "s|^Exec=drifter-explorer|Exec=$here/target/release/drifter-explorer|" "$her
     sudo tee /usr/share/applications/drifter-explorer.desktop >/dev/null
 sed "s|^Exec=drifter-activity|Exec=$here/target/release/drifter-activity|" "$here/dist/drifter-activity.desktop" |
     sudo tee /usr/share/applications/drifter-activity.desktop >/dev/null
+sed "s|^Exec=drifter-terminal|Exec=$here/target/release/drifter-terminal|" "$here/dist/drifter-terminal.desktop" |
+    sudo tee /usr/share/applications/drifter-terminal.desktop >/dev/null
 sudo install -m 0644 "$here/dist/drifter-mimeapps.list" /usr/share/applications/drifter-mimeapps.list
-sudo chmod 0644 /usr/share/applications/drifter-explorer.desktop /usr/share/applications/drifter-activity.desktop
+sudo chmod 0644 /usr/share/applications/drifter-explorer.desktop /usr/share/applications/drifter-activity.desktop \
+    /usr/share/applications/drifter-terminal.desktop
 command -v update-desktop-database >/dev/null 2>&1 && sudo update-desktop-database -q /usr/share/applications || true
-echo "wrote Explorer and Activity to /usr/share/applications; folders open in Explorer in Drifter sessions"
+echo "wrote Explorer, Activity and Terminal to /usr/share/applications; folders open in Explorer in Drifter sessions"
 
 icons="${XDG_DATA_HOME:-$HOME/.local/share}/icons"
 mkdir -p "$icons"

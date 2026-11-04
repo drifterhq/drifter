@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Drifter packages</title>
+<style>
+body { font: 16px/1.5 system-ui, sans-serif; max-width: 46rem; margin: 3rem auto; padding: 0 1.25rem; color: #1d1d1f; background: #fbfbfd; }
+h1 { font-size: 1.8rem; margin-bottom: .25rem; }
+h2 { font-size: 1.15rem; margin-top: 2rem; }
+pre { background: #1d1d1f; color: #f5f5f7; padding: .9rem 1rem; border-radius: 10px; overflow-x: auto; font-size: .85rem; }
+code { font-family: ui-monospace, "JetBrains Mono", monospace; }
+.fpr { font-family: ui-monospace, monospace; font-size: .85rem; word-break: break-all; }
+a { color: #0066cc; }
+</style>
+</head>
+<body>
+<h1>Drifter packages</h1>
+<p>Signed package repos for <a href="https://github.com/drifterhq/drifter">Drifter</a>. Install <code>drifter-desktop</code> for Drifter with the apps a desktop needs, or <code>drifter</code> alone.</p>
+<p>Signing key: <a href="drifter.asc">drifter.asc</a><br><span class="fpr">ACE0 6510 5193 A93E 5A3E 0493 F8AD 3B38 1388 AF59</span></p>
+
+<h2>Debian 13 (trixie)</h2>
+<pre><code>sudo install -d /etc/apt/keyrings
+sudo curl -fsSLo /etc/apt/keyrings/drifter.asc https://drifterhq.github.io/drifter/drifter.asc
+echo "deb [signed-by=/etc/apt/keyrings/drifter.asc] https://drifterhq.github.io/drifter/deb trixie main" |
+    sudo tee /etc/apt/sources.list.d/drifter.list
+sudo apt update
+sudo apt install drifter-desktop</code></pre>
+
+<h2>Fedora 44</h2>
+<pre><code>sudo curl -fsSLo /etc/yum.repos.d/drifter.repo https://drifterhq.github.io/drifter/rpm/drifter.repo
+sudo dnf install drifter-desktop</code></pre>
+
+<h2>Arch Linux</h2>
+<pre><code>curl -fsSL https://drifterhq.github.io/drifter/drifter.asc | sudo pacman-key --add -
+sudo pacman-key --lsign-key ACE065105193A93E5A3E0493F8AD3B381388AF59
+printf '\n[drifter]\nServer = https://drifterhq.github.io/drifter/arch/$arch\n' | sudo tee -a /etc/pacman.conf
+sudo pacman -Syu drifter-desktop</code></pre>
+
+<h2>Log in</h2>
+<p>Pick Drifter from your login screen's session menu. For Drifter's own login screen, install <code>drifter-login</code>, then run <code>sudo systemctl enable drifter-login</code> after you turn off your current login manager.</p>
+</body>
+</html>

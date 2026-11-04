@@ -3,10 +3,12 @@ set -euo pipefail
 
 here=$(cd "$(dirname "$0")/.." && pwd)
 cd "$here"
+scripts/zig.sh
 cargo build --release --workspace
 cargo deb -p drifter --no-build
 cargo deb -p drifter-explorer --no-build
 cargo deb -p drifter-login --no-build
+cargo deb -p drifter-terminal --no-build
 
 version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
 work=$(mktemp -d)

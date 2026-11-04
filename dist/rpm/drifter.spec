@@ -1,5 +1,5 @@
-# Builds every Drifter package for Fedora: scripts/build-rpm.sh makes the
-# source tarball from the checkout and runs rpmbuild on this file.
+%global zigver 0.17.1
+
 Name:           drifter
 Version:        0.1.0
 Release:        1%{?dist}
@@ -7,6 +7,8 @@ Summary:        A Wayland desktop that is a camera over one large world
 License:        MIT
 URL:            https://github.com/drifterhq/drifter
 Source0:        drifter-%{version}.tar.gz
+Source1:        https://ziglang.org/download/%{zigver}/zig-%{_arch}-linux-%{zigver}.tar.xz
+ExclusiveArch:  x86_64 aarch64
 
 BuildRequires:  cargo >= 1.98
 BuildRequires:  rust >= 1.98
@@ -25,14 +27,22 @@ BuildRequires:  pkgconfig(wayland-egl)
 BuildRequires:  pkgconfig(libdrm)
 BuildRequires:  pkgconfig(pixman-1)
 BuildRequires:  pam-devel
+BuildRequires:  xz
 
 Requires:       adwaita-icon-theme
+Requires:       mesa-dri-drivers
+Requires:       mesa-libEGL
+Requires:       fontconfig
+Requires:       dbus
+Requires:       polkit
+Requires:       systemd
 Requires:       pipewire
 Requires:       wireplumber
 Requires:       xdg-desktop-portal
 Requires:       xdg-desktop-portal-wlr
 Requires:       xdg-desktop-portal-gtk
 Recommends:     drifter-explorer = %{version}-%{release}
+Recommends:     drifter-terminal = %{version}-%{release}
 Recommends:     xorg-x11-server-Xwayland
 Recommends:     xwayland-satellite >= 0.8.3
 Recommends:     NetworkManager-wifi
@@ -41,7 +51,8 @@ Recommends:     bluez-obexd
 Recommends:     udisks2
 Recommends:     power-profiles-daemon
 Recommends:     iw
-Recommends:     foot
+Recommends:     util-linux
+Recommends:     glib2
 Recommends:     grim
 Recommends:     wf-recorder
 Recommends:     pulseaudio-utils
@@ -64,10 +75,20 @@ Summary:        A file manager made for Drifter
 Recommends:     ffmpegthumbnailer
 Recommends:     poppler-utils
 Recommends:     bsdtar
+Recommends:     zip
+Recommends:     unzip
+Suggests:       7zip
 
 %description explorer
 A file manager made for Drifter: a folder tree, a path bar, list, icon,
 column and gallery views, and the Trash.
+
+%package terminal
+Summary:        A terminal made for Drifter
+
+%description terminal
+A terminal made for Drifter. Ghostty's terminal core, libghostty-vt, reads
+the shell's output; Drifter draws it, with tabs and themes.
 
 %package login
 Summary:        Drifter's login service
@@ -95,7 +116,7 @@ Summary:        The full Drifter desktop
 BuildArch:      noarch
 Requires:       %{name} >= %{version}
 Requires:       %{name}-explorer >= %{version}
-Requires:       foot
+Requires:       %{name}-terminal >= %{version}
 Requires:       gnome-text-editor
 Requires:       loupe
 Requires:       papers
@@ -117,19 +138,21 @@ Requires:       wireplumber
 Recommends:     %{name}-login
 
 %description desktop
-Drifter with the apps a desktop needs: Explorer for files, Foot for a
-terminal, Text Editor, Loupe for pictures, Papers for PDFs, Celluloid for
+Drifter with the apps a desktop needs: Explorer for files, Terminal,
+Text Editor, Loupe for pictures, Papers for PDFs, Celluloid for
 video and music, Calculator, the GNOME keyring for passwords and SSH keys,
 CUPS for printers, xwayland-satellite for X11 apps, and PackageKit for
 software updates in Settings.
 
 %prep
 %autosetup -n drifter-%{version}
+tar -xJf %{SOURCE1}
 
 %build
+export PATH=$PWD/zig-%{_arch}-linux-%{zigver}:$PATH
 cargo build --release --locked \
     -p drifter -p drifter-settings -p drifter-markup -p drifter-activity \
-    -p drifter-explorer -p drifter-login
+    -p drifter-explorer -p drifter-login -p drifter-terminal
 
 %install
 for bin in drifter drifter-settings drifter-markup drifter-activity drifter-explorer; do
@@ -158,6 +181,9 @@ done
 
 install -Dm644 dist/drifter-explorer.desktop %{buildroot}%{_datadir}/applications/drifter-explorer.desktop
 install -Dm644 dist/drifter-mimeapps.list %{buildroot}%{_datadir}/applications/drifter-mimeapps.list
+
+install -Dm755 target/release/drifter-terminal %{buildroot}%{_bindir}/drifter-terminal
+install -Dm644 dist/drifter-terminal.desktop %{buildroot}%{_datadir}/applications/drifter-terminal.desktop
 
 install -Dm755 target/release/drifter-login %{buildroot}%{_libexecdir}/drifter-login
 install -Dm644 dist/drifter-login/drifter-login.service %{buildroot}%{_unitdir}/drifter-login.service
@@ -192,6 +218,7 @@ systemctl daemon-reload >/dev/null 2>&1 || :
 systemctl daemon-reload >/dev/null 2>&1 || :
 
 %files
+%license LICENSE
 %{_bindir}/drifter
 %{_bindir}/drifter-settings
 %{_bindir}/drifter-markup
@@ -212,6 +239,11 @@ systemctl daemon-reload >/dev/null 2>&1 || :
 %{_bindir}/drifter-explorer
 %{_datadir}/applications/drifter-explorer.desktop
 %{_datadir}/applications/drifter-mimeapps.list
+
+%files terminal
+%license LICENSE vendor/ghostty/LICENSE
+%{_bindir}/drifter-terminal
+%{_datadir}/applications/drifter-terminal.desktop
 
 %files login
 %{_libexecdir}/drifter-login

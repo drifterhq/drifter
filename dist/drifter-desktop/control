@@ -4,11 +4,11 @@ Architecture: all
 Maintainer: donuts-are-good <96031819+donuts-are-good@users.noreply.github.com>
 Section: metapackages
 Priority: optional
-Depends: drifter (>= @VERSION@), drifter-explorer (>= @VERSION@), foot, gnome-text-editor, loupe, papers | evince, celluloid, gnome-calculator, gnome-keyring, libpam-gnome-keyring, gcr4, openssh-client, packagekit, xwayland, xwayland-satellite (>= 0.8.3), cups, cups-pk-helper, network-manager, bluez, pipewire, wireplumber
+Depends: drifter (>= @VERSION@), drifter-explorer (>= @VERSION@), drifter-terminal (>= @VERSION@), gnome-text-editor, loupe, papers | evince, celluloid, gnome-calculator, gnome-keyring, libpam-gnome-keyring, gcr4, openssh-client, packagekit, xwayland, xwayland-satellite (>= 0.8.3), cups, cups-pk-helper, network-manager, bluez, pipewire, wireplumber
 Recommends: drifter-login
 Description: The full Drifter desktop
- Drifter with the apps a desktop needs: Explorer for files, Foot for a
- terminal, Text Editor, Loupe for pictures, Papers for PDFs, Celluloid for
- video and music, Calculator, the GNOME keyring for passwords and SSH keys,
+ Drifter with the apps a desktop needs: Explorer for files, Terminal,
+ Text Editor, Loupe for pictures, Papers for PDFs, Celluloid for video and
+ music, Calculator, the GNOME keyring for passwords and SSH keys,
  CUPS for printers, xwayland-satellite for X11 apps, and PackageKit for
  software updates in Settings.

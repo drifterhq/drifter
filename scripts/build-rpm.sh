@@ -17,6 +17,9 @@ satellite=$top/SOURCES/xwayland-satellite-0.8.3.tar.gz
 [ -s "$satellite" ] || curl -fsSL -o "$satellite" \
     https://github.com/Supreeeme/xwayland-satellite/archive/v0.8.3/xwayland-satellite-0.8.3.tar.gz
 
+zig=$top/SOURCES/zig-$(uname -m)-linux-0.17.1.tar.xz
+[ -s "$zig" ] || curl -fsSL -o "$zig" "https://ziglang.org/download/0.17.1/$(basename "$zig")"
+
 for spec in drifter xwayland-satellite; do
     rpmbuild --define "_topdir $top" -bb "$top/SPECS/$spec.spec"
 done

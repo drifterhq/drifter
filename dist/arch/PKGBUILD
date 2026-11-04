@@ -1,17 +1,20 @@
-# Drifter for Arch Linux. Build and install with: makepkg -si
-# Arch ships xwayland-satellite 0.8.3 or newer itself, so it comes from the
-# Arch repos.
 pkgbase=drifter
-pkgname=(drifter drifter-explorer drifter-login drifter-greeter drifter-desktop)
+pkgname=(drifter drifter-explorer drifter-terminal drifter-login drifter-greeter drifter-desktop)
 pkgver=0.1.0
 pkgrel=1
 pkgdesc='A Wayland desktop that is a camera over one large world'
 arch=(x86_64 aarch64)
 url='https://github.com/drifterhq/drifter'
 license=(MIT)
+options=(!debug)
 makedepends=(git cargo clang pkgconf libinput seatd libxkbcommon mesa libglvnd wayland libdrm pixman pam systemd)
+_zig=0.17.1
 source=("drifter::git+$url.git")
+source_x86_64=("https://ziglang.org/download/$_zig/zig-x86_64-linux-$_zig.tar.xz")
+source_aarch64=("https://ziglang.org/download/$_zig/zig-aarch64-linux-$_zig.tar.xz")
 sha256sums=(SKIP)
+sha256sums_x86_64=(3581863e3cbcfd0fce0efc682ce7e9e93da96668a977791d356a26d2a7e9b17a)
+sha256sums_aarch64=(a1546d5646eb184437918d6635ca6b762a0e889eac09cef720ee7a1ed3fe7795)
 
 pkgver() {
     cd drifter
@@ -29,15 +32,17 @@ prepare() {
 build() {
     cd drifter
     export RUSTUP_TOOLCHAIN=stable
+    export PATH="$srcdir/zig-$CARCH-linux-$_zig:$PATH"
     cargo build --release --frozen \
         -p drifter -p drifter-settings -p drifter-markup -p drifter-activity \
-        -p drifter-explorer -p drifter-login
+        -p drifter-explorer -p drifter-login -p drifter-terminal
 }
 
 package_drifter() {
-    depends=(libinput seatd libxkbcommon mesa libglvnd wayland pixman pam systemd-libs
-        adwaita-icon-theme pipewire wireplumber xdg-desktop-portal xdg-desktop-portal-wlr xdg-desktop-portal-gtk)
+    depends=(libinput seatd libxkbcommon mesa libglvnd wayland pixman pam systemd systemd-libs
+        polkit dbus fontconfig adwaita-icon-theme pipewire wireplumber xdg-desktop-portal xdg-desktop-portal-wlr xdg-desktop-portal-gtk)
     optdepends=('drifter-explorer: files'
+        'drifter-terminal: terminal'
         'xorg-xwayland: X11 apps'
         'xwayland-satellite: X11 apps'
         'networkmanager: Wi-Fi and network'
@@ -46,7 +51,6 @@ package_drifter() {
         'udisks2: disks and USB sticks'
         'power-profiles-daemon: power modes'
         'iw: Wi-Fi details'
-        'foot: terminal'
         'grim: screenshots'
         'wf-recorder: screen recording'
         'libpulse: Bluetooth headphone sound'
@@ -93,12 +97,25 @@ package_drifter-explorer() {
     depends=(libxkbcommon wayland)
     optdepends=('ffmpegthumbnailer: video thumbnails'
         'poppler: PDF thumbnails'
-        'libarchive: open archives')
+        'libarchive: open archives'
+        'zip: make zip files'
+        'unzip: open zip files'
+        '7zip: open 7z files')
 
     cd drifter
     install -Dm755 target/release/drifter-explorer "$pkgdir/usr/bin/drifter-explorer"
     install -Dm644 dist/drifter-explorer.desktop "$pkgdir/usr/share/applications/drifter-explorer.desktop"
     install -Dm644 dist/drifter-mimeapps.list "$pkgdir/usr/share/applications/drifter-mimeapps.list"
+}
+
+package_drifter-terminal() {
+    pkgdesc='A terminal made for Drifter, on libghostty-vt'
+    depends=(glibc gcc-libs libxkbcommon)
+
+    cd drifter
+    install -Dm755 target/release/drifter-terminal "$pkgdir/usr/bin/drifter-terminal"
+    install -Dm644 dist/drifter-terminal.desktop "$pkgdir/usr/share/applications/drifter-terminal.desktop"
+    install -Dm644 vendor/ghostty/LICENSE "$pkgdir/usr/share/licenses/drifter-terminal/ghostty-LICENSE"
 }
 
 package_drifter-login() {
@@ -133,7 +150,7 @@ package_drifter-greeter() {
 package_drifter-desktop() {
     pkgdesc='The full Drifter desktop: Drifter with the apps a desktop needs'
     arch=(any)
-    depends=(drifter drifter-explorer foot gnome-text-editor loupe papers celluloid gnome-calculator
+    depends=(drifter drifter-explorer drifter-terminal gnome-text-editor loupe papers celluloid gnome-calculator
         gnome-keyring gcr-4 openssh packagekit xorg-xwayland 'xwayland-satellite>=0.8.3' cups cups-pk-helper
         networkmanager bluez bluez-obex pipewire wireplumber)
     optdepends=('drifter-login: the Drifter login screen')

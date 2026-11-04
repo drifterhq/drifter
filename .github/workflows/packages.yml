@@ -1,0 +1,204 @@
+name: packages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: packages-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      release: ${{ steps.check.outputs.release }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HAS_KEY: ${{ secrets.REPO_SIGNING_KEY != '' }}
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+          release=false
+          if [ "$GITHUB_EVENT_NAME" != pull_request ] && [ "$GITHUB_REF" = refs/heads/main ] \
+              && ! gh release view "v$version" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            if [ "$HAS_KEY" = true ]; then
+              release=true
+              echo "v$version has no release yet, so this run publishes it"
+            else
+              echo "::warning::v$version has no release yet, but the REPO_SIGNING_KEY secret is not set, so nothing is published"
+            fi
+          fi
+          echo "release=$release" >>"$GITHUB_OUTPUT"
+
+  debian:
+    needs: version
+    runs-on: ubuntu-24.04
+    container: debian:trixie
+    steps:
+      - name: Install build tools
+        run: |
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+            build-essential pkg-config clang git curl ca-certificates xz-utils \
+            dpkg-dev apt-utils gnupg \
+            libudev-dev libseat-dev libinput-dev libxkbcommon-dev libgbm-dev libegl-dev \
+            libwayland-dev libdrm-dev libpixman-1-dev libpam0g-dev libdisplay-info-dev \
+            libxcb1-dev libxcb-cursor-dev
+      - uses: actions/checkout@v5
+      - name: Install Rust
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+          echo "$HOME/.cargo/bin" >>"$GITHUB_PATH"
+          "$HOME/.cargo/bin/rustup" show active-toolchain || "$HOME/.cargo/bin/rustup" toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-deb
+        run: command -v cargo-deb || cargo install cargo-deb --locked
+      - name: Build
+        run: scripts/build-deb.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-debian-trixie
+          path: target/debian/*.deb
+      - name: Sign the apt repo
+        if: needs.version.outputs.release == 'true'
+        env:
+          REPO_SIGNING_KEY: ${{ secrets.REPO_SIGNING_KEY }}
+        run: |
+          printf '%s\n' "$REPO_SIGNING_KEY" | gpg --batch --import
+          scripts/repo-deb.sh
+      - if: needs.version.outputs.release == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: repo-deb
+          path: target/repo
+
+  fedora:
+    needs: version
+    runs-on: ubuntu-24.04
+    container: fedora:44
+    steps:
+      - name: Install build tools
+        run: dnf install -y -q rpm-build rpm-sign dnf-plugins-core createrepo_c gnupg2 git curl xz
+      - uses: actions/checkout@v5
+      - name: Install build dependencies
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          dnf builddep -y -q dist/rpm/drifter.spec dist/rpm/xwayland-satellite.spec
+      - name: Build
+        run: scripts/build-rpm.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-fedora-44
+          path: |
+            target/rpm/RPMS/**/*.rpm
+            !target/rpm/RPMS/**/*-debuginfo-*.rpm
+            !target/rpm/RPMS/**/*-debugsource-*.rpm
+      - name: Sign the dnf repo
+        if: needs.version.outputs.release == 'true'
+        env:
+          REPO_SIGNING_KEY: ${{ secrets.REPO_SIGNING_KEY }}
+        run: |
+          printf '%s\n' "$REPO_SIGNING_KEY" | gpg --batch --import
+          scripts/repo-rpm.sh
+      - if: needs.version.outputs.release == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: repo-rpm
+          path: target/repo
+
+  arch:
+    needs: version
+    runs-on: ubuntu-24.04
+    container: archlinux:latest
+    steps:
+      - name: Install build tools
+        run: pacman -Syu --noconfirm --needed base-devel git sudo gnupg
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Make a build user
+        run: |
+          git config --system --add safe.directory '*'
+          useradd -m builder
+          echo 'builder ALL=(ALL) NOPASSWD: ALL' >/etc/sudoers.d/builder
+          chown -R builder "$GITHUB_WORKSPACE"
+      - name: Build
+        run: sudo -u builder scripts/build-arch.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-arch
+          path: target/arch/*.pkg.tar.zst
+      - name: Sign the pacman repo
+        if: needs.version.outputs.release == 'true'
+        env:
+          REPO_SIGNING_KEY: ${{ secrets.REPO_SIGNING_KEY }}
+        run: |
+          printf '%s\n' "$REPO_SIGNING_KEY" | gpg --batch --import
+          scripts/repo-arch.sh
+      - if: needs.version.outputs.release == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: repo-arch
+          path: target/repo
+
+  publish:
+    needs: [version, debian, fedora, arch]
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: repo-*
+          path: site
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: packages-*
+          path: packages
+          merge-multiple: true
+      - name: Lay out the site
+        run: |
+          cp dist/drifter.asc site/drifter.asc
+          cp dist/repo/index.html site/index.html
+          touch site/.nojekyll
+          find site -maxdepth 3 | sort
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4
+      - name: Make the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          awk -v v="$VERSION" '
+            $0 ~ "^## \\[" v "\\]" { on = 1; next }
+            on && /^## \[/ { exit }
+            on { print }
+          ' CHANGELOG.md >notes.md
+          find packages -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.pkg.tar.zst' \) -print0 |
+            xargs -0 gh release create "v$VERSION" -R "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" --title "Drifter $VERSION" --notes-file notes.md

@@ -49,8 +49,8 @@ copyright = "donuts-are-good"
 extended-description = "A Wayland desktop where the window manager is a camera over one large world. Windows stay where you put them."
 section = "x11"
 priority = "optional"
-depends = "$auto, libegl1, libgles2, adwaita-icon-theme, pipewire, wireplumber, xdg-desktop-portal, xdg-desktop-portal-wlr, xdg-desktop-portal-gtk, seatd | systemd"
-recommends = "drifter-explorer, xwayland-satellite (>= 0.8.3), gcr4, cups, cups-pk-helper, network-manager, network-manager-config-connectivity-debian, bluez, bluez-obexd, udisks2, power-profiles-daemon, iw, xwayland, foot, grim, qt6-gtk-platformtheme, qt5-gtk-platformtheme, accountsservice, openssl, wf-recorder, pulseaudio-utils, xsettingsd, gnome-keyring, libpam-gnome-keyring"
+depends = "$auto, libegl1, libgles2, libegl-mesa0, libgl1-mesa-dri, fontconfig, dbus-user-session, polkitd, pkexec, adwaita-icon-theme, pipewire, wireplumber, xdg-desktop-portal, xdg-desktop-portal-wlr, xdg-desktop-portal-gtk, seatd | systemd"
+recommends = "drifter-explorer, drifter-terminal, xwayland-satellite (>= 0.8.3), gcr4, cups, cups-pk-helper, network-manager, network-manager-config-connectivity-debian, bluez, bluez-obexd, udisks2, power-profiles-daemon, iw, rfkill, libglib2.0-bin, xwayland, grim, qt6-gtk-platformtheme, qt5-gtk-platformtheme, accountsservice, openssl, wf-recorder, pulseaudio-utils, xsettingsd, gnome-keyring, libpam-gnome-keyring"
 suggests = "orca"
 assets = [
     ["target/release/drifter", "usr/bin/", "755"],
