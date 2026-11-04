@@ -63,6 +63,8 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
   open window and brings it to the front.
 - Search: an app whose keywords hold the search word ranks above a Settings
   page with that name.
+- Smooth scrolling is off by default. A mouse wheel moves the page at once.
+  A touchpad already moves the page with your fingers.
 
 ### Fixed
 

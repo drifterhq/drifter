@@ -895,7 +895,7 @@ pub struct Mouse {
     pub natural: bool,
     #[serde(default)]
     pub left_handed: bool,
-    #[serde(default = "yes")]
+    #[serde(default)]
     pub smooth_scroll: bool,
 }
 
@@ -918,7 +918,7 @@ impl Default for Mouse {
             accel: false,
             natural: false,
             left_handed: false,
-            smooth_scroll: true,
+            smooth_scroll: false,
         }
     }
 }

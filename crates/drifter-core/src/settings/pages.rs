@@ -2427,7 +2427,7 @@ mod tests {
         let back = round_trip("", |m| {
             m.set(Id::MouseSpeed, Value::Number(8.0));
             m.set(Id::LeftHanded, Value::Choice(1));
-            m.set(Id::SmoothScroll, Value::Switch(false));
+            m.set(Id::SmoothScroll, Value::Switch(true));
             m.set(Id::HotCorner, Value::Switch(false));
             m.set(Id::CornerGlow, Value::Switch(false));
             m.set(Id::CornerWait, Value::Number(433.0));
@@ -2439,7 +2439,7 @@ mod tests {
         assert_eq!(back.motion.animation, crate::config::Animation::Calm);
         assert_eq!(back.mouse.speed, 8);
         assert!(back.mouse.left_handed && !back.mouse.accel);
-        assert!(!back.mouse.smooth_scroll);
+        assert!(back.mouse.smooth_scroll);
         assert!(!back.motion.hot_corner && !back.motion.corner_glow);
         assert_eq!(back.motion.corner_wait, 430);
         assert_eq!(back.motion.pan_speed, 150);
