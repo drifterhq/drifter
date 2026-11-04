@@ -10,6 +10,7 @@ pub mod cascade;
 pub mod charges;
 pub mod color;
 pub mod config;
+pub mod glide;
 pub mod termtheme;
 pub mod control;
 pub mod corner;

@@ -822,6 +822,37 @@ impl Sheet {
         }
     }
 
+    pub fn lit_target(&self, size: Vec2, pointer: Vec2) -> Option<Rect> {
+        let frame = frame(size, self);
+        for button in [frame.cancel, frame.primary] {
+            if button.contains(pointer) && (button == frame.cancel || self.primary().is_some()) {
+                return Some(button);
+            }
+        }
+        if !frame.list.contains(pointer) || matches!(self, Sheet::Form { .. } | Sheet::Capture { .. } | Sheet::Secret { .. } | Sheet::Info { .. }) {
+            return None;
+        }
+        let scroll = self.scroll();
+        let inside = pointer - frame.list.origin + Vec2::new(0.0, scroll);
+        let cell = match self {
+            Sheet::Faces { stock, .. } => face_cells(frame.list.size.x, stock.len())
+                .into_iter()
+                .find(|cell| cell.contains(inside))
+                .map(|cell| Rect::new(cell.origin - Vec2::splat(4.0), cell.size + Vec2::splat(8.0))),
+            Sheet::Themes { cards, chosen, .. } => theme_cells(frame.list.size.x, cards.len())
+                .into_iter()
+                .zip(cards)
+                .find(|(cell, card)| cell.contains(inside) && card.name != *chosen)
+                .map(|(cell, _)| Rect::new(cell.origin - Vec2::splat(6.0), cell.size + Vec2::new(12.0, 4.0))),
+            _ => {
+                let index = (inside.y / ROW).floor();
+                (index >= 0.0 && (index as usize) < self.count())
+                    .then(|| crate::rows::lit_rect(Rect::new(Vec2::new(0.0, index * ROW), Vec2::new(frame.list.size.x, ROW))))
+            }
+        }?;
+        Some(Rect::new(cell.origin + frame.list.origin - Vec2::new(0.0, scroll), cell.size))
+    }
+
     pub fn hit(&self, size: Vec2, pointer: Vec2) -> Option<Pick> {
         let frame = frame(size, self);
         if frame.cancel.contains(pointer) {

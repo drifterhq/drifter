@@ -3707,6 +3707,54 @@ impl Look {
         })
     }
 
+    pub fn lit_target(
+        &self,
+        size: Vec2,
+        section: Section,
+        model: &Model,
+        scroll: f64,
+        pointer: Vec2,
+        small: &Font,
+    ) -> Option<Rect> {
+        if pointer.x < self.sidebar {
+            if pointer.y < SIDE_TOP - 6.0 {
+                return None;
+            }
+            let shown = model.shown();
+            return shown
+                .iter()
+                .enumerate()
+                .map(|(index, each)| (each, self.item_rect_in(&shown, index)))
+                .find(|(each, rect)| rect.contains(pointer) && **each != section)
+                .map(|(_, rect)| rect);
+        }
+        if pointer.y < 64.0 {
+            return None;
+        }
+        let groups = model.groups(section);
+        let placed = self.place(size, section, &groups, scroll, small);
+        for (group, placed) in groups.iter().zip(&placed) {
+            for (row, rect) in group.rows.iter().zip(&placed.rows) {
+                if !rect.contains(pointer) || !row.enabled {
+                    continue;
+                }
+                return match &row.control {
+                    Control::Segments { options, chosen } => (0..options.len())
+                        .filter(|slot| slot != chosen)
+                        .map(|slot| self.segment_rect(*rect, options.len(), slot))
+                        .find(|spot| spot.contains(pointer)),
+                    Control::Buttons(marks) => self
+                        .mark_rects(*rect, marks)
+                        .into_iter()
+                        .find(|mark| mark.contains(pointer))
+                        .or_else(|| row.opens.then(|| crate::rows::lit_rect(*rect))),
+                    _ => None,
+                };
+            }
+        }
+        None
+    }
+
     pub fn hit(
         &self,
         size: Vec2,

@@ -195,6 +195,9 @@ pub struct Settings {
     connection: Connection,
     subcompositor: Option<SubcompositorState>,
     activation: Option<ActivationState>,
+    lit: Option<drifter_core::glide::Glide>,
+    base: Option<drifter_core::Image>,
+    glow_due: bool,
     logo: Option<crate::logo::Logo>,
     logo_failed: bool,
 }
@@ -473,6 +476,9 @@ pub fn run() -> Result<(), String> {
         connection: held_connection,
         subcompositor,
         activation,
+        lit: None,
+        base: None,
+        glow_due: false,
         logo: None,
         logo_failed: false,
     };
@@ -489,7 +495,7 @@ pub fn run() -> Result<(), String> {
     while !settings.exit {
         events
             .dispatch(
-                (settings.stale || settings.unsaved || settings.moving()).then_some(SETTLE),
+                (settings.stale || settings.glow_due || settings.unsaved || settings.moving()).then_some(SETTLE),
                 &mut settings,
             )
             .map_err(|e| format!("event loop: {e}"))?;
@@ -500,6 +506,8 @@ pub fn run() -> Result<(), String> {
         }
         if std::mem::take(&mut settings.resized) || settings.draw_due() {
             settings.draw();
+        } else if settings.glow_due {
+            settings.reshow();
         }
     }
     Ok(())
@@ -1393,7 +1401,52 @@ impl Settings {
         self.stale = true;
     }
 
+    fn aim_lit(&mut self) {
+        let size = self.view();
+        let target = match self.sheet.as_ref() {
+            Some(sheet) => sheet.lit_target(size, self.at),
+            None if self.holding.is_some() => None,
+            None => self.look.lit_target(size, self.section, &self.model, self.scroll, self.at, &self.fonts.1),
+        };
+        let pace = match self.animates() {
+            true => 1.0,
+            false => 0.0,
+        };
+        let before = self.lit.as_ref().map(|lit| (lit.rect(), lit.shade()));
+        drifter_core::glide::Glide::aim(&mut self.lit, target, pace);
+        if self.lit.as_ref().map(|lit| (lit.rect(), lit.shade())) != before || self.lit_busy() {
+            self.glow_due = true;
+        }
+    }
+
+    fn lit_busy(&self) -> bool {
+        self.lit.as_ref().is_some_and(drifter_core::glide::Glide::busy)
+    }
+
+    fn reshow(&mut self) {
+        self.glow_due = false;
+        if let Some(base) = self.base.take() {
+            self.show(&base);
+        }
+    }
+
     fn show(&mut self, image: &drifter_core::Image) {
+        self.glow_due = false;
+        self.base = Some(image.clone());
+        let lit = self.lit.as_ref().filter(|lit| lit.shade() > 0.0005);
+        let glowing;
+        let image = match lit {
+            Some(lit) => {
+                let mut canvas = drifter_core::paint::Canvas::on(image.clone());
+                lit.draw(&mut canvas, self.look.ink);
+                glowing = canvas.image;
+                &glowing
+            }
+            None => image,
+        };
+        if self.lit_busy() {
+            self.glow_due = true;
+        }
         let (width, height) = (image.width, image.height);
         let stride = width as i32 * 4;
         let (buffer, canvas) = match self.pool.create_buffer(
@@ -3128,7 +3181,7 @@ impl Settings {
     }
 
     fn moving(&self) -> bool {
-        self.glide.is_some() || self.page_fade.is_some() || self.flip.is_some() || !self.step_pops.is_empty() || self.step_turning() || self.shake.is_some() || self.dot_cycling()
+        self.glide.is_some() || self.lit_busy() || self.page_fade.is_some() || self.flip.is_some() || !self.step_pops.is_empty() || self.step_turning() || self.shake.is_some() || self.dot_cycling()
     }
 
     fn dot_cycling(&self) -> bool {
@@ -3865,18 +3918,28 @@ impl PointerHandler for Settings {
             }
             self.at = Vec2::new(event.position.0, event.position.1);
             match event.kind {
-                PointerEventKind::Motion { .. } => self.drag(),
-                PointerEventKind::Press { button, .. } if button == BTN_LEFT => self.press(),
+                PointerEventKind::Motion { .. } => {
+                    self.drag();
+                    self.aim_lit();
+                }
+                PointerEventKind::Press { button, .. } if button == BTN_LEFT => {
+                    drifter_core::glide::Glide::press(&mut self.lit);
+                    self.press();
+                    self.aim_lit();
+                }
                 PointerEventKind::Release { button, .. } if button == BTN_LEFT => {
                     self.holding = None;
                     self.drop_monitor();
                 }
                 PointerEventKind::Axis { vertical, source, .. } => {
-                    self.wheel(vertical.absolute, vertical.discrete != 0 || source == Some(wl_pointer::AxisSource::Wheel))
+                    self.wheel(vertical.absolute, vertical.discrete != 0 || source == Some(wl_pointer::AxisSource::Wheel));
+                    self.aim_lit();
                 }
                 PointerEventKind::Leave { .. } => {
                     self.holding = None;
                     self.drop_monitor();
+                    drifter_core::glide::Glide::aim(&mut self.lit, None, 1.0);
+                    self.stale = true;
                 }
                 _ => {}
             }
