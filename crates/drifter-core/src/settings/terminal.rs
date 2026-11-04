@@ -37,13 +37,15 @@ impl Model {
                         crate::lang::t("Dark theme"),
                         Control::Buttons(vec![Mark::Text(crate::lang::t("Choose"))]),
                     )
-                    .detail(&t.dark_theme),
+                    .detail(&t.dark_theme)
+                    .enabled(t.colors != TermColors::Light),
                     Row::new(
                         Id::TermLight,
                         crate::lang::t("Light theme"),
                         Control::Buttons(vec![Mark::Text(crate::lang::t("Choose"))]),
                     )
-                    .detail(&t.light_theme),
+                    .detail(&t.light_theme)
+                    .enabled(t.colors != TermColors::Dark),
                     Row::new(
                         Id::TermFont,
                         crate::lang::t("Font"),
@@ -215,6 +217,14 @@ mod tests {
         after.choose(crate::sheet::For::TermLight, "Solarized Light".into());
         let both = Config::parse(&after.write(&before, "").unwrap()).unwrap().terminal;
         assert_eq!((both.dark_theme.as_str(), both.light_theme.as_str()), ("Solarized Dark", "Solarized Light"));
+        let shown = |model: &Model, id: Id| {
+            model.groups(Section::Terminal)[0].rows.iter().find(|row| row.id == id).map(|row| row.enabled)
+        };
+        assert_eq!((shown(&before, Id::TermDark), shown(&before, Id::TermLight)), (Some(true), Some(true)));
+        let mut dark = before.clone();
+        dark.set(Id::TermColors, Value::Choice(1));
+        assert_eq!((shown(&dark, Id::TermDark), shown(&dark, Id::TermLight)), (Some(true), Some(false)));
+        assert_eq!((shown(&after, Id::TermDark), shown(&after, Id::TermLight)), (Some(false), Some(true)));
         let mut plain = after.clone();
         plain.choose(crate::sheet::For::TermFont, super::BUILT_IN.into());
         assert_eq!(plain.terminal.font, None);

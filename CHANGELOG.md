@@ -16,7 +16,8 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 - Terminal color themes. Settings > Terminal picks a dark theme and a light
   theme. Colors picks which one shows; Auto uses the light theme by day and
   the dark theme by night. A theme sets the text, background, cursor and all
-  16 terminal colors.
+  16 terminal colors. With Colors on Dark or Light, the theme row not in use
+  is faded and cannot be clicked.
 - 43 built-in themes: Drifter, Detroit Future, Solarized, Selenized, Tango, rxvt, XTerm,
   Catppuccin (Latte, Frappé, Macchiato, Mocha), Nord, Gruvbox, Tokyo Night
   (Night, Storm, Day), One, GitHub, Dracula and Alucard, Rosé Pine (Main,
