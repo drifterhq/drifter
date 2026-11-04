@@ -51,6 +51,8 @@ Version numbers follow [Semantic Versioning](https://semver.org/).
 - Terminal: options now live in the `[terminal]` table of the Drifter config.
   `~/.config/drifter/terminal.conf` is no longer read.
 - Terminal: the cursor and the active tab use your accent color.
+- Settings: the sidebar scrolls to show the open page, also when another app
+  opens Settings on a page.
 - Settings opens one window. A second launch shows the asked page in the
   open window and brings it to the front.
 - Search: an app whose keywords hold the search word ranks above a Settings
