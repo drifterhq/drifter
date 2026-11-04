@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root=$(git rev-parse --show-toplevel)
+mapfile -t files < <(git diff --cached --name-only --diff-filter=ACM | grep -E '\.rs$' | grep -v '^vendor/' || true)
+if [ "${#files[@]}" -eq 0 ]; then
+  exit 0
+fi
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+staged=()
+for f in "${files[@]}"; do
+  dest="$tmp/$f"
+  mkdir -p "$(dirname "$dest")"
+  git show ":$f" > "$dest"
+  staged+=("$dest")
+done
+
+if ! python3 -I "$root/scripts/strip-comments.py" --check "${staged[@]}"; then
+  echo "pre-commit blocked: remove the comments above, or keep them only under vendor/"
+  exit 1
+fi
