@@ -184,8 +184,14 @@ fn launch(
     ] {
         put(&mut env, &pair);
     }
-    let mut argv = vec![who.shell.clone(), "-l".to_string(), "-c".to_string(), "exec \"$@\"".to_string(), "drifter-login".to_string()];
-    argv.extend(cmd);
+    let argv = match class {
+        "greeter" => cmd,
+        _ => {
+            let mut argv = vec![who.shell.clone(), "-l".to_string(), "-c".to_string(), "exec \"$@\"".to_string(), "drifter-login".to_string()];
+            argv.extend(cmd);
+            argv
+        }
+    };
     let pid = spawn(who, &argv, &env)?;
     line.borrow_mut().send(json!({ "started": pid }))?;
     let mut status = 0;
@@ -206,7 +212,7 @@ fn put(env: &mut BTreeMap<String, String>, pair: &str) {
 
 fn spawn(who: &Account, argv: &[String], env: &BTreeMap<String, String>) -> Result<libc::pid_t, String> {
     let cstrings = |items: Vec<String>| items.into_iter().filter_map(|item| CString::new(item).ok()).collect::<Vec<_>>();
-    let program = CString::new(who.shell.clone()).map_err(|_| "bad shell".to_string())?;
+    let program = CString::new(argv[0].clone()).map_err(|_| "bad program".to_string())?;
     let args = cstrings(argv.to_vec());
     let pairs = cstrings(env.iter().map(|(key, value)| format!("{key}={value}")).collect());
     let mut arg_ptrs: Vec<*const libc::c_char> = args.iter().map(|arg| arg.as_ptr()).collect();
