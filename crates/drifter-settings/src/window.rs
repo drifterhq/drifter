@@ -2751,14 +2751,22 @@ impl Settings {
     }
 
     fn open_choices(&mut self, purpose: For) {
+        if matches!(purpose, For::TermDark | For::TermLight) {
+            let light = purpose == For::TermLight;
+            let chosen = match light {
+                true => self.model.terminal.light_theme.clone(),
+                false => self.model.terminal.dark_theme.clone(),
+            };
+            let cards = drifter_core::settings::term_themes(light);
+            self.sheet = Some(Sheet::themes(purpose, cards, &chosen));
+            return;
+        }
         let items = match purpose {
             For::Layout => self.model.layouts.clone(),
             For::Variant => self.model.variants.clone(),
             For::IconTheme => drifter_core::icon::icon_themes(&drifter_core::icon::roots()),
             For::CursorTheme => drifter_core::icon::cursor_themes(&drifter_core::icon::roots()),
             For::TermFont => drifter_core::settings::mono_fonts(),
-            For::TermDark => drifter_core::settings::term_themes(false),
-            For::TermLight => drifter_core::settings::term_themes(true),
             For::Output => system::choices(&self.model.sound.outputs),
             For::Input => system::choices(&self.model.sound.inputs),
             For::Zone => zones(),

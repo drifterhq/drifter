@@ -155,11 +155,18 @@ impl Model {
     }
 }
 
-pub fn term_themes(light: bool) -> Vec<Choice> {
-    crate::termtheme::all()
+pub fn term_themes(light: bool) -> Vec<crate::sheet::ThemeCard> {
+    let mut themes: Vec<_> = crate::termtheme::all().into_iter().filter(|theme| theme.light == light).collect();
+    let home = [crate::termtheme::DARK, crate::termtheme::LIGHT];
+    themes.sort_by_key(|theme| (!home.contains(&theme.name.as_str()), theme.name.to_lowercase()));
+    themes
         .into_iter()
-        .filter(|theme| theme.light == light)
-        .map(|theme| Choice::new(&theme.name, &theme.name))
+        .map(|theme| crate::sheet::ThemeCard {
+            dots: [1, 3, 2, 4].map(|at| theme.palette[at]),
+            name: theme.name,
+            back: theme.background,
+            ink: theme.foreground,
+        })
         .collect()
 }
 
@@ -225,6 +232,13 @@ mod tests {
         dark.set(Id::TermColors, Value::Choice(1));
         assert_eq!((shown(&dark, Id::TermDark), shown(&dark, Id::TermLight)), (Some(true), Some(false)));
         assert_eq!((shown(&after, Id::TermDark), shown(&after, Id::TermLight)), (Some(false), Some(true)));
+        let dark: Vec<String> = super::term_themes(false).into_iter().map(|card| card.name).collect();
+        let light: Vec<String> = super::term_themes(true).into_iter().map(|card| card.name).collect();
+        assert_eq!(dark[0], "Drifter Dark");
+        assert_eq!(light[0], "Drifter Light");
+        let rest = |names: &[String]| names[1..].windows(2).all(|pair| pair[0].to_lowercase() <= pair[1].to_lowercase());
+        assert!(rest(&dark) && rest(&light));
+        assert!(light.iter().all(|name| name != "Drifter Dark"));
         let mut plain = after.clone();
         plain.choose(crate::sheet::For::TermFont, super::BUILT_IN.into());
         assert_eq!(plain.terminal.font, None);

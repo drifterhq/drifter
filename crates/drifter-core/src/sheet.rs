@@ -205,6 +205,20 @@ pub enum Sheet {
         chosen: Option<PathBuf>,
         scroll: f64,
     },
+    Themes {
+        purpose: For,
+        cards: Vec<ThemeCard>,
+        chosen: String,
+        scroll: f64,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ThemeCard {
+    pub name: String,
+    pub back: [u8; 3],
+    pub ink: [u8; 3],
+    pub dots: [[u8; 3]; 4],
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -235,6 +249,11 @@ const NOTE: f64 = 34.0;
 pub const SHAPES: [&str; 4] = ["As drawn", "Square", "Circle", "Squircle"];
 pub const FACE_CELL: f64 = 72.0;
 const FACE_GAP: f64 = 14.0;
+const THEME_W: f64 = 128.0;
+const THEME_H: f64 = 72.0;
+const THEME_LABEL: f64 = 24.0;
+const THEME_GAP: f64 = 14.0;
+const THEME_DOT: f64 = 18.0;
 
 pub fn art_key(shape: usize, background: bool, inner: &str) -> String {
     format!("art:{shape}:{}:{inner}", u8::from(background))
@@ -446,6 +465,15 @@ impl Sheet {
         }
     }
 
+    pub fn themes(purpose: For, cards: Vec<ThemeCard>, chosen: &str) -> Sheet {
+        Sheet::Themes {
+            purpose,
+            cards,
+            chosen: chosen.to_string(),
+            scroll: 0.0,
+        }
+    }
+
     pub fn work(&mut self, words: Option<&str>, working: bool) {
         if let Sheet::Form { note, busy, .. } = self {
             *note = words.map(str::to_string);
@@ -526,7 +554,8 @@ impl Sheet {
             | Sheet::Secret { purpose, .. }
             | Sheet::Info { purpose, .. }
             | Sheet::Form { purpose, .. }
-            | Sheet::Faces { purpose, .. } => *purpose,
+            | Sheet::Faces { purpose, .. }
+            | Sheet::Themes { purpose, .. } => *purpose,
         }
     }
 
@@ -619,6 +648,7 @@ impl Sheet {
             Sheet::Capture { .. } | Sheet::Secret { .. } | Sheet::Form { .. } => 0,
             Sheet::Info { lines, .. } => lines.len(),
             Sheet::Faces { stock, .. } => stock.len(),
+            Sheet::Themes { cards, .. } => cards.len(),
         }
     }
 
@@ -627,6 +657,10 @@ impl Sheet {
             Sheet::Faces { stock, .. } => {
                 let (_, down) = face_grid(list.size.x, stock.len());
                 down as f64 * (FACE_CELL + FACE_GAP) + FACE_GAP
+            }
+            Sheet::Themes { cards, .. } => {
+                let (_, down) = theme_grid(list.size.x, cards.len());
+                down as f64 * (THEME_H + THEME_LABEL + THEME_GAP) + THEME_GAP
             }
             _ => self.count() as f64 * self.row_height(),
         }
@@ -645,7 +679,8 @@ impl Sheet {
             | Sheet::Files { scroll, .. }
             | Sheet::Choices { scroll, .. }
             | Sheet::Info { scroll, .. }
-            | Sheet::Faces { scroll, .. } => *scroll,
+            | Sheet::Faces { scroll, .. }
+            | Sheet::Themes { scroll, .. } => *scroll,
             Sheet::Capture { .. } | Sheet::Secret { .. } | Sheet::Form { .. } => 0.0,
         }
     }
@@ -657,7 +692,8 @@ impl Sheet {
             | Sheet::Files { .. }
             | Sheet::Choices { .. }
             | Sheet::Info { .. }
-            | Sheet::Faces { .. } => Some((frame(size, self).list, self.scroll())),
+            | Sheet::Faces { .. }
+            | Sheet::Themes { .. } => Some((frame(size, self).list, self.scroll())),
             Sheet::Capture { .. } | Sheet::Secret { .. } | Sheet::Form { .. } => None,
         }
     }
@@ -669,7 +705,8 @@ impl Sheet {
             | Sheet::Files { scroll, .. }
             | Sheet::Choices { scroll, .. }
             | Sheet::Info { scroll, .. }
-            | Sheet::Faces { scroll, .. } => *scroll = to,
+            | Sheet::Faces { scroll, .. }
+            | Sheet::Themes { scroll, .. } => *scroll = to,
             Sheet::Capture { .. } | Sheet::Secret { .. } | Sheet::Form { .. } => {}
         }
         sheet
@@ -683,7 +720,8 @@ impl Sheet {
             | Sheet::Files { scroll, .. }
             | Sheet::Choices { scroll, .. }
             | Sheet::Info { scroll, .. }
-            | Sheet::Faces { scroll, .. } => {
+            | Sheet::Faces { scroll, .. }
+            | Sheet::Themes { scroll, .. } => {
                 *scroll = (*scroll + by).clamp(0.0, most);
             }
             Sheet::Capture { .. } | Sheet::Secret { .. } | Sheet::Form { .. } => {}
@@ -716,7 +754,7 @@ impl Sheet {
             Sheet::Secret { text, .. } => Some((crate::lang::t("Join"), Pick::Command(text.clone()))),
             Sheet::Form { go, .. } => self.submit().map(|pick| (*go, pick)),
             Sheet::Faces { .. } => Some((crate::lang::t("Choose a file…"), Pick::Browse)),
-            Sheet::Files { .. } | Sheet::Choices { .. } | Sheet::Info { .. } => None,
+            Sheet::Files { .. } | Sheet::Choices { .. } | Sheet::Info { .. } | Sheet::Themes { .. } => None,
         }
     }
 
@@ -823,6 +861,17 @@ impl Sheet {
                 .position(|cell| cell.contains(inside))
                 .and_then(|at| stock.get(at))
                 .map(|path| Pick::File(path.clone()));
+        }
+        if let Sheet::Themes { cards, scroll, .. } = self {
+            if !frame.list.contains(pointer) {
+                return None;
+            }
+            let inside = pointer - frame.list.origin + Vec2::new(0.0, *scroll);
+            return theme_cells(frame.list.size.x, cards.len())
+                .iter()
+                .position(|cell| cell.contains(inside))
+                .and_then(|at| cards.get(at))
+                .map(|card| Pick::Choice(card.name.clone()));
         }
         if let Some(tabs) = frame.tabs {
             let half = Rect::new(tabs.origin, Vec2::new(tabs.size.x / 2.0, tabs.size.y));
@@ -1057,6 +1106,9 @@ impl Sheet {
                 chosen.as_deref(),
                 *scroll,
             ),
+            Sheet::Themes { cards, chosen, scroll, .. } => {
+                paint_themes(canvas, look, fonts, frame.list, cards, chosen, *scroll)
+            }
             _ => self.paint_list(canvas, look, fonts, icons, frame.list),
         }
 
@@ -1219,7 +1271,8 @@ impl Sheet {
             | Sheet::Secret { .. }
             | Sheet::Info { .. }
             | Sheet::Form { .. }
-            | Sheet::Faces { .. } => Vec::new(),
+            | Sheet::Faces { .. }
+            | Sheet::Themes { .. } => Vec::new(),
         };
         if rows.is_empty() {
             let empty = fonts.small.paint(crate::lang::t("Nothing here"), look.dim);
@@ -1336,6 +1389,67 @@ fn paint_faces(
             inside.circle(cell.center(), FACE_CELL / 2.0 + 1.5, look.card, 1.0);
         }
         paint_face(&mut inside, look, icons, cell, Some(path));
+    }
+    canvas.stamp(&inside.image, list.origin, 1.0);
+}
+
+fn theme_grid(width: f64, count: usize) -> (usize, usize) {
+    let across = (((width - THEME_GAP) / (THEME_W + THEME_GAP)).floor() as usize).max(1);
+    (across, count.div_ceil(across))
+}
+
+fn theme_cells(width: f64, count: usize) -> Vec<Rect> {
+    let (across, _) = theme_grid(width, count);
+    let used = across as f64 * (THEME_W + THEME_GAP) - THEME_GAP;
+    let left = ((width - used) / 2.0).floor();
+    (0..count)
+        .map(|at| {
+            let (col, line) = (at % across, at / across);
+            Rect::new(
+                Vec2::new(
+                    left + col as f64 * (THEME_W + THEME_GAP),
+                    THEME_GAP + line as f64 * (THEME_H + THEME_LABEL + THEME_GAP),
+                ),
+                Vec2::new(THEME_W, THEME_H + THEME_LABEL),
+            )
+        })
+        .collect()
+}
+
+fn paint_themes(
+    canvas: &mut Canvas,
+    look: &Look,
+    fonts: &Fonts,
+    list: Rect,
+    cards: &[ThemeCard],
+    chosen: &str,
+    scroll: f64,
+) {
+    canvas.round_rect(list, 8.0, look.card, 1.0);
+    let mut inside = Canvas::new(list.size.x as u32, list.size.y as u32);
+    for (card, cell) in cards.iter().zip(theme_cells(list.size.x, cards.len())) {
+        let cell = Rect::new(cell.origin - Vec2::new(0.0, scroll), cell.size);
+        if cell.max().y < -8.0 || cell.origin.y > list.size.y + 8.0 {
+            continue;
+        }
+        let swatch = Rect::new(cell.origin, Vec2::new(THEME_W, THEME_H));
+        let picked = card.name == chosen;
+        if picked {
+            let around = Rect::new(swatch.origin - Vec2::splat(4.0), swatch.size + Vec2::splat(8.0));
+            inside.ring(around, 14.0, 2.5, look.accent, 1.0);
+        }
+        inside.round_rect(swatch, 10.0, card.back, 1.0);
+        inside.ring(swatch, 10.0, 1.0, card.ink, 0.18);
+        let span = THEME_DOT * 4.0 + 8.0 * 3.0;
+        let start = swatch.center() - Vec2::new(span / 2.0, THEME_DOT / 2.0);
+        for (at, color) in card.dots.iter().enumerate() {
+            let dot = Rect::new(start + Vec2::new(at as f64 * (THEME_DOT + 8.0), 0.0), Vec2::splat(THEME_DOT));
+            inside.round_rect(dot, THEME_DOT * 0.32, *color, 1.0);
+        }
+        let name = fit_left(fonts.small, &card.name, THEME_W);
+        let label = fonts.small.paint(&name, if picked { look.accent } else { look.ink });
+        let width = crate::paint::logical(&label).x;
+        inside.stamp(&label, Vec2::new(swatch.center().x - width / 2.0, swatch.max().y + 6.0), 1.0);
     }
     canvas.stamp(&inside.image, list.origin, 1.0);
 }
@@ -1551,7 +1665,7 @@ fn frame(size: Vec2, sheet: &Sheet) -> Frame {
         )
     });
     let top = match sheet {
-        Sheet::Info { .. } | Sheet::Faces { .. } => card.origin.y + 54.0,
+        Sheet::Info { .. } | Sheet::Faces { .. } | Sheet::Themes { .. } => card.origin.y + 54.0,
         _ => card.origin.y + 90.0,
     };
     let list = Rect::new(
