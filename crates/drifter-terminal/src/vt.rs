@@ -6,9 +6,10 @@ use crate::ffi;
 #[derive(Clone)]
 pub struct Cell {
     pub text: String,
-    pub fg: [u8; 3],
+    pub fg: Option<[u8; 3]>,
     pub bg: Option<[u8; 3]>,
     pub bold: bool,
+    pub italic: bool,
     pub inverse: bool,
     pub underline: bool,
 }
@@ -73,7 +74,7 @@ impl Vt {
             let fg = rgb(colors.foreground);
             let bg = rgb(colors.background);
 
-            let blank = Cell { text: String::new(), fg, bg: None, bold: false, inverse: false, underline: false };
+            let blank = Cell { text: String::new(), fg: None, bg: None, bold: false, italic: false, inverse: false, underline: false };
             let mut grid: Vec<Vec<Cell>> = vec![vec![blank.clone(); self.cols as usize]; self.rows as usize];
 
             ffi::ghostty_render_state_get(self.state, ffi::DATA_ROW_ITERATOR, &mut self.iter as *mut _ as *mut c_void);
@@ -89,7 +90,7 @@ impl Vt {
                 let row = &mut grid[vy as usize];
                 let mut x = 0usize;
                 while ffi::ghostty_render_state_row_cells_next(self.cells) && x < row.len() {
-                    row[x] = self.read_cell(fg);
+                    row[x] = self.read_cell();
                     x += 1;
                 }
             }
@@ -108,7 +109,7 @@ impl Vt {
         }
     }
 
-    unsafe fn read_cell(&self, default_fg: [u8; 3]) -> Cell { unsafe {
+    unsafe fn read_cell(&self) -> Cell { unsafe {
         let mut buf = [0u8; 32];
         let mut gb = ffi::GhosttyBuffer { ptr: buf.as_mut_ptr(), cap: buf.len(), len: 0 };
         ffi::ghostty_render_state_row_cells_get(self.cells, ffi::CELL_GRAPHEMES_UTF8, &mut gb as *mut _ as *mut c_void);
@@ -118,11 +119,11 @@ impl Vt {
             String::new()
         };
 
-        let mut fgc = ffi::GhosttyColorRgb { r: default_fg[0], g: default_fg[1], b: default_fg[2] };
+        let mut fgc = ffi::GhosttyColorRgb { r: 0, g: 0, b: 0 };
         let fg = if ffi::ghostty_render_state_row_cells_get(self.cells, ffi::CELL_FG_COLOR, &mut fgc as *mut _ as *mut c_void) == ffi::GHOSTTY_SUCCESS {
-            rgb(fgc)
+            Some(rgb(fgc))
         } else {
-            default_fg
+            None
         };
 
         let mut bgc = ffi::GhosttyColorRgb { r: 0, g: 0, b: 0 };
@@ -134,13 +135,13 @@ impl Vt {
 
         let mut style: ffi::GhosttyStyle = std::mem::zeroed();
         style.size = std::mem::size_of::<ffi::GhosttyStyle>();
-        let (bold, inverse, underline) = if ffi::ghostty_render_state_row_cells_get(self.cells, ffi::CELL_STYLE, &mut style as *mut _ as *mut c_void) == ffi::GHOSTTY_SUCCESS {
-            (style.bold, style.inverse, style.underline != 0)
+        let (bold, italic, inverse, underline) = if ffi::ghostty_render_state_row_cells_get(self.cells, ffi::CELL_STYLE, &mut style as *mut _ as *mut c_void) == ffi::GHOSTTY_SUCCESS {
+            (style.bold, style.italic, style.inverse, style.underline != 0)
         } else {
-            (false, false, false)
+            (false, false, false, false)
         };
 
-        Cell { text, fg, bg, bold, inverse, underline }
+        Cell { text, fg, bg, bold, italic, inverse, underline }
     }}
 }
 

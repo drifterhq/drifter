@@ -1,80 +1,79 @@
 use drifter_core::paint::Canvas;
-use drifter_core::{Font, Image, Rect, Vec2};
+use drifter_core::{Image, Rect, Vec2};
 
+use crate::config::Config;
+use crate::font::Face;
 use crate::vt::Snapshot;
 
-const MONO_FONTS: [&str; 7] = [
-    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-    "/usr/share/fonts/dejavu-sans-mono-fonts/DejaVuSansMono.ttf",
-    "/usr/share/fonts/dejavu/DejaVuSansMono.ttf",
-    "/usr/share/fonts/liberation/LiberationMono-Regular.ttf",
-    "/usr/share/fonts/liberation-mono/LiberationMono-Regular.ttf",
-    "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
-    "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
-];
-
 pub struct Grid {
-    pub font: Font,
-    pub cell_w: u32,
-    pub cell_h: u32,
+    pub face: Face,
     pub pad: f64,
+    fg: [u8; 3],
+    bg: [u8; 3],
+    cursor: [u8; 3],
+    opacity: f64,
+    cursor_block: bool,
 }
 
 impl Grid {
-    pub fn new(px: f64, pad: f64) -> Result<Grid, String> {
-        let path = MONO_FONTS.iter().map(std::path::PathBuf::from).find(|p| p.is_file());
-        let font = match path {
-            Some(path) => Font::load(&path, px).or_else(|_| Font::find(None, px))?,
-            None => Font::find(None, px)?,
-        };
-        let cell_w = font.width_of("M").round().max(1.0) as u32;
-        let cell_h = font.line_height().round().max(1.0) as u32;
-        Ok(Grid { font, cell_w, cell_h, pad })
+    pub fn new(cfg: &Config) -> Result<Grid, String> {
+        let face = Face::new(cfg.font_px, cfg.font_path.as_deref())?;
+        Ok(Grid {
+            face,
+            pad: cfg.pad,
+            fg: cfg.fg,
+            bg: cfg.bg,
+            cursor: cfg.cursor,
+            opacity: cfg.opacity,
+            cursor_block: cfg.cursor_block,
+        })
     }
 
-    /// How many cols and rows fit in a window of this logical pixel size.
-    pub fn fit(&self, width: u32, height: u32) -> (u16, u16) {
-        let inner_w = (f64::from(width) - self.pad * 2.0).max(f64::from(self.cell_w));
-        let inner_h = (f64::from(height) - self.pad * 2.0).max(f64::from(self.cell_h));
-        let cols = (inner_w / f64::from(self.cell_w)).floor().max(1.0) as u16;
-        let rows = (inner_h / f64::from(self.cell_h)).floor().max(1.0) as u16;
+    pub fn cell(&self) -> (u32, u32) {
+        (self.face.cell_w, self.face.cell_h)
+    }
+
+    pub fn fit(&self, area_w: f64, area_h: f64) -> (u16, u16) {
+        let inner_w = (area_w - self.pad * 2.0).max(f64::from(self.face.cell_w));
+        let inner_h = (area_h - self.pad * 2.0).max(f64::from(self.face.cell_h));
+        let cols = (inner_w / f64::from(self.face.cell_w)).floor().max(1.0) as u16;
+        let rows = (inner_h / f64::from(self.face.cell_h)).floor().max(1.0) as u16;
         (cols, rows)
     }
 
-    pub fn paint(&self, snap: &Snapshot, width: u32, height: u32) -> Image {
-        let mut rgba = Vec::with_capacity((width * height * 4) as usize);
-        let [br, bg, bb] = snap.bg;
-        for _ in 0..(width * height) {
-            rgba.extend_from_slice(&[br, bg, bb, 255]);
+    pub fn base_image(&self, size: (u32, u32)) -> Image {
+        let alpha = (self.opacity * 255.0).round() as u8;
+        let mut rgba = Vec::with_capacity((size.0 * size.1 * 4) as usize);
+        for _ in 0..(size.0 * size.1) {
+            rgba.extend_from_slice(&[self.bg[0], self.bg[1], self.bg[2], alpha]);
         }
-        let mut canvas = Canvas::on(Image { width, height, rgba });
+        Image { width: size.0, height: size.1, rgba }
+    }
 
-        let cw = f64::from(self.cell_w);
-        let ch = f64::from(self.cell_h);
+    pub fn paint_cells(&mut self, canvas: &mut Canvas, snap: &Snapshot, area: Rect) {
+        let cw = f64::from(self.face.cell_w);
+        let ch = f64::from(self.face.cell_h);
+        let origin = area.origin + Vec2::new(self.pad, self.pad);
         for (y, row) in snap.grid.iter().enumerate() {
-            let cy = self.pad + y as f64 * ch;
+            let cy = origin.y + y as f64 * ch;
             for (x, cell) in row.iter().enumerate() {
-                let cx = self.pad + x as f64 * cw;
-                let mut fg = cell.fg;
-                let mut cell_bg = cell.bg;
-                if cell.inverse {
-                    let shown_bg = cell_bg.unwrap_or(snap.bg);
-                    cell_bg = Some(fg);
-                    fg = shown_bg;
-                }
-                if let Some(bgc) = cell_bg
-                    && bgc != snap.bg
+                let cx = origin.x + x as f64 * cw;
+                let orig_fg = cell.fg.unwrap_or(self.fg);
+                let orig_bg = cell.bg.unwrap_or(self.bg);
+                let (fg, bg_fill) = if cell.inverse {
+                    (orig_bg, Some(orig_fg))
+                } else {
+                    (orig_fg, cell.bg)
+                };
+                if let Some(bgc) = bg_fill
+                    && bgc != self.bg
                 {
                     canvas.round_rect(Rect::new(Vec2::new(cx, cy), Vec2::new(cw, ch)), 0.0, bgc, 1.0);
                 }
                 let text = cell.text.trim_end_matches(' ');
                 if !text.is_empty() {
-                    let glyph = if cell.bold {
-                        self.font.paint_bold(text, fg)
-                    } else {
-                        self.font.paint(text, fg)
-                    };
-                    canvas.stamp(&glyph, Vec2::new(cx, cy), 1.0);
+                    let glyph = self.face.glyph(text, fg, cell.bold, cell.italic);
+                    canvas.stamp(glyph, Vec2::new(cx, cy), 1.0);
                 }
                 if cell.underline {
                     let uy = cy + ch - 2.0;
@@ -82,15 +81,16 @@ impl Grid {
                 }
             }
         }
-
         if let Some((cx, cy)) = snap.cursor {
             let rect = Rect::new(
-                Vec2::new(self.pad + f64::from(cx) * cw, self.pad + f64::from(cy) * ch),
+                Vec2::new(origin.x + f64::from(cx) * cw, origin.y + f64::from(cy) * ch),
                 Vec2::new(cw, ch),
             );
-            canvas.round_rect(rect, 1.0, snap.fg, 0.55);
+            if self.cursor_block {
+                canvas.round_rect(rect, 1.0, self.cursor, 0.55);
+            } else {
+                canvas.round_rect(Rect::new(rect.origin, Vec2::new(2.0, ch)), 0.0, self.cursor, 0.9);
+            }
         }
-
-        canvas.image
     }
 }

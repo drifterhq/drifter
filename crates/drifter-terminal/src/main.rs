@@ -11,9 +11,13 @@ mod config;
 #[cfg(target_os = "linux")]
 mod ffi;
 #[cfg(target_os = "linux")]
+mod font;
+#[cfg(target_os = "linux")]
 mod pty;
 #[cfg(target_os = "linux")]
 mod render;
+#[cfg(target_os = "linux")]
+mod ui;
 #[cfg(target_os = "linux")]
 mod vt;
 #[cfg(target_os = "linux")]

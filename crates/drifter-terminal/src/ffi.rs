@@ -9,7 +9,6 @@ pub type GhosttyRenderStateRowCells = *mut c_void;
 
 pub const GHOSTTY_SUCCESS: i32 = 0;
 
-// GhosttyRenderStateData
 pub const DATA_COLS: i32 = 1;
 pub const DATA_ROWS: i32 = 2;
 pub const DATA_DIRTY: i32 = 3;
@@ -17,11 +16,9 @@ pub const DATA_ROW_ITERATOR: i32 = 4;
 pub const DATA_CURSOR: i32 = 18;
 pub const DATA_COLORS: i32 = 19;
 
-// GhosttyRenderStateRowData
 pub const ROW_DATA_CELLS: i32 = 3;
 pub const ROW_DATA_VIEWPORT_Y: i32 = 6;
 
-// GhosttyRenderStateRowCellsData
 pub const CELL_STYLE: i32 = 2;
 pub const CELL_BG_COLOR: i32 = 5;
 pub const CELL_FG_COLOR: i32 = 6;

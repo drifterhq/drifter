@@ -1,5 +1,3 @@
-// Links libghostty-vt. Until ghostty is vendored, point GHOSTTY_VT_DIR at a
-// ghostty `zig build` output (the folder that holds lib/ and include/).
 fn main() {
     println!("cargo:rerun-if-env-changed=GHOSTTY_VT_DIR");
     if !cfg!(target_os = "linux") {

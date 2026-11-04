@@ -154,8 +154,11 @@ pub struct Font {
 impl Font {
     pub fn load(path: &Path, px: f64) -> Result<Font, String> {
         let data = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
-        let font = FontRef::from_index(&data, 0)
-            .ok_or_else(|| format!("{}: not a font", path.display()))?;
+        Font::from_bytes(data, px).map_err(|e| format!("{}: {e}", path.display()))
+    }
+
+    pub fn from_bytes(data: Vec<u8>, px: f64) -> Result<Font, String> {
+        let font = FontRef::from_index(&data, 0).ok_or_else(|| "not a font".to_string())?;
         let variable = font
             .variations()
             .any(|axis| axis.tag() == swash::tag_from_bytes(b"wght"));

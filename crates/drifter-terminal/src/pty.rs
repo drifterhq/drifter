@@ -10,7 +10,6 @@ fn winsize(cols: u16, rows: u16) -> libc::winsize {
     libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 }
 }
 
-/// Opens a pseudo-terminal and runs the user's shell on its far end.
 pub fn spawn(cols: u16, rows: u16) -> Result<Pty, String> {
     let mut master: RawFd = -1;
     let mut slave: RawFd = -1;
@@ -34,7 +33,6 @@ pub fn spawn(cols: u16, rows: u16) -> Result<Pty, String> {
     }
 
     if pid == 0 {
-        // Child: become the session leader on the slave tty, then exec the shell.
         unsafe {
             libc::close(master);
             libc::setsid();
@@ -57,7 +55,6 @@ pub fn spawn(cols: u16, rows: u16) -> Result<Pty, String> {
         }
     }
 
-    // Parent.
     unsafe {
         libc::close(slave);
         let flags = libc::fcntl(master, libc::F_GETFL, 0);
