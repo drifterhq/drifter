@@ -10,6 +10,7 @@ mkdir -p "$state"
 log=$state/crash.log
 err=$state/drifter.log
 : >"$err"
+echo "timing      session script at $(date +%H:%M:%S.%3N)" >>"$err"
 
 userbin=${XDG_BIN_HOME:-$HOME/.local/bin}
 case ":$PATH:" in
@@ -28,7 +29,7 @@ export ELECTRON_OZONE_PLATFORM_HINT=${ELECTRON_OZONE_PLATFORM_HINT:-auto}
 if command -v dbus-update-activation-environment >/dev/null 2>&1; then
     dbus-update-activation-environment --systemd \
         XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE \
-        GTK_CSD QT_WAYLAND_DISABLE_WINDOWDECORATION ELECTRON_OZONE_PLATFORM_HINT >/dev/null 2>&1 || true
+        GTK_CSD QT_WAYLAND_DISABLE_WINDOWDECORATION ELECTRON_OZONE_PLATFORM_HINT >/dev/null 2>&1 &
 fi
 
 leave() {

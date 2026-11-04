@@ -428,6 +428,7 @@ struct Lock {
     shade: Option<TextureBuffer<Tex>>,
     shade_lane: worker::Lane,
     gear: Option<(TextureBuffer<Tex>, [u8; 3])>,
+    black: Option<TextureBuffer<Tex>>,
     shown: (String, String, usize, Note, [u8; 3]),
     lane: worker::Lane,
     top_lane: worker::Lane,

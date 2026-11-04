@@ -30,6 +30,13 @@ impl State {
     }
 
     pub(super) fn lock_elements(&mut self, shown: f64) -> Vec<Skin> {
+        if self.greeted && self.lock.as_ref().is_some_and(|lock| lock.art.is_none() || lock.clock.is_none()) {
+            if crate::started().elapsed() > GREET_WAIT {
+                self.greeted_unlock_now();
+            } else {
+                return self.black_screen();
+            }
+        }
         let look = drifter_core::lock::Look::themed(&self.palette);
         let alpha = shown as f32;
         let flying = self.fly_in.map(|start| (start.elapsed().as_secs_f64() / FLY_IN.as_secs_f64()).min(1.0));
@@ -157,6 +164,7 @@ impl State {
             shade: None,
             shade_lane: worker::Lane::default(),
             gear: None,
+            black: None,
             shown: (String::new(), String::new(), usize::MAX, Note::Ask, [0; 3]),
             lane: worker::Lane::default(),
             top_lane: worker::Lane::default(),
@@ -836,6 +844,7 @@ impl State {
 }
 
 const FLY_IN: Duration = Duration::from_millis(1000);
+const GREET_WAIT: Duration = Duration::from_secs(6);
 const FLY_FADE: f64 = 0.6;
 const FLY_GROW: f64 = 0.22;
 const FLY_FROM: f64 = 0.9;
@@ -852,25 +861,47 @@ impl State {
         Some(Rect::new(Vec2::new(x, corner.center().y - side.y / 2.0).round(), side))
     }
 
+    fn black_screen(&mut self) -> Vec<Skin> {
+        let made = self.lock.as_ref().and_then(|lock| lock.black.clone());
+        let black = match made {
+            Some(black) => Some(black),
+            None => {
+                let pixel = drifter_core::Image { width: 1, height: 1, rgba: vec![0, 0, 0, 255] };
+                let art = upload(&mut self.renderer, Some(&pixel), "login black").ok().flatten();
+                if let (Some(lock), Some(art)) = (self.lock.as_mut(), art.as_ref()) {
+                    lock.black = Some(art.clone());
+                }
+                art
+            }
+        };
+        black
+            .map(|black| vec![Skin::Texture(fill(&black, Rect::new(Vec2::ZERO, self.screen), 1.0))])
+            .unwrap_or_default()
+    }
+
     fn greeted_unlock(&mut self) {
         if !self.greeted {
             return;
         }
         let ready = self.lock.as_ref().is_some_and(|lock| lock.art.is_some() && lock.clock.is_some());
         if ready {
-            self.greeted = false;
-            self.fly_frost = self
-                .frosting()
-                .map(|frosting| frosting.screen(self.screen, FROST_WIDTH))
-                .and_then(|image| upload_flat(&mut self.renderer, Some(&image), "login frost").ok().flatten());
-            let to = self.camera;
-            let from = Camera::new(to.center, to.zoom * FLY_FROM);
-            self.camera = from;
-            self.flight = Some((Flight::new(from, to, FLY_IN), Instant::now()));
-            self.unlock();
-            self.fly_in = Some(Instant::now());
-            crate::mark("login look ready, flying in");
+            self.greeted_unlock_now();
         }
+    }
+
+    fn greeted_unlock_now(&mut self) {
+        self.greeted = false;
+        self.fly_frost = self
+            .frosting()
+            .map(|frosting| frosting.screen(self.screen, FROST_WIDTH))
+            .and_then(|image| upload_flat(&mut self.renderer, Some(&image), "login frost").ok().flatten());
+        let to = self.camera;
+        let from = Camera::new(to.center, to.zoom * FLY_FROM);
+        self.camera = from;
+        self.flight = Some((Flight::new(from, to, FLY_IN), Instant::now()));
+        self.unlock();
+        self.fly_in = Some(Instant::now());
+        crate::mark("login look ready, flying in");
     }
 
     fn next_person(&mut self, forward: bool) {

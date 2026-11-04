@@ -258,11 +258,13 @@ pub fn started() -> std::time::Instant {
 }
 
 pub fn mark(what: &str) {
-    log!("timing      {what} at {} ms", started().elapsed().as_millis());
+    let clock = drifter_core::tray::now("%H:%M:%S%.3f").unwrap_or_default();
+    log!("timing      {what} at {} ms ({clock})", started().elapsed().as_millis());
 }
 
 fn main() -> ExitCode {
     started();
+    mark("drifter started");
     keep_crashes();
     let path = match greeting() {
         Some(path) => path,
