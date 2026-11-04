@@ -67,6 +67,13 @@ impl Vt {
                 None => ffi::ghostty_terminal_set(self.term, ffi::OPT_COLOR_CURSOR, ptr::null()),
             };
             ffi::ghostty_terminal_set(self.term, ffi::OPT_COLOR_PALETTE, palette.as_ptr() as *const c_void);
+            let mut fresh: ffi::GhosttyRenderState = ptr::null_mut();
+            if ffi::ghostty_render_state_new(ptr::null(), &mut fresh) == ffi::GHOSTTY_SUCCESS {
+                if !self.state.is_null() {
+                    ffi::ghostty_render_state_free(self.state);
+                }
+                self.state = fresh;
+            }
         }
     }
 
