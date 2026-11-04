@@ -9,3 +9,22 @@ description = "Drifter's login service: shows the Drifter login screen and start
 libc = "0.2.189"
 serde_json = "1"
 zeroize = "1.9.0"
+
+[package.metadata.deb]
+name = "drifter-login"
+maintainer = "donuts-are-good <96031819+donuts-are-good@users.noreply.github.com>"
+copyright = "donuts-are-good"
+extended-description = "Drifter's own login service. It shows the Drifter login screen and starts each session with no black screen between them. Turn it on with: sudo systemctl enable drifter-login"
+section = "x11"
+priority = "optional"
+depends = "$auto, drifter, systemd"
+maintainer-scripts = "../../dist/drifter-login/debian/"
+assets = [
+    ["target/release/drifter-login", "usr/libexec/", "755"],
+    ["../../dist/drifter-login/drifter-login.service", "usr/lib/systemd/system/", "644"],
+    ["../../dist/drifter-login/login.conf", "etc/drifter/login.conf", "644"],
+    ["../../dist/drifter-login/pam-greeter", "etc/pam.d/drifter-greeter", "644"],
+    ["../../dist/drifter-login/pam-login-debian", "etc/pam.d/drifter-login", "644"],
+    ["../../dist/drifter-login/sysusers.conf", "usr/lib/sysusers.d/drifter-login.conf", "644"],
+    ["../../dist/drifter-login/tmpfiles.conf", "usr/lib/tmpfiles.d/drifter-login.conf", "644"],
+]

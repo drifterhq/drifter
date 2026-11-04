@@ -189,7 +189,7 @@ fn check_satellite(program: &std::path::Path) {
     if found < SATELLITE_LEAST {
         let (major, minor, patch) = SATELLITE_LEAST;
         log!(
-            "drifter: {} is version {}; X11 menus (Steam, Chromium apps) close as they open; install {major}.{minor}.{patch} or newer with scripts/satellite.sh",
+            "drifter: {} is version {}; X11 menus (Steam, Chromium apps) close as they open; install xwayland-satellite {major}.{minor}.{patch} or newer (Drifter builds one in its packages, or run scripts/satellite.sh)",
             program.display(),
             text.trim()
         );

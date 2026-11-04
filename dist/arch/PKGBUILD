@@ -1,0 +1,140 @@
+# Drifter for Arch Linux. Build and install with: makepkg -si
+# Arch ships xwayland-satellite 0.8.3 or newer itself, so it comes from the
+# Arch repos.
+pkgbase=drifter
+pkgname=(drifter drifter-explorer drifter-login drifter-greeter drifter-desktop)
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='A Wayland desktop that is a camera over one large world'
+arch=(x86_64 aarch64)
+url='https://github.com/donuts-are-good/drifter'
+license=(MIT)
+makedepends=(git cargo clang pkgconf libinput seatd libxkbcommon mesa libglvnd wayland libdrm pixman pam systemd)
+source=("drifter::git+$url.git")
+sha256sums=(SKIP)
+
+pkgver() {
+    cd drifter
+    local base
+    base=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+    printf '%s.r%s.g%s' "$base" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+prepare() {
+    cd drifter
+    export RUSTUP_TOOLCHAIN=stable
+    cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+    cd drifter
+    export RUSTUP_TOOLCHAIN=stable
+    cargo build --release --frozen \
+        -p drifter -p drifter-settings -p drifter-markup -p drifter-activity \
+        -p drifter-explorer -p drifter-login
+}
+
+package_drifter() {
+    depends=(libinput seatd libxkbcommon mesa libglvnd wayland pixman pam systemd-libs
+        adwaita-icon-theme pipewire wireplumber xdg-desktop-portal xdg-desktop-portal-wlr xdg-desktop-portal-gtk)
+    optdepends=('drifter-explorer: files'
+        'xorg-xwayland: X11 apps'
+        'xwayland-satellite: X11 apps'
+        'networkmanager: Wi-Fi and network'
+        'bluez: Bluetooth'
+        'bluez-obex: Bluetooth file sharing'
+        'udisks2: disks and USB sticks'
+        'power-profiles-daemon: power modes'
+        'iw: Wi-Fi details'
+        'foot: terminal'
+        'grim: screenshots'
+        'wf-recorder: screen recording'
+        'libpulse: Bluetooth headphone sound'
+        'xsettingsd: X11 app themes'
+        'accountsservice: Users page'
+        'openssl: AirDrop'
+        'gnome-keyring: saved passwords'
+        'gcr-4: SSH keys unlocked at login'
+        'openssh: SSH agent'
+        'cups: printers'
+        'cups-pk-helper: printer changes in Settings'
+        'orca: screen reader')
+    backup=(etc/pam.d/drifter etc/xdg/xdg-desktop-portal-wlr/drifter)
+
+    cd drifter
+    for bin in drifter drifter-settings drifter-markup drifter-activity; do
+        install -Dm755 "target/release/$bin" "$pkgdir/usr/bin/$bin"
+    done
+    install -Dm755 scripts/drifter-session "$pkgdir/usr/bin/drifter-session"
+    install -Dm644 dist/drifter.desktop "$pkgdir/usr/share/wayland-sessions/drifter.desktop"
+    install -Dm644 dist/drifter-activity.desktop "$pkgdir/usr/share/applications/drifter-activity.desktop"
+    install -Dm644 dist/pam-drifter-system-auth "$pkgdir/etc/pam.d/drifter"
+    install -Dm644 dist/drifter-session.target "$pkgdir/usr/lib/systemd/user/drifter-session.target"
+    install -Dm644 dist/drifter-ssh-agent.service "$pkgdir/usr/lib/systemd/user/drifter-ssh-agent.service"
+    install -Dm644 dist/61-drifter-pixelbook.hwdb "$pkgdir/usr/lib/udev/hwdb.d/61-drifter-pixelbook.hwdb"
+    install -Dm644 conf/drifter-portals.conf "$pkgdir/usr/share/xdg-desktop-portal/drifter-portals.conf"
+    install -Dm644 conf/xdpw.conf "$pkgdir/etc/xdg/xdg-desktop-portal-wlr/drifter"
+    install -Dm644 conf/default.toml "$pkgdir/usr/share/drifter/conf/default.toml"
+    install -Dm644 img/cursor.png "$pkgdir/usr/share/drifter/img/cursor.png"
+    local dir kind
+    for dir in shaders fonts img/dock img/window img/users; do
+        install -d "$pkgdir/usr/share/drifter/$dir"
+        cp -r "$dir/." "$pkgdir/usr/share/drifter/$dir/"
+    done
+    install -Dm644 icons/drifter-icons/index.theme "$pkgdir/usr/share/icons/drifter-icons/index.theme"
+    for kind in apps places devices mimetypes; do
+        install -d "$pkgdir/usr/share/icons/drifter-icons/256x256/$kind"
+        cp -r "icons/drifter-icons/256x256/$kind/." "$pkgdir/usr/share/icons/drifter-icons/256x256/$kind/"
+    done
+}
+
+package_drifter-explorer() {
+    pkgdesc='A file manager made for Drifter'
+    depends=(libxkbcommon wayland)
+    optdepends=('ffmpegthumbnailer: video thumbnails'
+        'poppler: PDF thumbnails'
+        'libarchive: open archives')
+
+    cd drifter
+    install -Dm755 target/release/drifter-explorer "$pkgdir/usr/bin/drifter-explorer"
+    install -Dm644 dist/drifter-explorer.desktop "$pkgdir/usr/share/applications/drifter-explorer.desktop"
+    install -Dm644 dist/drifter-mimeapps.list "$pkgdir/usr/share/applications/drifter-mimeapps.list"
+}
+
+package_drifter-login() {
+    pkgdesc="Drifter's login service, with no black screen between login and desktop"
+    depends=("drifter=$pkgver-$pkgrel" pam systemd)
+    backup=(etc/drifter/login.conf etc/pam.d/drifter-greeter etc/pam.d/drifter-login)
+    install=drifter-login.install
+
+    cd drifter
+    install -Dm755 target/release/drifter-login "$pkgdir/usr/lib/drifter/drifter-login"
+    sed 's|^ExecStart=.*|ExecStart=/usr/lib/drifter/drifter-login|' dist/drifter-login/drifter-login.service |
+        install -Dm644 /dev/stdin "$pkgdir/usr/lib/systemd/system/drifter-login.service"
+    install -Dm644 dist/drifter-login/login.conf "$pkgdir/etc/drifter/login.conf"
+    install -Dm644 dist/drifter-login/pam-greeter "$pkgdir/etc/pam.d/drifter-greeter"
+    install -Dm644 dist/drifter-login/pam-login-arch "$pkgdir/etc/pam.d/drifter-login"
+    install -Dm644 dist/drifter-login/sysusers.conf "$pkgdir/usr/lib/sysusers.d/drifter-login.conf"
+    install -Dm644 dist/drifter-login/tmpfiles.conf "$pkgdir/usr/lib/tmpfiles.d/drifter-login.conf"
+}
+
+package_drifter-greeter() {
+    pkgdesc="Drifter's login screen for greetd"
+    arch=(any)
+    depends=(drifter greetd)
+    backup=(etc/greetd/drifter.toml)
+
+    cd drifter
+    install -Dm644 dist/drifter-greeter/greetd.conf "$pkgdir/usr/lib/systemd/system/greetd.service.d/drifter-greeter.conf"
+    sed -e 's/@VT@/1/' -e 's/@USER@/greeter/' dist/drifter-greeter/drifter.toml.in |
+        install -Dm644 /dev/stdin "$pkgdir/etc/greetd/drifter.toml"
+}
+
+package_drifter-desktop() {
+    pkgdesc='The full Drifter desktop: Drifter with the apps a desktop needs'
+    arch=(any)
+    depends=(drifter drifter-explorer foot gnome-text-editor loupe papers celluloid gnome-calculator
+        gnome-keyring gcr-4 openssh packagekit xorg-xwayland 'xwayland-satellite>=0.8.3' cups cups-pk-helper
+        networkmanager bluez bluez-obex pipewire wireplumber)
+    optdepends=('drifter-login: the Drifter login screen')
+}

@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+if [ "$1" = configure ]; then
+    systemd-sysusers drifter-login.conf || true
+    systemd-tmpfiles --create drifter-login.conf || true
+    if [ -d /run/systemd/system ]; then
+        systemctl daemon-reload || true
+    fi
+    if ! systemctl is-enabled --quiet drifter-login.service 2>/dev/null; then
+        echo "To log in with Drifter: sudo systemctl disable gdm3 sddm lightdm greetd; sudo systemctl enable drifter-login; then restart."
+    fi
+fi

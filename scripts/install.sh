@@ -42,8 +42,10 @@ sudo chmod 0644 /usr/share/wayland-sessions/drifter.desktop
 echo "wrote /usr/share/wayland-sessions/drifter.desktop, which runs $here/scripts/drifter-session"
 
 sudo install -Dm644 "$here/dist/drifter-session.target" /usr/lib/systemd/user/drifter-session.target
+sudo install -Dm644 "$here/dist/drifter-ssh-agent.service" /usr/lib/systemd/user/drifter-ssh-agent.service
 command -v systemctl >/dev/null 2>&1 && systemctl --user daemon-reload 2>/dev/null || true
 echo "wrote /usr/lib/systemd/user/drifter-session.target, which starts graphical-session.target"
+echo "wrote /usr/lib/systemd/user/drifter-ssh-agent.service, the SSH agent where the keyring and OpenSSH have none"
 
 sudo install -d /usr/share/applications
 sed "s|^Exec=drifter-explorer|Exec=$here/target/release/drifter-explorer|" "$here/dist/drifter-explorer.desktop" |
@@ -92,8 +94,8 @@ if [ -x "$here/target/release/drifter" ] && [ -x "$here/target/release/drifter-l
         sudo install -Dm644 "$login/pam-login-fedora" /etc/pam.d/drifter-login
     fi
     sudo install -d /etc/drifter
-    sed "s|@GREETER@|$lib/drifter|" "$login/login.conf" | sudo tee /etc/drifter/login.conf >/dev/null
-    sed "s|@BIN@|$lib/drifter-login|" "$login/drifter-login.service" | sudo tee /etc/systemd/system/drifter-login.service >/dev/null
+    sed "s|^greeter = .*|greeter = $lib/drifter|" "$login/login.conf" | sudo tee /etc/drifter/login.conf >/dev/null
+    sed "s|^ExecStart=.*|ExecStart=$lib/drifter-login|" "$login/drifter-login.service" | sudo tee /etc/systemd/system/drifter-login.service >/dev/null
     command -v restorecon >/dev/null 2>&1 && sudo restorecon -R "$lib" /usr/share/drifter /etc/drifter /var/lib/drifter-greeter || true
     sudo systemctl daemon-reload
     echo "set up the Drifter login screen (drifter-login); run this again after each build to update it"

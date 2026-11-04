@@ -762,6 +762,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "drifter-login"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde_json",
+ "zeroize",
+]
+
+[[package]]
 name = "drifter-markup"
 version = "0.1.0"
 dependencies = [

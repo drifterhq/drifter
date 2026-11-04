@@ -6,6 +6,7 @@ cd "$here"
 cargo build --release --workspace
 cargo deb -p drifter --no-build
 cargo deb -p drifter-explorer --no-build
+cargo deb -p drifter-login --no-build
 
 version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
 work=$(mktemp -d)
@@ -26,3 +27,18 @@ install -Dm644 dist/drifter-greeter/greetd.conf "$greeter/usr/lib/systemd/system
 install -d "$greeter/etc/greetd"
 sed -e 's/@VT@/7/' -e 's/@USER@/_greetd/' dist/drifter-greeter/drifter.toml.in >"$greeter/etc/greetd/drifter.toml"
 dpkg-deb --root-owner-group --build "$greeter" "target/debian/drifter-greeter_${version}_all.deb"
+
+# xwayland-satellite 0.8.3, which Debian does not ship. 0.8.2 and older give X
+# focus to override-redirect menus, so Steam and Chromium menus close at once.
+satellite=$work/xwayland-satellite
+git clone --quiet --depth 1 --branch v0.8.3 https://github.com/Supreeeme/xwayland-satellite "$satellite"
+cat >>"$satellite/Cargo.toml" <<'META'
+
+[package.metadata.deb]
+maintainer = "donuts-are-good <96031819+donuts-are-good@users.noreply.github.com>"
+revision = "0drifter1"
+section = "x11"
+depends = "$auto, xwayland"
+extended-description = "Runs X11 apps in Wayland desktops such as Drifter. Built by Drifter from upstream v0.8.3."
+META
+VERGEN_GIT_DESCRIBE=v0.8.3 cargo deb --manifest-path "$satellite/Cargo.toml" --output target/debian/

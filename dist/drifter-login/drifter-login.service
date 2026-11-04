@@ -6,7 +6,7 @@ Conflicts=getty@tty1.service
 
 [Service]
 Type=simple
-ExecStart=@BIN@
+ExecStart=/usr/libexec/drifter-login
 Restart=always
 RestartSec=1
 IgnoreSIGPIPE=no

@@ -1,0 +1,7 @@
+post_install() {
+    echo "To log in with Drifter: systemctl disable gdm sddm lightdm greetd; systemctl enable drifter-login; then restart."
+}
+
+pre_remove() {
+    systemctl disable drifter-login.service >/dev/null 2>&1 || true
+}
